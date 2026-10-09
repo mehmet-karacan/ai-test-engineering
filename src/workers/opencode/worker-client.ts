@@ -106,7 +106,19 @@ export class OpenCodeWorkerClient {
     if (!response.ok) {
       throw new Error(`prompt_async basarisiz: HTTP ${response.status}`);
     }
-    const data = (await response.json()) as Record<string, unknown>;
+    // prompt_async resmi cevabi 204 No Content olabilir (D04/E01); kosulsuz response.json() parse hatasi uretir.
+    if (response.status === 204) {
+      return { message_id: null };
+    }
+    const contentLength = response.headers.get("content-length");
+    if (contentLength === "0") {
+      return { message_id: null };
+    }
+    const text = await response.text();
+    if (text.trim().length === 0) {
+      return { message_id: null };
+    }
+    const data = JSON.parse(text) as Record<string, unknown>;
     return { message_id: data["id"] !== undefined ? String(data["id"]) : null };
   }
 
@@ -117,7 +129,14 @@ export class OpenCodeWorkerClient {
     if (!response.ok) {
       throw new Error(`Mesaj listeleme basarisiz: HTTP ${response.status}`);
     }
-    return (await response.json()) as Array<Record<string, unknown>>;
+    if (response.status === 204) {
+      return [];
+    }
+    const bodyText = await response.text();
+    if (bodyText.trim().length === 0) {
+      return [];
+    }
+    return JSON.parse(bodyText) as Array<Record<string, unknown>>;
   }
 
   async abortSession(session_id: string): Promise<boolean> {
@@ -135,32 +154,36 @@ export class OpenCodeWorkerClient {
     while (Date.now() - started < options.timeout_ms) {
       await new Promise((resolve) => setTimeout(resolve, pollInterval));
       const messages = await this.listMessages(session_id);
+      // Mesaj listesi { info: Message, parts: Part[] } yapIsminda (D04/E01);
+      // role/completed/id alanlari info nesnesindedir.
       const last = messages.length > 0 ? messages[messages.length - 1]! : undefined;
       if (!last) {
         continue;
       }
-      const role = String(last["role"] ?? "");
+      const info = (last["info"] && typeof last["info"] === "object" ? last["info"] : last) as Record<string, unknown>;
+      const role = String(info["role"] ?? "");
       if (role !== "assistant") {
         continue;
       }
-      const completed = last["completed"] === true || last["error"] !== undefined;
+      const completed = completedField(info);
       if (!completed) {
         continue;
       }
       const parts = last["parts"];
-      let text: string | null = null;
+      let text = "";
       if (Array.isArray(parts)) {
         for (const part of parts) {
           if (part && typeof part === "object" && part["type"] === "text") {
-            text = String(part["text"] ?? "");
+            const piece = String(part["text"] ?? "");
+            text = text.length === 0 ? piece : `${text}\n${piece}`;
           }
         }
       }
-      const tokens = last["tokens"] as Record<string, unknown> | undefined;
+      const tokens = info["tokens"] as Record<string, unknown> | undefined;
       return {
         session_id,
-        message_id: last["id"] !== undefined ? String(last["id"]) : null,
-        text,
+        message_id: info["id"] !== undefined ? String(info["id"]) : null,
+        text: text.length > 0 ? text : null,
         usage: {
           input_tokens: tokens && typeof tokens === "object" && tokens["input"] !== undefined ? Number(tokens["input"]) : null,
           output_tokens: tokens && typeof tokens === "object" && tokens["output"] !== undefined ? Number(tokens["output"]) : null,
@@ -170,6 +193,23 @@ export class OpenCodeWorkerClient {
     }
     return { session_id, message_id: null, text: null, usage: { input_tokens: null, output_tokens: null }, aborted: true };
   }
+}
+
+/**
+ * Gercek tamamlanma alanlari: OpenCode mesajlarinda completed/finish/time alanlari surume gore degisir;
+ * bilinen tamamlanma isaretlerini kontrol eder.
+ */
+function completedField(info: Record<string, unknown>): boolean {
+  if (info["completed"] === true) {
+    return true;
+  }
+  if (typeof info["finish"] === "string" && info["finish"].length > 0) {
+    return true;
+  }
+  if (info["error"] !== undefined) {
+    return true;
+  }
+  return false;
 }
 
 export async function promptForJson(client: OpenCodeWorkerClient, options: {
