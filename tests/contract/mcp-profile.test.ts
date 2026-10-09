@@ -67,7 +67,7 @@ describe("v2 profil server kurulumu", () => {
     const result = createV2ProfileServer(services, "v2");
     expect(result.profile_version).toBe("v2");
     expect(result.protocol_version).toBe("2026-07-28");
-    expect(result.tools.sort()).toEqual(["project_inspect", "project_query", "test_start", "test_status"]);
+    expect(result.tools.sort()).toEqual(["project_inspect", "project_query", "test_apply", "test_cancel", "test_result", "test_resume", "test_start", "test_status"]);
     services.storage?.close();
   });
 

@@ -6,7 +6,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { ToolRegistry, type ToolContext, type ServiceRegistry } from "./tool-registry.js";
 import { handleProjectInspect, handleTestStart, handleTestStatus, handleProjectQuery, type Services } from "../application/services.js";
-import { ProjectInspectInputSchema, TestStartInputSchema, TestStatusInputSchema, ProjectQueryInputSchema } from "../domain/tool-schemas.js";
+import { handleTestResume, handleTestCancel, handleTestResult, handleTestApply } from "../application/job-tools.js";
+import { ProjectInspectInputSchema, TestStartInputSchema, TestStatusInputSchema, ProjectQueryInputSchema, TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 
 type AnySchemaCompat = AnySchema;
 
@@ -54,6 +55,50 @@ export function createToolRegistry(services: Services): ToolRegistry {
     idempotent: true,
     handler: async (input) => {
       return (await handleProjectQuery(input, services)) as unknown as Record<string, unknown>;
+    },
+  });
+
+  registry.register({
+    name: "test_resume",
+    description: "Checkpoint/source/lease dogrulayarak mevcut isi surdurur; yeni job gibi davranmaz.",
+    inputSchema: TestResumeInputSchema,
+    readOnly: false,
+    idempotent: true,
+    handler: async (input) => {
+      return (await handleTestResume(input, services)) as unknown as Record<string, unknown>;
+    },
+  });
+
+  registry.register({
+    name: "test_cancel",
+    description: "Process tree'yi guvenle durdurur; artifact'leri silmez. Pause/devam edilebilir iptal ayrimi sonuc alaninda aciktir.",
+    inputSchema: TestCancelInputSchema,
+    readOnly: false,
+    idempotent: true,
+    handler: async (input) => {
+      return (await handleTestCancel(input, services)) as unknown as Record<string, unknown>;
+    },
+  });
+
+  registry.register({
+    name: "test_result",
+    description: "DB ve artifact registry'den raporu dondurur; keyfi path okuma ya da yeni test kosma yapmaz.",
+    inputSchema: TestResultInputSchema,
+    readOnly: true,
+    idempotent: true,
+    handler: async (input) => {
+      return (await handleTestResult(input, services)) as unknown as Record<string, unknown>;
+    },
+  });
+
+  registry.register({
+    name: "test_apply",
+    description: "Sadece acik onayli test degisikliklerini uygular. Guvenilir onay yoksa patch-only sonuc doner.",
+    inputSchema: TestApplyInputSchema,
+    readOnly: false,
+    idempotent: true,
+    handler: async (input) => {
+      return (await handleTestApply(input, services)) as unknown as Record<string, unknown>;
     },
   });
 

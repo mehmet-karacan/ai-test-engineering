@@ -19,6 +19,7 @@ import { SourceSnapshot } from "../discovery/source-snapshot.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { InventoryQueryService } from "./inventory-query.js";
+import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 
 export const PARSER_VERSION = "statik-tarama-1";
 
@@ -320,6 +321,25 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     event_type: "test_start_accepted",
     phase: "discovery",
     origin: "handleTestStart",
+  });
+
+  // D02/F01: dispatcher'a gecici dispatch - job'a ait asamalar gercekten yurutulur.
+  // Dispatcher async olarak ilerler; event loop'u bloke etmez. Kisa surede job handle doner.
+  const dispatcher = new JobDispatcher({
+    services,
+    runnerKind: (process.env["AITEST_RUNNER"] as "docker" | "host_dev_only") ?? "host_dev_only",
+    workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
+    workspaceRoot: services.config.storage.root,
+  });
+  const goalTargets = parsed.targets.map((t) => ({
+    selector: t.selector,
+    kind: t.kind,
+    line_target_bps: percentToBasisPoints(parsed.coverage.percent),
+    branch_target_bps: parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : 0,
+  }));
+  const goal = dispatcher.buildGoalContract(job, goalTargets);
+  void dispatcher.dispatch(job, goal, canonicalRoot).catch((error: unknown) => {
+    process.stderr.write(`[aitest-dispatch] job ${job.id} hata: ${String(error)}\n`);
   });
 
   return {
