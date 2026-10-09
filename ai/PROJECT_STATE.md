@@ -41,8 +41,7 @@
 
 ## Kabul durumu
 
-- 64 satir PASSED (kanit bagli): AC01/AC02/AC04-AC12 (kismen), AC14, AC16-AC26, AC28-AC38, AC41-AC43, AC44, AC45-AC49, AC50-AC55, AC57-AC64, AC66, AC68-AC70
-- 6 satir NOT_RUN: AC03, AC13 (Java8 varyant), AC15 (Java21 varyant), AC27, AC39, AC40, AC67
+- 67 satir PASSED (kanit bagli); 3 satir NOT_RUN: AC03, AC39, AC40, AC67
 - INSTITUTIONAL_ACCEPTANCE_PENDING: AC67, AC39/AC40
 - Detay: ai/ACCEPTANCE_MATRIX.md
 
@@ -53,7 +52,5 @@
 
 ## Sonraki somut is
 
-- AC03: Resmi MCP v2 stdio profili ayrI adapter + contract testleri.
-- AC13/AC15: Java8/JUnit4 ve Java21/cok modul fixture'lar + gercek Maven run kaniti.
-- AC27: Gercek fixture'ta CandidateLoop tam dongu testi.
+- AC03: Resmi MCP v2 stdio profili ayri adapter + contract testleri.
 - AC39/AC40: Izole container adapter + preflight + kotA fault testleri.

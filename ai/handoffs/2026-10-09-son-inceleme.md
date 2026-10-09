@@ -64,14 +64,19 @@ Bos fonksiyon, fake success, `TODO: later`, NotImplemented yok (git grep ile dog
 ## 7. Durum
 
 - `IMPLEMENTATION_VERIFIED`: gercek yerel fixture/toolchain/contract/kesinti testleriyle dogrulanan uygulama.
-- `INSTITUTIONAL_ACCEPTANCE_PENDING`: AC67 (gercek yetkili OpenCode+LiteLLM pilotu), AC39/AC40 (izole container kotA fault testleri), AC03 (v2 MCP profili ayrI contract testi), AC13/AC15 (Java8/Java21 fixture varyantlari), AC27 (gercek fixture'ta tam dongu sonu).
+- `INSTITUTIONAL_ACCEPTANCE_PENDING`: AC67 (gercek yetkili OpenCode+LiteLLM pilotu), AC39/AC40 (izole container kotA fault testleri), AC03 (v2 MCP profili ayrI contract testi).
 - `FULL_ACCEPTANCE_VERIFIED`: DEGIL (ustteki maddeler bekleyen).
 
 ## 8. Acik isler (sonraki gorev kayitlarinda)
 
 1. AC03: Resmi MCP v2 stdio profili ayrI adapter + contract testleri.
-2. AC13/AC15: Java8/JUnit4 ve Java21/cok modul fixture run kanitlari.
-3. AC27: Gercek fixture'ta CandidateLoop'u hedefe kadar calistiran tam dongu testi.
-4. AC39/AC40: Izole container/WSL adapter + capability preflight + kotA fault testleri.
-5. AC67: Gercek yetkili modelle tam pilot (kurum izni bekliyor).
-6. Temiz makinede tam install.ps1 (sifirdan) kaniti.
+2. AC39/AC40: Izole container/WSL adapter + capability preflight + kotA fault testleri.
+3. AC67: Gercek yetkili modelle tam pilot (kurum izni bekliyor).
+4. Temiz makinede tam install.ps1 (sifirdan) kaniti.
+
+## 9. 2026-10-09 guncellemesi (commit c959784 sonrasi)
+
+- AC13 PASSED: Java8/JUnit4 fixture gercek Maven run + JaCoCo sayaclari (tests/integration/toolchain-matrix.test.ts).
+- AC15 PASSED: Java21/cok modul fixture (release 21, record siniflari); test olmayan modulde report uretilmez gercek bulgusu.
+- AC27 PASSED: Gercek fixture'ta CandidateLoop tam dongu - baseline 3333 bps -> 9166 bps, TARGET_REACHED, kalite/regresyon kapilari (tests/integration/ac27-loop.test.ts).
+- TypeScript test: 14 dosya, **150/150 PASSED**.

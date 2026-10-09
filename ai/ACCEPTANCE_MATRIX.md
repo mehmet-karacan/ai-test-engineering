@@ -27,9 +27,9 @@ Kanit test dosyalari: tests/unit/storage.test.ts, tests/unit/tool-registry.test.
 
 | AC | Senaryo | Durum | Kanit |
 | --- | --- | --- | --- |
-| AC13 | Java8/JUnit4 fixture | NOT_RUN | Java17/JUnit5 fixture gercek Maven run kanitli (tests/integration/maven-jacoco.test.ts, commit 6cfa5ea); ayri Java8/JUnit4 fixture'i sonraki is |
+| AC13 | Java8/JUnit4 fixture | PASSED | tests/integration/toolchain-matrix.test.ts (gercek mvn test, 3 JUnit4 testi, JaCoCo line/branch sayaclari; commit c959784) |
 | AC14 | Java17/JUnit5+Mockito fixture | PASSED (JUnit5) | tests/integration/maven-jacoco.test.ts (gercek mvn test, 3 test gecti, JaCoCo sayaclari; framework korunarak; commit 6cfa5ea) |
-| AC15 | Java21/cok modul fixture | NOT_RUN | java-support Maven 17'de BUILD SUCCESS; ayri Java21/cok modul fixture run'i sonraki is |
+| AC15 | Java21/cok modul fixture | PASSED | tests/integration/toolchain-matrix.test.ts (release 21 toolchain, record siniflari, test calisan modulde JaCoCo; test olmayan modulde report uretilmez bulgusu; commit c959784) |
 | AC16 | Mevcut testi olmayan sinif | PASSED (akis) | src/orchestration/build-plan.ts (NO_TESTS durum ayrimi; "0 test = passed suite degil") |
 | AC17 | Bozuk/unstable baseline | PASSED (ayrim) | src/orchestration/build-plan.ts (BASELINE_FAILED/UNSTABLE/NO_TESTS); src/orchestration/candidate-loop.ts (regresyon basarisinda reddet) |
 | AC18 | JaCoCo argLine ve existing agent | PASSED (guzlem) | tests/integration/maven-jacoco.test.ts (mevcut argLine korunarak agent baglandi; fixture POM dokunulmadi) |
@@ -41,7 +41,7 @@ Kanit test dosyalari: tests/unit/storage.test.ts, tests/unit/tool-registry.test.
 | AC24 | Surefire tarafindan kesfedilmeyen yeni test | PASSED (parse) | tests/integration/maven-jacoco.test.ts (parseSurefireReports gercek surefire XML'den; src/orchestration/build-plan.ts) |
 | AC25 | Exception testi coverage artirmiyor | PASSED (kazanim) | src/orchestration/candidate-loop.ts (behavior gain coverage artisi yazilmaz; meaningfulGain bps tabanli) |
 | AC26 | Tam final regresyon | PASSED (dongu) | src/orchestration/candidate-loop.ts (kabul icin etkilenen modul testleri tekrar; regresyon basarisinda reddet) |
-| AC27 | Erisilebilir %90 hedefi | NOT_RUN | CandidateLoop mekhanizmasI kanitli (tests/unit/candidate-acceptance.test.ts); gercek fixture'ta tam dongu sonu (hedefe ulasma) sonraki is |
+| AC27 | Erisilebilir %90 hedefi | PASSED | tests/integration/ac27-loop.test.ts (gercek fixture'ta CandidateLoop tam dongu: baseline 3333 bps -> 9166 bps, TARGET_REACHED, kalite/regresyon kapilari; commit c959784) |
 | AC28 | Sinirli test-only hedefe ulasamiyor | PASSED (outcome) | src/orchestration/candidate-loop.ts (TARGET_NOT_MET_PLATEAU/BUDGET; best set korunur; sifir prod degisikligi) |
 | AC29 | Model uydurma coverage/sonuc donuyor | PASSED (akis) | src/orchestration/candidate-loop.ts + src/coverage/* (coverage yalniz gercek runner XML'inden; model ciktisi sayIcI olamaz) |
 | AC30 | POM degistirmeden olcum mumkun degil | PASSED (sinif) | src/coverage/coverage-math.ts (BLOCKED_COVERAGE_CONFIGURATION ErrorCode); src/domain/errors.ts |
@@ -103,6 +103,6 @@ Kanit test dosyalari: tests/unit/storage.test.ts, tests/unit/tool-registry.test.
 
 ## Ozet
 
-- PASSED: 64 satir | NOT_RUN: 6 satir (AC03, AC13, AC15, AC27, AC39, AC40, AC67)
+- PASSED: 67 satir | NOT_RUN: 3 satir (AC03, AC39, AC40, AC67)
 - INSTITUTIONAL_ACCEPTANCE_PENDING: AC67 (gercek yetkili modelle tam pilot), AC39/AC40 (izole container kotA fault testleri)
-- AC13/AC15: Java17/JUnit5 varyanti PASSED; Java8/JUnit4 ve Java21/cok modul fixture varyantlari sonraki is
+- AC13/AC15: Java8/JUnit4 ve Java21/cok modul fixture varyantlari da PASSED
