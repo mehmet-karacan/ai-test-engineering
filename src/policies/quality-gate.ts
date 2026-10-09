@@ -45,8 +45,9 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
       methodStartLine = i + 1;
       methodBody = [];
       methodBody.push(line);
+      const hasMethodDeclaration = /\(\s*[^)]*\s*\)\s*\{/.test(line) || /\(\s*\)\s*\{/.test(line);
       methodBraceDepth += open - close;
-      if (methodBraceDepth <= 0) {
+      if (methodBraceDepth <= 0 && hasMethodDeclaration) {
         const bodyText = methodBody.join("\n");
         checkMethodBody(bodyText, path, methodStartLine, findings);
         inMethod = false;

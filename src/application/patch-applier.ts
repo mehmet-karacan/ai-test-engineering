@@ -2,7 +2,7 @@
  * PatchApplier: CandidateChangeSet'i staging alanna kontrollu uygulama.
  * PolicyGuard once kontrol eder; hash butunligi dogrulanir; rejected adaylar best set'e karismaz.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync, renameSync, copyFileSync } from "node:fs";
 import { join, resolve, relative, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
@@ -106,10 +106,8 @@ export class PatchApplier {
 
 function renameOrCopy(from: string, to: string): void {
   try {
-    const { renameSync } = require("node:fs") as typeof import("node:fs");
     renameSync(from, to);
   } catch {
-    const { copyFileSync, rmSync } = require("node:fs") as typeof import("node:fs");
     copyFileSync(from, to);
     rmSync(from, { force: true });
   }

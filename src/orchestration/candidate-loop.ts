@@ -2,7 +2,7 @@
  * Aday kabul dongusu: iterate (candidate -> apply -> run -> coverage -> kalite -> kabul/red).
  * Kazanim kabul: hard gate'ler + coverage ayni kapsamla karsilastirilir.
  */
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, cpSync } from "node:fs";
 import { join } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { PatchApplier } from "../application/patch-applier.js";
@@ -85,6 +85,41 @@ export class CandidateLoop {
     this.runner = runner ?? new MavenRunner();
   }
 
+  /**
+   * Staging'deki aday dosyalarini olcum icin gecici overlay olarak projenin test kokune kopyalar.
+   * Orijinal dirty kaynak korunur; run sonrasi overlay temizlenir.
+   */
+  private applyOverlay(stagingRoot: string, projectRoot: string, changes: CandidateChangeSet["changes"]): Array<{ path: string; backup: Buffer | null }> {
+    const applied: Array<{ path: string; backup: Buffer | null }> = [];
+    for (const change of changes) {
+      if (change.action === "delete") {
+        continue;
+      }
+      const normalized = change.path.replace(/\//g, "\\");
+      const overlaySource = join(stagingRoot, normalized);
+      if (!existsSync(overlaySource)) {
+        continue;
+      }
+      const projectTarget = join(projectRoot, normalized);
+      const backup = existsSync(projectTarget) ? readFileSync(projectTarget) : null;
+      mkdirSync(join(projectTarget, ".."), { recursive: true });
+      cpSync(overlaySource, projectTarget);
+      applied.push({ path: change.path, backup });
+    }
+    return applied;
+  }
+
+  private revertOverlay(projectRoot: string, applied: Array<{ path: string; backup: Buffer | null }>): void {
+    for (const entry of applied) {
+      const projectTarget = join(projectRoot, entry.path.replace(/\//g, "\\"));
+      if (entry.backup !== null) {
+        writeFileSync(projectTarget, entry.backup);
+      } else {
+        rmSync(projectTarget, { force: true });
+      }
+    }
+  }
+
   async iterate(options: IterateOptions, startIteration = 1): Promise<IterationLoopResult> {
     const iterations: CandidateDecision[] = [];
     let bestCoverageBps: number | null = null;
@@ -158,47 +193,55 @@ export class CandidateLoop {
 
       const plan = buildPlan(options.project_root, [options.target_module_path]);
       const goals = plan.maven_goals_coverage;
-      const run = await this.runner.run({
-        working_dir: options.project_root,
-        goals,
-        timeout_ms: options.timeout_ms_per_run ?? 600000,
-        log_dir: join(options.project_root, "target", `aitest-iter-${iteration}-logs`),
-      });
 
-      const suites = parseSurefireReports(options.project_root, options.target_module_path);
-      const regressionFailures = suites.flatMap((s) => s.failed_test_names);
-
-      const afterCoverage = readCoverageAfterRun(options.project_root, options.target_fqn);
-      const afterBps = basisPointsFrom(afterCoverage?.line);
-
-      if (regressionFailures.length > 0) {
-        iterations.push({
-          iteration,
-          decision: "rejected",
-          reason: `Regresyon: ${regressionFailures.join(", ")}`,
-          coverage_before_bps: bestCoverageBps,
-          coverage_after_bps: afterBps,
-          quality_findings: [],
-          regression_failures: regressionFailures,
-          run_exit_code: run.exit_code,
+      const overlay = this.applyOverlay(options.staging_root, options.project_root, candidate.changes);
+      let run: RunResult;
+      let afterBps: number | null = null;
+      try {
+        run = await this.runner.run({
+          working_dir: options.project_root,
+          goals,
+          timeout_ms: options.timeout_ms_per_run ?? 600000,
+          log_dir: join(options.project_root, "target", `aitest-iter-${iteration}-logs`),
         });
-        iteration++;
-        continue;
-      }
 
-      if (run.exit_code !== 0) {
-        iterations.push({
-          iteration,
-          decision: "rejected",
-          reason: `Maven run basarisiz (exit ${run.exit_code})`,
-          coverage_before_bps: bestCoverageBps,
-          coverage_after_bps: afterBps,
-          quality_findings: [],
-          regression_failures: [],
-          run_exit_code: run.exit_code,
-        });
-        iteration++;
-        continue;
+        const suites = parseSurefireReports(options.project_root, options.target_module_path);
+        const regressionFailures = suites.flatMap((s) => s.failed_test_names);
+
+        const afterCoverage = readCoverageAfterRun(options.project_root, options.target_fqn);
+        afterBps = basisPointsFrom(afterCoverage?.line);
+
+        if (regressionFailures.length > 0) {
+          iterations.push({
+            iteration,
+            decision: "rejected",
+            reason: `Regresyon: ${regressionFailures.join(", ")}`,
+            coverage_before_bps: bestCoverageBps,
+            coverage_after_bps: afterBps,
+            quality_findings: [],
+            regression_failures: regressionFailures,
+            run_exit_code: run.exit_code,
+          });
+          iteration++;
+          continue;
+        }
+
+        if (run.exit_code !== 0) {
+          iterations.push({
+            iteration,
+            decision: "rejected",
+            reason: `Maven run basarisiz (exit ${run.exit_code})`,
+            coverage_before_bps: bestCoverageBps,
+            coverage_after_bps: afterBps,
+            quality_findings: [],
+            regression_failures: [],
+            run_exit_code: run.exit_code,
+          });
+          iteration++;
+          continue;
+        }
+      } finally {
+        this.revertOverlay(options.project_root, overlay);
       }
 
       const meaningfulGain = afterBps !== null && (bestCoverageBps === null || afterBps > bestCoverageBps);
@@ -236,7 +279,7 @@ export class CandidateLoop {
         run_exit_code: run.exit_code,
       });
 
-      const targetMet = bestCoverageBps >= options.line_target_bps;
+      const targetMet = afterBps !== null && afterBps >= options.line_target_bps;
       if (targetMet) {
         outcome = "TARGET_REACHED";
         break;
