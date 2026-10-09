@@ -3,10 +3,12 @@
  * Server her tool'u registry'den typed olarak kaydeder.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { ToolRegistry, type ToolContext, type ServiceRegistry } from "./tool-registry.js";
-import { handleProjectInspect, handleTestStart, handleTestStatus, type Services } from "../application/services.js";
-import { ProjectInspectInputSchema, TestStartInputSchema, TestStatusInputSchema } from "../domain/tool-schemas.js";
+import { handleProjectInspect, handleTestStart, handleTestStatus, handleProjectQuery, type Services } from "../application/services.js";
+import { ProjectInspectInputSchema, TestStartInputSchema, TestStatusInputSchema, ProjectQueryInputSchema } from "../domain/tool-schemas.js";
+
+type AnySchemaCompat = AnySchema;
 
 export function createToolRegistry(services: Services): ToolRegistry {
   const registry = new ToolRegistry();
@@ -44,6 +46,17 @@ export function createToolRegistry(services: Services): ToolRegistry {
     },
   });
 
+  registry.register({
+    name: "project_query",
+    description: "Projeler, moduller, paketler, siniflar, testler ve is gecmisi icin sinirli sorgu; serbest SQL kabul etmez.",
+    inputSchema: ProjectQueryInputSchema,
+    readOnly: true,
+    idempotent: true,
+    handler: async (input) => {
+      return (await handleProjectQuery(input, services)) as unknown as Record<string, unknown>;
+    },
+  });
+
   return registry;
 }
 
@@ -51,13 +64,13 @@ export function registerToolsOnServer(server: McpServer, registry: ToolRegistry)
   const serviceRegistry: ServiceRegistry = {};
   for (const tool of registry.list()) {
     const definition = registry.get(tool.name)!;
-    const zodShape = definition.inputSchema as unknown as z.ZodObject<z.ZodRawShape>;
+    const zodShape = definition.inputSchema as unknown as AnySchemaCompat;
     server.registerTool(
       tool.name,
       {
         title: tool.name,
         description: tool.description,
-        inputSchema: zodShape.shape,
+        inputSchema: zodShape,
         annotations: {
           readOnlyHint: tool.readOnly,
           idempotentHint: tool.idempotent,

@@ -11,14 +11,14 @@ import { ArtifactStore } from "../storage/artifact-store.js";
 async function main(): Promise<void> {
   const configPath = process.env["AITEST_CONFIG"];
   const services = createServices(configPath);
-  const dbPathOverride = process.env["AITEST_DB_PATH"];
-  if (dbPathOverride && dbPathOverride.length > 0) {
-    const storage = new Storage({ dbPath: dbPathOverride });
-    storage.migrate();
-    services.storage = storage;
-    services.jobs = new JobRepository(storage.db);
-    services.artifacts = new ArtifactStore({ root: services.config.storage.root });
-  }
+  const dbPath = process.env["AITEST_DB_PATH"] && process.env["AITEST_DB_PATH"].length > 0
+    ? process.env["AITEST_DB_PATH"]
+    : `${services.config.storage.root}\\state.db`;
+  const storage = new Storage({ dbPath });
+  storage.migrate();
+  services.storage = storage;
+  services.jobs = new JobRepository(storage.db);
+  services.artifacts = new ArtifactStore({ root: services.config.storage.root });
   const server = createMcpServer(services);
   const transport = new StdioServerTransport();
   await server.connect(transport);

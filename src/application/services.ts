@@ -1,18 +1,26 @@
 /**
  * Uygulama servisleri: tool handler'larinin cagirdigi use-case'ler.
- * P01 kapsaminda project_inspect ve test_start/test_status temel akisi; digerleri sonraki asamalarda gerceklesir.
+ * P01: project_inspect, test_start, test_status temel akisi.
+ * P02: guvenli kesif (snapshot, envanter, target resolution) eklendi.
  */
 import { createHash } from "node:crypto";
 import { existsSync, statSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { TestStartInputSchema, TestStatusInputSchema, ProjectInspectInputSchema, percentToBasisPoints } from "../domain/tool-schemas.js";
+import { TestStartInputSchema, TestStatusInputSchema, ProjectInspectInputSchema, ProjectQueryInputSchema, percentToBasisPoints } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import { Storage } from "../storage/storage.js";
 import { JobRepository, type JobRow } from "../storage/job-repository.js";
 import { ProjectRepository } from "../storage/project-repository.js";
+import { InventoryRepository } from "../storage/inventory-repository.js";
 import { ArtifactStore } from "../storage/artifact-store.js";
 import { loadConfig, defaultConfig } from "../configuration/config-loader.js";
 import type { AppConfig } from "../configuration/config-schema.js";
+import { SourceSnapshot } from "../discovery/source-snapshot.js";
+import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
+import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
+import { InventoryQueryService } from "./inventory-query.js";
+
+export const PARSER_VERSION = "statik-tarama-1";
 
 export interface Services {
   config: AppConfig;
@@ -70,6 +78,8 @@ export interface ProjectInspectResult {
   inventory: {
     kind: "maven_single" | "maven_multi" | "unknown";
     build_files: string[];
+    module_count: number;
+    snapshot_id: string | null;
   };
   preflight: {
     status: "ok" | "blocked";
@@ -82,24 +92,72 @@ export async function handleProjectInspect(input: unknown, services: Services): 
   const canonicalRoot = canonicalProjectRoot(parsed.project_root);
   assertAllowedRoot(services.config, canonicalRoot);
 
-  const buildFiles: string[] = [];
-  const pomPath = resolve(canonicalRoot, "pom.xml");
+  let modules: PomModule[] = [];
   let kind: ProjectInspectResult["inventory"]["kind"] = "unknown";
+  const pomPath = resolve(canonicalRoot, "pom.xml");
   if (existsSync(pomPath)) {
-    buildFiles.push("pom.xml");
-    const content = readFileSync(pomPath, "utf8");
-    kind = content.includes("<modules>") ? "maven_multi" : "maven_single";
+    try {
+      const discovery = discoverModules(canonicalRoot);
+      modules = discovery.modules;
+      kind = modules.length > 1 ? "maven_multi" : "maven_single";
+    } catch (error) {
+      if (!(error instanceof AppError)) {
+        throw error;
+      }
+      kind = "unknown";
+    }
   }
 
   let projectId: string;
+  let snapshotId: string | null = null;
   if (services.storage) {
     const projects = new ProjectRepository(services.storage.db);
-    const { project } = projects.ensureLocation(
+    const { project, location } = projects.ensureLocation(
       canonicalRoot,
       canonicalRoot.split(/[\\/]/).filter((p) => p.length > 0).pop() ?? "unnamed-project",
       null,
     );
     projectId = project.id;
+
+    if (parsed.refresh || modules.length > 0) {
+      const inventory = new InventoryRepository(services.storage.db);
+      const snapshot = new SourceSnapshot(canonicalRoot);
+      const manifest = snapshot.buildManifest();
+      const dirtyDigest = manifest.dirty ? requestDigest({ entries: manifest.entries.map((e) => e.sha256) }) : null;
+      snapshotId = inventory.writeSnapshot(location.id, manifest.head_commit, dirtyDigest, PARSER_VERSION);
+      for (const module of modules) {
+        const moduleId = inventory.writeModule(snapshotId, module);
+        const javaFiles = collectJavaFiles(canonicalRoot, module.source_root);
+        for (const javaFile of javaFiles) {
+          const { symbols } = scanJavaFile(javaFile, canonicalRoot);
+          for (const symbol of symbols) {
+            const packageId = inventory.writePackage(moduleId, symbol.package_name || "(default)", "main");
+            inventory.writeSymbol(packageId, symbol);
+          }
+        }
+        const testFiles = collectJavaFiles(canonicalRoot, module.test_root);
+        for (const testFile of testFiles) {
+          const { testClass, methods } = scanTestFile(testFile, canonicalRoot);
+          if (testClass) {
+            const packageId = inventory.writePackage(moduleId, testClass.fqn.split(".").slice(0, -1).join(".") || "(default)", "test");
+            const symbolId = inventory.writeSymbol(packageId, {
+              kind: "class",
+              fqn: testClass.fqn,
+              simple_name: testClass.fqn.split(".").pop() ?? testClass.fqn,
+              package_name: testClass.fqn.split(".").slice(0, -1).join("."),
+              relative_path: testClass.relative_path,
+              source_sha256: testClass.source_sha256,
+              line_start: 1,
+              line_end: 1,
+              enclosing: null,
+            });
+            for (const method of methods) {
+              inventory.writeTestCase(moduleId, symbolId, method.kind, `${method.owner_fqn}#${method.name}`, testClass.relative_path, testClass.source_sha256);
+            }
+          }
+        }
+      }
+    }
   } else {
     projectId = requestDigest({ root: canonicalRoot }).slice(0, 36);
   }
@@ -107,7 +165,12 @@ export async function handleProjectInspect(input: unknown, services: Services): 
   return {
     project_root: canonicalRoot.replace(/\\/g, "/"),
     project_id: projectId,
-    inventory: { kind, build_files: buildFiles },
+    inventory: {
+      kind,
+      build_files: modules.length > 0 ? modules.map((m) => `${m.module_relative_path || "."} -> ${m.artifact_id}`) : [],
+      module_count: modules.length,
+      snapshot_id: snapshotId,
+    },
     preflight: { status: "ok", reasons: [] },
   };
 }
@@ -117,13 +180,15 @@ export interface TestStartResult {
   lifecycle: string;
   phase: string;
   created: boolean;
+  resolved_targets?: Array<{ selector: string; matches: number; fqns: string[] }>;
+  ambiguous?: Array<{ selector: string; candidates: string[] }>;
 }
 
 export async function handleTestStart(input: unknown, services: Services): Promise<TestStartResult> {
   const parsed = TestStartInputSchema.parse(input);
   const canonicalRoot = canonicalProjectRoot(parsed.project_root);
   assertAllowedRoot(services.config, canonicalRoot);
-  const { storage, jobs, artifacts } = requireServices(services);
+  const { storage, jobs } = requireServices(services);
   const projects = new ProjectRepository(storage.db);
 
   const { location } = projects.ensureLocation(
@@ -131,6 +196,92 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     canonicalRoot.split(/[\\/]/).filter((p) => p.length > 0).pop() ?? "unnamed-project",
     null,
   );
+
+  const inventory = new InventoryRepository(storage.db);
+  const snapshotId = inventory.writeSnapshot(location.id, null, null, PARSER_VERSION);
+  let resolvedTargets: Array<{ selector: string; matches: number; fqns: string[] }> | undefined;
+  let ambiguous: Array<{ selector: string; candidates: string[] }> | undefined;
+
+  if (existsSync(resolve(canonicalRoot, "pom.xml"))) {
+    try {
+      const discovery = discoverModules(canonicalRoot);
+      for (const module of discovery.modules) {
+        const moduleId = inventory.writeModule(snapshotId, module);
+        const javaFiles = collectJavaFiles(canonicalRoot, module.source_root);
+        for (const javaFile of javaFiles) {
+          const { symbols } = scanJavaFile(javaFile, canonicalRoot);
+          for (const symbol of symbols) {
+            const packageId = inventory.writePackage(moduleId, symbol.package_name || "(default)", "main");
+            inventory.writeSymbol(packageId, symbol);
+          }
+        }
+        const testFiles = collectJavaFiles(canonicalRoot, module.test_root);
+        for (const testFile of testFiles) {
+          const { testClass, methods } = scanTestFile(testFile, canonicalRoot);
+          if (testClass) {
+            const packageId = inventory.writePackage(moduleId, testClass.fqn.split(".").slice(0, -1).join(".") || "(default)", "test");
+            const symbolId = inventory.writeSymbol(packageId, {
+              kind: "class",
+              fqn: testClass.fqn,
+              simple_name: testClass.fqn.split(".").pop() ?? testClass.fqn,
+              package_name: testClass.fqn.split(".").slice(0, -1).join("."),
+              relative_path: testClass.relative_path,
+              source_sha256: testClass.source_sha256,
+              line_start: 1,
+              line_end: 1,
+              enclosing: null,
+            });
+            for (const method of methods) {
+              inventory.writeTestCase(moduleId, symbolId, method.kind, `${method.owner_fqn}#${method.name}`, testClass.relative_path, testClass.source_sha256);
+            }
+          }
+        }
+      }
+
+      const ambiguousList: Array<{ selector: string; candidates: string[] }> = [];
+      const resolvedList: Array<{ selector: string; matches: number; fqns: string[] }> = [];
+      for (const target of parsed.targets) {
+        if (target.kind !== "class") {
+          continue;
+        }
+        const matches = inventory.resolveTarget(snapshotId, target.selector);
+        if (matches.length === 0) {
+          throw new AppError("INVALID_PARAMETERS", `Hedef sinif bulunamadi: ${target.selector}`);
+        }
+        if (matches.length > 1) {
+          const byModule = new Map<string, string[]>();
+          for (const match of matches) {
+            const list = byModule.get(match.module_relative_path) ?? [];
+            list.push(match.fqn);
+            byModule.set(match.module_relative_path, list);
+          }
+          if (byModule.size > 1) {
+            ambiguousList.push({ selector: target.selector, candidates: matches.map((m) => `${m.module_relative_path}: ${m.fqn}`) });
+            continue;
+          }
+        }
+        resolvedList.push({ selector: target.selector, matches: matches.length, fqns: matches.map((m) => m.fqn) });
+      }
+      if (ambiguousList.length > 0) {
+        ambiguous = ambiguousList;
+      }
+      resolvedTargets = resolvedList;
+    } catch (error) {
+      if (!(error instanceof AppError)) {
+        throw error;
+      }
+      if (error.code === "INVALID_PARAMETERS") {
+        throw error;
+      }
+    }
+  }
+
+  if (ambiguous && ambiguous.length > 0) {
+    throw new AppError("INVALID_PARAMETERS", "Hedef tek anlama cozumlenemedi; aday listesi dondu", {
+      reason_code: "AMBIGUOUS_TARGET",
+      ambiguous,
+    });
+  }
 
   const digest = requestDigest({
     root: canonicalRoot,
@@ -142,7 +293,13 @@ export async function handleTestStart(input: unknown, services: Services): Promi
 
   const existing = jobs.findJobByRequestDigest(location.id, digest);
   if (existing) {
-    return { job_id: existing.id, lifecycle: existing.lifecycle, phase: existing.phase, created: false };
+    return {
+      job_id: existing.id,
+      lifecycle: existing.lifecycle,
+      phase: existing.phase,
+      created: false,
+      ...(resolvedTargets !== undefined ? { resolved_targets: resolvedTargets } : {}),
+    };
   }
 
   if (parsed.targets.length > 5) {
@@ -165,7 +322,13 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     origin: "handleTestStart",
   });
 
-  return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, created: true };
+  return {
+    job_id: job.id,
+    lifecycle: job.lifecycle,
+    phase: job.phase,
+    created: true,
+    ...(resolvedTargets !== undefined ? { resolved_targets: resolvedTargets } : {}),
+  };
 }
 
 export interface TestStatusResult {
@@ -216,6 +379,23 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
 export function targetBasisPoints(percent: number): { line: number; branch: number } {
   const bps = percentToBasisPoints(percent);
   return { line: bps, branch: bps };
+}
+
+export async function handleProjectQuery(input: unknown, services: Services): Promise<ReturnType<InventoryQueryService["query"]>> {
+  const parsed = ProjectQueryInputSchema.parse(input);
+  const { storage } = requireServices(services);
+  const projects = new ProjectRepository(storage.db);
+  let locationIds: string[] = [];
+
+  if (parsed.project_root) {
+    const canonicalRoot = canonicalProjectRoot(parsed.project_root);
+    locationIds = projects.listLocationsProjects(canonicalRoot).map((l) => l.id);
+  } else if (parsed.project_id) {
+    locationIds = projects.listLocations(parsed.project_id).map((l) => l.id);
+  }
+
+  const queryService = new InventoryQueryService();
+  return queryService.query(storage.db, parsed, locationIds);
 }
 
 export function requireServices(services: Services): { storage: Storage; jobs: JobRepository; artifacts: ArtifactStore } {

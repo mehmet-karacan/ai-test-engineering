@@ -11,5 +11,8 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W05 | SQLite storage + migration + artifact store (P01) | R10, AC52, AC53 | IN_PROGRESS | W02 | kalicilik testi gecti; AC52/AC53 fault testleri P06 |
 | W06 | Config katmani: configuration schema + yukleme (P01) | R15 | VERIFIED | W02 | ai/checkpoints/2026-10-09-p01-cekirdek.md |
 | W07 | P01 testleri: stdio client tool list/call, DB kalicilik (P01) | AC02 | VERIFIED | W03-W06 | tests/integration/stdio-client.test.ts 4/4 |
-| W08 | Guvenli kesif: snapshot/allowlist + JavaParser helper (P02) | AC07, AC10, AC11 | TODO | W07 | - |
-| W09 | POM/module/target discovery + envanter sorgulari (P02) | AC05, AC06, AC12 | TODO | W08 | - |
+| W08 | Guvenli kesif: snapshot/allowlist + JavaParser helper (P02) | AC07, AC10, AC11 | VERIFIED | W07 | ai/checkpoints/2026-10-09-p02-kesif.md |
+| W09 | POM/module/target discovery + envanter sorgulari (P02) | AC05, AC06, AC12 | IN_PROGRESS | W08 | kesfi unit test gecti; tam kanit P03+ |
+| W10 | MavenRunner + process supervisor + effective Maven plan (P03) | AC13-AC15 | TODO | W09 | - |
+| W11 | JaCoCo XML parser + class provenance + coverage hesap (P03) | R06, AC19-AC22 | TODO | W10 | - |
+| W12 | Baseline akisi + regresyon (P03) | AC17, AC26 | TODO | W11 | - |

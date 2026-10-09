@@ -3,17 +3,19 @@
  * initialize + tools/list + tools/call akisini gercek MCP protokoluyle dogrular.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+const FIXTURES = join(process.cwd(), "tests", "fixtures");
+
 describe("stdio MCP entegrasyonu (gercek client)", () => {
   let client: Client;
   let transport: StdioClientTransport;
   let dir: string;
+  let projectDir: string;
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "aitest-e2e-"));
@@ -25,8 +27,9 @@ describe("stdio MCP entegrasyonu (gercek client)", () => {
     config.storage.root = artifactRoot;
     saveConfig(config, configPath);
 
-    process.env["AITEST_CONFIG"] = configPath;
-    process.env["AITEST_DB_PATH_OVERRIDE"] = dbPath;
+    const { cpSync } = await import("node:fs");
+    projectDir = join(dir, "fixture-project");
+    cpSync(join(FIXTURES, "sample-maven-project"), projectDir, { recursive: true });
 
     const entryPath = join(process.cwd(), "dist", "mcp", "stdio-entry.js");
     transport = new StdioClientTransport({
@@ -50,42 +53,37 @@ describe("stdio MCP entegrasyonu (gercek client)", () => {
     }
     delete process.env["AITEST_CONFIG"];
     delete process.env["AITEST_DB_PATH_OVERRIDE"];
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch {
+      // Windows dosya kilidi
+    }
   });
 
-  it("tools/list uc araci donmeli", async () => {
+  it("tools/list dort araci donmeli", async () => {
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name).sort();
-    expect(names).toEqual(["project_inspect", "test_start", "test_status"]);
+    expect(names).toEqual(["project_inspect", "project_query", "test_start", "test_status"]);
   });
 
-  it("project_inspect sentetik proje kokunde calismali", async () => {
-    const projectDir = join(dir, "sample-project");
-    const { mkdirSync, writeFileSync } = await import("node:fs");
-    mkdirSync(projectDir, { recursive: true });
-    writeFileSync(join(projectDir, "pom.xml"), "<project><artifactId>demo</artifactId></project>");
-
+  it("project_inspect fixture projesinde envanter uretmeli", async () => {
     const result = await client.callTool({
       name: "project_inspect",
-      arguments: { project_root: projectDir.replace(/\\/g, "/"), refresh: false },
+      arguments: { project_root: projectDir.replace(/\\/g, "/"), refresh: true },
     });
     expect(result.isError !== true).toBe(true);
     const textContent = result.content?.find((c) => c.type === "text");
     expect(textContent).toBeDefined();
     const parsed = JSON.parse((textContent as { type: "text"; text: string }).text) as {
       status: string;
-      data?: { inventory?: { kind?: string } };
+      data?: { inventory?: { kind?: string; module_count?: number } };
     };
     expect(parsed.status).toBe("ok");
     expect(parsed.data?.inventory?.kind).toBe("maven_single");
+    expect(parsed.data?.inventory?.module_count).toBe(1);
   });
 
-  it("test_start job baslatmali ve job_id donmeli", async () => {
-    const projectDir = join(dir, "sample-project-2");
-    const { mkdirSync, writeFileSync } = await import("node:fs");
-    mkdirSync(projectDir, { recursive: true });
-    writeFileSync(join(projectDir, "pom.xml"), "<project><artifactId>demo2</artifactId></project>");
-
+  it("test_start job baslatmali, hedefi cozmeli ve idempotent olmali", async () => {
     const args = {
       project_root: projectDir.replace(/\\/g, "/"),
       targets: [{ selector: "PaymentService", kind: "class" as const }],
@@ -96,6 +94,7 @@ describe("stdio MCP entegrasyonu (gercek client)", () => {
     const textContent = result.content?.find((c) => c.type === "text");
     const parsed = JSON.parse((textContent as { type: "text"; text: string }).text) as {
       status: string;
+      error?: { code?: string; message?: string };
       data?: { job_id?: string; created?: boolean };
     };
     expect(parsed.status).toBe("ok");
@@ -112,7 +111,6 @@ describe("stdio MCP entegrasyonu (gercek client)", () => {
   });
 
   it("test_status job durumunu donmeli", async () => {
-    const projectDir = join(dir, "sample-project-2");
     const status = await client.callTool({
       name: "test_status",
       arguments: { project_root: projectDir.replace(/\\/g, "/") },
@@ -124,5 +122,19 @@ describe("stdio MCP entegrasyonu (gercek client)", () => {
     };
     expect(parsed.status).toBe("ok");
     expect(parsed.data?.events?.length).toBeGreaterThan(0);
+  });
+
+  it("project_query siniflari listelemeli", async () => {
+    const query = await client.callTool({
+      name: "project_query",
+      arguments: { project_root: projectDir.replace(/\\/g, "/"), view: "classes", limit: 20 },
+    });
+    const textContent = query.content?.find((c) => c.type === "text");
+    const parsed = JSON.parse((textContent as { type: "text"; text: string }).text) as {
+      status: string;
+      data?: { rows?: Array<{ fqn?: string }> };
+    };
+    expect(parsed.status).toBe("ok");
+    expect(parsed.data?.rows?.some((r) => r.fqn === "com.example.payment.PaymentService")).toBe(true);
   });
 });
