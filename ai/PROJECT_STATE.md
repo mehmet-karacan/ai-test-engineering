@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P03 - Izole gercek olcum (tamamlandi) -> P04 baslangici
+- Asama: P04 - OpenCode worker (tamamlandi) -> P05 baslangici
 - Son guncelleme: 2026-10-09
 
 ## Gercek uygulama durumu
@@ -14,7 +14,7 @@
 | P01 - Calisan dikey cekirdek | TAMAMLANDI | ai/checkpoints/2026-10-09-p01-cekirdek.md |
 | P02 - Guvenli kesif | TAMAMLANDI | ai/checkpoints/2026-10-09-p02-kesif.md |
 | P03 - Izole gercek olcum | TAMAMLANDI | ai/checkpoints/2026-10-09-p03-olcum.md |
-| P04 - OpenCode worker | TODO | - |
+| P04 - OpenCode worker | TAMAMLANDI | ai/checkpoints/2026-10-09-p04-worker.md |
 | P05 - Test muhendisligi | TODO | - |
 | P06 - Dayaniklilik | TODO | - |
 | P07 - Cikti ve aktarim | TODO | - |
@@ -32,15 +32,16 @@
 
 ## Son commit
 
-- P03: izole gercek olcum katmani (67/67 test gecti; gercek Maven/JaCoCo run + baseline dahil).
+- P04: OpenCode worker katmani (90/90 test gecti; gercek opencode serve + session/abort HTTP entegrasyonu dahil).
 
 ## Kabul durumu
 
 - AC01 kismen: AGENTS + ai/ kayitlari kuruldu.
 - AC02 kismen: gercek stdio client tools/list + tools/call gecti.
 - AC05-AC07, AC10-AC12 kismen (envanter/kesif seviyesi).
-- AC13/AC14 kismen: gercek Maven/JaCoCo run kanitli (tests/integration/maven-jacoco.test.ts).
+- AC13/AC14 kismen: gercek Maven/JaCoCo run kanitli.
 - AC21-AC23 unit seviyesinde kanitli.
+- AC42 hazirligi: worker config bash/edit/task kapali; tam fault testleri P06.
 - Diger AC: NOT_RUN.
 
 ## Acik blocker
@@ -49,4 +50,4 @@
 
 ## Sonraki somut is
 
-- P04: OpenCode worker - guvenli worker config (bash/edit/task kapatma, allowlist), rol bazli prompts (Analyzer/Designer/Reviewer), typed CandidateChangeSet semasi, model profiling (kapasite probe), cancellation.
+- P05: Test muhendisligi dongusu - aday kabul (CandidateChangeSet -> PolicyGuard -> staging -> Maven run -> coverage -> kalite -> kabul/red), PatchApplier, kabul edilen set icin checkpoint, gap stratejileri, per-target esikler.

@@ -16,5 +16,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W10 | MavenRunner + process supervisor + effective Maven plan (P03) | AC13-AC15 | IN_PROGRESS | W09 | runner testi gecti; AC13/AC15 tam fixture kaniti devam |
 | W11 | JaCoCo XML parser + class provenance + coverage hesap (P03) | R06, AC19-AC22 | IN_PROGRESS | W10 | parser + math testleri gecti; provenance derinlesme P06 |
 | W12 | Baseline akisi + regresyon (P03) | AC17, AC26 | IN_PROGRESS | W11 | baseline PASSED gecti; AC17 fault testi P06 |
-| W13 | OpenCode worker adapter + guvenli config (P04) | AC42, R15 | TODO | W12 | - |
-| W14 | Role prompts + CandidateChangeSet semasi (P04) | R03 | TODO | W13 | - |
+| W13 | OpenCode worker adapter + guvenli config (P04) | AC42, R15 | IN_PROGRESS | W12 | worker-client + config testleri gecti; AC42 fault testleri P06 |
+| W14 | Role prompts + CandidateChangeSet semasi (P04) | R03 | VERIFIED | W13 | ai/checkpoints/2026-10-09-p04-worker.md |
+| W15 | Aday kabul dongusu + PatchApplier + checkpoint (P05) | AC27, AC28, AC32 | TODO | W13 | - |
+| W16 | Kalite kapilari + gap stratejileri + per-target esikler (P05) | AC33-AC36, AC56 | TODO | W15 | - |
