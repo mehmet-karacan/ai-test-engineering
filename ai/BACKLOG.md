@@ -13,6 +13,8 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W07 | P01 testleri: stdio client tool list/call, DB kalicilik (P01) | AC02 | VERIFIED | W03-W06 | tests/integration/stdio-client.test.ts 4/4 |
 | W08 | Guvenli kesif: snapshot/allowlist + JavaParser helper (P02) | AC07, AC10, AC11 | VERIFIED | W07 | ai/checkpoints/2026-10-09-p02-kesif.md |
 | W09 | POM/module/target discovery + envanter sorgulari (P02) | AC05, AC06, AC12 | IN_PROGRESS | W08 | kesfi unit test gecti; tam kanit P03+ |
-| W10 | MavenRunner + process supervisor + effective Maven plan (P03) | AC13-AC15 | TODO | W09 | - |
-| W11 | JaCoCo XML parser + class provenance + coverage hesap (P03) | R06, AC19-AC22 | TODO | W10 | - |
-| W12 | Baseline akisi + regresyon (P03) | AC17, AC26 | TODO | W11 | - |
+| W10 | MavenRunner + process supervisor + effective Maven plan (P03) | AC13-AC15 | IN_PROGRESS | W09 | runner testi gecti; AC13/AC15 tam fixture kaniti devam |
+| W11 | JaCoCo XML parser + class provenance + coverage hesap (P03) | R06, AC19-AC22 | IN_PROGRESS | W10 | parser + math testleri gecti; provenance derinlesme P06 |
+| W12 | Baseline akisi + regresyon (P03) | AC17, AC26 | IN_PROGRESS | W11 | baseline PASSED gecti; AC17 fault testi P06 |
+| W13 | OpenCode worker adapter + guvenli config (P04) | AC42, R15 | TODO | W12 | - |
+| W14 | Role prompts + CandidateChangeSet semasi (P04) | R03 | TODO | W13 | - |
