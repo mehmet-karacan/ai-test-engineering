@@ -4,7 +4,10 @@
 
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+# $PSScriptRoot EncodedCommand/pipe calistirmada bos kalabilir; repo kokunu garanti yoluna dus.
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { (Get-Location).Path }
+$leaf = Split-Path -Leaf $scriptRoot
+if ($leaf -eq "scripts") { $RepoRoot = Split-Path -Parent $scriptRoot } else { $RepoRoot = $scriptRoot }
 $AppDataRoot = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "ai-test-engineering" } else { throw "LOCALAPPDATA cozumlenemedi" }
 
 function Test-Command($Name) {
@@ -37,10 +40,18 @@ Write-Host "  OK: node $nodeVersion"
 Write-Step "Bolum 2: urun yukleme"
 Push-Location $RepoRoot
 try {
-  & npm.cmd install --no-fund --no-audit 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "npm install basarisiz" }
-  & npm.cmd run build 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "npm run build basarisiz" }
+  # PS 5.1'de native STDERR + ErrorActionPreference=Stop, "npm notice" ciktisini exception'a cevirir;
+  # native komutlarda yerel olarak Continue kullanip exit kodla karar ver.
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $null = & npm.cmd install --no-fund --no-audit 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "npm install basarisiz (exit $LASTEXITCODE)" }
+    $null = & npm.cmd run build 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "npm run build basarisiz (exit $LASTEXITCODE)" }
+  } finally {
+    $ErrorActionPreference = $prevEap
+  }
 } finally {
   Pop-Location
 }
@@ -121,8 +132,16 @@ if ($merged) { Write-Host "  OK: OpenCode MCP baglantisi eklendi ($opencodeConfi
 Write-Step "Bolum 6: smoke dogrulama"
 Push-Location $RepoRoot
 try {
-  & npm.cmd test 2>&1 | Select-Object -Last 5 | Write-Host
-  if ($LASTEXITCODE -ne 0) { throw "smoke testler basarisiz" }
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $smokeOutput = & npm.cmd test 2>&1
+    $smokeExit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $prevEap
+  }
+  $smokeOutput | Select-Object -Last 5 | ForEach-Object { Write-Host "$_" }
+  if ($smokeExit -ne 0) { throw "smoke testler basarisiz (exit $smokeExit)" }
 } finally {
   Pop-Location
 }
