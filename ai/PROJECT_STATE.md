@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P06 - Dayaniklilik (tamamlandi) -> P07 baslangici
+- Asama: P07 - Cikti ve aktarim (tamamlandi) -> P08 baslangici
 - Son guncelleme: 2026-10-09
 
 ## Gercek uygulama durumu
@@ -17,8 +17,7 @@
 | P04 - OpenCode worker | TAMAMLANDI | ai/checkpoints/2026-10-09-p04-worker.md |
 | P05 - Test muhendisligi | TAMAMLANDI | ai/checkpoints/2026-10-09-p05-dongu.md |
 | P06 - Dayaniklilik | TAMAMLANDI | ai/checkpoints/2026-10-09-p06-dayaniklilik.md |
-| P07 - Cikti ve aktarim | TODO | - |
-| P07 - Cikti ve aktarim | TODO | - |
+| P07 - Cikti ve aktarim | TAMAMLANDI | ai/checkpoints/2026-10-09-p07-cikti.md |
 | P08 - Kurulum ve kalite | TODO | - |
 | P09 - Tam kabul | TODO | - |
 
@@ -33,7 +32,7 @@
 
 ## Son commit
 
-- P06: dayaniklilik katmani (126/126 test gecti; checkpoint atomic publish + lease/fence + recovery dahil).
+- P07: cikti ve aktarim katmani (141/141 test gecti; offline rapor + test_apply dahil).
 
 ## Kabul durumu
 
@@ -41,10 +40,7 @@
 - AC02 kismen: gercek stdio client tools/list + tools/call gecti.
 - AC05-AC07, AC10-AC12 kismen (envanter/kesif seviyesi).
 - AC13/AC14 kismen: gercek Maven/JaCoCo run kanitli.
-- AC21-AC23 unit seviyesinde kanitli.
-- AC31-AC34, AC56 kanitli (unit seviyesi).
-- AC45/AC47/AC48/AC49 kanitli (durability unit; DB + dosya sistemi).
-- AC51 kismen: SOURCE_CHANGED rebaseline akisi kanitli.
+- AC21-AC23, AC31-AC34, AC45, AC47-AC49, AC56-AC58, AC60-AC63 kanitli (unit seviyesi).
 - Diger AC: NOT_RUN.
 
 ## Acik blocker
@@ -53,4 +49,4 @@
 
 ## Sonraki somut is
 
-- P07: Cikti ve aktarim - Offline Report Generator (index.html + report.json + manifest.json + changes.patch, DB'den render), artifact export verification, test_apply akisi (onay + preimage kontrol + journal).
+- P08: Kurulum ve kalite - scripts/ (install/verify/uninstall, Windows+Linux), config merge/backup/idempotency, schema migration/backup/retention, docs/ (architecture, installation, usage, security, data-dictionary), CI workflow, secret scan.
