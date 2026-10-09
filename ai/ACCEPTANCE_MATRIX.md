@@ -12,7 +12,7 @@ Kanit test dosyalari: tests/unit/storage.test.ts, tests/unit/tool-registry.test.
 | --- | --- | --- | --- |
 | AC01 | Bos repo kurulum ve ikinci modelle devam | PASSED (kismen: kurulum/config akisi) | ai/checkpoints/2026-10-09-p00-baslangic.md, ai/checkpoints/2026-10-09-p08-kurulum.md; ai/ kayitlari + AGENTS + kurulum smoke (commit dca6ac7) |
 | AC02 | OpenCode-uyumlu MCP profili | PASSED | tests/integration/stdio-client.test.ts (gercek stdio client: initialize/tools/list/tools/call/idempotency; commit ed5357c) |
-| AC03 | Yeni MCP protokol profili | NOT_RUN | Resmi v2 stdio profili ayrI adapter; MCP SDK 1.32.x'in v2 API'leri OpenCode 1.18.x bagimliligiyla (1.29.0) ayni handler'da karistirilmadi; ayrI contract testi sonraki is |
+| AC03 | Yeni MCP protokol profili | PASSED (profil katmani) | tests/contract/mcp-profile.test.ts (v1/v2 profil ayrimi, protocol_version 2025-11-25 vs 2026-07-28, muzakere kontrolsuz melez olusturmaz, ayni tool registry); src/mcp/profile-schemas.ts + v2-profile.ts; v1 API isimleri karismadi |
 | AC04 | Tek cumleli talep | PASSED (mekhanizma) | tests/integration/stdio-client.test.ts: test_start, "PaymentService + %90 + LINE/BRANCH" girisiyle dogru root/target/metric ile is baslatti (commit dca6ac7) |
 | AC05 | Cok modullu reactor | PASSED (kesfi) | tests/unit/discovery.test.ts (cok modullu reactor dogru sirayla kesfi; payment-api/payment-core/parent; commit 6fddde7) |
 | AC06 | Ayni isim/farkli FQCN veya modul | PASSED (envanter + AMBIGUOUS_TARGET) | tests/unit/discovery.test.ts (ayni sinif adi farkli paket ayrimi); src/application/services.ts (AMBIGUOUS_TARGET aday listesi) |
@@ -103,6 +103,7 @@ Kanit test dosyalari: tests/unit/storage.test.ts, tests/unit/tool-registry.test.
 
 ## Ozet
 
-- PASSED: 67 satir | NOT_RUN: 3 satir (AC03, AC39, AC40, AC67)
+- PASSED: 68 satir | NOT_RUN: 2 satir (AC39, AC40, AC67)
 - INSTITUTIONAL_ACCEPTANCE_PENDING: AC67 (gercek yetkili modelle tam pilot), AC39/AC40 (izole container kotA fault testleri)
 - AC13/AC15: Java8/JUnit4 ve Java21/cok modul fixture varyantlari da PASSED
+- AC03: v1/v2 profil katmani contract testleriyle kanitli

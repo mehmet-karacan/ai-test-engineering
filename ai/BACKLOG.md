@@ -28,7 +28,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W22 | docs/ + CI workflow + secret scan (P08) | AC70 | VERIFIED | W21 | ai/checkpoints/2026-10-09-p08-kurulum.md |
 | W23 | AC matrisi guncelleme + bagimsiz son inceleme (P09) | AC01-AC70 | VERIFIED | W21 | ai/handoffs/2026-10-09-son-inceleme.md |
 | W24 | Nihai gelistirme ozeti + Git teslimati (P09) | AC70 | IN_PROGRESS | W23 | - |
-| W25 | AC03: MCP v2 stdio profili + contract testleri | AC03 | TODO | W24 | - |
+| W25 | AC03: MCP v2 stdio profili + contract testleri | AC03 | VERIFIED | W24 | tests/contract/mcp-profile.test.ts (commit 27880f1+) |
 | W26 | AC13/AC15: Java8/Java21 fixture kanitlari | AC13, AC15 | VERIFIED | W24 | tests/integration/toolchain-matrix.test.ts (commit c959784) |
 | W27 | AC27: gercek fixture tam dongu testi | AC27 | VERIFIED | W24 | tests/integration/ac27-loop.test.ts (commit c959784) |
 | W28 | AC39/AC40: izole container + preflight + fault testleri | AC39, AC40 | TODO | W24 | - |

@@ -41,7 +41,7 @@
 
 ## Kabul durumu
 
-- 67 satir PASSED (kanit bagli); 3 satir NOT_RUN: AC03, AC39, AC40, AC67
+- 68 satir PASSED (kanit bagli); kalan NOT_RUN: AC39, AC40, AC67
 - INSTITUTIONAL_ACCEPTANCE_PENDING: AC67, AC39/AC40
 - Detay: ai/ACCEPTANCE_MATRIX.md
 
@@ -52,5 +52,4 @@
 
 ## Sonraki somut is
 
-- AC03: Resmi MCP v2 stdio profili ayri adapter + contract testleri.
-- AC39/AC40: Izole container adapter + preflight + kotA fault testleri.
+- AC39/AC40: Izole container adapter + capability preflight + kotA fault testleri.
