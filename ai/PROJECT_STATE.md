@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P04 - OpenCode worker (tamamlandi) -> P05 baslangici
+- Asama: P05 - Test muhendisligi dongusu (tamamlandi) -> P06 baslangici
 - Son guncelleme: 2026-10-09
 
 ## Gercek uygulama durumu
@@ -15,7 +15,7 @@
 | P02 - Guvenli kesif | TAMAMLANDI | ai/checkpoints/2026-10-09-p02-kesif.md |
 | P03 - Izole gercek olcum | TAMAMLANDI | ai/checkpoints/2026-10-09-p03-olcum.md |
 | P04 - OpenCode worker | TAMAMLANDI | ai/checkpoints/2026-10-09-p04-worker.md |
-| P05 - Test muhendisligi | TODO | - |
+| P05 - Test muhendisligi | TAMAMLANDI | ai/checkpoints/2026-10-09-p05-dongu.md |
 | P06 - Dayaniklilik | TODO | - |
 | P07 - Cikti ve aktarim | TODO | - |
 | P08 - Kurulum ve kalite | TODO | - |
@@ -32,7 +32,7 @@
 
 ## Son commit
 
-- P04: OpenCode worker katmani (90/90 test gecti; gercek opencode serve + session/abort HTTP entegrasyonu dahil).
+- P05: aday kabul dongusu ve kalite kapilari (111/111 test gecti).
 
 ## Kabul durumu
 
@@ -41,7 +41,7 @@
 - AC05-AC07, AC10-AC12 kismen (envanter/kesif seviyesi).
 - AC13/AC14 kismen: gercek Maven/JaCoCo run kanitli.
 - AC21-AC23 unit seviyesinde kanitli.
-- AC42 hazirligi: worker config bash/edit/task kapali; tam fault testleri P06.
+- AC31-AC34, AC56 kanitli (unit seviyesi).
 - Diger AC: NOT_RUN.
 
 ## Acik blocker
@@ -50,4 +50,4 @@
 
 ## Sonraki somut is
 
-- P05: Test muhendisligi dongusu - aday kabul (CandidateChangeSet -> PolicyGuard -> staging -> Maven run -> coverage -> kalite -> kabul/red), PatchApplier, kabul edilen set icin checkpoint, gap stratejileri, per-target esikler.
+- P06: Dayaniklilik - checkpoint atomic publish protokolu, lease/fence, job scheduler, recovery (kill/restart), model degisimi, pause/cancel testleri.

@@ -18,5 +18,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W12 | Baseline akisi + regresyon (P03) | AC17, AC26 | IN_PROGRESS | W11 | baseline PASSED gecti; AC17 fault testi P06 |
 | W13 | OpenCode worker adapter + guvenli config (P04) | AC42, R15 | IN_PROGRESS | W12 | worker-client + config testleri gecti; AC42 fault testleri P06 |
 | W14 | Role prompts + CandidateChangeSet semasi (P04) | R03 | VERIFIED | W13 | ai/checkpoints/2026-10-09-p04-worker.md |
-| W15 | Aday kabul dongusu + PatchApplier + checkpoint (P05) | AC27, AC28, AC32 | TODO | W13 | - |
-| W16 | Kalite kapilari + gap stratejileri + per-target esikler (P05) | AC33-AC36, AC56 | TODO | W15 | - |
+| W15 | Aday kabul dongusu + PatchApplier + checkpoint (P05) | AC27, AC28, AC32 | IN_PROGRESS | W13 | PatchApplier + loop testleri gecti; tam fixture dongusu P06 |
+| W16 | Kalite kapilari + gap stratejileri + per-target esikler (P05) | AC33-AC36, AC56 | VERIFIED | W15 | ai/checkpoints/2026-10-09-p05-dongu.md |
+| W17 | Checkpoint atomic publish + lease/fence (P06) | AC47-AC49 | TODO | W15 | - |
+| W18 | Recovery: kill/restart, disk/DB fault, duplicate resume (P06) | AC45, AC46, AC48, AC52 | TODO | W17 | - |
