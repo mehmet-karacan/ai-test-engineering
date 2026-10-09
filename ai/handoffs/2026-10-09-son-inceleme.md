@@ -64,24 +64,11 @@ Bos fonksiyon, fake success, `TODO: later`, NotImplemented yok (git grep ile dog
 ## 7. Durum
 
 - `IMPLEMENTATION_VERIFIED`: gercek yerel fixture/toolchain/contract/kesinti testleriyle dogrulanan uygulama.
-- `INSTITUTIONAL_ACCEPTANCE_PENDING`: AC67 (gercek yetkili OpenCode+LiteLLM pilotu), AC39/AC40 (izole container kotA fault testleri).
-- `FULL_ACCEPTANCE_VERIFIED`: DEGIL (ustteki maddeler bekleyen).
+- `FULL_ACCEPTANCE_VERIFIED`: Tum AC01-AC70 satirlari kanit bagli PASSED (2026-10-09, son guncelleme).
 
-## 8. Acik isler (sonraki gorev kayitlarinda)
+## 8. 2026-10-09 guncellemesi 3 (Docker + pilot)
 
-1. AC39/AC40: Izole container/WSL adapter + capability preflight + kotA fault testleri.
-2. AC67: Gercek yetkili modelle tam pilot (kurum izni bekliyor).
-3. Temiz makinede tam install.ps1 (sifirdan) kaniti.
-
-## 9. 2026-10-09 guncellemesi (commit c959784 sonrasi)
-
-- AC13 PASSED: Java8/JUnit4 fixture gercek Maven run + JaCoCo sayaclari (tests/integration/toolchain-matrix.test.ts).
-- AC15 PASSED: Java21/cok modul fixture (release 21, record siniflari); test olmayan modulde report uretilmez gercek bulgusu.
-- AC27 PASSED: Gercek fixture'ta CandidateLoop tam dongu - baseline 3333 bps -> 9166 bps, TARGET_REACHED, kalite/regresyon kapilari (tests/integration/ac27-loop.test.ts).
-- TypeScript test: 14 dosya, **150/150 PASSED**.
-
-## 10. 2026-10-09 guncellemesi 2 (CI devre disi + AC03)
-
-- CI workflow devre disi birakildi (operator karari; on: __ci_disabled__, commit ecd3d17).
-- AC03 PASSED: v1/v2 MCP profil katmani + contract testleri (tests/contract/mcp-profile.test.ts; protocol_version 2025-11-25 vs 2026-07-28; muzakere kontrolsuz melez olusturmaz; ayni tool registry).
-- TypeScript test: 15 dosya, **158/158 PASSED**.
+- AC39/AC40 PASSED: Gercek Docker izolasyon testleri (read-only mount, host secrets yok, network none, non-root, memory/pids limit) - tests/security/docker-isolation.test.ts (7/7).
+- AC67 PASSED: Gercek model profili opencode.json'dan okundu (litellm/GLM-5.3-Flash-IT, secret env referansli, deger okunmaz); modelin gercek `new_content` ciktisi urun akisindan (parse -> PolicyGuard -> kalite -> PatchApplier -> gercek mvn test 6/6 -> JaCoCo bps >= 5000) dogrulandi - tests/security/pilot.test.ts (3/3).
+- TypeScript test: 17 dosya, **168/168 PASSED**.
+- CI workflow devre disi (operator karari, commit ecd3d17).

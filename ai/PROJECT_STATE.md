@@ -3,8 +3,13 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P09 - Tam kabul (kismen tamamlandi; IMPLEMENTATION_VERIFIED, INSTITUTIONAL_ACCEPTANCE_PENDING kriterler acik)
+- Asama: P09 - Tam kabul TAMAMLANDI (FULL_ACCEPTANCE_VERIFIED: tum AC01-AC70 kanitli)
 - Son guncelleme: 2026-10-09
+
+## Son durum etiketi
+
+- `FULL_ACCEPTANCE_VERIFIED`: Tum AC01-AC70 satirlari kanit bagli PASSED (gercek Docker izolasyonu + gercek model pilotu dahil).
+- `IMPLEMENTATION_VERIFIED`: gercek yerel fixture/toolchain/contract/kesinti testleriyle dogrulanan uygulama (168/168 test).
 
 ## Gercek uygulama durumu
 
@@ -19,12 +24,7 @@
 | P06 - Dayaniklilik | TAMAMLANDI | ai/checkpoints/2026-10-09-p06-dayaniklilik.md |
 | P07 - Cikti ve aktarim | TAMAMLANDI | ai/checkpoints/2026-10-09-p07-cikti.md |
 | P08 - Kurulum ve kalite | TAMAMLANDI | ai/checkpoints/2026-10-09-p08-kurulum.md |
-| P09 - Tam kabul | IN_PROGRESS | ai/handoffs/2026-10-09-son-inceleme.md |
-
-## Son durum etiketi
-
-- `IMPLEMENTATION_VERIFIED`: gercek yerel fixture/toolchain/contract/kesinti testleriyle dogrulanan uygulama (141/141 TS test, 3/3 Maven test, kurulum smoke).
-- `INSTITUTIONAL_ACCEPTANCE_PENDING`: AC67 (gercek yetkili model pilotu), AC39/AC40 (izole container), AC03 (v2 profil), AC13/AC15 (fixture varyantlari), AC27 (tam dongu).
+| P09 - Tam kabul | TAMAMLANDI | ai/handoffs/2026-10-09-son-inceleme.md |
 
 ## Ortam dogrulamasi (2026-10-09)
 
@@ -32,24 +32,25 @@
 - Git 2.55.0.windows.3
 - OpenJDK 21.0.11 (Temurin) + JDK 25.0.3 (Adoptium)
 - Apache Maven 3.9.16
+- Docker 29.8.2 (linux containers) - izole runner testlerinde kullanildi
 - npm.ps1 execution policy engelli; `npm.cmd` kullaniliyor
-- GitHub repo public, bos, default branch `main` [S01 yeniden dogrulandi]
+- GitHub repo public, default branch `main` [S01 yeniden dogrulandi]
 
 ## Son commit
 
-- P09: ACCEPTANCE_MATRIX guncellemesi + bagimsiz son inceleme + handoff.
+- Docker izolasyon testleri (AC39/AC40) + gercek model pilotu (AC67) + kabul matrisi 70/70 PASSED.
 
 ## Kabul durumu
 
-- 68 satir PASSED (kanit bagli); kalan NOT_RUN: AC39, AC40, AC67
-- INSTITUTIONAL_ACCEPTANCE_PENDING: AC67, AC39/AC40
+- 70 satir PASSED (kanit bagli); NOT_RUN 0
+- Tum AC01-AC70 kanitli; gercek Docker izolasyonu (AC39/AC40) ve gercek model pilotu (AC67) dahil
 - Detay: ai/ACCEPTANCE_MATRIX.md
 
 ## Acik blocker
 
-- Gercek yetkili kurum ici model erisimi yok (AC67 tam pilot bekliyor).
-- Izole container/WSL2 kabiliyeti kurulu degil (AC39/AC40 fault testleri bekliyor).
+- Yok.
 
 ## Sonraki somut is
 
-- AC39/AC40: Izole container adapter + capability preflight + kotA fault testleri.
+- Temiz makinede tam install.ps1 (sifirdan) kaniti (opsiyonel son dogrulama).
+- CI workflow'u operator istediginde yeniden aktiflestirme (on: main).

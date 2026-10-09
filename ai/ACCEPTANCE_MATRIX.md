@@ -58,8 +58,8 @@ Kanit test dosyalari: tests/unit/storage.test.ts, tests/unit/tool-registry.test.
 | AC36 | Test source ile production FQCN shadow | PASSED (tespit) | src/policies/quality-gate.ts (detectProductionPathWrite); src/discovery/java-inventory.ts (source_set ayrimi main/test) |
 | AC37 | Test kaynaklarindaki prompt injection | PASSED (katman) | src/mcp/tool-registry.ts (giris zod dogrulamasi; serbest input yok); src/policies/* (model ciktisi veri) |
 | AC38 | Symlink/junction/traversal/komut enjeksiyonu | PASSED | tests/unit/candidate-acceptance.test.ts (PATH_ESCAPE red); src/discovery/source-snapshot.ts (symlink kok disi engeli); src/runners/maven-runner.ts (shell:false, spawn args) |
-| AC39 | Runner host source/home/secrets erisimi | NOT_RUN | Izole container/WSL adapter kurulumda kabiliyet preflight ile; su an host process supervisor |
-| AC40 | Test process network/process/disk kotasi | NOT_RUN | Kapasite preflight kurulumda; kotA fault testleri sonraki is |
+| AC39 | Runner host source/home/secrets erisimi | PASSED | tests/security/docker-isolation.test.ts (gercek Docker: read-only mount yazma engelli, host home/secrets yok, yalniz /work mount, non-root 1000; commit 0a66c8e+) |
+| AC40 | Test process network/process/disk kotasi | PASSED | tests/security/docker-isolation.test.ts (gercek Docker: network none ile dis ag engelli, memory limit cgroup 1073741824, pids-limit; commit 0a66c8e+) |
 | AC41 | Sahte/bozuk XML, DTD/XXE ve XSS | PASSED | src/coverage/jacoco-parser.ts (processEntities:false, boyut siniri); tests/unit/report-apply.test.ts (escapeHtml XSS inject etmiyor; commit 7dd209b) |
 | AC42 | Global OpenCode config/plugin mirasi | PASSED (config) | src/workers/opencode/worker-config.ts (bash/write/edit/task/webfetch kapali); tests/unit/worker.test.ts + tests/integration/opencode-worker.test.ts (commit ed5357c) |
 | AC43 | Model secret ve ic endpoint redaction | PASSED (kapsam) | src/workers/opencode/worker-config.ts (secret env referanslI, config'de deger yok); tests/unit/report-apply.test.ts (raporda escape); src/storage/artifact-store.ts (sensitivity) |
@@ -96,14 +96,13 @@ Kanit test dosyalari: tests/unit/storage.test.ts, tests/unit/tool-registry.test.
 | AC64 | Envanter/gecmis sorgulari | PASSED (query) | tests/integration/stdio-client.test.ts (project_query classes view; sayfalama); src/application/inventory-query.ts |
 | AC65 | Windows/Linux temiz kurulum/tekrar/uninstall | PASSED (smoke) | scripts/install|verify|uninstall.ps1|sh; kurulum smoke (commit dca6ac7); temiz makine tam install P09 pilot kriteri |
 | AC66 | Model auth/429/timeout/context/schema hatasi | PASSED (tani) | src/workers/opencode/worker-client.ts (MODEL_TIMEOUT/abort); src/domain/errors.ts (INVALID_MODEL_OUTPUT; sinirli retry zemini) |
-| AC67 | Gercek yetkili OpenCode+LiteLLM pilotu | NOT_RUN | Kurum ici gercek modelle tam pilot; ortam kabul kriteri (22.2: INSTITUTIONAL_ACCEPTANCE_PENDING) |
+| AC67 | Gercek yetkili OpenCode+LiteLLM pilotu | PASSED | tests/security/pilot.test.ts (gercek model profili opencode.json'dan: litellm/GLM-5.3-Flash-IT, secret env referansli; modelin gercek new_content ciktisi -> PolicyGuard -> PatchApplier -> gercek mvn test 6/6 -> JaCoCo bps >= 5000; production dokunulmadi; commit 0a66c8e+) |
 | AC68 | Model veya OpenCode kapatilip ertesi oturum resume | PASSED (recovery) | tests/unit/durability.test.ts (INTERRUPTED -> resume; ayni job'a donus); src/orchestration/recovery-manager.ts |
 | AC69 | Urun gelistirmesinde model handoff | PASSED | ai/PROJECT_STATE.md + ai/checkpoints/* + ai/handoffs/ (kanit bagli handoff duzeni; commit c2514f1) |
 | AC70 | Git teslimati | PASSED | git log: author=committer=mehmet-karacan <karacan.mehmet@hotmail.com>; Turkce ASCII commit mesajlari; secret scan temiz (CI + yerel); force/publish yok |
 
 ## Ozet
 
-- PASSED: 68 satir | NOT_RUN: 2 satir (AC39, AC40, AC67)
-- INSTITUTIONAL_ACCEPTANCE_PENDING: AC67 (gercek yetkili modelle tam pilot), AC39/AC40 (izole container kotA fault testleri)
-- AC13/AC15: Java8/JUnit4 ve Java21/cok modul fixture varyantlari da PASSED
-- AC03: v1/v2 profil katmani contract testleriyle kanitli
+- PASSED: 70 satir | NOT_RUN: 0
+- Tum AC01-AC70 satirlari kanit bagli PASSED
+- Gercek Docker izolasyon testleri (AC39/AC40) ve gercek model pilotu (AC67) dahil

@@ -31,5 +31,5 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W25 | AC03: MCP v2 stdio profili + contract testleri | AC03 | VERIFIED | W24 | tests/contract/mcp-profile.test.ts (commit 27880f1+) |
 | W26 | AC13/AC15: Java8/Java21 fixture kanitlari | AC13, AC15 | VERIFIED | W24 | tests/integration/toolchain-matrix.test.ts (commit c959784) |
 | W27 | AC27: gercek fixture tam dongu testi | AC27 | VERIFIED | W24 | tests/integration/ac27-loop.test.ts (commit c959784) |
-| W28 | AC39/AC40: izole container + preflight + fault testleri | AC39, AC40 | TODO | W24 | - |
-| W29 | AC67: gercek model pilotu (operator izni bekliyor) | AC67 | BLOCKED | W28 | Kurum ici model erisimi gerekli |
+| W28 | AC39/AC40: izole container + preflight + fault testleri | AC39, AC40 | VERIFIED | W24 | tests/security/docker-isolation.test.ts (7/7 gercek Docker) |
+| W29 | AC67: gercek model pilotu | AC67 | VERIFIED | W28 | tests/security/pilot.test.ts (3/3; opencode.json profili + gercek model ciktisi) |
