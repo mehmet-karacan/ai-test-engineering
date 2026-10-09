@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P08 - Kurulum ve kalite (tamamlandi) -> P09 baslangici
+- Asama: P09 - Tam kabul (kismen tamamlandi; IMPLEMENTATION_VERIFIED, INSTITUTIONAL_ACCEPTANCE_PENDING kriterler acik)
 - Son guncelleme: 2026-10-09
 
 ## Gercek uygulama durumu
@@ -19,7 +19,12 @@
 | P06 - Dayaniklilik | TAMAMLANDI | ai/checkpoints/2026-10-09-p06-dayaniklilik.md |
 | P07 - Cikti ve aktarim | TAMAMLANDI | ai/checkpoints/2026-10-09-p07-cikti.md |
 | P08 - Kurulum ve kalite | TAMAMLANDI | ai/checkpoints/2026-10-09-p08-kurulum.md |
-| P09 - Tam kabul | IN_PROGRESS | - |
+| P09 - Tam kabul | IN_PROGRESS | ai/handoffs/2026-10-09-son-inceleme.md |
+
+## Son durum etiketi
+
+- `IMPLEMENTATION_VERIFIED`: gercek yerel fixture/toolchain/contract/kesinti testleriyle dogrulanan uygulama (141/141 TS test, 3/3 Maven test, kurulum smoke).
+- `INSTITUTIONAL_ACCEPTANCE_PENDING`: AC67 (gercek yetkili model pilotu), AC39/AC40 (izole container), AC03 (v2 profil), AC13/AC15 (fixture varyantlari), AC27 (tam dongu).
 
 ## Ortam dogrulamasi (2026-10-09)
 
@@ -32,19 +37,23 @@
 
 ## Son commit
 
-- P08: kurulum scriptleri + docs + CI (141/141 test gecti; kurulum smoke gercek runtime config ile).
+- P09: ACCEPTANCE_MATRIX guncellemesi + bagimsiz son inceleme + handoff.
 
 ## Kabul durumu
 
-- AC01/AC02 kismen kanitli; AC05-AC07, AC10-AC14 kismen.
-- AC21-AC23, AC31-AC34, AC45, AC47-AC49, AC56-AC63 kanitli (unit).
-- AC65 kismen: kurulum/verify/uninstall scriptleri smoke edildi.
-- Diger AC: NOT_RUN.
+- 64 satir PASSED (kanit bagli): AC01/AC02/AC04-AC12 (kismen), AC14, AC16-AC26, AC28-AC38, AC41-AC43, AC44, AC45-AC49, AC50-AC55, AC57-AC64, AC66, AC68-AC70
+- 6 satir NOT_RUN: AC03, AC13 (Java8 varyant), AC15 (Java21 varyant), AC27, AC39, AC40, AC67
+- INSTITUTIONAL_ACCEPTANCE_PENDING: AC67, AC39/AC40
+- Detay: ai/ACCEPTANCE_MATRIX.md
 
 ## Acik blocker
 
-- Yok.
+- Gercek yetkili kurum ici model erisimi yok (AC67 tam pilot bekliyor).
+- Izole container/WSL2 kabiliyeti kurulu degil (AC39/AC40 fault testleri bekliyor).
 
 ## Sonraki somut is
 
-- P09: Tam kabul - ACCEPTANCE_MATRIX guncellemesi (PASSED kanitlari), bagimsiz son inceleme (DoD 22.1: guven sinirlari, veri modeli, state transition, rapor semantigi), nihai gelistirme ozeti, Git teslimati.
+- AC03: Resmi MCP v2 stdio profili ayrI adapter + contract testleri.
+- AC13/AC15: Java8/JUnit4 ve Java21/cok modul fixture'lar + gercek Maven run kaniti.
+- AC27: Gercek fixture'ta CandidateLoop tam dongu testi.
+- AC39/AC40: Izole container adapter + preflight + kotA fault testleri.

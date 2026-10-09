@@ -26,5 +26,10 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W20 | test_apply akisi: onay + preimage + journal (P07) | AC57-AC60 | VERIFIED | W19 | ai/checkpoints/2026-10-09-p07-cikti.md |
 | W21 | Kurulum scriptleri + config merge/uninstall (P08) | AC65 | IN_PROGRESS | W20 | install/verify/uninstall yazildi + smoke; temiz makine P09 |
 | W22 | docs/ + CI workflow + secret scan (P08) | AC70 | VERIFIED | W21 | ai/checkpoints/2026-10-09-p08-kurulum.md |
-| W23 | AC matrisi guncelleme + bagimsiz son inceleme (P09) | AC01-AC70 | TODO | W21 | - |
-| W24 | Nihai gelistirme ozeti + Git teslimati (P09) | AC70 | TODO | W23 | - |
+| W23 | AC matrisi guncelleme + bagimsiz son inceleme (P09) | AC01-AC70 | VERIFIED | W21 | ai/handoffs/2026-10-09-son-inceleme.md |
+| W24 | Nihai gelistirme ozeti + Git teslimati (P09) | AC70 | IN_PROGRESS | W23 | - |
+| W25 | AC03: MCP v2 stdio profili + contract testleri | AC03 | TODO | W24 | - |
+| W26 | AC13/AC15: Java8/Java21 fixture kanitlari | AC13, AC15 | TODO | W24 | - |
+| W27 | AC27: gercek fixture tam dongu testi | AC27 | TODO | W24 | - |
+| W28 | AC39/AC40: izole container + preflight + fault testleri | AC39, AC40 | TODO | W24 | - |
+| W29 | AC67: gercek model pilotu (operator izni bekliyor) | AC67 | BLOCKED | W28 | Kurum ici model erisimi gerekli |
