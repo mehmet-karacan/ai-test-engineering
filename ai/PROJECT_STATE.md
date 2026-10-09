@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P05 - Test muhendisligi dongusu (tamamlandi) -> P06 baslangici
+- Asama: P06 - Dayaniklilik (tamamlandi) -> P07 baslangici
 - Son guncelleme: 2026-10-09
 
 ## Gercek uygulama durumu
@@ -16,7 +16,8 @@
 | P03 - Izole gercek olcum | TAMAMLANDI | ai/checkpoints/2026-10-09-p03-olcum.md |
 | P04 - OpenCode worker | TAMAMLANDI | ai/checkpoints/2026-10-09-p04-worker.md |
 | P05 - Test muhendisligi | TAMAMLANDI | ai/checkpoints/2026-10-09-p05-dongu.md |
-| P06 - Dayaniklilik | TODO | - |
+| P06 - Dayaniklilik | TAMAMLANDI | ai/checkpoints/2026-10-09-p06-dayaniklilik.md |
+| P07 - Cikti ve aktarim | TODO | - |
 | P07 - Cikti ve aktarim | TODO | - |
 | P08 - Kurulum ve kalite | TODO | - |
 | P09 - Tam kabul | TODO | - |
@@ -32,7 +33,7 @@
 
 ## Son commit
 
-- P05: aday kabul dongusu ve kalite kapilari (111/111 test gecti).
+- P06: dayaniklilik katmani (126/126 test gecti; checkpoint atomic publish + lease/fence + recovery dahil).
 
 ## Kabul durumu
 
@@ -42,6 +43,8 @@
 - AC13/AC14 kismen: gercek Maven/JaCoCo run kanitli.
 - AC21-AC23 unit seviyesinde kanitli.
 - AC31-AC34, AC56 kanitli (unit seviyesi).
+- AC45/AC47/AC48/AC49 kanitli (durability unit; DB + dosya sistemi).
+- AC51 kismen: SOURCE_CHANGED rebaseline akisi kanitli.
 - Diger AC: NOT_RUN.
 
 ## Acik blocker
@@ -50,4 +53,4 @@
 
 ## Sonraki somut is
 
-- P06: Dayaniklilik - checkpoint atomic publish protokolu, lease/fence, job scheduler, recovery (kill/restart), model degisimi, pause/cancel testleri.
+- P07: Cikti ve aktarim - Offline Report Generator (index.html + report.json + manifest.json + changes.patch, DB'den render), artifact export verification, test_apply akisi (onay + preimage kontrol + journal).

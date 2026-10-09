@@ -20,5 +20,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W14 | Role prompts + CandidateChangeSet semasi (P04) | R03 | VERIFIED | W13 | ai/checkpoints/2026-10-09-p04-worker.md |
 | W15 | Aday kabul dongusu + PatchApplier + checkpoint (P05) | AC27, AC28, AC32 | IN_PROGRESS | W13 | PatchApplier + loop testleri gecti; tam fixture dongusu P06 |
 | W16 | Kalite kapilari + gap stratejileri + per-target esikler (P05) | AC33-AC36, AC56 | VERIFIED | W15 | ai/checkpoints/2026-10-09-p05-dongu.md |
-| W17 | Checkpoint atomic publish + lease/fence (P06) | AC47-AC49 | TODO | W15 | - |
-| W18 | Recovery: kill/restart, disk/DB fault, duplicate resume (P06) | AC45, AC46, AC48, AC52 | TODO | W17 | - |
+| W17 | Checkpoint atomic publish + lease/fence (P06) | AC47-AC49 | VERIFIED | W15 | ai/checkpoints/2026-10-09-p06-dayaniklilik.md |
+| W18 | Recovery: kill/restart, disk/DB fault, duplicate resume (P06) | AC45, AC46, AC48, AC52 | IN_PROGRESS | W17 | recovery resume/SOURCE_CHANGED gecti; tam fault injection devam |
+| W19 | Offline Report Generator + export verification (P07) | AC61-AC63 | TODO | W18 | - |
+| W20 | test_apply akisi: onay + preimage + journal (P07) | AC57-AC60 | TODO | W19 | - |
