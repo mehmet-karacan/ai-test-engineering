@@ -105,9 +105,10 @@ $merged = $false
 if (Test-Path $opencodeConfigPath) {
   try {
     $existing = Get-Content -Raw $opencodeConfigPath | ConvertFrom-Json
-    $existing | Add-Member -MemberType NoteProperty -Name mcp -Force -Value $null
+    # mcp=null silici islem KALDIRILDI (D01/F02): mevcut mcp alanini okumadan ezme yok.
     $existingMcp = $existing.PSObject.Properties["mcp"]
     if (-not $existingMcp -or $null -eq $existingMcp.Value) {
+      # mevcut mcp yoksa ekle (diger alanlar korunur)
       $existing | Add-Member -MemberType NoteProperty -Name mcp -Value (@{ "ai-test-engineering" = $serverEntry }) -Force
     } else {
       $mcpValue = $existingMcp.Value
