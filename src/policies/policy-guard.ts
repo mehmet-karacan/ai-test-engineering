@@ -45,24 +45,33 @@ export class PolicyGuard {
     this.allowedTestRoots = allowedTestRoots;
   }
 
+  /**
+   * Ham prefix degil normalize edilmis gercek test-root containment (D03/F06).
+   * `src/test/java/../../../README.md` gibi yollar canonical hedefe cozulur;
+   * test-root disindaki her hedef red edilir.
+   */
   checkPath(relativePath: string): PolicyDecision {
-    const normalized = relativePath.replace(/\\/g, "/");
-    for (const forbidden of FORBIDDEN_PATTERNS) {
-      if (forbidden.pattern.test(normalized)) {
-        return { allowed: false, reason_code: forbidden.code, reason: forbidden.reason };
-      }
-    }
     const absPath = resolve(this.projectRoot, relativePath.replace(/\//g, sep));
     const relCheck = relative(this.projectRoot, absPath);
     if (relCheck.startsWith("..") || isAbsolute(relCheck)) {
       return { allowed: false, reason_code: "PATH_ESCAPE", reason: "Proje koku disina cikiyor" };
     }
+
+    const normalized = relCheck.replace(/\\/g, "/");
+    for (const forbidden of FORBIDDEN_PATTERNS) {
+      if (forbidden.pattern.test(normalized)) {
+        return { allowed: false, reason_code: forbidden.code, reason: forbidden.reason };
+      }
+    }
+
     const inAllowedRoot = this.allowedTestRoots.some((root) => {
       const rootPrefix = [root.module_relative_path, root.test_root].filter((p) => p.length > 0).join("/");
-      return normalized === rootPrefix || normalized.startsWith(rootPrefix + "/");
+      const rootAbs = resolve(this.projectRoot, rootPrefix.replace(/\//g, sep));
+      const relToRoot = relative(rootAbs, absPath);
+      return relToRoot.length > 0 && !relToRoot.startsWith("..") && !isAbsolute(relToRoot);
     });
     if (!inAllowedRoot) {
-      return { allowed: false, reason_code: "NOT_TEST_ROOT", reason: "Izin verilen test koku disinda" };
+      return { allowed: false, reason_code: "NOT_TEST_ROOT", reason: "Izin verilen test koku disinda (canonical containment)" };
     }
     return { allowed: true, reason_code: "OK", reason: "Izin verilen test koku icinde" };
   }
