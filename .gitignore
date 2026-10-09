@@ -39,3 +39,6 @@ Thumbs.db
 target/
 *.class
 hs_err_pid*
+
+# Kullanici oturum kaydi (public'e gitmez - gorev bolum 12.1)
+session-*.md

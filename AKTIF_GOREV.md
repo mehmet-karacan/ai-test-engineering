@@ -1,1352 +1,683 @@
-# AKTIF_GOREV - AI Test Engineering
+# AKTIF_GOREV - AI Test Engineering: Gercek Uctan Uca Akis ve Guvenli Kabul
 
-## Belge kimligi ve uygulama emri
+## 0. Gorev kimligi, yetki ve baslangic protokolu
 
-- Gorev kimligi: AITE-FOUNDATION-001
-- Belge surumu: 1.0
-- Hazirlama ve arastirma tarihi: 2026-10-09
-- Hedef repository: `https://github.com/mehmet-karacan/ai-test-engineering`
-- Hedef: OpenCode uzerinden kullanilan, kalici hafizali, test-only calisan bagimsiz test muhendisligi MCP urununu uctan uca gelistirmek.
-- Teslim bicimi: Tek onayli gorev, icinde dogrulanabilir uygulama asamalari. Sadece iskelet, tasarim, prompt paketi veya demo teslim etmek bu gorevi tamamlamaz.
-- Kullanici arayuzu: Mevcut OpenCode CLI/TUI. Yeni kullanici CLI'i ve web UI gelistirilmeyecek.
-- Git kimligi: `mehmet-karacan <karacan.mehmet@hotmail.com>`.
-- Yeni Git commit mesajlari ve projeye ait Turkce aciklamalar Turkce ASCII yazilacak. Teknik kimlikler ve kullanici kaynak dosyalari donusturulmeyecek.
+- Gorev kimligi: `AITE-REMEDIATION-002`
+- Belge surumu: `1.1`
+- Inceleme tarihi: `2026-10-10`
+- Repository: `https://github.com/mehmet-karacan/ai-test-engineering`
+- Incelenen dal: `main`
+- Incelenen HEAD: `c5307f5315a288092a1293d874c335f8db5ecd3d`
+- Onceki gorev: `AITE-FOUNDATION-001`, repository'deki `AKTIF_GOREV.md` v1.0.
+- Amac: Onceki gorevin mevcut implementasyonundaki kanitli hatalari duzeltmek, kopuk bilesenleri gercek MCP kullanici akisina baglamak ve ilk kapsamli teslimati gercek kabul kanitlariyla tamamlamak.
+- Bu bir yeni urun/yeniden yazim/UI gorevi degildir. Mevcut kod, anlamli testler, kararlar ve Git gecmisi korunur.
+- Uygulayici model bu dosyayi yalniz ozetlemez; asamalari uygular, test eder ve kesilirse kayitlardan devam eder.
 
-**Uygulayici modele talimat:** Bu belgeyi yalniz ozetleme. Repository'nin gercek durumunu kontrol et, gelistirme hafizasini kur ve asagidaki sozlesmeye uygun urunu uygula. Her asamayi gercek testlerle dogrula. Kesinti olursa kayitli kanitlardan devam et. Kapsami kendiliginden daraltma, yeni urun kapsami ekleme veya eksik entegrasyonu basarili ilan etme.
+### 0.1 Ilk yapilacaklar
 
-**Iki farkli kod alani:** Buradaki production korumasi, urunun TEST_ONLY goreviyle uzerinde calistigi MUSTERI/JAVA PROJESININ kaynaklari icindir. Bu MCP urununu gelistirirken `ai-test-engineering/src/`, kendi build dosyalari, yardimci Java modulu ve kendi testleri elbette olusturulacak/degistirilecektir. Bu ayrim gelistirmeyi engelleyen genel bir yazma yasagina donusturulmemelidir.
+1. Mevcut `AGENTS.md`, bu belge, `ai/PROJECT_STATE.md`, `ai/BACKLOG.md`, `ai/ACCEPTANCE_MATRIX.md` ve son handoff'u oku. Gercek branch/HEAD/status/remote'u kontrol et.
+2. Incelenen HEAD'den sonra commit varsa ilgili diff'i incele. Bu belgede duzeltilmesi istenen bir konu zaten giderilmisse bunu test ve commit kanitiyla isaretle; duzeltilmis kodu eski hale getirme. `reset --hard`, `clean`, otomatik stash, force push veya kullanici dosyasi silme yapma.
+3. Onceki gorevin orijinal metnini, belirtilen commit'in Git nesnesinden okuyarak `ai/tasks/archive/AITE-FOUNDATION-001.md` altinda arsivle. Mevcut arsiv varsa hash/icerik kontrolu yap, ezme. Yeni aktif gorevi yanlislikla eski gorev diye arsivleme.
+4. `AGENTS.md` baslangic protokolunu bu aktif goreve ve arsivdeki R01-R20/AC01-AC70 sozlesmesine yonlendir. Eski bolum numaralarini yeni dosyada ayni sanma. Tek aktif giris noktasi kokteki `AKTIF_GOREV.md` olsun.
+5. `ai/reviews/2026-10-10-foundation-review.md` olustur; bu belgedeki F01-F14 bulgularini kaynak/islev ve tekrar uretme kanitiyla takip et. Gecmis "tamamlandi" kayitlarini silme; yeni denetimin onlari neden gecersiz kildigini acik bir duzeltme kaydi ekle.
+6. Mevcut `FULL_ACCEPTANCE_VERIFIED` etiketi yeniden kullanilmayacak. Ilk durum `REMEDIATION_IN_PROGRESS`; eski 70/70 kaydi tarihsel model beyanidir, yeni kabulun gercegi degildir.
+7. **Guncel hatali `scripts/install.ps1` ve `scripts/clean-install-verify.ps1` dosyalarini gercek kullanici konfigurasyonunda calistirma. Once D01'deki koruma ve izole kurulum testleri tamamlanacak.**
+8. **Windows'ta PowerShell script calistirma yetkisi olmayabilir. Kurulum/verify/uninstall ve gelistirme komutlari PS1'e bagimli olmayacak; CMD + Node.js standart yol olacak. Kurumsal imza/execution policy ayarini degistirme veya dolanma. Git sadece surum kontrolu icin, Git Bash ise kurulu ve izinliyse opsiyonel shell icin kullanilabilir.**
 
-### Ilk okuma sirasi
+### 0.2 Kanit duzeyleri ve bu incelemenin siniri
 
-1. Bu belgenin 1-5. bolumlerini ve 22. bolumdeki bitis kriterlerini oku.
-2. Mevcutsa `AGENTS.md`, `ai/PROJECT_STATE.md`, `ai/BACKLOG.md`, son handoff ve Git durumunu oku.
-3. Yeni kurulumda 18. bolumdeki gelistirme hafizasini kur; mevcut kayitlari ezme.
-4. 19. bolumdeki asamalari sirasiyla uygula; ilgili teknik bolumleri ihtiyac halinde yeniden oku.
-5. 20. bolumdeki kabul matrisi ve 23. bolumdeki kaynak kayitlari, uygulamanin referansidir.
+Bu belge, kullanicinin verdigi oturum kaydi, GitHub connector ile okunan sabit commit kaynaklari ve resmi OpenCode/Node/MCP belgelerinin karsilastirilmasina dayanir. Kaynakta gorulen hata ile gercek ortamda calistirilarak dogrulanan davranis ayri tutulmustur.
 
-Bu belgedeki teknik API ornekleri urunumuzun TASARLANACAK sozlesmeleridir; OpenCode veya MCP SDK'sinin var oldugu varsayilan metotlari degildir. Dis SDK cagrilarinda gercek kurulu surumun tipleri ve resmi belgeleri esas alinacaktir.
+- Oturum kaydi `session-ses_ede2.md`, modelin 168/168 TypeScript testinin gectigini ve son commit'in push edildigini bildiriyor. Bu tarihsel cikti reddedilmiyor; ancak bu testlerin kapsami tum urun sozlesmesini kanitlamiyor.
+- Bu inceleme ortaminda tam repository build'i, 168 test, Docker, Windows kurulum, Maven veya kurum ici model kabul testi yeniden calistirilmadi. Container Node surumu `v22.16.0`; urunun hedefi Node 24 ailesi. Maven/Docker/PowerShell bu ortamda yoktu. GitHub connector okumasi calisti, container'dan repository clone'u DNS nedeniyle basarisizdi.
+- Bazi saf ifade davranislari ayri mikro deneyle tekrar uretildi: test-root ham prefix/canonical path uyusmazligi, HTTP 204'te JSON parse hatasi, ic ice message nesnesini duz okuma, POSIX ters slash yolu, tautolojik assertion regex acigi. Bunlar tam urun test sonucu degildir.
+- Gercek kurum kaynaklarina/endpoint'lerine erisilmedi, repository'ye degisiklik/commit/push yapilmadi. Bu gorevi uygulayan model kendi ortaminda gercek dogrulama yapmak zorundadir.
 
----
-
-## 1. Dogrulanmis baslangic durumu ve gizlilik
-
-### 1.1 Repository incelemesi
-
-2026-10-09 tarihinde GitHub connector ile repository metadatasi ve kok icerigi kontrol edildi. Repository boyutu 0, varsayilan dal bilgisi `main`, gorunurluk `public`. Kok icerik sorgusu `This repository is empty.` sonucunu verdi. Dolayisiyla incelenecek mevcut uygulama, README, AGENTS veya son commit bulunmuyordu. Henuz olusmamis dal icin commit SHA uydurma. Bu belge hazirlanirken repository'ye yazma, commit, push veya gorunurluk degisikligi yapilmadi. [S01]
-
-Uygulayici calismaya basladiginda yeniden kontrol eder. Arada kaynak kod eklenmisse korur, mevcut mimariyi analiz eder ve bu goreve gore eksiklerini tamamlar. Bos repository varsayimiyla kullanici dosyalarini silmez.
-
-### 1.2 Public repository siniri
-
-Repository public oldugundan su icerikler Git'e, CI artifact'lerine veya issue'lara otomatik gitmeyecek:
-
-- Gercek kurum ici API adresleri, kurum ici duyuru gorselleri, model yetki dokumleri ve kullaniciya ozel OpenCode/LiteLLM ayarlari.
-- API key, bearer token, parola, Maven settings kimlik bilgileri, TLS ozel anahtarlari, ortam degiskeni dokumleri.
-- Musteri projelerinin kaynak kodlari, gercek testleri, local path listeleri, SQLite DB, runtime loglari ve kaynak icerebilen JaCoCo HTML raporlari.
-- Gercek projelerden alinmis prompt/response, patch, checkpoint veya CI loglari.
-
-Kodda genel ve sentetik ornekler kullan. Yerel ozel konfigrasyonu kaynak repository'si disinda sakla. Public gorunurlugu kendiliginden degistirme. Kurum ici bilgi yayinlanmasi gerekiyorsa once kullanicidan ayri karar al. Bu urunun public olmasi, kurum verisini dis modele gonderme yetkisi vermez.
-
-### 1.3 Kesinlestirilen urun cumlesi
-
-> Kullanici, yetkilendirilmis Java projesinde OpenCode'u acar ve "PaymentService icin coverage %90 olsun" der. Sistem projeyi ve sinifi dogru bulur; sadece test olusturur veya gelistirir; Maven/JUnit/JaCoCo ile sonucu olcer; hedefe kadar kontrollu iterasyon yapar; kesilirse ayni gorevden devam eder; sonunda gercek sonucu ve kanitlarini sunar.
-
-Kurulum/onay/prerequisite ihtiyaci ile gunluk kullanim ayridir. Bir defalik guvenli kurulum yapilmadan herhangi bir makinede sifir ayarla calisma garantisi verilmez. Normal test gorevinde kullanicidan komut dizisi, framework surumu, JaCoCo XML yolu veya elle checkpoint yonetimi istenmez.
+**Hedef:** "Kod dosyasi var" -> "bilesen testi geciyor" -> "normal MCP yolundan calisiyor" -> "kesinti/guvenlik/kabul testleri geciyor" basamaklarini ayri ve kanitli tamamla.
 
 ---
 
-## 2. Degismeyecek urun kurallari
+## 1. Degismeyen urun sozlesmesi
 
-| ID | Kural |
+Arsivlenen foundation gorevinin R01-R20 ve AC01-AC70 maddeleri gecerliligini korur. Bu belge, onlara aykiri implementasyonu duzeltir; kapsamlarini azaltmaz.
+
+| Konu | Baglayici davranis |
 | --- | --- |
-| R01 | Zekam'dan bagimsiz repository, uygulama, veri deposu ve kurulum. GPU/SKY/kurum projesi adlarini is mantigina gomme. |
-| R02 | Kullanici mevcut OpenCode CLI/TUI'yi kullanir. Ayrica `aitest run` gibi bir urun CLI'i, React dashboard veya IDE eklentisi yazma. |
-| R03 | Urun, gercek orkestrasyon ve kalici durum yoneten MCP uygulamasidir; sadece SKILL.md veya modelin sozlu planindan ibaret degildir. |
-| R04 | Musteri projesinde production kaynaklar, production kaynak dosyalari disindaki davranis etkileyen kaynaklar, POM/build ve coverage politikalari degismez. |
-| R05 | Yalniz dogrulanmis test koklerinde yeni test veya mevcut test iyilestirmesi. Mevcut basarili testler silinmez, disable edilmez, anlamsizlastirilmaz. |
-| R06 | Test sonucu ve coverage, modelin beyanindan degil guvenilir runner'in gercek ciktilarindan hesaplanir. |
-| R07 | Yalniz yuzde verildiginde varsayilan secili hedef basina LINE ve uygulanabilir BRANCH hedefidir. Hedef, proje ortalamasi ile gizlenmez. |
-| R08 | Hedef saglanmazsa dusuk sonuc basari gibi sunulmaz. Son dogrulanmis iyilestirme korunur; engel/belirsizlik/deneme kaniti raporlanir. |
-| R09 | Oturum, model, baglanti veya makine kesintisinden sonra kalici job/checkpoint ile devam zorunludur. |
-| R10 | SQLite proje baglantilarini, kod/test envanterini ve is gecmisini tutar. Buyuk ciktilar hash'li artifact deposunda saklanir. |
-| R11 | Runtime veri ve musteri proje kopyalari product repository'sinin ve hedef repository'nin disinda, kullaniciya ozel yerde kalir. |
-| R12 | Urunun AI ile gelistirme gecmisi repository icindeki `ai/` altinda tutulur. Runtime hafizasiyla karistirilmaz. |
-| R13 | JaCoCo'yu MCP calistirir; kullanicinin IDE'den coverage calistirmasi gerekmeyecek. |
-| R14 | OpenCode sonucu + offline HTML muhendislik raporu + JSON + ham JaCoCo/test/diff/checkpoint kanitlari uretilir. |
-| R15 | Model/provider kimlikleri konfigure edilir; ayni gorev baska yetkili modelle devralinabilir. Dis saglayiciya sessiz fallback yapilmaz. |
-| R16 | Ilk teslimat cok modullu Maven, dogru sinif cozumu, regresyon korumasi ve test kalite denetimini icerir. |
-| R17 | Kullaniciya ait dirty/untracked dosyalar korunur. Otomatik stash/reset/clean, kaynak repo'ya otomatik commit/push yoktur. |
-| R18 | Tek kapsamli teslimat; asamalar sadece gelistirme ve checkpoint duzenidir. Eksik ana ozellikler 'sonra yapilir' diye kapatilmaz. |
-| R19 | Guvenlik yalniz prompt'a veya OpenCode izinlerine dayanmaz; model ciktilari ve calistirilan kod guven sinirlarindan gecirilir. |
-| R20 | Modelin gizli dusunce zinciri istenmez/saklanmaz. Devam icin acik plan, karar gerekcesi, kanit ve siradaki eylem yeterlidir. |
+| Arayuz | Kullanici mevcut OpenCode CLI/TUI'yi kullanir. Yeni test CLI'i, web UI veya IDE eklentisi yok. |
+| Windows komut ortami | PowerShell/PS1 gerektirmeden CMD (`cmd.exe`) ve Node.js ile kurulum, dogrulama, kaldirma ve gelistirme testleri. Git Bash yalniz opsiyonel; Git.exe surum kontrol aracidir. |
+| Entegrasyon | Gercek MCP server + application services + kalici job motoru. Skill yalniz kisa yonlendirme katmanidir. |
+| Dogal dil | "PaymentService icin coverage %90 olsun" normal giristir. Kesif/analiz/tasarim/uretim/test/olcum otomatik ilerler. |
+| Varsayilan hedef | Secilen her sinif icin LINE ve uygulanabilir BRANCH hedefi. Proje ortalamasi, yuvarlama veya line-only karar basari yerine gecmez. |
+| Musteri kaynaklari | Production, POM/build, wrapper, coverage politikalari degistirilmez. Test icinden uretim kodunu/shadow siniflari/agent'i degistirerek sonuc oynanmaz. |
+| Testler | Yalniz dogrulanmis test koklerinde yeni test/iyilestirme. Mevcut anlamli testler silinmez, devre disi birakilmaz veya anlamsizlastirilmaz. |
+| Calistirma | Musteri build/test kodu guvenli izole runner'da calisir. Izolasyon yoksa BLOCKED; sessiz host fallback yok. |
+| Kabul | Sonucu model degil gercek build/test/JaCoCo/provenance ve kalite kapilari belirler. |
+| Hedef saglanmazsa | Son dogrulanmis test seti korunur. Plateau, butce, ortam engeli, testability engeli ve belirsizlik birbirinden ayrilir. |
+| Devam | Konusma gecmisi olmadan ayni job/checkpoint'ten devam; model degisebilir. Ilerleme sifirlanmaz. |
+| Depolama | SQLite proje/checkout/envanter/test/job/run/coverage/model gecmisini tutar; buyuk ve hassas artifact'ler dis yerel store'dadir. |
+| Rapor | OpenCode ozeti + offline HTML + JSON + gercek JaCoCo XML/HTML + test loglari + patch + checkpoint. IDE'de yeniden coverage kosmak gerekmez. |
+| Uygulama | Orijinal checkout'a yazma ayri ve acik onaylidir. Guvenilir onay adapter'i yoksa patch-only sonuc; modelin "onay verildi" metni yetki degildir. |
+| Ortamlar | Tek/cok modullu Maven; mevcut JUnit 4/5 ve varsa Mockito; Windows ve Linux icin gercek destek kaniti. |
+| Gizlilik | Kurum ici endpoint, token, customer kaynak/rapor/DB ve raw session public repository'ye gitmez. |
+| Sinir | Zekam, yeni UI/CLI, SaaS, Jenkins botu, Gradle motoru, otomatik production refactor veya yeni dil kapsam disidir. |
 
-Hedefe ulasmak R04/R05/R06/R19 kurallarini asma gerekcesi degildir. Production refactoring sadece AYRI bir kullanici onayli gelistirme isi olabilir; bu urunun test gorevi onu otomatik uygulamaz.
+Urunun kendi `src/`, testleri ve build dosyalari bu gorevde degistirilebilir. Musteri projesine ait test-only kurali, MCP urununu gelistirmeyi engelleyen genel bir yazma yasagi degildir.
 
 ---
 
-## 3. Arastirma bulgulari ve alinacak tasarim kararlari
+## 2. Sabit commit'te tespit edilen bulgular
 
-Bu bolumdeki dis kaynak gozlemleri arastirma sonucudur. Bunlardan sonra verilen secimler bu urune ait tasarim kararlaridir; dis projelerin ayni kurumsal garantileri verdigi iddia edilmez.
+Kaynaklarin tumu bolum 12'deki inceleme commit'ine baglidir. Oncelik P0: guvenlik, veri kaybi, yanlis basari veya ana kullanici akisinin eksikligi. P1: zorunlu destek/kalite/kabul eksigi. Tam satir numarasi, uygulanacak HEAD'de degisebilecegi icin islev adlariyla birlikte dogrulanacak.
 
-### 3.1 Gercek uygulamalarla karsilastirma
+### F01 - P0: MCP is kaydi aciyor, otomatik test muhendisligini calistirmiyor
 
-| Kaynak | Dogrulanan yaklasim | Urune alinacak fikir | Dogrudan alinmayacak kisim |
-| --- | --- | --- | --- |
-| CoverUp | Python tarafinda eksik coverage bolgesine gore aday uretme, test calistirma, hata/coverage geri beslemesi ve checkpoint kodu var. [S02] | Coverage-gudumlu kucuk hedefler, basarisiz deneme hafizasi, gercek kazanima gore aday kabul. | Python motorunu Java'ya hazir cozum sayma. Incelenen kaynakta test devre disi birakma ve eksik import kurma yollarini aktarma. |
-| ChatUniTest | Java icin generate/validate/repair ayrimi, package/import onarimi ve coverage geri beslemesi var. [S03] | Java baglami, sinirli deterministik onarim, derleme hatasini sonraki denemeye tasima. | POM'a baglanan dogrudan urun bagimliligi yapma. Incelenen COVERUP sinifinda coverage analizi exception'inda `true` donen yol bizim dogrulamamizda basari olamaz. |
-| TestWeaver | Repository, Python deneyleri icin execution feedback, slicing ve hedefe yakin test secimini anlatiyor. [S04] | Kalan bosluga odakli baglam, onceki en yararli adayi yeniden kullanma, anlamsiz tekrarlarin azaltilmasi. | Python trace/slicing altyapisinin Java'da hazir oldugunu varsayma. JaCoCo XML'den olmayan execution trace'i uydurma. |
-| Meta TestGen-LLM | Mevcut testleri gelistirme ve uretilen adaylari gercek calistirma/coverage filtrelerinden gecirme yaklasimi. [S05] | Aday uretimi ile kabul kararini ayir. | Makaledeki basari oranlarini kurum ici modellerimizin performans tahmini olarak kullanma. |
-| Qodo Cover | README bakimin 2025-06-15 itibariyla surdurulmedigini belirtiyor. [S06] | Genel coverage feedback fikrine ek referans. | Bakimi duran projeyi cekirdek bagimlilik/fork tabani olarak secme; lisans/guvenlik denetimi olmadan kod kopyalama. |
+**Kaynak:** `src/mcp/stdio-entry.ts`, `src/mcp/server-setup.ts:createToolRegistry`, `src/application/services.ts:handleTestStart/handleTestStatus`.
 
-Incelenen somut dosya/icerik SHA'lari 23. bolumdedir. Bunlar Git blob SHA'laridir; repository commit SHA'si diye etiketleme.
+Gercek stdio girisi dort arac kaydediyor: `project_inspect`, `project_query`, `test_start`, `test_status`. `test_start` kesif/is kaydi/event olusturup donuyor. Buradan CandidateLoop, OpenCode worker, Maven runner, checkpoint veya rapor akisina dispatch yok. `test_status.last_trusted_coverage` sabit `null`. `test_resume`, `test_cancel`, `test_result`, `test_apply` normal MCP yuzeyine bagli degil.
 
-### 3.2 OpenCode ve MCP icin kritik uyumluluk bulgusu
+**Etkisi:** Bilesenlerin ayri ayri varligi, "tek cumleyle biten ve devam edebilen urun" anlamina gelmiyor. `tests/integration/stdio-client.test.ts` yalniz dort araci, is kimligini ve event varligini dogruluyor; job'un test uretip bitmesini beklemiyor.
 
-OpenCode'un resmi SDK'si server/client ve session API'lerini sunuyor. Bu hazir ajan motoru kullanilacak; yeni genel amacli kod ajani yazilmayacak. SDK ve server surumleri birlikte dogrulanacak. [S07]
+**Kapatma:** D02; normal dagitilan server entrypoint'inden, gercek transport uzerinden RG11-RG14 ve RG41-RG44.
 
-2026-07-28 MCP degisiklikleri yeni protokol davranislarini ve Tasks'in ayri uzantiya tasinmasini iceriyor. Resmi TypeScript SDK ana dali v2 paketlerini belgeliyor. Buna karsilik bu arastirmada OpenCode `dev/packages/opencode/package.json` dosyasinda `@modelcontextprotocol/sdk: 1.29.0` goruldu. Bu, kullanicinin yuklu binary surumunu kanitlamaz fakat 'en yeni MCP SDK her OpenCode ile otomatik uyumludur' varsayimini gecersiz kilar. [S08][S09][S10]
+### F02 - P0: Windows kurulum merge islemi diger MCP baglantilarini silebiliyor
 
-**Karar:** Is mantigindan bagimsiz, ince MCP transport adapter'i yaz. OpenCode icin dogrulanmis 2025-11-25/v1 uyumluluk profili ve yeni protokol icin v2 stdio profili ayni typed tool registry'yi kullansin. Paket isimlerini ve protokol yasam dongulerini karistirma. Iki profil de contract testlerinden gececek. Kullaniciya ayri CLI sunulmadan kurulumun sectigi server entrypoint/config ile profil belirlenebilir. Otomatik protokol algilama yazilacaksa resmi SDK destegi ve gercek test kaniti gerekir; elle uydurulmus initialize/discover melez protokol yazma.
+**Kaynak:** `scripts/install.ps1`, ozellikle `Add-Member -Name mcp -Force -Value $null`; `scripts/clean-install-verify.ps1`; oturumdaki temiz-kurulum ciktilari.
 
-Is hafizasi MCP session/task uzantisinda olmayacak: `job_id`, checkpoint ve durum bizim storage katmanimizdadir. Tasks/Sampling/Roots desteklenmese de ana islevler calisir. Proje yolu typed tool parametresiyle acik aktarilir. SSE baglantisini yeniden acmak, urun job'unu yeniden baslatmak anlamina gelmez.
+Installer, mevcut `mcp` alanini okumadan once `null` yapiyor, sonra yalniz kendi kaydini yaziyor. Bu merge degildir. Temiz-kurulum testi sadece `LOCALAPPDATA` degistirirken installer `USERPROFILE/.config/opencode/opencode.json` dosyasina yaziyor; oturum ciktilari gercek kullanici config'inin bu denemelerde degistirildigini gosteriyor. Gecici backup dizini temizlikte silinebiliyor.
 
-### 3.3 Guvenlik ve olcum karari
+**Etkisi:** Diger MCP baglantilarinin kaybi, testin gercek kullanici ayarini kirletmesi. Bu inceleme kullanicinin mevcut config'ini okumadi; hangi kayitlarin fiilen kayboldugu bilinmiyor.
 
-OpenCode SECURITY.md, izin sisteminin sandbox olmadigini acikca soyluyor. Bu nedenle 'production'a dokunma' prompt'u ve Git worktree tek basina guvenlik siniri kabul edilmeyecek. [S11]
+**Kapatma:** D01. Once mevcut dosyanin guvenli yedegi; yalniz kayip oldugu kanitlanan kayit icin kullanici onayli kurtarma. Tum config'i eski backup ile korlemesine ezme.
 
-JaCoCo bytecode tabanlidir; satir bilgisi debug metadata'sina baglidir ve exception handling BRANCH sayaci degildir. Surefire agent baglantisi, argLine ve fork ayarlari olcumu etkiler. XML/HTML uretmek tek basina dogru olcum yapildigini kanitlamaz. [S12][S13][S14]
+### F03 - P0: BRANCH hedefi varken LINE ile TARGET_REACHED veriliyor
 
-**Karar:** Degismez kaynak snapshot'i + aday test degisiklikleri + izole calistirma + gercek bytecode/rapor provenance'i. Guvenilir coverage yoksa hedef saglanmis sayilmaz. Guvenlik kabiliyeti yoksa fail-closed preflight, production koduna yazilabilir host fallback degil.
+**Kaynak:** `src/orchestration/candidate-loop.ts:iterate`.
 
-### 3.4 Teknoloji secimi
+`branch_target_bps` girisi var ama hedef karari yalniz `afterBps >= line_target_bps`; `afterBps` LINE sayacindan geliyor. `candidate === null` yolunda da yalniz LINE kontrol ediliyor. `evaluateMetric/evaluateTarget` import edilmis olmasi gercek dongude kullanildigi anlamina gelmiyor.
 
-| Alan | Secim | Gerekce/uygulama kurali |
+**Etkisi:** LINE %95, BRANCH %40 olan sinifa %90 hedefine ulasildi denebilir. Branch-only kazanim da kaybedilebilir.
+
+**Kapatma:** D05; her karar yolu ayni per-target/per-metric dogrulayicidan gecsin. RG21-RG23 zorunlu.
+
+### F04 - P0: Sonuc puani tutuluyor, birikimli dogrulanmis test seti sahiplenilmiyor
+
+**Kaynak:** `src/orchestration/candidate-loop.ts:applyOverlay/revertOverlay/iterate`, `src/application/patch-applier.ts`.
+
+Aday overlay'i `finally` icinde geri aliniyor; daha sonra karar `adopted` olabiliyor. Sonraki iterasyon, onceki kabul edilmis testlerin birikimli snapshot'i yerine eski calisma agaci uzerinden baslayabiliyor. Loop DB/checkpoint/artifact katmanlarina bagli degil. Ayni staging alaninda reddedilen/yarim aday dosyalari kalabiliyor. `max_repairs_per_candidate` gercek repair dongusune baglanmamis.
+
+**Etkisi:** Yuksek coverage rakami ile disari verilen test dosyalari farkli hale gelebilir; kesinti sonrasinda sonucun yeniden kurulmasi kanitli degil.
+
+**Kapatma:** D05/D06; immutable baseline + accepted test snapshot + ayri candidate snapshot. Final export, yeni temiz workspace'te yeniden olculen ayni accepted set olmalidir.
+
+### F05 - P0: Docker bileseni var, normal test dongusu host Maven calistiriyor
+
+**Kaynak:** `src/runners/maven-runner.ts`, `src/runners/docker-runner.ts`, `src/orchestration/candidate-loop.ts`.
+
+Loop varsayilani `new MavenRunner()`; bu sinif host `spawn` ile calisiyor ve `process.env`'i miras veriyor. DockerRunner eklenmis olsa da bu yolun yerine baglanmamis. Docker timeout yolu platforma bakmadan `taskkill` kullaniyor; Docker CLI process'ini oldurmek container sonlanma kaniti degil. Writable mount'larin sahipligi/siniri dogrulanmiyor. Log/buffer ve disk sinirlari tamamlanmamis. `assertIsolationHolds` probe'unun basarili yazma durumunda hata uretmesi de garanti degil.
+
+Linux Maven kill yolundaki `child.killed`, process'in gercekten bittigi anlamina gelmez [E02]. Calisma sonucunu `exit` olayindan almak butun stdout/stderr'nin bittigini kanitlamaz; `close` ve supervisor semantigi gerekir.
+
+**Etkisi:** Ana akisa yalniz kablo baglamak guvensiz host calistirmasini aktiflestirebilir. Once izolasyon gecidi kurulacak.
+
+**Kapatma:** D03; guvenli capability yoksa ana job calismaz. RG15-RG20, RG34-RG36.
+
+### F06 - P0: Test-root denetimi canonical hedef yerine ham metne bakiyor
+
+**Kaynak:** `src/policies/policy-guard.ts:checkPath`, `src/application/patch-applier.ts:apply`.
+
+`src/test/java/../../../README.md` ham olarak izin verilen prefix'le basliyor, fakat canonical hedef proje kokundeki `README.md`. Proje disina cikmadigi icin mevcut proje-root denetimi bunu engellemiyor. Symlink/junction hedefinin gercek test-root'a ait olmasi ayrica dogrulanmiyor. `new_content ?? patch`, unified diff'i dosyanin yeni icerigi gibi yazabiliyor. Silme eylemi genel olarak kabul ediliyor; before-hash eslesmesi zorunlu degil.
+
+**Etkisi:** Izin verilen test koku disina yazma; yanlis/yarim changeset; kullanici testlerini silme veya stale aday.
+
+**Kapatma:** D03/D05. Ham prefix degil normalize edilmis gercek test root containment; platform path kurallari; schema/onceki hash/atomic aday uygulanmasi. RG15, RG19, RG27.
+
+### F07 - P0: OpenCode worker'in yanit sozlesmesi resmi API ile uyusmuyor
+
+**Kaynak:** `src/workers/opencode/worker-client.ts:promptAsync/waitForCompletion/createSession`, `tests/integration/opencode-worker.test.ts`; resmi server belgesi [E01].
+
+- `prompt_async` resmi cevap olarak `204 No Content` verir; client kosulsuz `response.json()` cagiriyor.
+- Mesaj listesi `{ info: Message, parts: Part[] }[]`; client role/completed/id alanlarini dis nesnede ariyor.
+- Directory, request korelasyonu, auth, timeout/abort ve tamamlanma semantigi kurulu server'in gercek `/doc`/SDK tipleriyle baglanmali. `createSession` body'sine `directory` koymak tek basina dogru dizin kaniti degil.
+- Entegrasyon testi gercek prompt/cevap dongusunu calistirmiyor; health/session/abort ve flag degerlerine bakiyor.
+- Worker config, flag nesnesi uretmekle sinirli; global config/plugin/MCP/hook izolasyonunu tek basina kanitlamiyor.
+
+**Kapatma:** D04. Mevcut sunucunun surumu ve tipleriyle gercek prompt, response, timeout ve model hatasi testleri. RG24-RG26, RG41-RG42.
+
+### F08 - P0: Lease/checkpoint/recovery semantigi guvenli devam sozlesmesini karsilamiyor
+
+**Kaynak:** `src/orchestration/lease-manager.ts`, `checkpoint-store.ts`, `recovery-manager.ts`.
+
+- `acquire`, diger sahibin suresi bitmemis lease'ini bile guncelleyip devraliyor; `previous_owner_alive` sonucu devri engellemiyor.
+- `release` kaydi siliyor; yeni acquisition token'i yeniden 1 olabilir. Kalici monoton fencing saglanmiyor.
+- Checkpoint publish'te fence opsiyonel, expiry kontrolu yok; parent generation dogrulamasi job'un guncel pointer'ina atomik CAS degil.
+- `UNVERIFIED` kayit `best_checkpoint_id` olabiliyor. Verify, manifest'in hash/schema'sini kontrol ediyor; accepted test blob/run/coverage grafini dogrulamiyor.
+- Recovery yalniz non-null eski dirty_digest'i karsilastiriyor; build digest girdisi kullanilmiyor. Birden fazla isi sessizce en yenisine indiriyor. Bozuk son checkpoint'te daha eski guvenilir ancestor yerine fresh_start donuyor.
+
+**Kapatma:** D06; uygulama genelindeki butun yan etkilerde fence/generation, immutable accepted artifact zinciri, gercek hard-kill testleri. RG31-RG37.
+
+### F09 - P1: Kalite/regresyon denetimi esas olarak regex ve exit code'a dayaniyor
+
+**Kaynak:** `src/policies/quality-gate.ts`, `src/orchestration/build-plan.ts`, `candidate-loop.ts`.
+
+`assertTrue(true)` anlamli assertion sayilabiliyor. `isSutShadowing` test kaynaklarindaki ayni production FQCN'i degil `/src/main/` yolunu ariyor. Dosyada test silinmesi/assertion zayiflatilmasi ile baz seti karsilastirilmiyor. Baseline exit 0 ise missing/zero-test raporu PASSED olabiliyor; XML parse hatalari sessizce atilabiliyor. `UNSTABLE` tipinin bulunmasi tekrarli baseline/flake kontrolu oldugunu gostermiyor.
+
+**Kapatma:** D07; AST + gercek test kimlikleri + once/sonra davranis incelemesi + fail-closed run raporu. RG28-RG30, RG22, RG43.
+
+### F10 - P1: Kesif ve platform destegi dar fixture disinda eksik
+
+**Kaynak:** `src/discovery/java-inventory.ts`, `pom-discovery.ts`, `source-snapshot.ts`, `src/application/services.ts`, `src/configuration/config-loader.ts`, `src/mcp/stdio-entry.ts`.
+
+- Gercek envanter regex tabanli; JavaParser helper'inin asil yola baglandigi gosterilmiyor.
+- Java dosyasi arama ve overlay yollari `/` karakterini sabit `\\` yaparak Linux yolunu bozuyor. Config/DB default yollarinda da ayni sorun var.
+- Statik POM okuma aktif profil/inheritance/properties/effective model degil; custom source/test-root path semantigi modul icin tutarsiz.
+- Ayni modulde ayni simple name'e sahip iki FQCN otomatik belirsizlik sayilmiyor. Paket/modul hedefleri gercek sinif listesine acilmiyor.
+- Snapshot `dirty` degeri hic guncellenmiyor; `.mvn` dislaniyor. Git HEAD okuma packed refs/worktree icin yeterli degil.
+- `isWithinRoot` normal cwd'de `startsWith("")` nedeniyle false'a donuyor; symlink davranisi guvenli ve dogru destek olarak kanitlanmis degil.
+
+**Kapatma:** D08; effective model ve AST asildan kullanilsin; snapshot/identity/run baglantilari tamam olsun. RG01-RG04, RG38-RG40.
+
+### F11 - P0: Checkout'a apply gercek onay/preimage/transaction guvencesi tasimiyor
+
+**Kaynak:** `src/reporting/test-apply.ts`.
+
+Varsayilan kapali olmasi olumlu. Acildiginda onay yalniz metin uzunluguyla kontrol ediliyor; trusted adapter listesi kullanilmiyor. Dosyanin expected-before hash'i request'te yok; yeni icerik hash'i eski dosyanin degismedigini kanitlamiyor. Global patch_digest/checkpoint/workspace baglari dogrulanmiyor. Backup/journal customer repo icine yaziliyor. Tekrar apply backup'i yeniliyor; cok dosyada crash rollback veya resume algoritmasi yok.
+
+**Kapatma:** D09; guvenilir onay yoksa patch-only, approval-bound digests, compare-before-write, dis store'da journal ve tested crash recovery. RG45-RG48.
+
+### F12 - P1: MCP v2 kabul kaniti protokol yerine metadata kontrol ediyor
+
+**Kaynak:** `src/mcp/v2-profile.ts`, `tests/contract/mcp-profile.test.ts`, `package.json`.
+
+`createV2ProfileServer`, ayni v1 SDK McpServer'ini kuruyor ve tool adlarini donduruyor; araclardan server'a kayit yapmiyor. Contract testi, version metinleri ve tools array'ini karsilastiriyor; ikinci profile gercek wire initialize/discovery/call yapmiyor.
+
+**Kapatma:** D02/D10; kurulu ve dogrulanmis resmi SDK/protokol adapter'i ile gercek lifecycle testleri. Profil adinin `v2` olmasi protokol destegi degildir. Onceki sozlesmedeki ikinci profil sessizce silinmez; uyumsuzluk varsa gercek acik blocker olarak tutulur.
+
+### F13 - P0: Kabul matrisi bilesen/metin kanitlarini tam kabul gibi topluyor
+
+**Kaynak:** `ai/ACCEPTANCE_MATRIX.md`, `tests/security/pilot.test.ts`, `tests/security/docker-isolation.test.ts`, `tests/integration/stdio-client.test.ts`, `tests/contract/mcp-profile.test.ts`, oturum kaydi.
+
+Bazi satirlar enum, prompt, schema veya fonksiyon varligini PASSED sayiyor. Pilot testi kullanici home config'ine ve repository'ye dahil olmayan `tmp/pilot-stdout.txt` dosyasina bagli; gecmiste alinmis model cevabini parse edip elle host Maven kosuyor. LINE esigi 5000 bps (%50); bu ne %90 hedefi ne de normal MCP akisinin kabul kaniti. Production kontrolu bir sinif metninin hala bulunmasi, hash eslesmesi degil. Docker memory testi `NO_CGROUP` sonucunu da kabul ediyor. Mevcut `lint` komutu eslint cagiriyor ama package.json'da eslint bagimliligi tanimli degil.
+
+**Kapatma:** D00/D10; gecen testleri silmeden kapsama uygun adlandir. Model testi, replay, unit, adapter, transport E2E ve ortam kabulunu ayir. Kismini kanitladigin AC'nin tamamini PASSED yazma.
+
+### F14 - P1: Rapor/export butunlugu ve envanter gecmisi normal job'a bagli degil
+
+**Kaynak:** `src/reporting/report-generator.ts`, `src/application/services.ts`, `server-setup.ts`.
+
+Rapor renderer'i mevcut, ancak asil job'dan DB/run/checkpoint kanitlariyla otomatik uretim yolu yok. `assertReportConsistent` yalniz job_id/outcome karsilastiriyor. Export `verification_passed` kararinda `hash_mismatch` dikkate alinmiyor. `extraFiles` adlari canonical export-root ve reserved-name korumasi olmadan yazilabiliyor; export tum dosyalari string olarak ele aliyor. HTML'de "ham kanitlar burada" metni bulunmasi, gercek exec/XML/HTML/log/patch dosyalarinin varligi ve baglantilarinin dogrulugu degil.
+
+**Kapatma:** D09; tek kanit projeksiyonundan DB/JSON/terminal/HTML, hash ve schema denetimi, binary-safe artifact export, path/reserved-file kontrolu. RG49-RG52.
+
+---
+
+## 3. Calisma organizasyonu ve bitis disiplini
+
+Bu gorev tek teslimattir. D00-D10 asamalari ayri urun surumleri veya "simdilik demo" siniri degildir. Bir asamayi bitirince siradakine gec; dis onay/ortam engeli varsa ilgili maddeyi BLOCKED kaydet, bagimsiz diger isleri tamamlamaya devam et.
+
+Her asamada:
+
+1. Ilgili hata icin dar ve anlamli regression testi olustur; mevcut davranisin neden yanlis oldugunu gostersin. Guvenlikte zararsiz sentetik canary kullan.
+2. En kucuk tutarli implementasyon duzeltmesini yap. Bir testin bekledigini yanlis implementasyona uydurma.
+3. Unit + ilgili integration + normal giris yolundaki kapsami calistir. Yeni rapor/DB semantigi icin migration/geri uyum kontrolu yap.
+4. Tam komut, ortam, exit code, sonuclar ve artifact hash'lerini kaydet. Kuyruktaki test sonucunu onceki run'dan alintilama.
+5. Kalan isleri ve tek somut sonraki eylemi `ai/` altinda checkpoint/handoff'a yaz. Modelin gizli dusunce zincirini isteme/saklama.
+6. Dogrulanan mantiksal parcayi belirtilen Git kurallariyla commit/push et. Gecmemis bir testin varligini saklamak icin skip/exclusion/threshold degistirme.
+
+### 3.1 Gerekli gelistirme kayitlari
+
+- `ai/PROJECT_STATE.md`: aktif gorev, gercek asama, son kanitli durum, acik blocker.
+- `ai/BACKLOG.md`: D00-D10 ve regression ID'leri; TODO/IN_PROGRESS/BLOCKED/VERIFIED.
+- `ai/ACCEPTANCE_MATRIX.md`: onceki AC01-AC70'nin yeniden degerlendirilmis durumu.
+- `ai/reviews/2026-10-10-foundation-review.md`: F01-F14, kod konumu, tekrar uretim, duzeltme commit'i, kanit.
+- `ai/decisions/`: yalniz gercek mimari karari degistiren ADR; kanitsiz tam yeniden yazim yok.
+- `ai/checkpoints/`: her anlamli asamadan sonra komut/test/commit/kalan is.
+- `ai/handoffs/`: son oturum/model devri; basarisiz denemeler ve siradaki eylem.
+- `ai/verification/`: public'e uygun sentetik kanit indeksleri, toolchain ve commit bilgisi. Hassas raw run'lar dis store'da.
+
+---
+
+## 4. Uygulanacak duzeltme asamalari
+
+### D00 - Kabul gercegini yeniden kur ve mevcut varliklari koru
+
+**Hedef:** F13, tum temel gereksinimler.
+
+- Onceki FULL_ACCEPTANCE iddiasini tarihsel kayit olarak koru; guncel state'e bu incelemenin duzeltmesini ekle. AC'leri toplu PASSED veya toplu FAILED yapma; her birinin kanitini incele.
+- Kullanilan test case'in hangi assertion'inin AC'yi karsiladigini yaz. Bir bilesen testi yararli olsa da AC'nin geriye kalan davranisini acik tut.
+- Node 24, npm lockfile, Java/Maven/JaCoCo/OpenCode/MCP SDK/container surumlerini gercek ortamdan kaydet. Dis SDK patch surumu tahmin edilmez.
+- Mevcut user dirty/untracked dosyalari, global ayarlar, aktif process'ler, runtime DB ve backup'lar korunur. Raw session dosyasini public repository'ye kopyalama.
+- Tamir oncesi guvenli calistirilabilen unit/contract testlerinin baseline'ini al; gercek user config'ine bagli integration/installer testlerini once izole et.
+- Test suite'i altyapisiz durumda "passed" saymayacak; hangi katmanin gercekten kosuldugu ve hangisinin yetki/ortam bekledigi acik olacak.
+
+**Cikis:** F01-F14 acik is kayitlari, AC01-AC70 yeniden dogrulama haritasi, guvenli baseline.
+
+### D01 - Kullanici konfigurasyonunu koru ve kurulumu guvenli hale getir
+
+**Hedef:** F02/F10/F13; RG05-RG10.
+
+- Installer tarafinda `mcp = null` silici islemi kaldir. JSON/JSONC icindeki diger MCP'ler, provider/model/agent/plugin/permission alanlari ve bilinmeyen alanlar korunacak. Desteklenmeyen format bozulmadan acik hata verecek.
+- Tek kendi kaydini minimal merge ile degistir; atomik temp+replace, content hash/preimage kontrolu, rollback ve kalici backup index'i kullan. Ayni kurulum tekrarinda gereksiz churn olmasin.
+- Kurulum, verify, uninstall ve worker profil okuma ayni path/config resolution sozlesmesini kullansin. Testler icin acik home/config/data dizini injection'i sun; dogal kullaniciya yeni CLI ogretme.
+- **Temiz-kurulum testinde sadece LOCALAPPDATA override yeterli degil.** Etkin OpenCode config, user home, XDG, auth/cache/plugin/search yollarinin tumunu ayri gecici alana yonlendir. Gercek kullanici config'i sentinel hash ile once/sonra ayni kalmali.
+- Kurulum basarisizliginda veya timeout'ta sadece sahipligi dogrulanan child process'leri durdur; testin kullandigi yeni gecici dosyalari temizle. Gercek kullanici backup'larini cleanup kapsamindan cikar.
+- Onceki script nedeniyle kayip MCP ihtimali varsa mevcut config'i once yedekle. Sag kalmis backup'lari yalniz metadata/hash ve kayit adlariyla karsilastir. Eksik girdileri kullaniciya goster; ayrica onay olmadan eski config'i tumden restore etme. Secret degerlerini loga basma. Backup yoksa tahmin etme.
+- **Zorunlu Windows PS1'siz kurulum:** `scripts/install.mjs`, `scripts/verify-install.mjs`, `scripts/uninstall.mjs` gibi Node.js girisleri gelistir; Windows'ta `cmd.exe` uzerinden `node scripts/install.mjs` / `node scripts/verify-install.mjs` / `node scripts/uninstall.mjs` ile calisabilsin. `.cmd` sarmalayicilari opsiyonel olabilir ama yalniz `node.exe` cagiracak; `.ps1`, `powershell.exe`, `pwsh.exe` veya Git Bash cagirarak dolayli bagimlilik yaratmayacak. Bu yeni bir son-kullanici test CLI'i degil, bir defalik kurulum/yonetim araci istisnasidir. Linux'ta ayni Node entrypoint'leri veya izinli `.sh` kullanilabilir.
+- `git.exe` yalniz repository clone/status/add/commit/push gibi surum kontrol islemlerinde kullanilir; installer veya script interpreter yerine konmaz. Git Bash kurulu/kurumca izinli ise `bash`/`.sh` yardimci secenegi olabilir; Windows zorunlu kabul testi Git Bash yuku olmadan da gececek.
+- `npm.cmd`, `npx.cmd`, `node.exe`, `git.exe` gibi Windows executable'larini shell'a ozel pipeline yerine argv ile, guvenli child-process wrapper ve exit code kontroluyle yurut. `npm.ps1` gibi PowerShell shim'lerine baglanma. Build/test runner da kurumun PS1 izinlerinden etkilenmemeli.
+- Execution-policy/signing engelini kabul kriteri olarak kaydet. Kurumsal politikayi atlamak icin `-ExecutionPolicy Bypass`, `-EncodedCommand`, `Invoke-Expression`, policy degisikligi ya da benzeri dolayli yollari otomatik kurulum standardi haline getirme. Kullanici PS1 calistiramiyorsa PS1'siz standart yoldan devam et; kurumsal onay zorunlu baska bir adim varsa acik BLOCKED raporla.
+- Mevcut `.ps1` dosyalarini uyumluluk icin tutmak zorunlu degildir; tutulursa opsiyonel, imzali/kurumca izinli kullanim olarak belgelenir. Temel install/verify/uninstall davranisi PS1'siz Node koduna tasinir; ayri implementasyonlarin config merge mantigi zamanla farklilasmayacak.
+- `npm ci`/lockfile'a dayali tekrar uretilebilir kurulum; install sirasinda global provider'a giden tum test suite'ini calistirma. Hafif, gercek MCP handshake/smoke ile baglanti dogrula. Tam kabul suite'i ayri gelistirme dogrulamasidir.
+- Uninstall yalniz urunun sahipligi bilinen MCP kaydini kaldirsin. Kullanici tarafindan sonradan degistirilmis girdiyi silmeden once conflict versin. Runtime is gecmisi varsayilan korunur; kalici veri silme ayri onaylidir.
+- Path'lerde `path.join`/platform API kullan. Kurulumun yazdigi product config ve server'in okudugu config birebir ayni olsun; gerekirse `AITEST_CONFIG` acik aktarilsin.
+
+**Ek zorunlu fault testi:** Windows makinesinde `powershell.exe`/`pwsh.exe` ve `.ps1` cagrilari child-process seviyesinde reddedilmis gibi davranan test hazirla. CMD + Node.js install -> verify -> normal MCP handshake -> uninstall zincirinin eksiksiz calistigini, mevcut kullanici MCP/provider ayarlarinin hash'inin korundugunu, engelli PS1'i gizlice tetiklemedigini kanitla. PS1 policy engelini bypass ederek gecen test basari kaniti sayilmaz.
+
+**Cikis:** Mevcut config'i koruyan Windows/Linux install-verify-uninstall, tum testleri gercek user ortamindan izole kurulum kabul kaniti.
+
+### D02 - Gercek kalici orkestrasyonu MCP yuzeyine bagla
+
+**Hedef:** F01/F12; RG11-RG14.
+
+- Tek application composition root olustur. Konfigurasyon, DB, artifact store, guvenlik politikasi, discovery, worker adapter, izole runner, coverage, kalite, checkpoint/recovery ve reporter burada baglansin. MCP handler sadece use-case'e yonlendirsin.
+- Foundation'daki sekiz yuksek seviyeli araci uygula: `project_inspect`, `project_query`, `test_start`, `test_status`, `test_resume`, `test_cancel`, `test_result`, `test_apply`. Apply yetenegi guvenilir onay yoksa disabled/patch-only kalabilir; sonucu acik olsun.
+- `test_start`, dogrulanmis talebi ve tum semantigini (hedefler, metrikler, butce, policy/model, checkout/snapshot) transaction ile kalici kaydeder; executable job'u queue'ya alir ve kisa surede job_id dondurur. Ayni process hayattayken ana sohbetten yeni komut beklemeden ilerler.
+- Queue/job dispatcher, source snapshot -> baseline -> analiz -> plan -> aday -> run -> dogrulama -> accepted checkpoint -> sonraki gap -> final rapor yolunu gercekten yurutur. Yalniz event ekleyip done demek kabul degil.
+- `test_status`, gercek DB/run/checkpoint'ten per-target LINE/BRANCH, aktif deneme, son guvenilir sonuc, event cursor, kalan butce ve required_action dondursun. Verification yokken null dogrudur; olcumden sonra sabit null degildir.
+- `test_result` tamamlanan/blocked/failed job icin DB ve artifact registry'den raporu dondursun; keyfi path okuma ya da yeni test kosma yapmasin.
+- `test_resume` otomatik tek guvenilir eslesen isi bulabilir; birden fazla uygun is varsa acik adaylar verir. Model degisimi is kimligini/accepted set'i sifirlamaz.
+- Pause/cancel, sure asimi ve EOF/termination durumlarini kalici state'e bagla. Stdio kapaninca surekli arka plan calismasi vaat edilmez; restartta interrupted is saptanir.
+- Ayni request icin idempotency korunur; ancak yeni kaynak revizyonu, farkli policy/hedef/model veya tamamlanan eski is ile yeni is birbirine karistirilmaz. Butce ve izinlerin hash/disambiguation semantigi dokumante edilir.
+- MCP tool execution hatalarini gercek protokolun hata semantigiyle dondur; sadece text icinde error yazip dis envelope'u basari gostermekten kacin.
+- Resmi SDK ile desteklenen v1/v2 profiller ayni use-case'leri kullanir. Her profilde gercek tool registration ve transport lifecycle vardir. Profilin public tools array'ini karsilastirmakla yetinme.
+
+**Calistirma kilidi:** D03 guvenli runner/preflight bitmeden dispatcher customer kodunu hostta calistiramaz. Gecici baglantilarda explicit blocked davranisi kullan; guvensiz fallback ekleme.
+
+**Cikis:** Bir MCP istegi normal entrypoint'ten otomatik ilerleyen kalici ise donusur; status/result/resume/cancel ulasilabilirdir.
+
+### D03 - Test-only siniri, izolasyon ve process supervision
+
+**Hedef:** F05/F06; RG15-RG20/RG34-RG36.
+
+- Baseline/aday/final calistirmalar, orijinal checkout disindaki sahipligi bilinen workspace'te ve OS/container izolasyonunda olsun. Orijinal customer kaynaklari salt okunur kalir; modele DB/rapor/runner state'ine yazma yetkisi verilmez.
+- Tek zorunlu Runner arayuzu, guvenli capability/preflight olmadan `run` kabul etmez. Eski host MavenRunner yalniz urunun guvenilir gelistirme testleri icin acikca sinirli olabilir; customer job'da otomatik kullanilamaz.
+- Test path dogrulamasi, canonical izinli test root icinde containment yapar. Proje icinde kalmak tek basina yeterli degildir. `..`, mutlak yol, drive/UNC, alternatif separator, symlink/junction, junction-root, Windows case/ADS ve degisen path hedefi durumlarini ele al.
+- Modelden gelen network/image/mount/env/command/user parametreleri ham olarak runner'a aktarilmaz. Guvenilir adapter'in hazirladigi typed RunPlan, onayli kabiliyet ve allowlist kullanilsin.
+- Source/POM/buildconfig read-only; her modul icin build-output/temp alanlari kontrollu writable; read-only container root ve gerekli sinirli tmp/cache alanlari uyumlu sekilde hazirlansin. Writable mount kaynak/konfig/soket/home dizinlerini override edemesin.
+- Non-root, onayli image kimligi/digest, CPU/memory/pids/time/log/disk sinirlari uygulanir ve kabiliyet gercekten dogrulanir. Disk sert limiti saglanamiyorsa bunu saglanmis gibi yazma; uygun backend veya explicit blocker gerekir.
+- Runtime test network'u kapali olur. Maven bagimlilik hazirligi gerekiyorsa ayri onayli download asamasi, kisitli repo erisimi, credential redaction, untrusted POM/hook calistirmama ve sonrasinda network-disabled test asamasi tasarla.
+- Paylasilan cache'in bir job tarafindan zehirlenip digerini etkilemesini engelle; immutable/trusted seed + job'a ait writable alan veya dogrulanmis esdeger. Credential'lari cache/workspace'e kalici kopyalama.
+- Docker container kimligini kalici kaydet; timeout/cancel/restart cleanup'da sadece job'a ait container/process group'a stop/kill/wait uygula. Sadece docker CLI PID'si yeterli degildir. Linux ve Windows process semantics ayri test edilir.
+- `subprocess.killed` yerine exit/close/process identity ve tamamlanma kullan. Log ciktilari bounded streaming ile dis store'a akar; hem bellekte hem diskte sinirsiz biriktirme. Sonuc raporu ancak process ve loglarin sonlanmasi dogrulandiginda READY olur.
+- Environment allowlist kullan; corporate model anahtarlari Maven/JVM'ye gecmesin. Model worker icin gereken secret ile runner secret siniri ayri olsun.
+- Basari/erisim probe'lari beklenen sentinel sonucu, exit code ve side effect hash ile dogrulansin. `NO_CGROUP`, komut yok veya belirsiz permission hatasi success yerine gecmez.
+
+**Cikis:** Ana job yolu izolasyon olmadan ilerlemez; malicious test ve POM fixture'i host/secret/production'a ulasamaz; cancel/timeout orphan birakmaz.
+
+### D04 - OpenCode worker ve model geri bildirim dongusunu gercek sozlesmeyle duzelt
+
+**Hedef:** F07; RG24-RG26/RG41-RG42.
+
+- Resmi SDK'yi surum uyumlu kullan veya mevcut HTTP adapter'ini kurulu OpenCode `/doc` tipleriyle dogrulanmis hale getir. Elle tahmin edilen JSON ile ilerleme. Surum/base-url/auth/context kabiliyetlerini kaydet.
+- `204 No Content` body parse edilmez. Mesajlar `{info,parts}` semantigiyle ve gercek tamamlanma/hata alanlariyla okunur. Yanitta yalniz son text parcasini almak yerine ilgili tamamlanmis mesajin gerekli text parcalari birlestirilir.
+- Her prompt'a kalici invocation ID, job/phase/candidate/checkpoint/fence ve parent message korelasyonu ver. Eski cevap, incomplete streaming parcasi, farkli model/session sonucu ve gec gelmis stale response kabul edilmez.
+- Her HTTP cagrisi bounded timeout/AbortSignal tasir. Timeout'ta sadece `aborted=true` donme; asil server session'i durdur, sonucu ve sonraki recovery adimini kaydet. Auth, 401/403/429/5xx, hatali JSON, eksik structured output ve model notfound ayri tani olsun.
+- Worker server'in dizini, ayri HOME/config/cache/plugin/MCP/hook/formatter/LSP mirasi ve izinleri gercek etkili ayarlarla kontrol edilir. Bos inline mcp nesnesinin mirasi temizledigini varsayma.
+- Host config'ten sadece kullanicinin yetkili provider/model profili ve gerekli secret referanslari kontrollu okunur. Provider prefix'ini silme; model ID birebir korunur; dis modele otomatik fallback yapma. Gizli deger rapor/loga yazilmaz.
+- Worker proposal-only'dir: bounded ProjectContext/Analysis/TestPlan/CandidateChangeSet/Review/GapAnalysis schemasi. Salt okunur ek context gerekiyorsa source manifest + boyut/izin kontrolu ile ver. Tum repoyu veya sistem home'unu modele topluca acma.
+- Analyzer, Designer/Developer ve Reviewer rolleri gercek job asamalari olsun; ayri modeller zorunlu degil. Hangi rolun hangi modeli kullandigi kaydedilir. Bagimsiz test dogrulayici daima model disindadir.
+- Derleme/test/coverage/quality hatalari sonraki prompt'a structured evidence olarak girer. Repair limitleri ve total budget gercekten uygulanir. Model anlamsiz tekrar yaptiginda deneme/strateji hafizasi devreye girer.
+
+**Cikis:** Gercek prompt -> gercek yanit -> schema -> guvenilir candidate akisinin surum, timeout ve model degisimi dahil test kaniti.
+
+### D05 - Coverage gercegi, birikimli adaylar ve final replay
+
+**Hedef:** F03/F04/F06/F09; RG21-RG23/RG27-RG30.
+
+- User goal'den tek bir immutable GoalContract olustur. Her hedefin LINE ve uygulanabilir BRANCH esigi bu nesneden gelir. Butun done/early-exit/candidate-null/plateau/result yollarinda ayni TargetEvaluator calisir.
+- Yuzde karari covered/total sayaclarindan yuvarlamasiz/rasyonel esik karsilastirmasiyla hesaplanir; basis points rapor alanidir. %89.96, %90 olmaz. BRANCH total=0 uygun durumda NOT_APPLICABLE; kayip/bozuk rapor veya LINE debug yoklugu sahte %0/%100/N/A'ya donusturulmez.
+- JaCoCo XML path'i sabit root varsayimindan degil effective module/run plan'dan gelir. Aggregate/child tekrar sayimi, nested/inner class, ayni FQCN farkli modul ve eksik class durumlari acik kimlikle cozulur.
+- Her run icin temiz ve ayrik output/exec/report namespace'i, source/class/agent/toolchain/run fingerprint'i olsun. Eski rapor veya farkli bytecode class kimligi guncel kanit diye kullanilamaz. Enstrumantasyon hatasi exit0 olsa bile coverage trust'i durdurur.
+- Mevcut argLine/agent/profiller korunur. JaCoCo yoksa POM'a dokunmayan gercek desteklenmis yontem uygulanir; guvenli olcum yoksa `BLOCKED_COVERAGE_CONFIGURATION`. Exclusion ekleme, denominator degistirme veya test classpath shadow ile puan artirma yok.
+- Adaylar base accepted checkpoint'e baglidir. Her aday ayri staging/workspace'te denenir. Partial changeset/kalite/build/test/coverage hatasi accepted set'e dokunmaz. Kabulde test blob'lari, run/provenance ve yeni metric vector birlikte commit edilir.
+- Sonraki aday, bir onceki accepted set'in uzerinden olculur. Gerektiginde model full file content verebilir; before-hash ve checkpoint uyumu yine zorunludur. Patch formatini desteklemiyorsan explicit reddet; diff'i Java icerigi gibi yazma.
+- LINE sabit BRANCH artisi kazanimdir. Coverage artirmayan ama dogrulanmis yeni davranis/exception/regresyon testi kendi kalite politikasiyla kabul edilebilir; bunu coverage artisi diye raporlama. Metrik gerilemesi veya existing test kaybi kabul edilmez.
+- Hedef zaten baseline'da saglaniyorsa test uydurma. Final hedef saglandi karari icin baseline/test quality/provenance gerekliliklerini yine kontrol et.
+- Plateau farkli denenen stratejiler ve kalici gap kimlikleriyle incelenir. Bir kac deneme sonucunu "matematiksel maksimum budur" diye yorumlama. Testability barrier, butce sonu ve henuz cozulemeyen alan ayrilir.
+- Export/onaydan once accepted set'i baseline snapshot'tan yeni temiz izole workspace'te kur; gercek final Maven/JaCoCo ve etkilenen regresyonu tekrar dogrula. Rapor, patch ve best checkpoint ayni dosya setini gostersin.
+
+**Cikis:** Istenen metriklerin tamamini saglamadan hedef basarisi yok; en iyi dogrulanmis testler sonraki iterasyon ve restartta aynen kurulabilir.
+
+### D06 - Kalici lease/fencing, checkpoint transaction'i ve gercek resume
+
+**Hedef:** F08/F04/F10; RG31-RG37.
+
+- Job/workspace icin tek aktif yurutucu. Baska sahibin suresi bitmemis lease'i devralinamaz. Idempotent resume mevcut aktif isi dondurur; ikinci loop baslatmaz. Operator takeover varsa ayri acik eylem ve guvenli process sonlandirma gerekir.
+- Fencing generation'i lease row silinse de gerilemeyen kalici job/workspace state'inde sakla. Worker owner kimligi process yeniden baslatmada benzersiz olsun; PID tek basina kimlik degildir. Renew expiry/fence/owner eslesmesini dogrulasin.
+- Her mutating DB update, artifact pointer yayini, model response kabul ve apply/cancel karari aktif owner+fence+expiry+expected generation ile kosullu yapilir. Kaybedilmis/expired lease'ten sonraki gec sonuc best durumu degistiremez.
+- Checkpoint publish: test/run/coverage/plan blob'larini once immutable olarak yaz, hash ve schema kontrolu, dosya durability, atomik publish; sonra kisa DB transaction icinde guncel best pointer+generation CAS. DB model/runner beklerken transaction tutmaz.
+- Analysis checkpoint ile TEST_VERIFIED/BEST checkpoint farkli tutulur. Yalniz manifest JSON'u dogru diye UNVERIFIED adayi best yapma. `best_checkpoint_id` gercek kabul edilmis ve yeniden kurulabilir kanita isaret etsin.
+- Manifest'teki tum zorunlu referanslarin varligi/hash/schema/job/snapshot kimligi dogrulanir. Yeni oturum sadece metin ozetini degil accepted test blob'larini ve gercek run bilgisini devralir.
+- Power loss/OS crash dayanimi icin dosya flush/DB synchronization ayarlari ve platform sinirlari acik olsun. Sadece rename'i enerji kesintisi garantisi gibi yazma. Temp/orphan blob'lar READY olmaz.
+- Resume'da mevcut checkout'un HEAD/dirty/untracked kaynaklari, buildconfig/wrapper, testbase, policy/toolchain/model uyumu dogrulanir. Clean'den degismis duruma gecis de tespit edilir; sadece eski dirty_digest varsa karsilastirma yapilmaz.
+- Degisen kaynaklar icin accepted calisma korunur, eski coverage stale isaretlenir; guvenli rebaseline/revision/merge ihtiyaci acik taniyla yonetilir. Sessizce yeni job acip onceki emegi kaybetme.
+- En son checkpoint bozuksa ancestor zincirinde son guvenilir nokta aranir; hepsi bozuksa acik recovery failure, sahipligi belirsiz dosyalari silme yok.
+- EOF/normal stop/hard kill/Maven sirasinda kill, DB busy/disk full/artifact-DB arasi crash gercek process sinirlarinda test edilir. Resume kaldigi asamayi dogrular; tamamlanmis dogrulanmis analiz/plan gereksiz tekrar uretilmez.
+- SQLite migration/checksum/foreign_keys/WAL ayarlari, online backup/restore ve retention gercek dosya/transaction testleriyle dogrulansin. Eski schema'yi yerinde bozma; yedek + migration + validation. Active/best/approval-pinned artifact silinemez.
+
+**Cikis:** Iki model veya process ayni isi eszamanli yonetemez; hard-kill'den sonra ayni job guvenilir kanitla surer.
+
+### D07 - Mevcut testleri koru, gercek kalite ve regresyonu olc
+
+**Hedef:** F09/F13; RG28-RG30/RG43.
+
+- Java AST/symbol tabanli test structure ve baseline test identity envanteri olustur. Metin regex'i yardimci lint olabilir; tek semantik kalite kapisi olamaz.
+- JUnit4 expected exception, JUnit5 assertThrows/dynamic/parameterized tests, proje assertion helper'lari, AssertJ/Hamcrest veya uygun verify kullanimi mevcut bagimliliklar icinde dogru ele alinsin. Yeni dependency upgrade yok.
+- Test sinifinda/helper'da assertion kelimesi olmasini anlamli dogrulama sayma. Tautoloji, self-comparison, mocklanan SUT, duplicate, swallowed exception, fail'siz catch, bos test, private reflection, yeni ignore/assumption/disabled ve zayiflatilmis existing assertion kontrolu yap.
+- Tum onceki test kimlikleri ve davranis kanitlari korunur. Silme/yeniden adlandirma/parametre veri kaybi/skip artisi veya testin Surefire tarafindan kesfedilmemesi acik red/inceleme nedenidir. Coverage artisi bu kaybi telafi etmez.
+- Test kaynaklari icindeki production FQCN, package/classpath shadowing, test kaynaklarindan Java agent/coverage raporu uretme ve izin disi kaynak degistirme yollari incelenir. AST ve classpath/provenance denetimi kullan.
+- Statik incelemenin kanitlayamadigi anlamli assertion veya is kurali belirsizligi `REVIEW_REQUIRED` olarak kaydedilebilir. Kalite kararini otomatik kesinlik gibi gosterme. Davranis beklentisini sadece mevcut hatali koddan turetip assertion'i ona uydurma.
+- Surefire raporlarinda total/status/identity birlikteligi dogrulansin. Bozuk/missing/stale XML sessizce atlanmasin. Zero tests ayri NO_TESTS, instability ayri kanitli durum, timeout/fork crash ayri altyapi sonucu.
+- Final regresyon kapsamindaki module/test listesi ve calisan testler rapora baglansin. Etkilenen modul/consumer testleri sozlesmeye gore kosulmadan full regression PASSED yazma.
+
+**Cikis:** Testlerin calismasi, korunmasi ve anlamli davranisi kapsamasina dair ayri kanit; yalniz coverage odakli sahte testler reddedilir.
+
+### D08 - Effective Maven, Java AST, proje kimligi ve kalici envanter
+
+**Hedef:** F10/F14; RG01-RG04/RG38-RG40.
+
+- Statik POM kesfi yalniz on kesif olsun. Asil RunPlan, izinli izole ortamda effective Maven model/profiles/settings/toolchain/reactor'dan uretilsin. Parent inheritance, pluginManagement, custom source/test roots, build-helper roots ve test dependency varyantlari ele alinsin; desteklenmeyen durum acik tani verilsin.
+- POM/helper/model olusturma da kod calistirabilir; guvenlik siniri disinda Maven plugin/hook calistirma. Parent/relative module yolunun yetkili snapshot scope'unda kaldigini dogrula.
+- JavaParser helper'i gercek discovery/quality akisina bagla; regex scan'den authoritative sinif/metot sonucu verme. Nested/inner/record/enum/sealed/overload/comments/text block icin test et. Desteklenmeyen dil ozelliginde unresolved'i gizleme.
+- Simple class name, FQCN, modul/package hedeflerini acik identity'lere coz. Ayni modulde iki FQCN, ayri modullerde ayni FQCN ve birden fazla checkout testleri zorunlu. Tek guvenilir sonuc yoksa sor; ilk adayi secme.
+- Tum path/URI/manifest representation'larini tanimla: depolanan relative path normalize, filesystem path platform API ile. Windows separator'u Linux'a tasima; Unicode/case/space verisini transliterate etme.
+- Snapshot, build davranisini etkileyen `.mvn`/wrapper/resources/testdata/customroot dosyalarini korusun. Secret dosyalarini modele ve public rapora otomatik tasima; gerekli dosya onay/secret-safe profile ile calistirma alanina kontrollu girsin.
+- Git metadata'si gitdir/worktree/packed refs/dirty/untracked durumlariyla dogru elde edilsin. Git komutlari arg-array ve onayli safe process wrapper'iyla calissin; kaynak repo degismez.
+- SQLite kayitlari gercek project identity ve checkout identity ayrimini korusun. Tarama snapshot'i ile job_target/run/coverage/model/test_case iliskileri gercek akista yazilsin. Silinmis/stale sembol guncel gorunumden kalksin ama gecmis kanit silinmesin.
+- Artimli yenileme yalniz fingerprint uyumunda kullanilsin. Iki checkout'un kapsamini/counter'larini birbirine karistirma. `project_query` gercek uretilen/calistirilan testleri, son guvenilir ve gecmis coverage'i ayirsin; serbest SQL kabul etmesin.
+
+**Cikis:** Diger bir Maven projesinde yol/fixture sabitlemesine gerek kalmadan ayni MCP kullanilir; projeyi taniyan DB kayitlari gercek run'lara baglidir.
+
+### D09 - Guvenli apply, kanitli rapor ve binary-safe export
+
+**Hedef:** F11/F14; RG45-RG52.
+
+- Apply request'i keyfi model dosya listesi yerine dogrulanmis immutable checkpoint/patch registry referansina bagla. Approval, job/checkpoint/patch digest/checkout identity/source revision/sure/tek kullanim gibi gerekli alanlarla trusted adapter'de uretilip dogrulansin.
+- Sadece 8 karakterlik bir metin onay olamaz. Guvenilir adapter yoksa orijinal checkout'a yazma tamamen kapali; dogrulanmis patch/diff artifact'i sun.
+- Degisecek tum dosyalar icin expected before-hash veya expected absence kaydi olsun. Butun preimage'ler ilk yazmadan once, sonra yazma sinirinda yeniden dogrulansin. Kullanici arada degistirdiyse CONFLICT; dosyasi ezilmez.
+- Journal/backup dis runtime store'da, job/operation namespace'inde, immutable ve quota-aware olsun. Basarili olduktan sonra dogrulanmis test dosyalari disinda customer repo'ya artifact yazilmasin.
+- Multi-file apply'i recoverable transaction olarak uygula: staged changes + before/after hashes + durable journal; crash'te sadece kendi yazdigi bilinen state'i tamamla/geri al. Sonradan kullanici edit'i varsa rollback de ezmesin; conflict raporla.
+- Tekrar ayni approved operation idempotent olur; ilk backup korunur, yeni approval gerekmeyen replay ile farkli patch uygulanamaz. Farkli root/checkpoint/model talebine onay replay edilmez.
+- Rapor verisi actual DB/run/checkpoint'ten toplanir ve schema ile dogrulanir. Outcome, per-target LINE/BRANCH before/after, provenance, tests executed/added/modified, gate results, gaps, model roles ve source integrity ayni projection'dan terminal/JSON/HTML'e gider.
+- Hash mismatch, missing file, stale source veya report-DB uyusmazliginda `verification_passed=false`; yalniz missing sayisina bakma. Artifact isimleri canonical export root icinde ve reserved output dosyalarindan ayri olmalidir.
+- Exec/zip/png gibi binary dosyalar byte olarak korunur; string encode ile bozulmaz. XML/HTML/log/patch gercekten kopyalanir, alt klasorleri olusturulur, offline linkler ve manifest hash'leri dogrulanir.
+- HTML sade, okunur ve offline olsun; mevcut tasarimi gereksiz yeniden tasarlama. AI yorumu ile olcum sonucu ayrilsin; yorumlayan/ureten model kimligi kayitli olsun. Harici font/script/CDN ve otomatik dis yayin yok.
+- Test run'i blocked/failed/cancelled ise olmayan coverage yerine acik durum ve son guvenilir nokta raporlanir. Hedef altinda bir job, urunun dogru failure raporlama testini gecmis olsa da TARGET_REACHED olmaz.
+- Secret redaction, HTML escaping'den farklidir. Structured JSON, stdout/stderr, hata, model payload ve export kanallari sentetik secret/endpoint canary ile test edilir. Ham kanitlar yetkili yerel store'da hassas sinifiyle tutulur.
+
+**Cikis:** Kullanici IDE acmadan guvenilir sonucu/ham kaniti gorur; onayli testleri mevcut degisikliklerini kaybetmeden uygular veya patch-only alir.
+
+### D10 - Tekrar uretilebilir kabul, temiz ortam ve son bagimsiz denetim
+
+**Hedef:** F12/F13 ve tum maddeler.
+
+- Test katmanlarini net ayir: pure/unit, adapter contract, transport E2E, real Maven/container, real OpenCode, kurum ici model, install/uninstall ve hard-kill recovery.
+- Scripted worker'li E2E, gercek job motoru/policy/runner/storage/rapor yolunu kullanmali. Sadece worker metni deterministik olabilir. Runner/policy/coverage evaluator'i bypass eden elle dikis bu katmanin kaniti degil.
+- Gercek kurum modeli pilotunda normal OpenCode kullanici talebi ve normal MCP entrypoint kullanilsin. Modelin ayri `opencode run` ile host dosyasi degistirmesi ve sonra output replay'i AC67'yi kapatmaz.
+- `tmp/pilot-stdout.txt`, gelistiricinin home config'i, sabit port veya host Windows komutu normal test suite'inin sessiz onkosulu olmasin. Replay artifact'i gerekiyorsa sentetik, surumlu ve acikca replay olsun.
+- Gercek kurum pilotu yetkili model profiliyle opt-in calissin; credentials yoksa NOT_RUN/BLOCKED raporlasin. Bu, tum testler gecti demek degildir. Port/process/config kimlikleri izole ve dinamiktir.
+- `npm run lint` bagimlilik/config ile gercekten calissin; `typecheck` test/script kodlarini da uygun ayri TS config ile kapsasin. Missing import'lar runtime'a kadar gizlenmesin.
+- Urunun kendi line/branch coverage'i gercek kosuyla olculur ve artefact olarak verilir. Urunun customer coverage hedefine karistirilmaz; threshold/manipulasyon ile kapatilmaya calisilmaz.
+- Node24 temiz clone'da locked dependencies + build + test; Java8/JUnit4, Java17/JUnit5/Mockito ve Java21/cokmodul fixture matrisi gercek toolchain bilgisiyle calissin. Java8 target bytecode'u yeni JDK ile derlemek ile JDK8'de calistirmak ayrica etiketlensin.
+- Windows/Linux installer/worker/runner/AST/native SQLite binding kanitlari toplanir. Temiz veri klasoru deneyi ile gercek temiz clone/temiz user ortam kabulunu farkli adlandir.
+- CI kullanici karariyla kapali; kendiliginden acma, yeni workflow/tetikleyici ile bu karari dolanma. Ayni komutlari yerelde/container'da kanitla. CI durumu son raporda acik yazilsin.
+- Son bagimsiz inceleme, test sayisindan once call graph/trust boundaries/DB projections/final replay/AC evidence eslesmesini sorgulasin. Gerekirse farkli model reviewer olabilir; onun sozu test kaniti yerine gecmez.
+
+**Cikis:** Tum eski AC ve yeni regression senaryolari kanitli; asil urun yolu gercek model/resume ile dogrulanmis veya gercek kalan ortam kabul maddeleri durustce acik.
+
+---
+
+## 5. Gercek job akisinin kabul modeli
+
+Calisma diyagrami yerine uygulanacak sirali sozlesme:
+
+1. Dogal dil talebi -> OpenCode'un typed MCP `test_start` cagrisi.
+2. Yetkili proje/root + hedef cozumu + effective config/model/runner preflight.
+3. Kalici GoalContract/job/targets/policy/snapshot + sahiplik/lease.
+4. Immutable source ve izole baseline; gercek Surefire ve JaCoCo evidence.
+5. Analiz ve test plani, schema dogrulama ve kalici plan checkpoint'i.
+6. Accepted snapshot uzerinden candidate generation; before-hash/schema/path/quality denetimi.
+7. Ayrik candidate workspace'te izole run; freshness/bytecode/test identity/coverage/quality/regression.
+8. Kabulde test seti + run + coverage + checkpoint atomik referans yayini; redde accepted set degismez.
+9. Hedef saglanana veya kanitli durma nedenine kadar feedback/repair/gap dongusu.
+10. Accepted snapshot'in yeni temiz workspace'te final replay'i; sonuc/kanit farki varsa done yok.
+11. SQLite/JSON/HTML/terminal ayni gercek sonuclar; `READY_FOR_REVIEW` veya dogru blocked/failed outcome.
+12. Guvenilir acik onay varsa safe apply, yoksa patch-only. Customer Git commit/push yok.
+
+Kullanici `test_status` cagirmasa bile 4-10 ilerler. Status sorgulama business loop'u tetikleyen gizli zorunluluk olamaz. OpenCode/MCP kapanirsa is guvenli interrupted olur; bir sonraki oturum `test_resume` ile 3. asamadaki state ve son guvenilir checkpoint'i devralir. Tamamlanmis adimlari yeniden uretmek yerine sadece gerekli stale/run dogrulamasi yapilir.
+
+---
+
+## 6. Zorunlu regression ve uctan uca kabul matrisi
+
+Bu liste eski AC01-AC70'nin yerine gecmez; bulunan hatalarin geri gelmesini onleyen zorunlu ek kanittir. Her RGxx icin gercek test adi, komut, platform, exit code, commit ve artifact/hash index'i yazilacak. Test yazilmis ama kosulmamis ise NOT_RUN; altyapi yoksa BLOCKED; assertion basarisizsa FAILED. `PASSED (kismen)` kullanma.
+
+| ID | Senaryo | Zorunlu assertion/kanit |
 | --- | --- | --- |
-| Uygulama | TypeScript strict + Node.js 24 LTS ailesi | OpenCode TS SDK ve resmi MCP SDK ekosistemi. Patch surumunu uygulama basinda destek/guvenlik durumuyla sabitle. [S15] |
-| MCP | Resmi TypeScript SDK, izole v1/v2 adapterleri | OpenCode uyumlulugu ve yeni protokol gecisini is motorundan ayir. |
-| DB | SQLite + `better-sqlite3`, tek storage adapter'i | Yerel, transaction tabanli kalici durum; native binary uyumlulugunu Windows/Linux'ta test et. [S16] |
-| Semalar | Zod + uretilen JSON Schema | Model ciktilari, tools, config ve artifact surumlerini dogrula. |
-| Java analizi | Urune ait kucuk JavaParser yardimci modulu | AST, imza ve kontrollu symbol resolution; siniflari regex ile tahmin etme. Kutuphane hedef projenin POM'una eklenmez. [S17] |
-| Build/test | Hedef projenin Maven/JUnit/Mockito yapisi | Musteri framework'unu otomatik yukseltme veya degistirme yok. |
-| Coverage | JaCoCo XML sayaclari + ham exec/HTML | Hesap deterministik; HTML modeli karar veren olcum araci degildir. |
-| Test izolasyonu | OCI uyumlu, non-root, kisitli runner; Windows'ta onayli WSL2/container ortami | Kaynaklar read-only; yalniz build/test output/tmp alanlari yazilabilir. Kurulumda kabiliyet dogrulanir. [S18] |
-| Model calistirma | Kontrollu OpenCode worker adapter'i | LiteLLM'e mevcut provider uzerinden erisim. Ayrica genel LLM agent framework'u yazma. |
-| Rapor | Statik HTML + JSON + ham artifact'ler | Tarayicidan yerel acilir; React/backend dashboard gerektirmez. |
-| Urunun testleri | TypeScript test runner'i + Java fixture projeleri + MCP contract testleri | Gercek Maven/JaCoCo ve fault injection zorunlu. |
-
-Bu secimler icin tum patch surumlerini burada tahmin ederek yazma. Ilk asamada kullanilabilir stabil surumleri lockfile, toolchain manifesti ve kanitli uyumluluk matrisiyle sabitle. Degisiklik gerekiyorsa gerekceli ADR yaz; urun sozlesmesini daraltma.
-
----
-
-## 4. Ilk tam teslimatin kapsam siniri
-
-### 4.1 Zorunlu olarak calisacaklar
-
-- Tek veya cok modullu Maven projelerinde kaynak, modul, package, sinif ve mevcut testlerin kesfi.
-- Bir veya birden fazla acik hedef sinif; modul/package hedefinin mevcut somut sinif listesine cozulmesi. Buyuk kapsamda hedef sayisi gosterilir ve butce/talep netligi kontrol edilir.
-- Mevcut JUnit 4/5 altyapisiyla test uretimi ve iyilestirme; Mockito yalniz projede mevcut ve desteklenen ise kullanilir.
-- Otomatik baseline, analiz, senaryo tasarimi, aday test gelistirme, onarim, test, coverage, kalite denetimi, regresyon ve raporlama.
-- Siki test-only koruma; degismez kaynak kopyasi; kontrollu fixture degisiklikleri.
-- Proje baglantilari ve kod/test envanteri iceren SQLite; versiyonlu artifact deposu.
-- Kalici job, lease/fence, checkpoint, guvenli durdurma, model degisimi ve kesintiden devam.
-- Hedef, sinir, plateau, kaynak degisikligi, altyapi eksigi ve kalite sorunlarini ayiran durma kararlari.
-- Yerel offline HTML/JSON/JaCoCo/test/diff ciktilari ve onayli test uygulama yolu.
-- Windows kullanicisi ve Linux ortaminda kurulum/entegrasyon dogrulamasi; desteklenen runtime'lar acikca belgelenir.
-- Kisa OpenCode kullanim skill'i/agent tanimi; tum is motorunu prompt'a tasimaz.
-- Urun gelistirmesi icin `AGENTS.md` + `ai/` sureklilik duzeni.
-
-### 4.2 Bilincli olarak bu gorevin disinda
-
-Yeni CLI/UI, Zekam entegrasyonu, merkezi cok kullanicili SaaS, uzak paylasimli SQLite, Kubernetes platformu, Jenkins/PR botu, otomatik production refactoring, baska programlama dillerinin test uretimi, canli musteri DB'sine baglanma, browser/E2E test platformu bu goreve eklenmeyecek.
-
-Gradle test yurutucusu ve tam PIT/mutation orkestrasyonu da bu teslimatin zorunlu cekirdegi degildir. Gradle projesi sessizce Maven sanilmaz; `UNSUPPORTED_BUILD_SYSTEM` raporlanir. Var olan mutation raporunu opsiyonel artifact olarak referanslamak mumkundur; calistirilmadiysa mutation quality 'dogrulandi' yazilmaz. Gelecek adapter arayuzleri tasarlanir, sahte implementasyonlarla destek iddia edilmez.
-
-Java/JDK uyumlulugu fixture matrisiyle kanitlanir. En az Java 8/JUnit4, Java 17/JUnit5 ve Java 21/cok modul senaryolari hedeflenir; her hedefin toolchain'i kendi build kurallarina uyar. JavaParser yardimcisinin JDK'si, musteri projesinin bytecode hedefini degistirmez. Desteklenmeyen language feature veya eski plugin kombinasyonunda acik tani sonucu verilir.
-
----
-
-## 5. Kullanici akisinin tam sozlesmesi
-
-### 5.1 Bir defalik kurulum
-
-Kurulum; urunu kullaniciya ozel yerel konuma yerlestirir, uyumlu server paketini secer, OpenCode MCP baglantisini mevcut konfigrasyonu ezmeden ekler. Java/Maven/runner/OpenCode/model/prerequisite kontrollerini yapar. API key repoda veya kurulum ciktilarinda yazilmaz. Degisiklikten once konfigurasyon yedegi alinir; uninstall sadece urunun sahipligi bilinen girdilerini kaldirir.
-
-MCP server executable'i, kurulum scripti veya OpenCode `serve` kullanimi yeni kullanici CLI'i sayilmaz. Kullaniciya yeni bir test komut dili ogretme. Normal kullanim mevcut OpenCode icinde dogal dildir.
-
-### 5.2 Normal test gorevi
-
-1. Kullanici Java projesinde OpenCode'u acar ve hedefini soyler.
-2. OpenCode kisa tool aciklamasi/skill yardimiyla `test_start` cagrisi yapar. Proje kokunu mutlak yol olarak aktarir. MCP kendi process CWD'sini hedef proje sanmaz.
-3. Server yolu yetkili koklere gore dogrular, projeyi/checkout'u tanir veya kaydeder; envanteri degisen dosyalar icin gunceller.
-4. Hedef `PaymentService` birden fazla yerde varsa paket, modul ve mevcut baglamla coz. Tek anlamli cozum yoksa adayi kullaniciya sor; ilk grep sonucuna gore yazma.
-5. Proje guven profili, model, kaynak/fixture yazma politikasi ve runner hazirligi dogrulanir.
-6. Kaynak manifesti ve izole snapshot olusturulur. Mevcut testler gercekten calistirilir, baseline saklanir.
-7. AI analiz/tasarim yapar; motor aday testleri kontrollu sekilde uygular, calistirir ve bagimsiz dogrular.
-8. Her kabul edilen test setiyle checkpoint alinir; hedef saglanmadiysa kalan aciklara gore devam edilir.
-9. Son temiz dogrulama, kalite ve kaynak butunlugu tamamlanir; HTML/JSON/diff/JaCoCo raporlari uretilir.
-10. Sonuc `READY_FOR_REVIEW` olarak sunulur. Hedef kod calisma kopyasina uygulama acik onayla yapilir; otomatik commit/push yapilmaz.
-
-### 5.3 Devam ve inceleme
-
-- "Kaldigin yerden devam et": proje/checkout ile eslesen yarim isi bul, kaynak ve checkpoint'i dogrula, ayni job'dan devam et.
-- "Baska modelle devam et": yetkili model profilini degistir; onceki analiz/deneme/test kanitlarini yeni oturuma ver. Mevcut sonucu sifirlamadan yeni worker kaydi ac.
-- "Sonucu goster": DB'den son dogrulanmis ozeti getir; dosya yolu/artifact referansini ver. Yeni test calistirma.
-- "Durdur": yeni aday baslatma; calisan islemleri guvenle durdur ve kalan durumu kaydet.
-- "Bu projede hangi paketleri/siniflari test ettik": envanter ve gercek run gecmisini sorgula; package kapsaminda calismayi her sinifin basarili oldugu iddiasina donusturme.
-
-Birden fazla yarim gorev varsa en yeniyi korlemesine surdurme. Proje + konum + hedef + durum ile aday listele; bir tane guvenilir eslesme varsa otomatik devam et.
-
-### 5.4 Dogal dil ve otomasyonun siniri
-
-MCP dogal dili kendiliginden anlamaz; model typed tool'u secer. 'Tek cumle yeter' deneyimi, kurulan OpenCode tool/agent baglaminda gercek prompt smoke testleriyle dogrulanir. Genel bir MCP istemcisinin, her modelinin ve her dogal dil ifadesinin otomatik dogru tool sececegi garanti edilmez.
-
-Diger MCP istemcileri ayni sunucu ve job motorunu kullanabilir; ilk dogrulanacak insan arayuzu OpenCode'dur. Modelin kendi basina `bash/edit` ile test yazmasi desteklenen guvenli akis degildir. Test engineering agent'inin rolunu MCP araclarina yonlendirecek sekilde sinirla; genel build agent'inin urun disindaki yetkilerini urunun guvenlik garantisiymis gibi anlatma.
+| RG01 | Linux kaynak/envanter ve default config/DB | Gercek src/main/java bulunur; config/DB dogru platform dizininde; yanlis ters-slash sibling dosyasi yok. |
+| RG02 | Windows bosluk/Unicode/case + iki checkout | Root/identity dogru; Unicode korunur; checkout verileri karismaz. |
+| RG03 | Parent/profil/custom test root/cok modul | Effective modeldeki root ve bagimliliklar asil run'da kullanilir; sonucun modul kimligi dogru. |
+| RG04 | Ayni simple name ayni modulde iki FQCN, package/module secimi | Belirsiz sinif rastgele secilmez; package/module hedefleri acik sinif listesine cozulur. |
+| RG05 | Var olan birden fazla MCP + provider/agent/permission ile install | Kendi kaydi disindaki tum yapilandirma semantik olarak ayni; backup kalici ve dogrulanmis. |
+| RG06 | JSONC/bilinmeyen alan + tekrar install + eszamanli config edit | Veri kaybi yok; desteklenmeyen format/yeniden edit conflict; atomik rollback. |
+| RG07 | Clean install-verify-uninstall izolasyonu | Gercek user config/home sentinel hash ayni; tum degisiklikler fake home/data altinda. |
+| RG08 | Kurulum yarida kesildi veya policy/signing engeli | Eski config korundu; basari mesaji yok; politikalari asan workaround varsayilan degil. Ayrica PS1 calistirma yasakliyken CMD+Node ile basarili kurulum/verify/uninstall saglanir. |
+| RG09 | Uninstall, kullanici sonradan MCP kaydini degistirdi | Yalniz urun kaydi/sahiplikli dosya silinir; user override ve gecmis veri ezilmez. |
+| RG10 | Sifir clone/temiz user kurulum smoke | PowerShell'siz `cmd.exe` + `node.exe` ile locked install/build, gercek transport handshake/tool call, uninstall ve yeniden kurulum; Git Bash gerektirmez; process'in 2 saniye acik olmasi yetmez. |
+| RG11 | Dagitilan MCP entrypoint'i, sekiz arac | Iki desteklenen profilde gercek wire discovery/call; disabled apply acik capability dondurur. |
+| RG12 | test_start + status + result | Is discovery'de kalmaz; dispatcher run/candidate/checkpoint/rapor uretir; user ara komut yazmaz. |
+| RG13 | Duplicate start, degismis source ve eski bitmis job | Ayni talep tek calisma; farkli kaynak/revision eski sonuc gibi donmez; tam request saklanir. |
+| RG14 | Yanlis root/hedef/model/config/runner | Gercek BLOCKED/INVALID response ve protokol hata semantigi; sahte preflight ok yok. |
+| RG15 | src/test/java/../../../README.md ve path cesitleri | Proje icinde olsa bile test-root disina yazma reddedilir; canary ayni kalir. |
+| RG16 | Testin production/POM/secret/home yazma/okuma denemesi | Gercek izole runner'da engelli; host canary ve production hash ayni. |
+| RG17 | Docker/network/process/memory/disk/log kotalari | Kaynak ihlali gercek engellenir; NO_CGROUP/komut yok/yanlis probe success degil. |
+| RG18 | Docker/runner yok, veya read-only yazma probe'u basarili | Capability fail-closed; host Maven'a dusme yok; yazilabilen source izolasyon ihlalidir. |
+| RG19 | Symlink/junction/TOCTOU/mount override | Canonical scope disina erisim/yazma yok; stale path red; Docker socket/home mount edilmez. |
+| RG20 | Env canary ve bagimlilik hazirligi | Model credential JVM'ye gecmez; dependency retrieval onayli; runtime test network kapali. |
+| RG21 | LINE %95, BRANCH %40, hedef %90 | Tum early-exit/aday-null/final yollarinda TARGET_REACHED yok. |
+| RG22 | Branch0, missing/debugsiz/bozuk/stale XML/exec, class mismatch | NOT_APPLICABLE/UNAVAILABLE/INVALID ayrilir; eski/yetkisiz rapor kabul edilmez. |
+| RG23 | %89.96 esik ve iki hedef %100/%80, branch-only kazanim | Yuvarlama/ortalama sahte basari yapmaz; branch-only kazanimi korur. |
+| RG24 | prompt_async 204 ve ic ice info/parts gercek response | JSON parse hatasi yok; dogru invocation'un tamamlanmis metni bulunur. |
+| RG25 | Auth/model hatasi, timeout, stale cevap, kesik JSON | Dogru error/retry/budget; server abort gercek; stale/eksik cevap aday olmaz. |
+| RG26 | Global plugin/MCP/hook/formatter mirasi | Worker'da sentetik zararsiz canary kodu calismaz; gereksiz araclar kapali; job recursion yok. |
+| RG27 | Ikinci dosyada hatali changeset, stale before-hash, unified diff | Hicbir partial aday best'e girmez; diff raw kaynak diye yazilmaz; accepted blob korunur. |
+| RG28 | Ardisik iki accepted aday + arada rejected aday | Son accepted set iki kazanimi da icerir; final temiz replay ayni sayaclari verir. |
+| RG29 | Mevcut test silme/skip/assertion gevsetme/tespit edilmeyen test | Test identity/regresyon kapisi red verir; sayac artisi kurali asmaz. |
+| RG30 | assertTrue(true), self-comparison, mock SUT, duplicate, helper assertion | Sahteler red/inceleme; anlamli helper/exception/parameterized testler desteklenir. |
+| RG31 | Iki ayri process ayni canli job'a resume | Tek aktif owner/loop; gecerli lease calinmaz; durum bozulmaz. |
+| RG32 | Release/reacquire, expiry, gec eski worker sonucu | Token monoton; expired/stale cevap DB/best/artifact pointer'ini degistiremez. |
+| RG33 | Analiz/generation sirasinda hard kill ve baska modelle resume | Ayni job; son kayitli plan ve accepted dosyalar korunur; unverified aday accepted olmaz. |
+| RG34 | Maven/JVM veya Docker sirasinda hard kill/cancel | Sahiplikli container/process sonlanir; orphan yok; restart stale run'i kabul etmez. |
+| RG35 | Blob publish ile DB transaction arasinda kill | Yarim dosya READY/best degil; restart son guvenilir ancestor'dan baslar. |
+| RG36 | Iki publisher ayni parent, DB busy/disk full | CAS/fence reddi dogru; bir accepted pointer; eski kazanim kaybolmaz. |
+| RG37 | Clean->dirty, POM/wrapper/HEAD/testbase degisimi, bozuk latest blob | Kaynak degisimi/stale coverage tespit; ancestor bulunur; sessiz fresh_start yok. |
+| RG38 | Git worktree/packed refs/untracked/binary resource/.mvn | Snapshot dogru/replayable; kimlik ve digest degisimi dogru; kaynak depo temizlenmez. |
+| RG39 | Envanterde sinif silme/degisme ve onceki run gecmisi | Guncel liste yenilenir; eski run/test/model iliskileri korunur. |
+| RG40 | SQLite migration/WAL backup/restore/retention | Restore edilen DB+blob graph tutarli; pinned/active/best silinmez; schema hata fail-closed. |
+| RG41 | Gercek yetkili OpenCode+LiteLLM pilotu | Normal MCP girisi; gercek model uretimi, izole Maven/JaCoCo, tam hedef veya dogru unmet; replay degil. |
+| RG42 | Pilot kesildi, yeni OpenCode/model oturumu devam etti | Gercek kullanici devam talebi ayni job/accepted set/deneme hafizasina doner. |
+| RG43 | Bozuk/zero/unstable baseline; exception kazanimi coverage'i artirmiyor | Sahte PASSED yok; davranis kazanimi coverage olarak yazilmaz; testability belirsizligi acik. |
+| RG44 | Ulasilabilir %90 ve test-only sinirli hedef | Ilkinde iki metrik gercek saglanir; ikincide source/POM ayni, best tests korunur ve unmet raporu. |
+| RG45 | Guvenilir onay yok/uydurma metin/onay baska checkpoint'e ait | Customer checkout'a hic yazma yok; patch-only veya explicit red. |
+| RG46 | Onaydan sonra kullanici test dosyasini degistirdi | Expected-before uyusmazligi CONFLICT; kullanici degisikligi korunur. |
+| RG47 | Cok dosyali apply ortasinda crash ve restart | Journal-driven safe recovery; sadece kendi writes; backup dis store'da ve korunmus. |
+| RG48 | Ayni apply tekrar/farkli patch onay replay | Idempotent sonuc; ilk backup ezilmez; farkli patch/root'a onay kullanilmaz. |
+| RG49 | DB/JSON/HTML/terminal metric/outcome/counter tutarliligi | Ayni trusted run/checkpoint; hash mismatch halinde verification false. |
+| RG50 | Binary exec + alt klasorlu JaCoCo HTML offline export | Baytlar ayni hash; baglantilar acilir; gercek dosya varligi; hedef disina yazma yok. |
+| RG51 | extraFiles traversal/reserved-name overwrite/XSS/secret canary | Path red; report.json/index/manifest korunur; injection ve secret sizintisi yok. |
+| RG52 | Failed/blocked/cancelled/budget/plateau raporlari | Uydurma olcum yok; son guvenilir/eksik kanit ayrimi; gercek blocker/deneme kaydi. |
 
 ---
 
-## 6. Mimari ve sorumluluk sinirlari
+## 7. Kanit sozlesmesi ve eski kabul matrisinin yeniden kurulmasi
 
-```text
-OpenCode CLI/TUI veya baska MCP istemcisi
-    |
-    | Kisa, typed MCP tool cagrilari
-    v
-MCP Adapter (OpenCode-uyumlu v1 / yeni protokol v2)
-    |
-    v
-Application Services + Durable Job Orchestrator
-    |-- Project Discovery / Java Inventory
-    |-- Test Plan / Gap Prioritizer / Plateau Analyzer
-    |-- Policy Guard / Patch Applier / Independent Verifier
-    |-- SQLite Repository / Artifact Store / Recovery Manager
-    |-- Offline Report Generator
-    |
-    |-- OpenCode Worker Adapter
-    |      -> Sinirli worker session
-    |      -> Yetkili kurum ici LiteLLM provider/model
-    |
-    `-- Isolated Maven Test Runner
-           -> Build / JUnit / Surefire / JaCoCo
-           -> Dogrulanabilir run evidence
-```
+Her AC/RG test kaniti en az su alanlari tasiyacak:
 
-### 6.1 Moduler monolit
+- Requirement ID ve assertion aciklamasi; kapsanan ve kapsanmayan parca.
+- Test source path ve tam test case adi; hangi gercek entrypoint/API cagirildi.
+- Code commit, test commit/dirty durumu ve toolchain/OS/container/model surumleri.
+- Run ID, baslama/bitis, gercek komut ve exit code; command/rapor redaction durumu.
+- Artifact manifest'i ve SHA-256; raw hassas kanitin dis store referansi; public'e uygun ozet.
+- Sonuc `PASSED`, `FAILED`, `NOT_RUN` veya `BLOCKED`; blocker nedenini koda ait eksik ile ortam yoklugu olarak ayir.
 
-Tek urun deposu ve yerel uygulama: gereksiz mikroservis, Redis, mesaj broker'i veya ikinci DB kurma. MCP request handler'lari is mantigini icermez; application service cagirilari yapar. Is motoru transport, model ve storage adapterlerinden bagimsizdir. Sonradan UI ayni application katmanini kullanabilsin; simdi UI implementasyonu yoktur.
+**Gecersiz kabul ornekleri:**
 
-Uzun isler event loop'u bloke etmeden yurutulur. Maven process'leri ve Java analiz process'i supervision altinda olur. DB transaction'i boyunca model veya process sonucu beklenmez. Varsayilan bir workspace icin tek aktif yazici/test iterasyonu; farkli projelerde kaynak butcesi izin verdiginde paralellik mumkundur.
+- "ErrorCode enum'unda var, AC30 PASSED."
+- "role prompt'unda yasak deniyor, private reflection/prompt injection korunuyor."
+- "Tool adi array'de var, v2 protokol calisiyor."
+- "Docker sinifi var, normal Maven akisi izole."
+- "Manifest hash dogru, icindeki test ve coverage blob'lari da dogru."
+- "mvn exit0, Surefire 0 test veya stale XML onemsiz."
+- "%50 line kosulu geciyor, %90 hedef pilotu tamamlandi."
+- "Gecici LOCALAPPDATA kullandim, kullanici config'i degismemistir."
+- "Test sayisi 168 oldu, tum fonksiyonlar entegredir."
 
-### 6.2 Gercek otonom dongu
-
-`test_start` kalici kaydi olusturur ve kisa surede `job_id` doner. Motor, MCP process'i hayattayken ilerler. Her iterasyon icin ana sohbetten yeni yonetim talimati bekleyen script koleksiyonu kabul edilmez.
-
-MCP stdio process'i OpenCode kapaninca sonlanabilir. Ilk teslimatta surekli arka plan servisinin hayatta kalacagi vaat edilmez. EOF/termination algilandiginda calisan cocuklar icin kontrollu kapatma ve checkpoint uygulanir. Sert kesintiden sonra restart recovery calisir. 'Oturum kapansa da devam eder' yerine, gercekte durduysa `INTERRUPTED` ve `resume_available` gosterilir.
-
-Kisa status cagrisi veya ust siniri olan long-poll, UI thread'ini ve tool timeout'unu kilitlemez. Ilerleme ciktilari DB event sirasiyla yeniden okunabilir; kaybolan SSE olayi is gecmisi kaybi sayilmaz.
-
-### 6.3 AI worker modeli
-
-AI worker'i rol bazli gorevlendir: Analyzer, Test Designer/Developer, Reviewer/Gap Analyzer. Bunlar mantiksal rollerdir; her rol icin ayri model veya dort daimi ajan zorunlu degildir. Tek yetkili modelle de tum akis calisabilmelidir. Bagimsiz dogrulama, mutlaka farkli LLM demek degildir; test/coverage kanitini modelden bagimsiz olcen kod demektir.
-
-Worker'a sadece gerekli sinif, bagimlilik imzalari, mevcut testler, policy, acik coverage alanlari ve onceki ilgili denemeler verilir. Ilgili ek kodu almak icin sinirli, salt-okunur context yetenegi sunulabilir. Tum repository'yi her iterasyonda modele gonderme. Baglam kesilmisse bunu kaydet; gorulmeyen dosyalari modelin bildigini varsayma.
-
-Varsayilan worker cikisi **proposal/changeset** olsun. Model test dosyasinin yeni icerigini veya desteklenen patch'i, beklenen onceki hash'i ve senaryo kimliklerini uretsin. Guvenilir `PatchApplier` izinleri ve butunlugu dogruladiktan sonra yalniz staging alanina yazar. Worker dogrudan host proje/DB/rapor dosyalarini degistiremez.
-
-OpenCode worker'in `bash`, genel `edit/write/patch`, `task`, web ve diger MCP araclarini kapat. Gerekli salt-okunur araclari allowlist ile ac. Otomatik formatter, LSP baslatma, repo plugin'i ve shell hook'u gibi dolayli calistirma yollarini da ele al. Host kullanici konfigrasyonunu tum olarak miras almak yerine kontrollu worker ayarini kur. Bos `mcp: {}` veya inline config'in mirasi temizledigini varsayma. Etkin ayarlarin testini yap. [S19]
-
-Worker kendi `test_start` aracini goremez; recursive worker/job zinciri yasaktir. Provider erisimi disinda musteri verisini disariya tasiyan araci olmayacak. Yetkili model degisimi politika ve job event kaydiyla yapilir.
-
-### 6.4 Model cikti sozlesmeleri
-
-Asagidaki schema'lar urun tarafinda versiyonlu olusturulacak:
-
-- `ProjectContext`: snapshot, hedef kimlikleri, framework, kaynak referanslari, baglam eksikleri.
-- `AnalysisArtifact`: gozlenen davranislar, contract kaynaklari, bagimliliklar, mevcut test durumu, belirsizlikler.
-- `TestPlan`: senaryo ID, hedef davranis/metot/bosluk, girdi, mock/fixture, beklenen gozlenebilir sonuc, assertion gerekcesi, oncelik.
-- `CandidateChangeSet`: base checkpoint, parent hash, path, action, before/after hash, yeni icerik/patch, ilgili scenario ID'leri.
-- `ReviewArtifact`: finding ID, severity, dosya/konum, kural, kanit, onerilen duzeltme; salt model gorusu oldugu etiketi.
-- `GapAnalysis`: kalan alan, denenen yaklasimlar, evidence reference, blocker sinifi, belirsizlik, siradaki strateji.
-- `WorkerHandoff`: son dogrulanmis snapshot/checkpoint, kalan plan, basarisiz denemeler, policy ve sonraki tek anlamli eylem.
-
-Zorunlu alan eksikligi, schema surum uyumsuzlugu, kesilmis JSON ve path disina yazma istegi kabul edilmez. Sinirli format duzeltme denemesi yap; hala hataliysa `INVALID_MODEL_OUTPUT`. Markdown icindeki rastgele ilk code block'u valid patch kabul etme. Tool/model structured output destegi yoksa ayni schema'yi yerelde kontrol eden metin-JSON yolu kullanilabilir; dogrulama kaldirilamaz.
+**Gecerli yaklasim:** Mevcut testleri asil isim/kapsamlariyla tut; eksik davranis icin test ekle. Yeni test once bug'i gostersin, implementasyon duzelince ayni beklentiyle gecsin. Onkosul bekleyen testin skip'i, ilgili kabul maddesini otomatik PASSED yapmasin.
 
 ---
 
-## 7. MCP arac ve veri sozlesmesi
+## 8. Veri modeli ve runtime artifact duzeni
 
-### 7.1 Yuksek seviyeli araclar
+Foundation'daki veri modeli sozlesmesi korunur; mevcut tablolari incelemeden bastan schema uretme. Zorunlu baglantilar migration ile tamamlanir:
 
-| Arac | Temel giris | Sonuc ve yan etki |
+- project -> checkout/location -> source snapshot -> module/package/symbol/test identity;
+- job -> GoalContract/target/policy/model/budget -> phase/iteration -> worker invocation;
+- run -> exact workspace/test set/toolchain/command -> Surefire identity/status -> JaCoCo/provenance;
+- accepted checkpoint -> immutable test blobs + analysis/plan + trusted run/coverage + previous checkpoint;
+- artifact -> owner/job/run/checkpoint + hash/schema/sensitivity/retention pin;
+- lease/fence/generation -> tum mutating transaction'lar;
+- apply approval/operation -> exact checkpoint/patch/checkout/preimage + durable journal;
+- report -> ayni run/checkpoint/source identity.
+
+Model invocation ve runner outcome'lari gercekten bu tablolara yazilir; bos tablo taslagi "kalici envanter" kabul degildir. `project_query` bunun okunabilir kontrollu gorunumudur.
+
+Runtime store, product repository ve customer repository disinda kullaniciya ozel izinlerle tutulur. Kurum kaynaklari, API key, ortam dokumu ve model payload'lari public `ai/` klasorune yazilmaz. Gerekli local hassas kanit icin sadece sanitized manifest/reference public kayda girebilir.
+
+---
+
+## 9. Kesintide gelistirmeye devam protokolu
+
+Bu bolum MCP urununun gelistirilmesine aittir; runtime Java test job resume'unun yerine gecmez.
+
+Her asama sonu/handoff su bilgileri icersin:
+
+1. Aktif gorev/HEAD/branch ve dirty dosyalarin sahipligi.
+2. Son VERIFIED Dxx, Fxx kapanislari ve gercek AC/RG test sonuclari.
+3. Aktif degisiklikler; gecmeyen assertion'lar, son hata/log referansi ve denenmis yollar.
+4. Kesin sonraki eylem: dosya/islev + hedef regression + calistirilacak komut.
+5. Calisan sahiplikli process/container varsa kimligi ve guvenli devralma/sonlandirma durumu.
+6. Korunacak config/backup/runtime DB ve explicit yasaklar.
+
+Yeni model once bu kayitlari ve gercek Git durumunu karsilastirir. "Hepsi bitti" metni varsa dahi test/transport/run kanitini kontrol eder. Tamamlanmamis asamayi yeniden planlayip tum sistemi sifirdan yazmaz. Acik scope ayni aktif gorevde kalir; bitirmekten kacinmak icin baska gorev dosyasi uretmez.
+
+---
+
+## 10. Git, gizlilik ve kullanici kararlari
+
+- Repo-local `user.name = mehmet-karacan`, `user.email = karacan.mehmet@hotmail.com`, `user.useConfigOnly = true`.
+- Global Git config ve baska repository ayarlari degismez. Commit oncesi gercek author/committer; commit sonrasinda logdan tekrar kontrol.
+- Yeni commit mesajlari ve urune ait Turkce dokuman/aciklamalar Turkce ASCII. Teknik kod kimlikleri serbest ASCII; musteri Unicode kaynak/path/test girdisi, upstream lisans ve orijinal hata verisi transliterate edilmez.
+- Asama commit'i dogrulanmis ve anlamli olsun. Staged diff ve secret scan incelemesi zorunlu; kontrolsuz `git add -A` yok.
+- Remote ve mevcut dal/koruma kontrol edilir; push hatasinda force push yok. Kullanici istemeden release/npm publish/PR botu/devops servis ekleme yok.
+- CI kapali kalir. Operator acik onay verirse degisir; bu gorev o onay degildir.
+- Public repository'ye corporate adresler, raw model config/session, API key/token, model/team UUID, customer kaynak, runtime DB, gercek JaCoCo kaynak HTML'i veya kisisel makine envanteri gitmez.
+- Sifre/endpoint leak bulunursa daha fazla yayma; sanitized issue/kanit, yerel containment ve kullanici bildirimi. Gecmisi rewrite/forcepush veya credential rotation kullanici onayi olmadan yapilmaz.
+
+---
+
+## 11. Bitis kriterleri ve kullaniciya verilecek teslim
+
+### 11.1 IMPLEMENTATION_VERIFIED icin
+
+- F01-F14'teki kod hatalari gercek implementasyonla kapanmis; gereksiz yeniden yazim yerine mevcut urun tamamlanmis.
+- D00-D10'un implementasyon parcalari ve ortamdan bagimsiz kabul testleri gecmis.
+- Normal MCP girisinden scripted worker + gercek izole Maven/JaCoCo fixture E2E; kesinti/guvenlik/coverage/rapor/apply ve clean install kanitli.
+- Typecheck/lint/unit/contract/integration/recovery/security testleri ve urunun kendi coverage raporu mevcut; yapilmayan katmanlar acik.
+- Eski AC01-AC70 ve yeni RG01-RG52 icin gercek test assertion eslesmesi yapilmis. Sadece ad/metin/schema kanitiyla PASSED kalan satir yok.
+- Current state/backlog/acceptance/handoff, run evidence ile tutarli.
+
+### 11.2 FULL_ACCEPTANCE_VERIFIED icin
+
+Usttekilere ek olarak yetkili kurum ortami/OpenCode/model ile RG41/RG42/RG44 ve ilgili AC67/AC68 dahil gercek kullanici deneyimi dogrulanmis olmali. Ulasilabilir hedefte iki metrik sahiden saglanmali; test-only engelli hedefte neden ve korunan kazanim sahiden raporlanmali. Windows/Linux zorunlu kabiliyetleri soz verilen sekilde kanitli olmalidir. Windows kurulum/verify/uninstall icin PowerShell izni gerekmeyen CMD + Node.js gercek E2E kaniti zorunludur.
+
+Kurum modele erisim yoksa, implementasyon gercekten tamamlanmissa `IMPLEMENTATION_VERIFIED + INSTITUTIONAL_ACCEPTANCE_PENDING` denebilir. Eksik scheduler, host runner, yanlis coverage gate veya yetersiz resume gibi kod kusurlarina "ortam bekliyor" deneme. Herhangi zorunlu madde aciksa "tum gorevler bitti" yazma.
+
+### 11.3 Kullaniciya final ozet
+
+Kisa ama kanitli ozet:
+
+- Hangi gercek hatalar duzeltildi; normal OpenCode kullanimi nasil dogrulandi?
+- Son LINE/BRANCH, kaynak/test-only koruma, final replay ve kesintiden devam pilot kaniti.
+- Mevcut OpenCode konfigurasyonu korunuyor mu; eski kurulumun olasi yan etkisi konusunda ne bulundu?
+- Gercek kosulan test katmanlari ve acik ortam/kabul maddeleri.
+- Son commit/branch/push ve CI'nin kullanici karariyla kapali oldugu.
+- Runtime rapor/DB/ham kanit konumlari ve `ai/` handoff referansi.
+
+Bu urunun basarisi, bir test job'unun %90'a ulasamama nedenini dogru raporlayabilmesini de kapsar. Ancak o job'un kendisine TARGET_REACHED yazilmasini kapsamaz.
+
+---
+
+## 12. Inceleme kaynaklari ve tekrar dogrulama adresleri
+
+### 12.1 Birincil repository ve kullanici kaydi
+
+- Repository: `https://github.com/mehmet-karacan/ai-test-engineering`
+- Sabit inceleme commit'i: `https://github.com/mehmet-karacan/ai-test-engineering/commit/c5307f5315a288092a1293d874c335f8db5ecd3d`
+- Bu belgede adi gecen kaynak dosyalar icin canonical URL kalibi: `https://github.com/mehmet-karacan/ai-test-engineering/blob/c5307f5315a288092a1293d874c335f8db5ecd3d/<repository-relative-path>`.
+- Orijinal sozlesme: ayni commit'teki `AKTIF_GOREV.md`, ozellikle 2, 5-16, 18-22. bolumler.
+- Kullanici oturum ciktisi: `session-ses_ede2.md`, son guncelleme 10 Ekim 2026 00:19. Bu dosya public'e kopyalanmayacak. Model/test sayisi iddialari bu kaydin beyanidir; bagimsiz kabul degildir.
+- Oturum kanitlari: 168 test gecisi; pilot testinin 5000 bps esigi; temiz kurulumda gercek kullanici config'ine yazma; dogrulama yolu sonradan duzeltilip tekrar tam verification olmadan bitis iddiasi; `c5307f5` commit/push ciktilari.
+
+### 12.2 Resmi API/semantik kaynaklari
+
+**E01 - OpenCode server:** `https://opencode.ai/docs/server/`
+
+Incelemede dogrulananlar: headless server ve `/doc`; `prompt_async` icin 204 No Content; mesaj listesi icin `{info,parts}` yapisi; session/abort/auth API'leri. Bunlar yuklu binary'nin ayni surumde oldugunun kaniti degildir. Uygulamada kurulu surumun `/doc` ve SDK tipleriyle tekrar dogrula.
+
+**E02 - Node child process:** `https://nodejs.org/api/child_process.html`
+
+`killed` flag'i sinyalin gonderilmesini belirtir, gercek process exit'ini degil. Process close/exit, child cleanup ve platform farklari icin resmi semantik esas alinir. Bu dokumanin latest surumu ile urunun Node24 hedefini karistirma; gerekli Node24 belgesini de dogrula.
+
+**E03 - OpenCode SDK/config:** `https://opencode.ai/docs/sdk/` ve `https://opencode.ai/docs/config/`
+
+Typed client ve ayar resolution/merge kurallari icin resmi referans. Global mirasin kapatildigi config nesnesinden tahmin edilmez; efektif ortam canary testi gerekir.
+
+**E04 - MCP:** `https://modelcontextprotocol.io/specification/2025-11-25` ve `https://modelcontextprotocol.io/specification/2026-07-28`
+
+Kullanilan adapter/SDK'nin gercek lifecycle ve tool error semantigi dogrulanir. Version string'i degistirerek yeni protokol destegi ilan edilmez. Job hafizasi Tasks/Sampling desteginden bagimsiz kalir.
+
+**E05 - Docker run:** `https://docs.docker.com/reference/cli/docker/container/run/`
+
+Mount, read-only, network, resource ve process lifecycle secenekleri resmi dokumanla ve gercek kabiliyet fault testleriyle uygulanir. Argumanin kodda bulunmasi tek basina izolasyon kaniti degildir.
+
+### 12.3 Kisitli mikro tekrar uretimler
+
+Inceleme ortaminda sadece saf ifadeler/native API ile, kaynak degistirilmeden ve ag/model cagrisi olmadan tekrar uretildi:
+
+| Kontrol | Gozlem | Sinir |
 | --- | --- | --- |
-| `project_inspect` | `project_root`, opsiyonel refresh | Yetkili projeyi tanir/kaydeder, envanter ozeti ve preflight durumu verir; test/production degistirmez. |
-| `project_query` | `project_id` veya root, `view`, filtreler, cursor | Projeler, moduller, paketler, siniflar, testler, coverage/is gecmisi icin sinirli sorgu. Serbest SQL kabul etmez. |
-| `test_start` | root, targets, hedef yuzde, opsiyonel model/profile, idempotency key | Dogrulanmis parametrelerle tek kalici job baslatir; kisa surede handle doner. |
-| `test_status` | job ID veya proje baglami, event cursor | Durum, aktif asama, son dogrulanmis olcum, unverified aday, gereken eylem. |
-| `test_resume` | job ID veya proje baglami, opsiyonel model profile | Checkpoint/source/lease dogrulayarak mevcut isi surdurur; yeni job gibi davranmaz. |
-| `test_cancel` | job ID, pause/cancel nedeni | Process tree'yi guvenle durdurur; artifact'leri silmez. Pause/devam edilebilir iptal ayrimi sonuc alaninda aciktir. |
-| `test_result` | job ID, ozet/detay, artifact turu | Rapor/diff/log/coverage referanslari ve kaynak butunlugu; keyfi dosya okuma yok. |
-| `test_apply` | job ID, onayli checkpoint/diff digest, hedef workspace | Sadece acik onayli test degisikliklerini uygular. Varsayilan kapali/onay gerektiren yetenek; 16. bolumdeki sozlesme. |
+| Test prefix vs canonical path | `src/test/java/../../../README.md`, Windows ve POSIX hesapta proje icinde ama test root disinda; ham prefix izinli. | Policy fonksiyonunun ilgili ifade semantigi; tam urun regression'i uygulayici yazacak. |
+| HTTP 204 JSON | `new Response(null, {status: 204}).json()` -> SyntaxError. | Native Response davranisi; gercek OpenCode cagrisi degil. |
+| Mesaj shape | `{info:{role:'assistant'},parts:...}` disinda `role` aramak bos string veriyor. | Response shape/okuma mantigi; gercek worker run'i degil. |
+| Tautolojik assertion | `assertTrue(true)` assertion regex'ine uyuyor, mevcut `assert(true)` tautoloji regex'ine uymuyor. | Dar regex deneyi; tum kalite suite'i degil. |
+| POSIX separator | `src/main/java` icin zorunlu ters slash yolu `/fixture/src\\main\\java` uretir. | Yol ifadesi; source inventory'nin kendi testi gereklidir. |
+| Symlink containment ifadesi | Normal cwd icin `!path.startsWith('')` false. | Incelenen boolean kusuru; gercek symlink/junction regresyonu ayri zorunlu. |
 
-Sunucu kaynak saglayabiliyorsa raporlar `aite://jobs/<id>/...` gibi server'a ait URI'lerle de sunulabilir. Resource okumasi artifact registry ve boyut siniriyla yapilir; `file://` uzerinden keyfi host dosyasi acilmaz. Kullanicinin yerel acabilmesi icin raporun dogrulanmis absolute path'i de sonuc icinde verilir.
-
-`project_root` MCP tarafinda canonical/real path'e cevrilir; register edilen yetkili kokler disina cikilmaz. Giris parametresi olarak shell komutu, SQL, calistirilacak script veya keyfi model endpoint'i alinmaz. Bunlar operatorun yerel guvenilir profillerinden secilir.
-
-### 7.2 Test hedefi
-
-```json
-{
-  "project_root": "C:/work/sample-project",
-  "targets": [{"selector": "PaymentService", "kind": "class"}],
-  "coverage": {"percent": 90, "metrics": ["LINE", "BRANCH"]},
-  "mode": "TEST_ONLY"
-}
-```
-
-Bu ornek urunumuzun tool girdisidir. `project_root` dogal dilde kullanicinin tekrar yazacagi sey degildir; istemci tarafindaki baglamdan aktarilir. Yalniz yuzde girildiginde metrics varsayilani iki metrik olur. Yuzde 0-100 araliginda ve en fazla iki ondalikli kabul edilir; ic hesap basis point/tamsayi kullanir.
-
-Hedef cozumu tamamlandiginda is kapsaminda canonical module ID, kaynak path, tam Java adi, class/kaynak iliskisi ve kapsam fingerprint'i sabitlenir. Paket/modul hedefi sessizce butun repository'ye genisletilemez. Ileride dosya eklenirse aktif hedef listesine otomatik katilmaz; yeni kapsam onayi veya yeni job revision gerekir.
-
-### 7.3 Her mutating tool icin ortak kurallar
-
-- `schema_version`, correlation/request ID, `job_id`, `project_id`, durum ve makine-okunur reason code.
-- Start/resume/apply tekrarlari ayni etkiyi ikinci kez uygulamaz. Semantic request fingerprint + aktif gorev eslestirmesi; gercekten yeni deneme isteniyorsa acik `new_attempt` davranisi.
-- Parametre hatasi, policy ihlali ve is sonucu farkli hata siniflari. Business target-not-met protokol parse hatasi degildir.
-- `readOnlyHint`/`idempotentHint` gibi metadata, izin veya guvenlik yerine gecmez. Yan etkili arac dogru etiketlenir.
-- `test_status` yuzdeyi yalniz son trusted run'dan verir. Calisan adayin tahmini coverage'i resmi sonuc gibi gosterilmez.
-- Buyuk log/raporlar tool context'ini doldurmaz; sinirli ozet, cursor ve artifact referansi doner.
-- STDOUT sadece MCP protokolu. Loglar STDERR ve yerel dosyada. Maven output'u MCP STDOUT'una karismaz.
-
-### 7.4 Surum ve istemci uyumlulugu
-
-Uygulamanin basinda gercek kurulu OpenCode binary/SDK/protocol matrisini kaydet. v1 profili icin eski handshake, v2 icin resmi yeni lifecycle kullan; her ikisini ayni handler'da kontrolsuzce karistirma. `latest` isimli belgenin installed SDK ile ayni oldugunu varsayma.
-
-MCP Tasks uzantisi bu urunun job store'u degildir. Destekleniyorsa ek adapter olabilir; ilk ana akis, tool request/result ve job ID ile calisacak. Sampling'e veya istemcinin modelini MCP'ye otomatik vermesine bagimlilik yoktur. LiteLLM model secimi onceden konfigure edilen worker profilinden yapilir.
+Sonraki model bu kayitlari yeniden PASS etiketi uretmek icin degil, gercek urun regression testlerine donusturmek icin kullanmalidir.
 
 ---
 
-## 8. Proje tanima ve kalici envanter
+## 13. Ilk uygulanacak somut adim
 
-### 8.1 Proje ve checkout kimligi
+`D00` kayit duzeltmesini ve `D01` installer konfigurasyon koruma testini baslat. Once sahte home icinde en az iki baska MCP + provider/agent/permission iceren sentinel config olustur; mevcut kurulum merge mantiginin baska MCP'leri kaybettirdigini tekrar uret. Bu testi sabit beklentiyle gecer hale getir, gercek user config'ine dokunulmadigini dogrula. Sonra `D03` guvenli calistirma gecidiyle birlikte `D02` asil MCP orkestrasyonunu bagla; D04-D10'u tamamla.
 
-Bir Git remote ayni olan iki clone veya worktree ayni CALISMA ALANI degildir. `projects` mantiksal urunu; `project_locations` yerel checkout'u temsil eder. Canonical root, dosya sistemi kimligi/ortam, Git common-dir ve remote'un kimlik bilgilerinden arindirilmis hali kaydedilir. Remote'suz lokal projeye de UUID verilir.
-
-Git branch tek basina snapshot kimligi degildir. HEAD + tracked dosya hash'leri + ilgili dirty/untracked kaynak hash'leri + build/config fingerprint'i ile mevcut gercek durum tespit edilir. Symlink/case farklari ve Windows drive/junction davranisi hesaba katilir. Kullanici klasoru tasirsa kimlik eslestirmesi dogrulanir; baska proje ayni ada sahip diye eski checkpoint baglanmaz.
-
-Gizli veriler path/URL icinde olabilir: credentials, query string ve userinfo temizlenir. Secret degeri hash'lenerek bile gereksiz kayda alinmaz; secret referansi ve profil surumu yeterlidir.
-
-### 8.2 Kesif sirasi
-
-1. Dosya sistemi ve Git hakkinda salt-okunur metadata kontrolu.
-2. Statik POM/modul/profil/env dosyasi envanteri; hassas degerleri toplamadan.
-3. Guven siniri icinde Maven effective model/build metadata cozumu. Maven extension/plugin'leri calisabilecegi icin hostta masum XML sorgusu gibi davranma.
-4. Effective source/test roots, module dependency DAG, plugin surumleri, Surefire provider, JDK/toolchain ve mevcut coverage ayarlari.
-5. JavaParser yardimcisiyla package/class/interface/enum/record/nested type/metot imzalari, konumlar ve kaynak hash'i.
-6. Mevcut test sinif/metotlari, parameterized/dynamic test kabiliyetleri, fixture ve ortak test utility'leri.
-7. Statik kod-test iliskileri ve daha once dogrulanmis runtime iliskileri.
-8. Aranan hedefin cozulmesi ve hedefe gerekli kadar derin baglamin yuklenmesi.
-
-Yalniz `src/main/java` ve `src/test/java` varsayimina baglanma; effective modelden custom root'lari al. Uretilmis source ve aggregator POM kaynakli sahte hedefler ayri siniflanir. Maven artifact/dependency 'paketi' ile Java package kavrami ayni tablo alanina sikistirilmaz.
-
-JavaParser symbol resolution eksik classpath nedeniyle tamamlanamazsa 'cozuldu' yazma. Bilinen iliskileri kullan, unresolved alanlari kaydet; kritik target/FQCN belirsizliginde yazmayi durdur. Reflection/dynamic wiring sebebiyle statik iliskiyi gercek execution baglantisi diye gosterme.
-
-### 8.3 Envanterin guncellenmesi
-
-Envanter satirlari kaynak snapshot/parser version ile iliskilidir. Degisen Java dosyasinin sembolleri yenilenir; silinenler yeni snapshot'ta yok olarak isaretlenir fakat gecmis kayitlari silinmez. POM/toolchain/source root degisimi etkilenen modullerin analizini gecersiz kilar. Eski coverage yeni kaynak icin guncelmis gibi sunulmaz.
-
-Ilk test talebinde gerekli proje envanteri ve hedef baglami olusturulur. Her OpenCode acilisinda tum kaynaklari tekrar modele gonderen genel bir 'proje ogrenme' sistemi ekleme. Envanterin genisletilmesi ucuz deterministik is olsun; model analizi hedefe gore derinlessin.
-
-### 8.4 Kullanici sorgulari
-
-Su sorular DB ve kanitli artifact baglantilariyla cevaplanabilsin:
-
-- Kayitli projeler ve yerel baglanti durumlari neler?
-- X projesinde hangi modul/package/class icin is yapildi?
-- Hangi test olusturuldu, hangisi gelistirildi, hangi run'da calisti ve sonucu ne?
-- Son guncel ve gecmis coverage nedir; hangi kaynak surumune aittir?
-- Hangi model, hangi rolde ve hangi iterasyonda calisti?
-- Hangi is kesildi, hangi checkpoint'ten devam edilebilir?
-
-Bir test-candidate'in uretilmis olmasi, onun kabul edilmis veya hedef repoya uygulanmis oldugu anlamina gelmez. Bu durumlar ayrica saklanir.
-
----
-
-## 9. Kaynak korumasi, izole runner ve guvenlik
-
-### 9.1 Varsayilan guven modeli
-
-Kaynak repository, prompt'a giren yorum/dokuman, LLM cevabi, test kodu, test logu ve coverage XML'i guvenilir talimat degildir. Bunlar veri olarak islenir. Modelden gelen 'policy' degisikligi uygulanmaz.
-
-Bu urun ayni kullanici hesabinin bilincli saldirisina, kernel hatalarina veya ele gecirilmis container runtime'ina karsi mutlak guvence iddia etmez. Hedef; modelin yanlis/arac disi eylemlerinin, aday testlerin ve build process'lerinin normal yetki sinirlari icinde kaynaklara veya sirlara erisimini engellemektir. Guven sinirlari `docs/security.md` icinde acik yazilir.
-
-### 9.2 Kaynak snapshot'i
-
-Orijinal checkout'a model veya runner mount edilmez. Guvenilir uygulama salt-okunur envanter cikartir ve gerekli kaynaklarin ownership'li kopyasini alir. Snapshot, yalniz committed kaynak degil kullanicinin gercek calisma durumunu da temsil eder; dirty kaynak goz ardi edilemez.
-
-Kopyalama manifestinde her dosyanin relative path, boyut, hash, siniflandirma ve kaynak konumu bulunur. Symlink/hardlink/junction ile izin disi path'e cikma engellenir. Orijinal dosyaya ayni inode'u paylasan writable hardlink olusturulmaz. Herhangi bir silme/temizleme sadece urunun sahipligi manifestle kanitli dizinlerine uygulanir.
-
-Kalici production snapshot read-only tutulur. Aday icin ayri test overlay hazirlanir. Asil source root'lar, POM'lar, wrapper/config ve production resources runner'da read-only gorunur. Tum kaynaklari writable kopyalayip yalniz sonda hash bakmak birincil koruma olarak yeterli degildir; hash ikinci savunmadir.
-
-### 9.3 Test degisikligi allowlist'i
-
-Yazilabilir test root'lari effective project modelinden alinir. Asagidakiler yasaktir:
-
-- `src/main/**`, custom production root, build/wrapper/config, `.git/**`, uygulama profil/config kaynaklari.
-- Uretim davranisini degistiren bytecode rewrite/coverage filter/exclusion, JaCoCo raporu elle degistirme.
-- Test classpath'inde production sinifi ayni FQCN ile yeniden tanimlama veya test edilmeyen fake SUT kullanma.
-- Yeni `@Disabled`, `@Ignore`, kosulsuz assumption/early-return, skip flags, test silme ya da assertion'i gevsetme ile basari elde etme.
-- `pom.xml`, dependency/plugin versiyonlari, `build.gradle`, `.mvn`/wrapper, test secim ve coverage politikasi degisikligi.
-- Reflection ile private metodu dogrudan test etme veya API'yi test icin public yapma.
-- Guvenli kapsami asan agent/classloader/META-INF service/test engine ve benzeri calisma davranisi degisiklikleri.
-
-Fixture degisiklikleri path, dosya turu, boyut, sahiplik ve etkiledigi testler bakimindan kontrol edilir. Var olan fixture'i degistirmek diger testlerin anlami uzerinde etkili olabilir; regresyon kapsamindan kacirilmaz. Metinsel allowlist'te bulunan bir dosya semantik guvenlik denetiminden muaf degildir.
-
-### 9.4 Runner'in teknik siniri
-
-Ilk teslimatin strict runner'i OCI/container adapter'i ile uygulanir. Linux ve kurumun onayladigi Windows/WSL2/container yolu icin capability preflight yaz. Varsayilan olarak:
-
-- Non-root kullanici, gereksiz capabilities kapali, privilege escalation yok.
-- Read-only source/build policy mount'lari; sadece ilgili build output, `.m2` icin is-ozel cache veya onayli depolar, tmp ve output yazilabilir.
-- Host home, kullanicinin diger projeleri, Git credential, model auth dosyasi, Docker socket container'a verilmez.
-- Test/Java process'ine LiteLLM/OpenCode secret'i aktarilmaz. Worker ile runner ayni credential ortaminda calismaz.
-- Network varsayilan kapali. Dependency hazirlama gerekirse onayli registry/mirror/proxy profiliyle ayri asama; test runtime'ina sinirsiz dis ag verme.
-- CPU, bellek, disk, process ve wall-clock sinirlari. JVM/Maven cocuk process'leri ve container kimligi job/run ile kayitli.
-- Timeout/iptalde sadece ilgili process tree/container durdurulur; ayni makinedeki diger Java/OpenCode islemleri oldurulmez.
-
-Container seceneklerinin tek basina kusursuz sandbox oldugunu soyleme; mount, network, user ve secret politikalarini fault testleriyle dogrula. [S18]
-
-Container/prerequisite yoksa `BLOCKED_ISOLATION` ve kurulacak kabiliyeti raporla; admin yetkisi, Docker lisansi veya kurum izni varmis gibi otomatik kurma. Salt envanter ve rapor okuma calisabilir; riskli hostta otomatik test calistirma fallback'i kullanma. Operatorun onayli baska bir OS sandbox'i varsa ayni testleri gecen adapter ile kullanilabilir, siki korumayi kaldirarak degil.
-
-Windows path/WSL path mapping, CRLF, bosluk/Turkce karakter iceren klasorler ve case-insensitive cakismalar dogrulanir. Musteri projesi Linux ortaminda calisamayan Windows-native dependency gerektiriyorsa bunu desteklenmeyen runner kombinasyonu olarak raporla; Linux'ta gecen fixture'i tum Windows projelerine genelleme.
-
-### 9.5 Worker izolasyonu
-
-OpenCode server sadece loopback veya job-ozel guvenli kanal uzerinden erisilebilir; rastgele guclu auth secret'i kullan, `0.0.0.0`/public port yok. Basic auth bilgisi loglarda redakte edilir. SDK'nin yeni server acarken config mirasini nasil ele aldigi test edilir. [S07][S11]
-
-Model worker'a, gerekiyorsa sadece sanitized baglam kopyasi mount edilir; hedef checkout yoktur. Kurum ici API'ye erisim allowed endpoint profiliyle sinirlidir. Repository icindeki `.opencode`, AGENTS, plugin, LSP/formatter config'leri yetkili ayar olarak otomatik yuklenmez. Onlardan yararli test konvansiyonlari cikartilabilir ama araca yeni yetki verilemez.
-
-Proposal-only akisinda code generation dogrudan dosya yazma gerektirmez. Okuma genisletme gereksinimi guvenilir context service ile cozulur. Worker oturumu gereksiz olcum/build yapmaz; test runner'in sonucu tek gercektir.
-
-### 9.6 Parser, log ve rapor guvenligi
-
-XML parser external entity/DTD network resolution yapmaz. JaCoCo'nun normal DOCTYPE bildirimini guvenli bicimde okuyabilmek ile harici entity cozmek ayri konudur. Buyuk/derin XML ve zip/file boyut sinirlari bulunur. JSON/patch path traversal, symlink yarisi ve Windows reparse point testleri ekle.
-
-HTML'de kaynak kodu, model metni, log ve test adlari escape edilir. Markdown/HTML ham olarak inject edilmez. Harici JS/font/CDN/analytics yoktur; yerel rapor ag baglantisi gerektirmez. ANSI/terminal escape karakterleri temizlenir. Secret redaction log olusturulurken uygulanir; raw sifreli olmayan logu once disariya yazip sonra temizlemek yeterli degildir.
-
----
-
-## 10. Maven/JUnit/JaCoCo olcum sozlesmesi
-
-### 10.1 Build profili ve baseline
-
-Her job icin gercek toolchain ve `BuildPlan` olustur: reactor root, hedef/etkilenen moduller, JDK, Maven executable/wrapper, aktif profiller, settings referansi, test provider, plugin surumleri, VM args, test filtreleri, kaynak/test/build dizinleri ve coverage kaynagi. Kaydet ama secret degerlerini kaydetme.
-
-Maven effective model'i ve reactor dependency sirasi kullanilir. `-pl`/`-am` secimi build planinin sonucudur; tum projelere sabit komut yapistirma. Parent aggregator ile dependency relation ayni degildir. [S20]
-
-Mevcut testleri once calistir. Baslangicta failing/unstable test varsa `BASELINE_FAILED` veya `BASELINE_UNSTABLE` olarak ayir. Bunlari disable edip yeni testleri basarili gosterme. Ortam sorunu ile hedef kod/test sorunu kanitla ayrilir.
-
-Hic mevcut test bulunmamasi tek basina hata degildir: hedef production class derlenebiliyorsa ve mevcut test framework'u kullanilabilir ise test eklenebilir. Test run'inda 0 test calismasi, 'butun testler gecti' demek degildir. Framework bagimliligi yoksa POM degistirmeden mevcut izinlerle cozum yoksa `BLOCKED_TEST_FRAMEWORK`.
-
-### 10.2 JaCoCo baglantisi
-
-Oncelik mevcut JaCoCo konfigurasyonudur. Desteklenen projede build dosyalarina dokunmadan agent/goal cagrisi yapilabilir; bu yontem her POM'da calisir diye varsayma. Var olan `argLine`, late evaluation, JDK argumanlari ve diger agent'lar korunur. Fork kapaliysa olcum kabiliyeti ayrica kontrol edilir. Bir agent'in iki kez eklenmesi veya kapsam degistiren sessiz override kabul edilmez. [S13][S14][S21]
-
-Yapilandirmayi degistirmeden guvenilir olcum saglanamiyorsa `BLOCKED_COVERAGE_CONFIGURATION`. Sahte rapor, eski `.exec` veya ayni path'te bulunan rastgele XML ile devam etme.
-
-Her run icin taze ve job/run'a bagli exec/report alanlari kullan. Moduller/forklar arasi cakisma olmasin. Gecmis run'in exec'ini append/merge etmek yasaktir. Sadece ayni run, ayni kaynak/bytecode fingerprint'i ve kanitli fork/subrun kapsamindaki exec'ler kontrollu birlestirilebilir. Baseline ve final run veri birikimiyle karsilastirilmaz.
-
-### 10.3 Cok modullu olcum
-
-Her modulun production class ve report kapsam kimligi bilinir. Report-aggregate mevcut uygun reactor bagimliliklariyla kullanilabilir; tek goal cagrisi tum modul verisini kendiliginden uretir kabul edilmez. [S22]
-
-Esas hedef, (modul + FQCN + kaynak/bytecode kimligi) ile cozulur. Ayni FQCN farkli modullerde varsa dogru rapor secilir. Parent/child/aggregate XML sayaclari birlikte toplanip coverage iki kat sayilmaz. Ust seviye gorunum detay sayaclari yerine gecmez.
-
-Nested/synthetic class'larin hedefe dahil olma politikasi baslangicta aciklanir ve fingerprint'e alinir. Default tek Java sinifi denildiginde cozulmus FQCN'nin JaCoCo class sayaclari hedeflenir; ayni source dosyasindaki nested/synthetic class'lar ayri gorunur ve sessizce hedefe eklenmez. Kaynak dosyasi veya paket hedefinde dahil edilen class listesi acikca sabitlenir. Kaynak satir orani hesaplanacaksa ayni source line bir kez sayilir, class/method LINE sayaclari korlemesine toplanmaz. Kapsam daraltilarak hedefe ulasilmis gibi davranilmaz.
-
-### 10.4 Coverage dogrulama ve hesap
-
-Olcum kabulunden once:
-
-1. Trusted runner run ID/completion kaydi, baslangic-bitisi, process exit ve log/artifact hash'leri uyumlu olmali.
-2. Beklenen testler kesfedilmis ve gercekten calismis olmali. Yeni testlerin Surefire naming/provider disinda kalmasi yakalanmali.
-3. Sonuc XML'i bu run'dan, bu module/source/class dosyalarindan uretilmis olmali.
-4. JaCoCo'nun exec-class eslesmesi ve class ID/bytecode provenance'i kontrol edilmeli; source ayniligi tek basina yeterli degil. [S23]
-5. LINE/BRANCH sayaclari negatif/bozuk olamaz; toplam/alt kapsam tutarsizliklari acik hata olmali.
-6. Kaynak/build/coverage politikalari degismemis olmali. Denominator degisikligi sessiz ilerleme sayilmaz.
-
-Yuzde hesap:
-
-```text
-n = covered + missed
-n > 0 ise coverage = covered / n
-hedef_basis_points = 9000  # %90
-hedef_saglandi = covered * 10000 >= hedef_basis_points * n
-```
-
-Karsilastirma gosterim icin yuvarlanmis yuzdeyle yapilmaz. %89.96 ekranda %90 yuvarlansa bile %90 hedefi saglanmamistir. Sayaclar tasabilecek buyuklukteyse BigInt/guvenli tamsayi kullan.
-
-BRANCH toplam 0 ise `NOT_APPLICABLE`; bu %100 olarak yazilmaz. LINE olcumunun debug bilgisi yoksa `UNAVAILABLE`, basarili N/A degil. Hedefin hic executable icerigi yoksa `NO_EXECUTABLE_TARGET`; test muhendisligi basarisi uydurma. Eksik class/report 0 coverage veya N/A yerine `INVALID_COVERAGE_EVIDENCE` olur.
-
-Birden fazla hedefte aggregate ortalama degil HER hedefin gerekli metrikleri saglanmalidir. Biri %100 digeri %80 ise ortalama %90 diye tum gorev basarili olamaz.
-
-### 10.5 JaCoCo'nun soylemedigi bilgiler
-
-JaCoCo'nun satir uzerindeki missed/covered branch sayisi, tek basina hangi boolean alt kosulunun veya true/false kenarinin eksik oldugunu tam olarak bildirmez. Kaynak AST/kozul analizi ile aday senaryo turetilebilir ama XML'de olmayan branch ID/trace kesin bilgi diye kaydedilmez.
-
-Exception davranislari BRANCH artisi olmadan da onemli olabilir. Test kalite planinda exception, boundary, yan etki ve is davranisi kapsami ayrica tutulur. Coverage esiklerinin saglanmasi, kodun hatasizligini veya butun gereksinimlerin dogrulandigini kanitlamaz.
-
-### 10.6 Regresyon ve final run
-
-Hizli iterasyonda hedef test secimi uygulanabilir; kabul icin etkilenen modul ve ortak fixture/test utility kapsamindaki mevcut testler tekrar calisir. Finalde desteklenen proje test profiliyle tam reactor unit test regresyonu yapilir. Unit test profili ile integration/deployment lifecycle karistirilmaz; canli ortama baglanan IT'ler otomatik unit kapsaminda calistirilmaz.
-
-Bazi moduller ortam eksiginden dogrulanamiyorsa kapsam acik raporlanir: `verification_scope=PARTIAL`, `TARGET_REACHED_UNVERIFIED_SCOPE` gibi sonuc tam basari yerine review gerektirir. Baseline ve finalde farkli test secimleriyle olculen sonuclar farklilik notu olmadan karsilastirilmaz.
-
-Son kabul edilen test setini temiz artifact alaninda yeniden derle/calistir. Yeni/degisen testler icin en az bir ek tekrar ile basit flakiness kontrolu yap. Bunun flakiness yoklugunu kesin kanitlamadigini raporda abartma. Adaylarin run'lari final report yerine gecmez.
-
----
-
-## 11. Test muhendisligi ve aday kabul dongusu
-
-### 11.1 Analiz ve tasarim
-
-Ilk LLM cagrisi kod yazmak degil, hedef davranis ve mevcut testlerin analizi olabilir; analiz zaten gecerlilik kaniti olan artifact'te varsa gereksiz yeniden uretme. Senaryolar kod konumu/contract referansi ve beklenen gozlenebilir sonucuyla tanimlanir.
-
-Uygulanabilir oldugu olcude su alanlari incele: normal davranis, null/bos/gecersiz girdi, alt-ust sinir ve komsu degerler, exception/alternatif sonuc, dependency failure, koleksiyon/bos/tek/cok eleman, precision/rounding, tarih/saat/timezone, state transition, yan etki, idempotency, siralama ve concurrency. Her sinifa butun basliklar icin yapay test zorunlulugu getirme; uygulanmayan basligin nedeni kaydedilir.
-
-Beklenen sonucun kaynagi belirgin olmalidir: mevcut contract/dokuman, kabul edilmis test, API davranisi veya gerekceli analiz. Production kodu potansiyel bug iceriyorsa modeli sadece kodun mevcut yanlis ciktisina gore assertion ayarlamaya yonlendirme. `SUSPECTED_PRODUCTION_DEFECT` finding'i ac, production'a dokunma; belirsiz contract icin insan karari gerektigini acikla.
-
-Test adlari mevcut proje konvansiyonuna uyar. Nesneleri gercek constructor/public davranis uzerinden kur. SUT'u tamamen mock'layip kendi stub'inin sonucunu test etme. Private implementasyon detayini coverage icin hedefleme. Projede var olan Mockito surumu ve mock maker yetenegini dogrulamadan static/final/constructor mocking destegi varsayma.
-
-### 11.2 Iterasyon asamalari
-
-```text
-Eksik davranis/coverage bolgesini sec
-  -> Senaryo ve assertion oracle tasarla
-  -> Aday test degisikligini uret
-  -> Schema + path + test-only + semantik risk kontrolu
-  -> Izole aday alana uygula
-  -> Derle ve hedef testleri calistir
-  -> Hata varsa sinirli onarim ve yeniden deneme
-  -> Etkilenen mevcut testlerle regresyon
-  -> Taze coverage ve kalite incelemesi
-  -> Kabul / reddet / inceleme gerektiren aday
-  -> Kabul edilen set icin kalici checkpoint
-  -> Hedef / plateau / butce / altyapi / iptal kontrolu
-```
-
-Repair, yalniz test tarafinda yapilir. Import/package/syntax icin deterministik duzeltme mumkun; business assertion sonucu icin `actual` degerini beklenen olarak korlemesine kopyalama. Derleme hatasini gecirmek icin production API degistirme veya dependency ekleme yoktur.
-
-Ayni candidate fingerprint daha once reddedilmisse ayni denemeyi yeni isimle tekrar kabul etme. Hata kayitlari normalize edilerek ilgili code hash/scenario/strategy ile eslestirilir; kaynak degistiyse eski hata mutlak yasak degil yeni baglamdir.
-
-### 11.3 Kalite kapilari
-
-**Hard gate:** Test-only ihlali, derleme/test failure, yeni skip/ignore, mevcut testin kaybi, no-test execution, bariz bos/tautolojik assertion, SUT shadowing, secret/ag/dosya policy ihlali, sahte/stale coverage, mevcut test davranisini zayiflatan bilinen degisiklik adayi reddeder.
-
-**Semantik review:** Assertion'in dogru davranisi olcmesi, gerekli exception/side-effect dogrulamasi, asil davranis yerine mock'u test etme, gereksiz duplicate, kirmasi kolay implementation coupling, boundary ve hata senaryosu yetersizligi incelenir. Statik detector ile AI review'in karar ve kanitlari ayri kaydedilir. Heuristik/LLM denetimi matematiksel test dogrulugu garantisi degildir.
-
-Mevcut testlerde yalniz toplam test sayisina bakma. Annotation ve metot envanteri, Surefire/JUnit sonuclari ve degisiklik incelemesi birlikte kullanilir. Parameterized/dynamic test ID'leri degisebilir; normalize edilmis test kimligi ve calisan invocation bilgisi ayri tutulur. Test adini degistirip eski senaryoyu ortadan kaldirma yakalanmalidir.
-
-Assertion'siz yalniz exception atmadi diye gecen test genel kabul yolu degildir. Gercek `assertDoesNotThrow`/JUnit4 exception kontrati veya anlamli Mockito verification senaryoya gore kabul edilebilir; sadece `assert` kelimesi var/yok regex'iyle kalite karari verilmez. Testin kendi assertion helper'lari da goz onune alinir.
-
-### 11.4 Kazanimin kabul edilmesi
-
-Bir adayda tum hard gate'ler gecmeli. Coverage olcumu ayni kapsamla karsilastirilir; daha once dogrulanmis hedeflerin kapsami/testleri bozulamaz. Anlamli yeni davranis/assertion kazanci, coverage artmasa da kabul edilebilir; bu kazanima coverage artisi yazilmaz ve plateau sayacini sebepsiz sifirlamaz.
-
-Kabul edilen sonucun `coverage_gain`, `behavior_gain`, `quality_findings`, `regression_scope` bilgileri ayridir. Tek kriter satir yuzdesi degildir. Test kalitesinin dusuk oldugu %90'lik aday, daha iyi dogrulanmis setin yerini alamaz.
-
-Rejected candidate dosyalari orijinal projeye veya best set'e karismaz. Son kabul edilen test seti ve tum delta zinciri/reconstruction manifesti korunur. Aday reddedildiginde kullanicinin degisikliklerini silerek geri alma yok; yalniz urunun staging alani yeniden olusturulur.
-
-### 11.5 Butceler
-
-Baslangic varsayilanlari konfigure edilebilir ve job'a snapshot olarak yazilir: 20 candidate iterasyonu, aday basina en fazla 2 onarim, 3 dogrulanmis iterasyonluk no-progress penceresi. Plateau karari icin en az iki farkli uygulanabilir strateji veya neden strateji kalmadigina iliskin kanit gereklidir.
-
-Model request timeout, test-run timeout, toplam is suresi, token ve kaynak butcesi ayridir. Varsayilan toplam is suresi ornegin 120 dakika olarak operator profilinde tanimlanabilir; bu hedefin o surede bitecegi vaadi degildir. Baseline hizina gore kontrollu timeout ayarlamasi ve kullanici tarafindan butce arttirilarak resume desteklenir. Sonsuz dongu yasaktir.
-
-Model cagrisi yarim kaldiginda provider'in islemedigini bilemeyebilirsin. Retry ayni semantic action ID'ye baglanir; duplicate patch kabul edilmez ama provider ucretinin kesinlikle tek olacagi iddia edilmez.
-
----
-
-## 12. Plateau ve test edilebilirlik engelleri
-
-Coverage'in birkac tur sabit kalmasi 'maksimum budur' kaniti degildir. Motor iki ayrimi korur: **ilerleme durumu** ve **erisim/test edilebilirlik kaniti**.
-
-| Engel sinifi | Beklenen davranis |
-| --- | --- |
-| `MISSING_SCENARIO` | Uygulanabilir yeni girdi/edge case/exception yolu planla. |
-| `MOCKING_OR_FIXTURE_GAP` | Mevcut framework ve test kokleri icinde farkli izolasyon/fixture dene. |
-| `UNCONTROLLED_ENVIRONMENT` | Saat, env, dosya/ag gibi bagimliligin test-only kontrol edilip edilemedigini kanitla. |
-| `CONFIGURATION_BARRIER` | Framework, JaCoCo, JDK, plugin veya runner kabiliyeti eksigi; production/POM degistirmeden guvenli yolu yoksa blokla. |
-| `SUSPECTED_UNREACHABLE_CODE` | Statik akis/kozul kanitini ve belirsizliklerini raporla; LLM gorusunu kesin ispat sayma. |
-| `VERIFIED_POLICY_BARRIER` | Izin verilen test-only sinirlarinda belirli yontemin neden kullanilamadigini goster. |
-| `MODEL_STRATEGY_EXHAUSTED` | Denenen stratejiler ilerlemedi; baska strateji/modelle devam edilebilecegini acik birak. |
-| `BUDGET_EXHAUSTED` | Deneme/zaman/kaynak siniri; 'kod test edilemez' sonucunu cikarma. |
-| `UNKNOWN` | Henuz cozulmeyen acigi belirsiz olarak koru. |
-
-Her gap icin kaynak snapshot, modul/FQCN, metot imzasi, satir/AST referansi, missed sayaclar, scenario/attempt ID'leri, denenen yontem, gercek hata/coverage kaniti, blocker sinifi ve sonraki olasi adim saklanir.
-
-Private metot, static/final sinif veya sabit saat goruldu diye otomatik blocker deme. Public akis ve projede halihazirda bulunan test teknikleriyle erisim denenir. Olasi cozum production refactoring ise yalniz bilgi amacli ayri finding olarak yazilir; mevcut test gorevine uygulanmaz.
-
-Gorev %83'te kalirsa rapor 'hedef %90, dogrulanmis sonuc %83, hedef saglanamadi' der. 'Ulasilabilir maksimum %83' ifadesi yeterli kanit olmadan kullanilmaz. %83'luk gercek ve kaliteli test kazanimi review icin korunur.
-
----
-
-## 13. SQLite veri modeli ve kalici proje hafizasi
-
-### 13.1 Fiziksel standart
-
-Tek kullaniciya ozel SQLite, birden fazla proje ve checkout'u yonetir. Runtime veri kokunde `state.db` bulunur. Network share/UNC/NFS uzerinde WAL DB kullanma; senkronize cloud klasorleri de varsayilan veri yeri olmasin. SQLite WAL okuyucu/yazici davranisi ve backup sinirlari yerel dosya sistemi tasarimina gore ele alinacaktir. [S24][S25]
-
-- Tablo/kolon adlari ASCII `snake_case`, tutarli tek dil (English teknik adlar).
-- Kolon sirasi: `id`, iliskisel FK alanlari, is alanlari, teknik audit alanlari.
-- Kalici entity ID: uygulamada uretilen UUID, `TEXT` ve format dogrulamasi. Import/backup/yer degisiminde kimlikler korunur. Farkli workspace'ler zorla birlestirilmez.
-- Tarihler UTC epoch milliseconds `INTEGER`; kullaniciya gosterimde timezone donusumu acik. Sureler monotonic clock ile olculur, persisted zaman ile karistirilmaz.
-- Path'ler canonical goreli/mutlak anlamiyla ayri; URL'ler sanitized. SHA-256 `TEXT` 64 hex; bos deger yerine gereken yerde NULL.
-- Durum alanlari CHECK/uygulama schema'si ile kisitli; sayaclar INTEGER ve negatif olamaz. Yuzdeler sadece gorunum, gercek covered/missed saklanir.
-- `foreign_keys=ON`, WAL, kritik state icin `synchronous=FULL`, bounded `busy_timeout`, kisa transaction ve retry politikasi.
-- Parameterized SQL, indeksler, migration version ve transaction'li schema degisimi. SQL string birlestirme ile kullanici filtrelerini calistirma.
-- SQLite `VARCHAR(n)` uzunlugu kendiliginden garanti ediyor diye varsayma; gereken alanlarda `CHECK(length(...))` ve uygulama dogrulamasi kullan.
-- Her tablo/kolon icin anlam, tip, nullability, enum/deger birimi, FK, unique, index ve retention aciklamali `docs/data-dictionary.md` uret. SQLite'ta bulunmayan native COMMENT ozelligini varmis gibi kullanma; SQL aciklamasi + dictionary yeterli.
-
-Bu fiziksel model urunumuzun secimidir. Tam DDL/migration ve repository katmani gelistirilecek; yalniz tablo isimlerini README'ye yazmak tamamlanmis storage sayilmaz.
-
-### 13.2 Mantiksal tablolar
-
-Asagidaki model asgari veri iliskilerini tanimlar. Ayni anlam korunarak gereksiz tablolar birlestirilebilir, ancak proje/envanter/run/model/checkpoint kaniti kaybolamaz. Degisiklik ADR ve veri dictionary'sinde belirtilir.
-
-| Tablo | Ana alanlar / baglanti | Temel kisit |
-| --- | --- | --- |
-| `projects` | id, name, normalized_remote, identity_kind, latest_snapshot_id | Remote tek basina evrensel unique proje kimligi degildir. |
-| `project_locations` | project_id, canonical_root, git_common_dir_fingerprint, platform, last_seen_at | Ayni canonical checkout kaydi tekrarlanmaz. |
-| `project_profiles` | project_id/location_id, profile_name, policy_version, config_digest, secret_reference_names | Secret degerleri yok; surumlu guven/build/worker secimi. |
-| `project_snapshots` | location_id, parent_snapshot_id, head_commit, dirty_digest, source_manifest_artifact_id, build_digest, parser_version | Kaynak/konfig degisimini ve gorulen dosyalari belirler. |
-| `modules` | snapshot_id, parent_module_id, relative_path, group_id/artifact_id/version, packaging, roots_artifact_id | Snapshot + modul yolu unique. |
-| `java_packages` | module_id, qualified_name, source_set | Modul + source set + package unique. |
-| `code_symbols` | package_id, enclosing_symbol_id, kind, fqn, signature, relative_path, source_sha256, line_start/end | Tip/metot imzasi + modul baglami; nested/overload ayrimi. |
-| `test_cases` | module_id, symbol_id, test_kind, logical_key, source_path, source_sha256, disabled_baseline | Test tanimi; runtime parameter invocation bundan ayri. |
-| `test_links` | test_case_id, target_symbol_id, link_kind, confidence, evidence_artifact_id | `STATIC`, `INFERRED`, `OBSERVED` iliskileri ayri. |
-| `test_jobs` | location_id, source_snapshot_id, best_checkpoint_id, policy/profile digest, lifecycle, phase, outcome, request_digest | Aktif esdeger talep icin idempotency; job surumu. |
-| `job_targets` | job_id, symbol_id/module_id, selector, resolved_scope_digest, line_target_bps, branch_target_bps | Job + canonical hedef unique; kapsam degisimi revision gerektirir. |
-| `iterations` | job_id, parent_checkpoint_id, ordinal, strategy_key, candidate_digest, decision, gain_type | Job + ordinal unique; rejected/adopted ayrimi. |
-| `test_scenarios` | job_target_id, iteration_id, logical_key, plan_artifact_id, status, oracle_kind | Tasarlanan/uygulanan/dogrulanan senaryo farkli. |
-| `test_runs` | job_id, iteration_id, workspace/run fingerprint, scope, command_manifest_artifact_id, status, exit_code, duration_ms | Guvenilir tamamlanma marker'i ve run'a bagli rapor. |
-| `test_results` | test_run_id, test_case_id optional, runtime_test_key, status, assertions/diagnostic artifact, duration_ms | Parametre/dynamic invocation gercek kimligi. |
-| `coverage_snapshots` | test_run_id, source_snapshot_id, evidence_artifact_id, class_manifest_digest, coverage_policy_digest, validity | Yalniz dogrulanmis rapor accepted olabilir. |
-| `coverage_counters` | coverage_snapshot_id, target/symbol/module, counter_kind, covered, missed | Kapsam + counter unique; ham tamsayi olcum. |
-| `coverage_gaps` | job_target_id, source_fingerprint, gap_key, location, blocker_kind, status, evidence_artifact_id | Ayni satir numarasini kaynak degisiminde ayni gap sanma. |
-| `gap_attempts` | gap_id, iteration_id, strategy_key, scenario_id, result, evidence_artifact_id | Basarisiz denemeler de korunur. |
-| `quality_findings` | job_id, iteration_id, rule_id, severity, origin, location, status, evidence_artifact_id | AI gorusu ile deterministik bulgu farkli origin. |
-| `worker_runs` | job_id, iteration_id, role, provider_id, requested_model_id, resolved_model_id, session_id, config_digest, prompt/output artifacts, usage | Model kimligi tahmin edilmez; unknown acikca NULL/etiketli. |
-| `artifacts` | job_id optional, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason | READY blob kimligi degismez; keyfi host path referansi yok. |
-| `checkpoints` | job_id, parent_checkpoint_id, iteration_id, manifest_artifact_id, source_digest, verification_level, generation | Commit edilmis manifest; en iyi/test edilen/yarim durum ayrimi. |
-| `job_events` | job_id, sequence, event_type, phase, origin, payload_artifact_id optional, occurred_at | Job + sequence unique, append-only. |
-| `job_leases` | job_id/location_id, owner_id, fencing_token, expires_at, heartbeat_at, process_identity | Ayni isi iki process kabul edemez; monoton fence. |
-| `apply_operations` | job_id, checkpoint_id, location_id, patch_digest, approval_reference, state, journal_artifact_id | Ayni onayli degisiklik iki kez uygulanmaz. |
-| `schema_migrations` | version, checksum, applied_at | Tek sirali migration, checksum uyumu. |
-
-Mutable tablolarda `created_at`, `updated_at`, `row_version`; immutable/event tablolarda `created_at` ve gerekiyorsa sequence yeterlidir. FK alanlarini teknik audit alanlari arasina saklama. Farkli job/project'e ait artifact veya snapshot'in yanlis baglanmasini application transaction dogrulamalari ve uygun composite constraint'lerle engelle.
-
-Kod dosyalarinin her surumunu DB BLOB'u olarak saklama. Analiz icin kaynak excerpt gerekiyorsa hassas artifact olarak tutulur. Envanter kaydinin bulunmasi tam source export saklandigi anlamina gelmez.
-
-### 13.3 DB operasyonlari
-
-Model/test calisirken DB transaction acik kalmaz. State update, event append ve checkpoint pointer degisikligi tek kisa transaction icinde commit olur. Optimistic row version + lease fence kontrolu gerekir.
-
-Schema migration once backup ve disk kontrolu yapar. Migration yarim kalirsa sifir DB yaratip gecmisi kaybetme. Daha yeni bilinmeyen schema acilirsa yazmayi durdur. `integrity_check`/FK kontrolu maintenance senaryolarinda calisir; her tool cagrisi pahali tam tarama yapmaz.
-
-DB yedegi resmi desteklenen backup/snapshot yontemiyle alinir. Acik WAL varken yalniz `state.db` dosyasini kopyalamak yedekleme sozlesmesi degildir. Artifact manifestleriyle es zamanli mantiksal backup noktasi olustur. Restore sonrasinda eksik blob ve hash uyumsuzlugu raporlanir. [S25]
-
-Retention tum veriyi sinirsiz tutmaz: kota, onemli checkpoint pin, eski rejected candidate ve log icin saklama politikasi olsun. Varsayilan otomatik temizleme son/best checkpoint'i, uygulanmamis onayli patch'i veya resume icin zorunlu blob'u silemez. Kullanici verisi silme acik kapsam/onay ve referans kontrolu gerektirir.
-
----
-
-## 14. Kalici job, checkpoint ve kesintiden devam
-
-### 14.1 Durum modelini ayir
-
-`lifecycle`, `phase`, `outcome`, `verification_level` ve `apply_state` ayri alanlardir. 'Completed' her zaman hedef basarisi demek degildir.
-
-- Lifecycle: `QUEUED`, `RUNNING`, `WAITING_INPUT`, `PAUSED`, `INTERRUPTED`, `COMPLETED`, `FAILED`, `CANCELLED`.
-- Phase: discovery, preflight, baseline, analysis, planning, generation, repair, verification, gap_review, final_validation, reporting.
-- Outcome ornekleri: `TARGET_REACHED`, `TARGET_ALREADY_MET`, `TARGET_NOT_MET_PLATEAU`, `TARGET_NOT_MET_BUDGET`, `BLOCKED_TESTABILITY`, `BLOCKED_ENVIRONMENT`, `BASELINE_FAILED`, `INVALID_COVERAGE_EVIDENCE`, `POLICY_VIOLATION`, `SOURCE_CHANGED`, `QUALITY_REVIEW_REQUIRED`.
-- Verification: `UNVERIFIED`, `TARGET_ONLY`, `AFFECTED_SCOPE`, `FULL_DECLARED_SCOPE`.
-- Apply: `NOT_REQUESTED`, `READY_FOR_REVIEW`, `APPLYING`, `APPLIED`, `CONFLICT`, `REJECTED`.
-
-Gecerli gecisler state machine tablosu ve testleriyle tanimlanir. `TARGET_REACHED` icin butun ilgili quality/regression/integrity gate'leri gecmis olmalidir. Hedef olculdu ama kapsam eksikse outcome/gate summary bunun basari sayilmasini onler.
-
-### 14.2 Checkpoint icerigi
-
-Her checkpoint manifestinde en az:
-
-- Job/proje/location/hedef kimlikleri ve kullanici hedefi.
-- Kaynak snapshot, HEAD/dirty/build/policy/parser/toolchain fingerprint'leri.
-- Son kabul edilen test seti, parent checkpoint ve reconstruction bilgisi.
-- Baseline ve son trusted test/coverage run ID'leri, artifact hash'leri.
-- Analiz/tasarim planlari, kabul/red adaylar, kalan gap/scenario ve strateji gecmisi.
-- Aktif asama, siradaki eylem, onceki hata, kalan butce.
-- Requested/resolved model ve worker session referansi; devam etmek icin eski session zorunlu degil.
-- Manifest schema surumu, generation/fencing token, dogrulama seviyesi ve olusturma zamani.
-
-Kritik her asama gecisinden sonra checkpoint al. Kabul edilmemis aday `candidate` olarak kaydedilebilir ama best/tested checkpoint'e terfi etmez. Gecmis source/regresyon kapsamiyla olculen best sonuc yeni kaynakta gecerli gibi gosterilemez.
-
-### 14.3 Atomic yayinlama protokolu
-
-Dosya sistemi ve SQLite tek ortak transaction paylasmaz. Bunu 'transaction actik her sey atomik' diyerek gecistirme:
-
-1. Artifact'i job'a ait gecici dosyaya yaz, boyut/hash/schema dogrula; desteklenen flush/fsync uygula.
-2. Ayni dosya sistemi icinde content-addressed immutable konuma atomic rename/publish yap. Partial file READY olmaz.
-3. Manifest blob'u da ayni sekilde publish et.
-4. Kisa DB transaction'inda lease fence ve parent generation dogrula; READY artifact referanslarini, event'i ve checkpoint pointer'ini commit et.
-5. Publish edilmis fakat DB tarafinda referanslanmamis blob'lar guvenli grace suresi ve referans kontrolu sonrasinda orphan GC ile temizlenebilir.
-6. DB manifest'i var ama blob eksik/bozuksa checkpoint kullanilmaz; onceki guvenilir checkpoint ve acik recovery tani sonucu kullanilir.
-
-Windows file locking/antivirus kaynakli rename hatalarinda bounded retry ve acik hata olsun. Process crash ve disk dolu senaryolariyla her adimi test et. Kritik kabul islemi sirasinda transaction'in yarisi 'done' gozukemez.
-
-### 14.4 Lease, fencing ve is sahipligi
-
-Ayni workspace/job'u iki MCP process'i ayni anda yonetemesin. Lease acquire/renew transaction'li; token monoton artar. Her state/candidate kabul/pointer guncellemesi token kontrol eder. Eski worker token'i geri donerse sonucu stale olarak kaydet ve best set'e uygulama.
-
-Lease suresi bitmesi eski JVM'in oldugunu kanitlamaz. Worker/container PID ile birlikte baslangic zamani ve instance ID sakla. Resume'da once sahipligi bilinen eski process'in durumunu kontrol et/durdur veya karantinaya al. PID reuse nedeniyle alakasiz process oldurme.
-
-Kilitleri sadece bellekte veya `job.lock` varligina baglamak yeterli degildir. Farkli job ayni kaynak test output alanini paylasmaz. Model cagrilarinda at-least-once ihtimali olabilir; kalici aday kabulu idempotent olur.
-
-### 14.5 Resume algoritmasi
-
-1. Uygun yarim isi proje/location baglamindan bul; birden cok aday varsa netlestir.
-2. Lease/fence al, eski process/yarim operation durumunu cozumle.
-3. DB schema, checkpoint manifest ve tum zorunlu blob hash'lerini dogrula.
-4. Hedef checkout'un kaynak/build/dirty fingerprint'ini yeniden kontrol et.
-5. Degisiklik yoksa son kabul edilmis test setini geri kur. Tamamlanma kaniti olmayan test/coverage run'ini basarili kabul etme; ilgili dogrulamayi tekrar calistir.
-6. Kaynak/build degismisse onceki calismayi silme. `SOURCE_CHANGED` ile stale olcumu belirt; kontrollu rebase/rebaseline icin yeni job revision/snapshot olustur. Hangi artifact'in yeniden kullanilabildigini gerekcelendir.
-7. Yeni worker'a kompakt Handoff artifact'i ver; onceki tum sohbeti tekrar okutma. Gecerli analiz/plan tekrar uretimi zorunlu olmasin.
-8. Siradaki guvenli asamadan devam et; daha once reddedilmis adaylari ayni baglamda yeniden deneme.
-
-Model degisikligi, coverage hedefini ya da policy'yi sifirlamaz. Kullanici gercekten yeni hedef/butce verirse revision/event ile kaydet; eski hedefteki basari iddialarini yeniden yazma.
-
-### 14.6 Kesintinin yonetilecegi noktalar
-
-Discovery, analiz cevabinin alinmasi, candidate uretimi, patch yazimi, test derleme, test kosusu, coverage raporu, checkpoint publish/DB commit, final report ve test apply esnasinda kill/restart deneyleri yapilacak. Normal exception testi tek basina process kesintisi testi sayilmaz.
-
----
-
-## 15. Ciktilar ve profesyonel rapor
-
-### 15.1 Yerlesim
-
-Platformun kullaniciya ozel uygulama veri dizinini kullan; operator override yapabilir fakat guvensiz paylasimli root reddedilir. Ornek mantiksal yapi:
-
-```text
-<USER_APP_DATA>/ai-test-engineering/
-  state.db
-  config/                    # Ozel profil ve secret referanslari
-  blobs/sha256/              # Immutable, hash ile adreslenen artifact'ler
-  projects/<project-id>/     # Envanter/cache manifestleri
-  jobs/<job-id>/
-    checkpoints/
-    candidates/
-    workspace/               # Sahipligi kanitli izole calisma alani
-    runs/<run-id>/
-    reports/
-      index.html
-      report.json
-      summary.txt
-      changes.patch
-      manifest.json
-      jacoco/
-      test-results/
-  logs/
-  backups/
-```
-
-Bu dosyalar hedef kaynak reposuna veya `ai-test-engineering/ai/` klasorune yazilmaz. Windows/Linux farkli path kurallari desteklenir; yukaridaki yapi literal sabit kullanici adi icermez.
-
-### 15.2 OpenCode ciktilari
-
-Progress'te asama, hedef, son dogrulanmis LINE/BRANCH, aktif deneme, gecen sure ve durum verilir. Her model token'ini log diye ekrana akitma. Durum metni JSON'daki motor gerceginden turetilsin.
-
-Final ozet: hedef saglandi/saglanamadi, before/after sayaclar ve yuzdeler, eklenen/degisen testler, calisan/gecen/failing/skipped test sayilari, regression kapsami, production degisikligi 0 kontrolu, kalan engeller, model/roller, rapor ve patch yeri. Ornekteki rakamlar gercek run yoksa kullanilmaz.
-
-### 15.3 HTML muhendislik raporu
-
-Sade, kurumsal, okunabilir offline rapor; tek `index.html` ve goreli kanit dosyalari. Harici font/script/gorsel yok. Neutral/slate zemin, beyaz kart/tablo, az ve anlamli durum rengi. Erisilebilirlik icin durum sadece renkle belirtilmez; metin/ikon/etiket de olur. Gereksiz glow/gradient, buyuk pazarlama basliklari ve anlamsiz dashboard kartlari yok.
-
-Zorunlu bolumler:
-
-1. Proje/checkout/snapshot/hedef ve rapor zamani; kaynak kodun hangi halinin olculdugu.
-2. Karar: `TARGET_REACHED` veya acik hedef-saglanamadi durumu; kalite/regresyon/safety gate sonuclari.
-3. Sinif bazli once/sonra LINE ve BRANCH: covered/missed/toplam, yuzde, hedef; N/A ve unavailable ayri.
-4. Yapilan test degisiklikleri ve senaryo bazli aciklama; yeni/degisen/kabul/rejected/uygulanan farki.
-5. Test run ve regresyon kapsam bilgileri; skipped/failure/unstable durumlarini gizleme.
-6. Iterasyon zaman cizgisi: strateji, model, sonuc ve neden kabul/red edildigi.
-7. Kalan coverage gap'leri, denenen yontemler, engel kaniti/belirsizlik ve alternatif oneriler.
-8. Production/build/coverage policy butunluk sonucu; kontrol kapsami ve istisna varsa acik hata.
-9. AI katkisi: hangi model hangi rolde calisti; olcumlerin araclarca, yorumlarin AI tarafindan uretildigi ayrimi.
-10. Ham JaCoCo HTML/XML/exec, test sonuclari, redakte log, changeset ve checkpoint manifestine goreli baglantilar.
-
-Raporun resmi sonucu modele yazdirilmaz; dogrulanmis JSON'dan render edilir. AI aciklama metni ayri alanda kaynak/finding ID'leriyle gosterilir. 'Production degismedi' etiketi gercek manifest karsilastirmasi olmadan basilmaz.
-
-### 15.4 JSON ve kanit paketi
-
-`report.json`: schema_version, job/project/source/toolchain/model metadata, targets, baseline/final counter'lar, run summary, quality/integrity gates, gaps, iterations, outcome, verification_scope, apply_state, artifact manifest.
-
-`manifest.json`: her artifact icin relative path, content hash, byte size, kind, schema/tool version ve gizlilik sinifi. Raporun bir dosyasi eksikse export verification bunu yakalar.
-
-JaCoCo'nun ham `.exec`/XML/HTML verisi mevcut yurutme yolunun gercek urettigi sekilde saklanir. Basarisiz veya coverage yapilandirmasi olmayan job'da sahte JaCoCo raporu yaratma; engine HTML raporunda neden uretilmedigini belirt. Raw kaynak iceren HTML hassastir, otomatik mail/CI/public upload yapilmaz.
-
-IDE incelemesi opsiyoneldir. IntelliJ veya baska IDE'nin destekledigi import bicimi kurulu IDE surumune gore dogrulanir; raporun kendisi IDE'ye bagli degildir. Kullanicinin sonuc almak icin IDE'den yeni coverage run baslatmasi zorunlu olamaz.
-
-### 15.5 Zaman ve model maliyeti
-
-Worker request suresi, test/build suresi, raporlama ve bekleme sureleri ayrica olculur. Saglayici token/usage donuyorsa kaydedilir; donmuyorsa `unknown`, sifir degil. Tahmini ucret, kurumun gercek fiyat profili yoksa uretilmez.
-
-Bu urunun veya tek sinif test gorevinin kac saatte bitecegine garantili sayi koyma. Benchmark olcumleri model profili, cold/warm dependency cache, donanim ve fixture kapsamiyla raporlanir. Modelin cevap hizi ile gercek build/recovery dogrulama suresini ayir.
-
----
-
-## 16. Test degisikliklerini kullanici projesine uygulama
-
-Default teslimat staging'de dogrulanmis testler + patch + rapordur. Kullanici onayi olmadan orijinal checkout'a yazma yok. Bu, otomatik analiz/test dongusunde her adimda onay istemek anlamina gelmez; sadece son degisikligin kullanici dosyalarina aktarimidir.
-
-`test_apply` icin:
-
-1. Onay, tam job/checkpoint ve gosterilen patch digest'ine bagli olmali. Sonradan degisen patch eski onayi kullanamaz.
-2. Istemcinin gercek onay akisinin desteklendigi dogrulanmali. Modelin kendi doldurdugu `approved: true` insan onayi kaniti degildir. OpenCode izinleri `ask` olabilir, fakat auto-approve aciksa tek basina guvenilir onay sayilmaz. [S27]
-3. Varsayilan `allow_workspace_apply=false`. Guvenilir client approval adapter'i ve onay politikasi dogrulanmis kurulumda aktif edilebilir. Bu kabiliyet yoksa patch-only sonuc doner; kullaniciya yeni CLI yazilmaz, kullanici Git/IDE ile patch'i kendisi uygulayabilir.
-4. Aktarmadan hemen once checkout HEAD/dirty/test preimage hash'leri tekrar kontrol edilir. Kullanici arada ayni dosyayi degistirmisse overwrite yapma; `APPLY_CONFLICT` ve acik fark raporu ver.
-5. Yalniz allowlist test dosyalari degisir. Source/build/protected dosyalarin manifest'i once/sonra ayni olmali.
-6. Multi-file degisiklikler icin once yedek + apply journal + temp files olustur. Tum dosyalari tek FS transaction'inda degistirdigini iddia etme; crash recovery ile eksik islemi tamamla veya guvenli geri al.
-7. Tekrar cagrida ayni patch ikinci kez uygulanmaz; `APPLIED` kaydi ve mevcut hash'ler dogrulanir.
-8. Otomatik commit/push yok; runtime urun, kullanicinin Git kimligini veya remote'unu degistirmez.
-
-Onay kanalini destekledigini iddia eden OpenCode adapter'i gercek olumlu/ret/auto-approve/baglanti kopma senaryolariyla test edilir. Saglanamayan onay kanali gizlenmez; bu, staging'deki otomatik test gelistirme ve raporlamayi engellemez.
-
----
-
-## 17. Model, kurulum ve konfigrasyon tasarimi
-
-### 17.1 Model bagimsizligi
-
-Provider kimligi, model kimligi ve insan-okunur model adi farkli alanlardir. Kullanici tarafindan verilen kurum ici model adlari harf/space/provider prefix dahil birebir dogrulanir. Otomatik trim/rename/provider prefix silme, modelin baska yetki kaydina donmesine sebep olamaz.
-
-Kaynak kodda kuruma ait model alias'i, URL veya varsayilan dis provider sabitleme. Secim sirasi: job'a acik verilen yetkili profil, proje profili, kullanici varsayilan profili. MCP, ana OpenCode sohbetinin aktif modelini her istemcide kendiliginden bilemez; aktarilmayan bilgiyi tahmin etme. [S07][S26]
-
-Bir defalik profil dogrulamasi models/config sorgusu ve minimal capability probe ile yapilir: API erisimi, arac/structured output ya da JSON uyumlu cevap, maksimum baglam icin gercek konfig, timeout/streaming davranisi. Modelin adindan kodlama basarisi veya tool-call destegi cikarilmaz.
-
-### 17.2 Worker yasam dongusu
-
-OpenCode binary varligi/surumu dogrulanir. SDK client, yonetilen worker server'a baglanir. Startup/health timeout ve port cakismasi sinirli retry ile ele alinir. Session ID job/role ile saklanir; sonlanma/cancellation kayitli olur. Server crash olursa ayni job'da yeni session olusturulur ve Handoff verilir.
-
-Server/SDK dokumaninda alan adi uyusmazligi gorulurse installed type/OpenAPI semasi dogrulanir. Semantik olarak 'prompt async/format/model/session abort' yeteneklerini isteyen adapter yaz, belgede gordugun isimle calismayan runtime cagrisi birakma. Uygulama testleri gercek SDK schema'sini kontrol etsin.
-
-Kimlik dogrulama hatasi, model yetkisi yoklugu, context overflow, provider timeout/429, schema cevabi bozuklugu ve server problemi farkli tani kodlaridir. Bekleyen is 'basarili' kapanmaz; retry edilebilir/edilemez ve kullanici aksiyonu belirtilir. Fallback listesi sadece onayli kurum ici profillerden gelir.
-
-### 17.3 Kurulum paketi
-
-- Repo icindeki scriptler Windows PowerShell ve Linux icin kurulum/verify/uninstall akisini sunar; test talebi icin yeni kullanici CLI'i yaratmaz.
-- Runtime package, Java analiz helper'i, rapor template'leri, schema/migration ve kisa skill/agent birlikte paketlenir.
-- Lockfile, artifact checksum ve surum manifesti dahil edilir. Global kontrolsuz `npx ...@latest` veya uzaktan script pipe'lama varsayilan kurulum olamaz.
-- OpenCode config degisiklikleri merge/diff/yedek/idempotency ile uygulanir. Kullanicinin diger model, tool, skill ve proje ayarlari korunur.
-- Host ve container tarafinda trusted CA/proxy/mirror ayarlari icin secret-reference bazli dokumantasyon bulunur. TLS dogrulamasini kapatma cozum degildir.
-- Kapali agda mevcut artifact/mirror'larla kurulum ve offline fixture run yolu belgelenir. Internetin her zaman acik oldugu varsayilmaz.
-- Test-only policy, varsayilan coverage metrics, kaynak butcesi, storage root, izinli proje kokleri, runner ve model profilleri configuration schema ile dogrulanir.
-
-Kurulumun basarili oldugunun kaniti sadece 'npm install bitti' degildir: MCP initialize/discover profiline gore tool listing, project inspect, worker provider probe ve gercek sentetik Maven/JaCoCo smoke gerekir. Eksik kurum yetkisi veya sandbox kurulumu acik `BLOCKED` olarak gorulur.
-
----
-
-## 18. Repository yapisi ve urunun AI gelistirme hafizasi
-
-### 18.1 Hedef organizasyon
-
-```text
-ai-test-engineering/
-  AGENTS.md
-  AKTIF_GOREV.md
-  README.md
-  SECURITY.md
-  CONTRIBUTING.md
-  .gitignore
-  .gitattributes
-  .editorconfig
-  package.json
-  package-lock.json
-  tsconfig.json
-  ai/
-    PROJECT_STATE.md
-    BACKLOG.md
-    ACCEPTANCE_MATRIX.md
-    decisions/
-    research/
-    plans/
-    checkpoints/
-    handoffs/
-    evidence/
-  src/
-    mcp/                     # Ortak tool registry, v1/v2 adapter
-    application/             # Yuksek seviye use-case'ler
-    domain/                  # Job/policy/checkpoint/sonuc semantigi
-    discovery/
-    orchestration/
-    workers/opencode/
-    runners/                 # Izole Maven/process/container yonetimi
-    policies/
-    coverage/
-    verification/
-    storage/
-    reporting/
-    configuration/
-  java-support/              # Urune ait JavaParser/Java metadata yardimcisi
-  schemas/
-  migrations/
-  templates/
-  integrations/opencode/
-    skills/test-engineering/SKILL.md
-    agents/
-    config.example.json
-  scripts/
-  tests/
-    unit/
-    integration/
-    contract/
-    recovery/
-    security/
-    fixtures/
-  benchmarks/
-  docs/
-    architecture.md
-    installation.md
-    usage.md
-    configuration.md
-    data-dictionary.md
-    compatibility.md
-    security.md
-    operations.md
-    troubleshooting.md
-    acceptance.md
-  .github/workflows/
-```
-
-Dizinler bos dosya gostermelik olsun diye acilmaz; sorumluluklari olan gercek implementasyon gelir. Is mantigi adapter altina saklanmaz. Hafif organizasyon duzeltmesi gerekirse ADR ile yap; kullaniciya acik dosya adi `AKTIF_GOREV.md` degismez.
-
-### 18.2 AGENTS baslangic protokolu
-
-`AGENTS.md` kisa kalir; bu belgenin tamami kopyalanmaz. Sunlari yonlendirir:
-
-1. Aktif gorevi ve `ai/PROJECT_STATE.md`'yi oku.
-2. Git branch/HEAD/status/remote'u kontrol et; uncommitted dosyalarin sahibini tahmin ederek silme.
-3. Son handoff, ilgili ADR, backlog ve kabul durumunu oku.
-4. Onceki 'done' iddiasini ilgili commit/artifact/test kanitiyla kontrol et.
-5. Siradaki onayli isi uygula; kapsam disi yeni backlog'u kendiliginden aktif goreve ekleme.
-6. Anlamli parcadan sonra test sonucunu, kalan isi ve devam noktasini kaydet.
-7. Her commit/push oncesi Git kimligi, ASCII, gizlilik ve staged diff kontrolu yap.
-
-Mevcut baska proje AGENTS dosyalarini toplu degistirme. Bu urunun kurulumu hedef Java projelerinin AGENTS dosyasini ezmez.
-
-### 18.3 Gelistirme kayitlarinin icerigi
-
-`ai/PROJECT_STATE.md` kisa ve guncel:
-
-- Aktif gorev/version, mevcut asama, gercek uygulama durumu.
-- Son ilgili commit ve working tree'deki onemli degisiklikler.
-- Gecen/kalan kabul kriterleri ve kanit referanslari.
-- Acik blocker, varsayimlar ve operator tarafinda gerekli kabiliyetler.
-- Sonraki modele verilen ilk somut is.
-
-`ai/BACKLOG.md`: is ID, ilgili R/AC, durum (`TODO`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`), bagimliliklar, evidence. 'Kod var' ile 'dogrulandi' ayri tutulur.
-
-`ai/decisions/`: problem, incelenen alternatifler, secim, gerekce, risk, kaynak, kabul testi ve karar tarihi. Sonradan karar degisirse onceki kayit silinmez.
-
-`ai/research/`: bu belgedeki kaynaklar, dogrulanan surum/blob/commit, alinan/reddedilen fikir ve uygulamaya etkisi. Sadece link koleksiyonu degil karar baglantisi bulunur.
-
-`ai/checkpoints/`: gelistirme asamasi, degisen dosyalar, calistirilan komutlarin sanitized hali, test ozetleri, henuz dogrulanmamis alanlar.
-
-`ai/handoffs/`: model degisimi/kesinti oncesi acik durum ve sonraki eylem. Model adi bilinmiyorsa `unknown`; GPT veya baska isim tahmin etme. Gizli dusunce zinciri yerine acik engineering summary kullan.
-
-`ai/evidence/`: sadece urune ait sentetik testlerden sanitized kanitlar/manifestler. Buyuk test loglarini Git'e gommek yerine kucuk ozet ve uretilme komutu/hash kullan. Kurum ici gercek test logu/source bu klasore alinmaz.
-
-### 18.4 Gelistirme kesintisinden sonra davranis
-
-Kullanici "AGENTS.md dosyasini oku ve onayli aktif gorevden devam et" dediginde sadece bu belgeyle onayli isi devam ettir. Yeni model kayitlara dayanir ama gercek Git/dosya/test durumunu kontrol etmeden 'onceki model bitirmis' demez. Kayitlar eksikse mevcut koddan kanitli durum cikarir; tum sistemi sifirdan yazmaya veya repo temizlemeye baslamaz.
-
-Iki model paralel calisacaksa dosya/is sahipligi ve merge sorumlusu acik olur. Ayni dosyaya kontrolsuz eszamanli yazma yok. Entegrasyonu yapmadan iki ayri branch'in tek urun olarak gectigini iddia etme.
-
----
-
-## 19. Tek gorevin uygulama asamalari
-
-Bu asamalar ayri MVP/gelecek surum teslimatlari degildir. Tam urunun ayni gorev altindaki tamamlanma sirasi ve devam noktalaridir.
-
-| Asama | Yapilacak somut is | Asama cikisi / dogrulama |
-| --- | --- | --- |
-| P00 - Gercek durum | Repo/HEAD/visibility, yerel ortam, Git kimligi, mevcut dosyalar, arastirma teyidi; `ai/` ve AGENTS. | Baslangic raporu; kullanici dosyasi kaybi yok; uyumluluk ve gizlilik riski kayitli. |
-| P01 - Calisan dikey cekirdek | TS proje, schema/domain, tek tool registry, resmi MCP adapterleri, config, storage migration, artifact store. | Gercek stdio client tool list/call testi; DB tekrar acilinca veri kalir. |
-| P02 - Guvenli kesif | Snapshot/allowlist, JavaParser helper, POM/module/target discovery, envanter sorgulari. | Tek/cok modul/ayni sinif/dirty/Unicode path fixture'leri dogru cozulur. |
-| P03 - Izole gercek olcum | Runner ve process supervisor, effective Maven plan, baseline, JaCoCo class provenance/parser, regresyon. | Gercek Java fixture derlenir/test edilir; coverage ham ve hesaplanan sonuclar eslesir. |
-| P04 - OpenCode worker | Guvenli worker config, role prompts, typed artifact/changeset, model profiling, cancellation. | Gercek OpenCode SDK contract/smoke; scripted provider yalniz deterministik test amacli. |
-| P05 - Test muhendisligi | Analiz/plan/generation/repair, aday kabul, kalite, gap stratejileri, per-target esikler. | Reachable hedef ve kaliteli no-coverage-gain testleri; kotu adaylar reddedilir. |
-| P06 - Dayaniklilik | Job scheduler, fencing, checkpoint atomic publish, recovery, model degisimi, pause/cancel. | Sert process kill, disk/DB sorunlari, kaynak degisimi ve duplicate resume testleri gecer. |
-| P07 - Cikti ve aktarim | HTML/JSON/JaCoCo/diff, artifact export verification, review/onay/apply journal. | Rapor sayilari gercek DB ile ayni; XSS/path/missing artifact/conflict/cutoff testleri gecer. |
-| P08 - Kurulum ve kalite | Windows/Linux kurulum, config merge/uninstall, schema migration/backup/retention, docs ve CI. | Temiz ortam smoke, bootstrap ve yeniden kurulum idempotency; secret sizintisi yok. |
-| P09 - Tam kabul | Butun AC matrisi, gercek model/proje pilotu, bagimsiz son inceleme, Git teslimati. | Eksikler acik; yalniz kaniti olan kriterler VERIFIED; urun ancak 22. bolume gore tamamlandi. |
-
-Her asamada calisan testleri gec tutma. Ozellikle P03 gercek Maven/JaCoCo cikisi ve P04 gercek OpenCode entegrasyonu erken kurulmali; tum siniflari yazip entegrasyonu sona birakma.
-
-P00 sonunda kutuphane/API uyumsuzlugu bulunursa ilgili adapteri duzelt, burada secilen is sozlesmesini koru. Ayri bir 'arastirma isi' verip ana uygulamayi belirsiz sure erteleme. Esas bilinmeyenler yerel surum, yetki ve sandbox kabiliyeti; bunlar once olculerek ele alinacak.
-
----
-
-## 20. Kabul testleri ve kanit matrisi
-
-Asagidaki AC'lerin her biri icin `ai/ACCEPTANCE_MATRIX.md`'de durum, test/fixture, calistirma kimligi, toolchain, sonuc ve kanit dosyasi/commit yer alsin. `NOT_RUN`, `BLOCKED`, `FAILED`, `PASSED` ayridir. Kodun mock testten gecmesi gercek Maven/OpenCode entegrasyon testi yerine yazilamaz.
-
-### 20.1 Entegrasyon, proje ve kapsam
-
-| AC | Senaryo | Beklenen kanit |
-| --- | --- | --- |
-| AC01 | Bos repo kurulum ve ikinci modelle devam | AGENTS/ai kayitlari var; mevcut kullanici dosyasi korunur. |
-| AC02 | OpenCode-uyumlu MCP profili | Gercek istemci server'a baglanir, tool listeler ve dogru typed cevap alir. |
-| AC03 | Yeni MCP protokol profili | Resmi v2 client ile ayni tool use-case'leri calisir; v1 API isimleri karismaz. |
-| AC04 | Tek cumleli talep | 'PaymentService icin coverage %90 olsun' girisinden dogru root/target/metric ile is baslar. |
-| AC05 | Cok modullu reactor | Dogru modul, build dependency sirasi, source/test roots ve class raporu bulunur. |
-| AC06 | Ayni isim/farkli FQCN veya modul | Guvenilir baglam yoksa aday sorulur; yanlis sinifa test yazilmaz. |
-| AC07 | Custom test root / parent profil | Standart olmayan kok ve inherited plugin/property dogru cozulur. |
-| AC08 | Paket/modul veya cok hedef | Somut hedef listesi/fingerprint; her hedef ayri olculur; ortalama ile basari yok. |
-| AC09 | Git'siz lokal proje / iki checkout | Kimlikler dogru; ayni remote iki workspace'i yanlis birlestirmez. |
-| AC10 | Dirty/untracked kaynak | Gercek current source snapshot'a girer; stash/reset/clean ve veri kaybi yok. |
-| AC11 | Windows bosluk/Unicode/case/path | Path cozumleme ve process argumanlari dogru; komut enjeksiyonu yok. |
-| AC12 | Envanter stale/silinmis kaynak | Degisen bilgiler yenilenir; gecmis silinmez; eski coverage guncel sanilmaz. |
-
-### 20.2 Gercek test ve coverage
-
-| AC | Senaryo | Beklenen kanit |
-| --- | --- | --- |
-| AC13 | Java8/JUnit4 fixture | Gercek Maven run, test sonucu ve JaCoCo sayaclari. |
-| AC14 | Java17/JUnit5+Mockito fixture | Framework korunarak yeni/anlamli test ve gercek run. |
-| AC15 | Java21/cok modul fixture | Toolchain/bytecode ve modul raporu dogrulanir. |
-| AC16 | Mevcut testi olmayan sinif | Framework varsa test uretilir; 0 test 'passed suite' sayilmaz. |
-| AC17 | Bozuk/unstable baseline | Yeni test hatasi gibi raporlanmaz; eski test disable edilmez. |
-| AC18 | JaCoCo argLine ve existing agent | Mevcut JVM ayari korunur; double agent ve fork=0 olcum sorunu yakalanir. |
-| AC19 | Eski exec/XML veya class ID uyusmazligi | Olcum reddedilir, gercek yeniden olcum veya blocked sonucu gelir. |
-| AC20 | Aggregate/child tekrar sayimi | Ayni kapsamin verisi iki kez sayilmaz. |
-| AC21 | %89.96 sonucu, %90 hedef | Hedef saglanamadi; rounded gosterim karari degistirmez. |
-| AC22 | Branch 0 / line debug yok / report eksik | N/A, unavailable ve invalid farkli; sahte %100 yok. |
-| AC23 | Cok hedefte %100 ve %80 | Ortalama %90 gerekcesiyle tam basari ilan edilmez. |
-| AC24 | Surefire tarafindan kesfedilmeyen yeni test | Uretilmis dosya var diye calismis sayilmaz. |
-| AC25 | Exception testi coverage artirmiyor | Anlamli davranis kazanci kayitli; sahte branch artisi yok. |
-| AC26 | Tam final regresyon | Hedef/etkilenen/tam beyan edilmis kapsam ve kaynak butunlugu kanitli. |
-| AC27 | Erisilebilir %90 hedefi | Sentetik fakat gercek Java class'ta test-only ile hedef ve kalite gate'leri saglanir. |
-| AC28 | Sinirli test-only hedefe ulasamiyor | Best set korunur; blocker/deneme kaniti, hedef-not-met ve sifir prod degisimi. |
-| AC29 | Model uydurma coverage/sonuc donuyor | Model sayisi yok sayilir; gercek runner sonucu kullanilir. |
-| AC30 | POM degistirmeden olcum mumkun degil | Acik configuration barrier; build dosyasi veya exclusion otomatik degismez. |
-
-### 20.3 Kalite ve guvenlik
-
-| AC | Senaryo | Beklenen kanit |
-| --- | --- | --- |
-| AC31 | Production/POM/config yazan patch | Path/policy guard reddeder; immutable manifest ayni. |
-| AC32 | Test silme/ignore/skip/assertion gevsetme | Aday reddedilir; mevcut basarili test kapsam kaybi yok. |
-| AC33 | Bos/tautolojik/duplicate/mock-SUT test | Kalite finding'i; hedefe katkisi varmis gibi kabul edilmez. |
-| AC34 | Anlamli existing assertion helper | Yalniz kelime/regex yuzunden yanlis bos-test siniflamasi yapilmaz. |
-| AC35 | Private reflection/public API degisikligi | Yasak aday; ayri production refactor onerisi uygulanmaz. |
-| AC36 | Test source ile production FQCN shadow | Tespit edilir ve reddedilir. |
-| AC37 | Test kaynaklarindaki prompt injection | Policy/arac yetkisi degismez, sirlar okunmaz, recursive MCP yok. |
-| AC38 | Symlink/junction/traversal/komut enjeksiyonu | Yetkili kok disi okuma/yazma ve shell calistirma engellenir. |
-| AC39 | Runner host source/home/secrets erisimi | Kontrollu saldiri fixture'i okuyamaz/yazamaz; denied kaniti var. |
-| AC40 | Test process network/process/disk kotasi | Sinirlar gercekten uygulanir; musteri ortamina cikis yok. |
-| AC41 | Sahte/bozuk XML, DTD/XXE ve XSS | Harici entity/ag erisimi yok; guvenli parse veya acik reject; rapor text escape. |
-| AC42 | Global OpenCode config/plugin mirasi | Worker beklenmeyen MCP/bash/plugin/formatter yetkisi almaz. |
-| AC43 | Model secret ve ic endpoint redaction | Log, rapor, ai evidence, Git diff ve paket export'unda sizinti yok. |
-| AC44 | Sandbox/provider eksik | Sessiz insecure fallback yok; acik blocked/prerequisite sonucu. |
-
-### 20.4 Kesinti, storage ve uygulama
-
-| AC | Senaryo | Beklenen kanit |
-| --- | --- | --- |
-| AC45 | Analiz/generation sirasinda hard kill | Yeni oturum plan/checkpoint'i devralir; yarim aday accepted olmaz. |
-| AC46 | Maven/JVM sirasinda kill ve resume | Process sahipligi dogrulanir; orphan/eski run basari sayilmaz. |
-| AC47 | Artifact publish ile DB commit arasinda kill | Partial checkpoint gorunmez; orphan/eksik blob guvenle yonetilir. |
-| AC48 | Ayni job'a iki resume/start | Tek aktif ownership ve tek kabul etkisi; duplicate dongu yok. |
-| AC49 | Lease'i dusmus worker sonradan cevapliyor | Eski fence ile sonuc kabul edilmez. |
-| AC50 | Yeni modele gecis | Onceki test/deneme/kalan plan korunur; eski session gerekmiyor. |
-| AC51 | Kaynak/POM/dirty dosya arada degisiyor | Stale coverage yakalanir; rebaseline/revision acik, eski kazanim korunur. |
-| AC52 | Disk dolu/DB busy/DB schema uyumsuz | Kanit kaybi/sahte completed yok; recoverable ya da acik blocked. |
-| AC53 | Migration + WAL backup/restore | DB ve blob manifest tutarli; FK/hash dogrulamasi geciyor. |
-| AC54 | Retention/kota | Resume/best/pending patch blob'lari yanlislikla silinmez. |
-| AC55 | Cancel/pause/time budget | Sadece ilgili process durur; son verified set raporlu ve devam semantigi acik. |
-| AC56 | Basarisiz ayni strateji tekrar ediyor | Fingerprint/deneme hafizasi tekrari onler; plateau maksimum ispat sayilmaz. |
-| AC57 | Apply onayi yok/auto-approve belirsiz | Orijinal checkout degismez; patch-only guvenli yol. |
-| AC58 | Apply onayi + sonradan dosya degisimi | Preimage conflict, overwrite yok. |
-| AC59 | Multi-file apply sirasinda kesinti | Journal ile guvenli tamamlanma/geri alma; karisik durum saklanmaz. |
-| AC60 | Tekrar apply | Idempotent; test degisikligi iki kez uygulanmaz. |
-
-### 20.5 Rapor, dagitim ve tam kullanici deneyimi
-
-| AC | Senaryo | Beklenen kanit |
-| --- | --- | --- |
-| AC61 | HTML/JSON/DB tutarliligi | Tum counter/outcome/model/gate bilgileri ayni; AI yorumu ayri. |
-| AC62 | Offline HTML ve baglantilar | Harici ag istegi yok; ham JaCoCo/log/diff referanslari calisir. |
-| AC63 | Basarisiz/blocked job raporu | Rapor yine uretilir; olmayan coverage/artifact uydurulmaz. |
-| AC64 | Envanter/gecmis sorgulari | Proje-paket-sinif-test-run-model iliskileri dogru ve sayfalanmis. |
-| AC65 | Windows/Linux temiz kurulum/tekrar/uninstall | Kullanici ayarlari korunur; calisan smoke ve sahiplik bazli uninstall. |
-| AC66 | Model auth/429/timeout/context/schema hatasi | Acik tani, sinirli retry, checkpoint korunur; dis provider fallback yok. |
-| AC67 | Gercek yetkili OpenCode+LiteLLM pilotu | Sahte provider degil gercek modelle gercek Java test gelistirme/dogrulama. |
-| AC68 | Model veya OpenCode kapatilip ertesi oturum resume | Kullanici cumlesiyle ayni job'a doner; gercek sonuclar ve dosyalar korunur. |
-| AC69 | Urun gelistirmesinde model handoff | Sonraki model ai/ kanitlarindan kalan isi bulur; sifirdan baslamaz. |
-| AC70 | Git teslimati | Dogru local author/committer, Turkce ASCII mesajlar, tests/secret scan gecer, izinsiz force/publish yok. |
-
-### 20.6 Fixture tasarimi ve test yontemi
-
-Sentetik fixture'ler gercek Java/Maven projeleri olacak; urune ait olduklari icin bu fixture POM'larini biz olusturabiliriz. Runtime'in MUSTERI POM'una dokunma yasagiyla karistirma. Fixture'ler bagimsiz beklenen coverage counter'lari, exception/boundary davranisi ve fail durumlari uretir.
-
-Deterministik orkestrasyon testlerinde scripted/fake worker kullanmak serbesttir. Amaci same-input/same-output state machine, bozuk cevap, retry, duplicate ve crash testidir. Bu testler gercek LiteLLM/OpenCode entegrasyonu diye etiketlenmez. Benzer sekilde XML fixture parse testi, gercek JaCoCo instrumentation testi yerine gecmez.
-
-Security fixture'leri kontrollu, yerel ve sentetik tutulur; gercek kurum sistemi hedeflenmez. Test raporu snapshot/golden dosyalarinda secret veya gercek proje kodu bulunmaz. Flaky e2e'yi 'retry until green' ile gizlemek yerine nedenini bul ve kanitla.
-
----
-
-## 21. Git kimligi, Turkce ASCII ve teslimat kurallari
-
-### 21.1 Yalniz repository-local kimlik
-
-Bu projenin yerel clone'unda:
-
-```bash
-git config --local user.name "mehmet-karacan"
-git config --local user.email "karacan.mehmet@hotmail.com"
-git config --local user.useConfigOnly true
-```
-
-Global Git konfigurasyonuna dokunma. `user.name`, GitHub authentication kullanicisini degistirmez; remote push icin mevcut yetkili kimlik kullanilir. Token uretme/kaydetme veya credential helper'i ezme yetkisi bu gorevin parcasi degildir.
-
-Commit oncesi `git var GIT_AUTHOR_IDENT` ve `git var GIT_COMMITTER_IDENT` kontrol edilir. Ortam degiskenleri local config'i override ediyorsa bu repository islemi icin guvenli duzelt; diger projelerin ortam/ayarlarini degistirme. Commit sonrasinda author ve committer gercek logdan dogrulanir.
-
-### 21.2 Metin standardi
-
-Yeni commit baslik/govde ve urune ait Turkce dokuman/aciklamalar Turkce ASCII yazilir. Ornek: `feat: kalici test gorevi ve checkpoint altyapisi eklendi`.
-
-Kod identifier'lari teknik ASCII English olabilir. Unicode iceren Java kullanici kaynagini, fixture girdi degerini, orijinal hata metnini veya upstream lisansi transliterate etme. ASCII standardi, veri butunlugunu bozacak global replace degildir. Upstream telif/lisans metinleri korunur.
-
-Commit message kontrolu otomatik test/hook veya script ile uygulanir. Repository'ye ait yeni dokumanlarda Turkce Unicode kacagini denetle; veri/fixture/lisans istisnalari acik allowlist olsun. Unicode path fixture'i bu kurala takilarak silinmez.
-
-### 21.3 Commit/push disiplini
-
-- Her mantiksal ve dogrulanmis asamada uygun commit; bozuk entegrasyonu 'tamamlandi' commit'iyle kapatma.
-- Staged diff'i oku. Kaynak/POM policy testleri, unit/ilgili integration testleri ve secret scan olmadan kod degisikligini push etme.
-- Public repository'ye sadece bu urunun kodu, sentetik fixture'i ve sanitized gelistirme bilgisi gitsin.
-- Runtime customer source/DB/log/token dosyalari `.gitignore` ve ek secret/content kontroluyle korunur.
-- `git add -A` ile kontrolsuz her seyi ekleme. Untracked kullanici dosyalarini sahipligi bilinmiyorsa commit'e katma.
-- Remote'u dogrula: `mehmet-karacan/ai-test-engineering`. Baska repository'ye push yok.
-- Gercek mevcut branch/koruma kurallarina uy. Bos repoda kullanicinin belirttigi varsayilan `main` olusturulabilir; mevcut branch varken zorla degistirme yok.
-- Push'ta non-fast-forward veya koruma varsa force push yapma; guvenli fetch/reconcile ve gerekirse acik blocker.
-- Kullanici istemeden release publish, npm publish, public artifact upload veya kurum e-postasi gonderme.
-- Bu gorevin uygulanmasinda verilen Git kurallari customer test job'larina tasinmaz. Urun hedef projeye otomatik commit/push yapmaz.
-
-Repository lisansi henuz belirtilmediyse kullanici adina rastgele acik kaynak lisansi secme. Bagimlilik lisans envanteri ve gerekli notices saglanir; urunun lisans karari ayrica kayit altina alinir. Arastirma kodunu kopyalamadan algoritmik fikirleri yeniden uygula.
-
----
-
-## 22. Definition of Done ve nihai teslim
-
-### 22.1 Urun kodu icin tamamlanma kosullari
-
-MCP adapter, job motoru, proje envanteri, SQLite migration/repository, worker, runner, JaCoCo, kalite/plateau, checkpoint/recovery, rapor, guvenli apply yolu, kurulum ve gelistirme hafizasi GERCEK implementasyonlariyla bulunmalidir. Bos fonksiyon, fake success, `TODO: later`, gerekli yolda NotImplemented, tum modeli mock'layan demo veya yalniz README tamamlanma sayilmaz.
-
-Typecheck/lint/unit/integration/contract/recovery/security testleri calistirilir. Tum kritik policy ve state gecisleri test edilir. Urunun kendi coverage sonucu raporlanir; metrik oyunlariyla kendisine de sahte basari verilmez. Yeni harici bagimliliklar minimal, versiyonlu, lisansi bilinen ve lockfile'li olmalidir.
-
-Bagimsiz son inceleme: gereksinim matrisi, guven sinirlari, veri modeli, state transition ve rapor sonuc semantigi uzerinde yapilir. Ayni LLM'nin 'her sey guzel' demesi gercek test kaniti yerine gecmez.
-
-### 22.2 Ortamla ilgili dogrulama siniri
-
-Kurum ici modele veya kullanici Java projesine erisim bu uygulama ortaminda yoksa tum diger gelistirme isleri ve sentetik gercek Maven testleri yine tamamlanir. Eksik gercek kurum smoke'unu PASSED yazma. Son durum:
-
-- `IMPLEMENTATION_VERIFIED`: gercek yerel fixture/toolchain/contract/kesinti testleriyle dogrulanan uygulama.
-- `INSTITUTIONAL_ACCEPTANCE_PENDING`: kurum ici endpoint/model/sandbox/proje yetkisi bekleyen gercek pilot kriterleri.
-- `FULL_ACCEPTANCE_VERIFIED`: ilgili ortamda zorunlu gercek pilot ve resume dahil tum kriterler gecmis.
-
-Bu ayrim kapsam daraltma degildir. Ana is icin yeni `AKTIF_GOREV-2` uretme; ayni gorevin acik kabul maddelerini `ai/` kayitlarinda tut. Teknik olarak eksik ozelligi 'ortam yok' bahanesiyle kapatma. Ortam erisimi yoklugunu ise model tahminiyle asma.
-
-### 22.3 Kullaniciya verilecek nihai gelistirme ozeti
-
-Uygulayici model sonunda sunlari kanitlariyla raporlar:
-
-- Gercekte ne implement edildi, hangi R/AC'ler gecti?
-- Kurulum ve mevcut OpenCode icinde ilk kullanim nasil yapiliyor?
-- Proje kayitlari ve runtime veriler nerede, neler Git'e gitmiyor?
-- Gercek Maven/JaCoCo ve gercek model pilot sonuclari; yapilmayanlar acik etiketli.
-- Production/test-only/kalite/guvenli apply/resume kontrollerinin kaniti.
-- Son commit/branch/push durumu ve varsa acik blocker.
-- Son handoff/state dosyalari; bekleyen ortam kabulunu surdurme noktasi.
-
-'Aktif gorev tamamlandi' ancak bu tanima uyuyorsa yazilir. %90'a ulasamayan bir Java test job'unun dogru raporlanmasi urunun bir ozellik testinde basarili olabilir; o Java job'unun coverage hedefi saglanmis demek degildir. Urun gelistirme basarisi ile runtime job outcome'u birbirine karistirilmaz.
-
----
-
-## 23. Arastirma kaynaklari, gozlem siniri ve izlenebilirlik
-
-Tum kaynaklar 2026-10-09 tarihli bu arastirmada resmi belge, arastirma makalesi veya projenin kendi repository'si uzerinden incelendi. Dinamik `main/dev/trunk` sayfalari sabit release degildir. Uygulama sirasinda gercek installed/release surumu kontrol edilip lockfile ve uyumluluk belgesine kaydedilecektir.
-
-### S01 - Hedef repository durumu
-
-- `https://api.github.com/repos/mehmet-karacan/ai-test-engineering`
-- `https://api.github.com/repos/mehmet-karacan/ai-test-engineering/contents/`
-- Connector gozlemi: public, size 0, default branch metadata main; contents 'This repository is empty'. Mevcut commit/body analizi yapilmis gibi davranilmaz.
-
-### S02 - CoverUp
-
-- `https://github.com/plasma-umass/coverup`
-- `https://github.com/plasma-umass/coverup/blob/main/src/coverup/coverup.py`
-- `https://arxiv.org/html/2403.16218v3`
-- Kod gozlemi: `State` checkpoint, `improve_coverage` olcum/hata dongusu ve aday kabul; test disable/import kurma yollarinin urun politikamiza alinmamasi.
-- Incelenen `coverup.py` blob SHA: `6ad93d812cdfe38e00c186e440d86b33e464ec64`.
-
-### S03 - ChatUniTest
-
-- `https://github.com/ZJU-ACES-ISE/chatunitest-maven-plugin`
-- `https://github.com/ZJU-ACES-ISE/chatunitest-core`
-- `https://github.com/ZJU-ACES-ISE/chatunitest-core/blob/main/src/main/java/zju/cst/aces/api/phase/solution/COVERUP.java`
-- `https://github.com/ZJU-ACES-ISE/chatunitest-core/blob/main/src/main/java/zju/cst/aces/api/impl/RepairImpl.java`
-- COVERUP blob: `4b6d505212aadd9f981e04a2963229a7678715fc`.
-- RepairImpl blob: `51b22e2032e82878e4ad382b270b8526932ccbe2`.
-- Gozlem: test repair/coverage feedback faydali; coverage exception'inda basari benzeri boolean donusu bizim motorumuzda kabul edilmeyecek. Tek dosya gozleminden butun projenin guvenligi hakkinda genelleme yapilmadi.
-
-### S04 - TestWeaver
-
-- `https://github.com/FSoft-AI4Code/TestWeaver`
-- `https://github.com/FSoft-AI4Code/TestWeaver/blob/main/README.md`
-- README blob: `eaa3b58af87d6c46b4a30f1e6e514aa95ddb3337`.
-- Gozlem: execution-aware feedback/slicing/closest-test yaklasimi ve Python deneyleri. Bu arastirmada README kapsaminda incelendi; Java uyumlu hazir urun diye onerilmedi.
-
-### S05 - Meta TestGen-LLM makalesi
-
-- `https://arxiv.org/abs/2402.09171`
-- Gozlem: mevcut test iyilestirme ve adaylari guvence filtrelerinden gecirme yaklasimi. Kurum ici model basari orani tahmini uretilmedi.
-
-### S06 - Qodo Cover bakim durumu
-
-- `https://github.com/qodo-ai/qodo-cover`
-- Gozlem: README'deki 2025-06-15 bakim durdurma bildirimi; cekirdek bagimlilik yapmama karari.
-
-### S07 - OpenCode SDK ve server
-
-- `https://opencode.ai/docs/sdk/`
-- `https://opencode.ai/docs/server/`
-- Gozlem: programatik session/server/client ve model konfigurasyonu; gercek surumle API contract testinin gerekliligi.
-
-### S08 - MCP protokol degisiklikleri
-
-- `https://modelcontextprotocol.io/specification/2026-07-28/changelog`
-- Gozlem: yeni protokol lifecycle'i, Tasks'in resmi uzantiya tasinmasi ve baglam/oturum varsayimlarinin degismesi. Urun job durumu protokol oturumuna baglanmadi.
-
-### S09 - Resmi MCP TypeScript SDK
-
-- `https://github.com/modelcontextprotocol/typescript-sdk`
-- `https://ts.sdk.modelcontextprotocol.io/v2/`
-- Gozlem: v2 server/client paketleri ile v1 bakim/uyumluluk ayrimi. OpenCode kurulumunda gercek destek kontrol edilecek.
-
-### S10 - OpenCode'un somut MCP bagimliligi
-
-- `https://github.com/anomalyco/opencode/blob/dev/packages/opencode/package.json`
-- Blob SHA: `9def9a322eb3c47435a7b0f0009b4035f0de01d7`.
-- Gozlem: bu dosyada package version 1.18.35 ve MCP SDK 1.29.0 goruldu. Bunlar kullanicinin yuklu OpenCode surumu veya resmi son stabil release iddiasi degildir.
-
-### S11 - OpenCode guvenlik modeli
-
-- `https://github.com/anomalyco/opencode/blob/dev/SECURITY.md`
-- Blob SHA: `e7e59f4a27ac2bd2ed5005f8851dcb946c08f914`.
-- Gozlem: izinlerin sandbox olmamasi ve server erisiminin korunmasi. Urun icin OS/runtime guven siniri karari buradan desteklendi.
-
-### S12 - JaCoCo counter semantigi
-
-- `https://www.jacoco.org/jacoco/trunk/doc/counters.html`
-- Gozlem: bytecode/line/branch farki, debug bilgisi, exception handling ve sentetik kod etkisi.
-
-### S13 - JaCoCo agent konfigurasyonu
-
-- `https://www.jacoco.org/jacoco/trunk/doc/prepare-agent-mojo.html`
-- Gozlem: argLine/propertyName ve agent/exec ayarlari. Trunk snapshot surumu sabit dependency olarak alinmadi.
-
-### S14 - JaCoCo Maven entegrasyonu
-
-- `https://www.jacoco.org/jacoco/trunk/doc/maven.html`
-- Gozlem: fork/agent olcum gereklilikleri ve raporlama. POM'suz her ortamda kurulum iddiasi yok.
-
-### S15 - Node.js desteklenen surum aileleri
-
-- `https://nodejs.org/en/about/previous-releases`
-- Gozlem: Node 24 LTS secimi; uygulama basinda stabil/guvenli patch surumu lock edilecek.
-
-### S16 - SQLite Node adapter'i
-
-- `https://github.com/WiseLibs/better-sqlite3`
-- Gozlem: transaction/worker thread olanaklari, desteklenen Node ve binary kurulum gereksinimi. Proje performans iddialari bizim benchmark sonucumuz olarak aktarilmadi.
-
-### S17 - JavaParser
-
-- `https://github.com/javaparser/javaparser`
-- `https://javaparser.org/getting-started.html`
-- Gozlem: AST ve symbol solver; kutuphaneyi product helper'inda kullanma, hedef Java POM'una eklememe karari. Destek language level uygulama surumuyle dogrulanacak.
-
-### S18 - Container yurutme kontrolleri
-
-- `https://docs.docker.com/engine/containers/run/`
-- Gozlem: user, filesystem, network ve resource yurutme secenekleri. Tek ayarin tum guvenligi sagladigi iddia edilmedi; urune ait policy ve acceptance testleri gerekir.
-
-### S19 - OpenCode konfigurasyon ve entegrasyon
-
-- `https://opencode.ai/docs/config/`
-- `https://opencode.ai/docs/mcp-servers/`
-- `https://opencode.ai/docs/skills/`
-- Gozlem: konfigurasyon birlestirme, MCP server ve skill entegrasyonu; worker miras ayarlarinin ayrica dogrulanmasi.
-
-### S20 - Maven cok modul
-
-- `https://maven.apache.org/guides/mini/guide-multiple-modules.html`
-- Gozlem: reactor ve modul bagimliliklari; hedef sinif/modul build planini deterministik kurma karari.
-
-### S21 - Surefire parametreleri
-
-- `https://maven.apache.org/surefire/maven-surefire-plugin/test-mojo`
-- Gozlem: test/fork/argLine davranisinin kurulu plugin surumune gore dogrulanmasi.
-
-### S22 - JaCoCo aggregate raporu
-
-- `https://www.jacoco.org/jacoco/trunk/doc/report-aggregate-mojo.html`
-- Gozlem: dependency kapsamli toplama; parent altindaki her modulun kendiliginden tek goal ile olculdugu varsayilmadi.
-
-### S23 - JaCoCo class kimligi
-
-- `https://www.jacoco.org/jacoco/trunk/doc/classids.html`
-- Gozlem: olcumde kullanilan class/bytecode ile raporlanan class'in eslesmesi.
-
-### S24 - SQLite WAL
-
-- `https://sqlite.org/wal.html`
-- Gozlem: yerel dosya sistemi, eszamanlilik ve WAL davranisi. Lease/fence ve blob protokolu urune ait ek tasarimdir.
-
-### S25 - SQLite backup
-
-- `https://sqlite.org/backup.html`
-- Gozlem: desteklenen online snapshot/yedekleme. Blob referans tutarliligi urune ait ek sozlesmedir.
-
-### S26 - LiteLLM proxy
-
-- `https://docs.litellm.ai/docs/proxy/user_keys`
-- `https://opencode.ai/docs/providers/`
-- Gozlem: konfigure edilen proxy/provider uzerinden yetkili model erisimi. Kurum ici endpoint'e veya model listesine bu arastirmada girilmedi; kapasite/latency/izin iddiasi uretilmedi.
-
-### S27 - OpenCode izin ve auto-approve davranisi
-
-- `https://opencode.ai/docs/permissions/`
-- Gozlem: allow/ask/deny ve auto mode ayrimi; insan onayi bool alanina veya kontrolsuz ask varsayimina birakilmadi.
-
-### Uygulama sirasinda kaynak dogrulama kurali
-
-Bu arastirma mimari karar vermek icin yeterli baslangic kaniti saglar; kutuphaneleri burada calistirip kurumda benchmark yapildigi anlamina gelmez. Uygulayici; kaynaklari gerektigi kadar yeniden kontrol eder, installed versiyonlari sabitler ve gercek entegrasyon testleriyle dogrular. Kaynak reposunun kendi aciklamasi ile incelenmis kod ve olculmus sonuc ayni kanit seviyesinde degildir.
-
----
-
-## 24. Ilk uygulanacak ve son korunacak is
-
-**Ilk uygulanacak is:** Repo/local ortam/Git kimligini dogrula; `AGENTS.md` ve `ai/` gelistirme hafizasini kur; R01-R20 ve AC01-AC70 izlenebilirlik matrisini olustur; ardindan P01'in calisan MCP + SQLite dikey akisina basla.
-
-**Her kesintide korunacak is:** Gercek kod/diff, son dogrulanmis test kaniti, kalan kabul maddeleri ve bir sonraki adim. Model hafizasinin veya sohbet gecmisinin varligina guvenme.
-
-**Son korunacak ilke:** Bu urun sadece daha fazla test yazmaz. Production koduna dokunmadan anlamli test gelistirir, olcer, kanitlar, kesintiden devam eder ve hedef saglanmadiginda bunu durustce raporlar.
+**Bitis cumlesi bir model karari degil, gercek kabul kanitlarinin sonucudur.**
