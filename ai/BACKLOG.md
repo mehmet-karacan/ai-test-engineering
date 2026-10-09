@@ -4,10 +4,12 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 
 | ID | Is | Ilgili R/AC | Durum | Bagimlilik | Kanit |
 | --- | --- | --- | --- | --- | --- |
-| W01 | Kok dosyalari + ai/ hafiza kurulumu (P00) | AC01, AC69, AC70 | IN_PROGRESS | - | ai/checkpoints/ |
-| W02 | TS proje iskeleti: package.json, tsconfig, lockfile (P01) | - | TODO | W01 | - |
-| W03 | Schema/domain: Zod semalari, hata siniflari (P01) | R06, R07 | TODO | W02 | - |
-| W04 | MCP tool registry + v1/v2 adapter (P01) | AC02, AC03 | TODO | W02 | - |
-| W05 | SQLite storage + migration + artifact store (P01) | R10, AC52, AC53 | TODO | W02 | - |
-| W06 | Config katmani: configuration schema + yukleme (P01) | R15 | TODO | W02 | - |
-| W07 | P01 testleri: stdio client tool list/call, DB kalicilik (P01) | AC02 | TODO | W03-W06 | - |
+| W01 | Kok dosyalari + ai/ hafiza kurulumu (P00) | AC01, AC69, AC70 | VERIFIED | - | ai/checkpoints/2026-10-09-p00-baslangic.md |
+| W02 | TS proje iskeleti: package.json, tsconfig, lockfile (P01) | - | VERIFIED | W01 | ai/checkpoints/2026-10-09-p01-cekirdek.md |
+| W03 | Schema/domain: Zod semalari, hata siniflari (P01) | R06, R07 | VERIFIED | W02 | ai/checkpoints/2026-10-09-p01-cekirdek.md |
+| W04 | MCP tool registry + v1 adapter (P01) | AC02, AC03 | IN_PROGRESS | W02 | AC02 stdio testi gecti; AC03 v2 profili P04+ |
+| W05 | SQLite storage + migration + artifact store (P01) | R10, AC52, AC53 | IN_PROGRESS | W02 | kalicilik testi gecti; AC52/AC53 fault testleri P06 |
+| W06 | Config katmani: configuration schema + yukleme (P01) | R15 | VERIFIED | W02 | ai/checkpoints/2026-10-09-p01-cekirdek.md |
+| W07 | P01 testleri: stdio client tool list/call, DB kalicilik (P01) | AC02 | VERIFIED | W03-W06 | tests/integration/stdio-client.test.ts 4/4 |
+| W08 | Guvenli kesif: snapshot/allowlist + JavaParser helper (P02) | AC07, AC10, AC11 | TODO | W07 | - |
+| W09 | POM/module/target discovery + envanter sorgulari (P02) | AC05, AC06, AC12 | TODO | W08 | - |

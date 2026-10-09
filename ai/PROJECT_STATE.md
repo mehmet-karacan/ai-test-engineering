@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P00 - Gercek durum (tamamlandi) -> P01 baslangici
+- Asama: P01 - Calisan dikey cekirdek (tamamlandi) -> P02 baslangici
 - Son guncelleme: 2026-10-09
 
 ## Gercek uygulama durumu
@@ -11,7 +11,7 @@
 | Asama | Durum | Kanit |
 | --- | --- | --- |
 | P00 - Gercek durum | TAMAMLANDI | ai/checkpoints/2026-10-09-p00-baslangic.md |
-| P01 - Calisan dikey cekirdek | IN_PROGRESS | - |
+| P01 - Calisan dikey cekirdek | TAMAMLANDI | ai/checkpoints/2026-10-09-p01-cekirdek.md |
 | P02 - Guvenli kesif | TODO | - |
 | P03 - Izole gercek olcum | TODO | - |
 | P04 - OpenCode worker | TODO | - |
@@ -32,12 +32,13 @@
 
 ## Son commit
 
-- Ilk commit hazirlaniyor (P00 iskeleti).
+- P01: calisan MCP + SQLite dikey cekirdek (31/31 test gecti; gercek stdio client entegrasyonu dahil).
 
 ## Kabul durumu
 
 - AC01 kismen ilerledi: AGENTS + ai/ kayitlari kuruldu; kurulum/devam testleri P08'de.
-- Diger AC01-AC70: NOT_RUN.
+- AC02 kismen ilerledi: gercek stdio client tools/list + tools/call testi gecti (tests/integration/stdio-client.test.ts).
+- Diger AC: NOT_RUN.
 
 ## Acik blocker
 
@@ -45,4 +46,4 @@
 
 ## Sonraki somut is
 
-- P01: TypeScript projesini kur (package.json, tsconfig, lockfile), schema/domain katmanini ve tek MCP tool registry + SQLite storage dikey akisini calisir hale getir.
+- P02: Guvenli kesif - snapshot/allowlist, JavaParser yardimci modulu (java-support/), POM/module/target discovery, envanter sorgulari.
