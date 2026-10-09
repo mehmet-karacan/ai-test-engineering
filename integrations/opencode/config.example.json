@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ai-test-engineering": {
+      "type": "local",
+      "command": ["node", "<KURULUM_DIST_YOLU>/dist/mcp/stdio-entry.js"],
+      "environment": {
+        "AITEST_CONFIG": "<KULLANICI_VERI_DIZINI>/config/config.json"
+      }
+    }
+  }
+}

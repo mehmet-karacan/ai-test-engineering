@@ -24,5 +24,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi
 | W18 | Recovery: kill/restart, disk/DB fault, duplicate resume (P06) | AC45, AC46, AC48, AC52 | IN_PROGRESS | W17 | recovery resume/SOURCE_CHANGED gecti; tam fault injection devam |
 | W19 | Offline Report Generator + export verification (P07) | AC61-AC63 | VERIFIED | W18 | ai/checkpoints/2026-10-09-p07-cikti.md |
 | W20 | test_apply akisi: onay + preimage + journal (P07) | AC57-AC60 | VERIFIED | W19 | ai/checkpoints/2026-10-09-p07-cikti.md |
-| W21 | Kurulum scriptleri + config merge/uninstall (P08) | AC65 | TODO | W20 | - |
-| W22 | docs/ + CI workflow + secret scan (P08) | AC70 | TODO | W21 | - |
+| W21 | Kurulum scriptleri + config merge/uninstall (P08) | AC65 | IN_PROGRESS | W20 | install/verify/uninstall yazildi + smoke; temiz makine P09 |
+| W22 | docs/ + CI workflow + secret scan (P08) | AC70 | VERIFIED | W21 | ai/checkpoints/2026-10-09-p08-kurulum.md |
+| W23 | AC matrisi guncelleme + bagimsiz son inceleme (P09) | AC01-AC70 | TODO | W21 | - |
+| W24 | Nihai gelistirme ozeti + Git teslimati (P09) | AC70 | TODO | W23 | - |

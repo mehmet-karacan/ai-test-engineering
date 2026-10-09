@@ -14,7 +14,8 @@ export function loadConfig(configPath?: string): AppConfig {
   }
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(effectivePath, "utf8"));
+    const content = readFileSync(effectivePath, "utf8").replace(/^\uFEFF/, "");
+    raw = JSON.parse(content);
   } catch (error) {
     throw new AppError("INVALID_PARAMETERS", `Config dosyasi JSON parse hatasi: ${effectivePath}`, {
       cause: String(error),

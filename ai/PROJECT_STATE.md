@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-FOUNDATION-001 (AKTIF_GOREV.md v1.0)
-- Asama: P07 - Cikti ve aktarim (tamamlandi) -> P08 baslangici
+- Asama: P08 - Kurulum ve kalite (tamamlandi) -> P09 baslangici
 - Son guncelleme: 2026-10-09
 
 ## Gercek uygulama durumu
@@ -18,8 +18,8 @@
 | P05 - Test muhendisligi | TAMAMLANDI | ai/checkpoints/2026-10-09-p05-dongu.md |
 | P06 - Dayaniklilik | TAMAMLANDI | ai/checkpoints/2026-10-09-p06-dayaniklilik.md |
 | P07 - Cikti ve aktarim | TAMAMLANDI | ai/checkpoints/2026-10-09-p07-cikti.md |
-| P08 - Kurulum ve kalite | TODO | - |
-| P09 - Tam kabul | TODO | - |
+| P08 - Kurulum ve kalite | TAMAMLANDI | ai/checkpoints/2026-10-09-p08-kurulum.md |
+| P09 - Tam kabul | IN_PROGRESS | - |
 
 ## Ortam dogrulamasi (2026-10-09)
 
@@ -32,15 +32,13 @@
 
 ## Son commit
 
-- P07: cikti ve aktarim katmani (141/141 test gecti; offline rapor + test_apply dahil).
+- P08: kurulum scriptleri + docs + CI (141/141 test gecti; kurulum smoke gercek runtime config ile).
 
 ## Kabul durumu
 
-- AC01 kismen: AGENTS + ai/ kayitlari kuruldu.
-- AC02 kismen: gercek stdio client tools/list + tools/call gecti.
-- AC05-AC07, AC10-AC12 kismen (envanter/kesif seviyesi).
-- AC13/AC14 kismen: gercek Maven/JaCoCo run kanitli.
-- AC21-AC23, AC31-AC34, AC45, AC47-AC49, AC56-AC58, AC60-AC63 kanitli (unit seviyesi).
+- AC01/AC02 kismen kanitli; AC05-AC07, AC10-AC14 kismen.
+- AC21-AC23, AC31-AC34, AC45, AC47-AC49, AC56-AC63 kanitli (unit).
+- AC65 kismen: kurulum/verify/uninstall scriptleri smoke edildi.
 - Diger AC: NOT_RUN.
 
 ## Acik blocker
@@ -49,4 +47,4 @@
 
 ## Sonraki somut is
 
-- P08: Kurulum ve kalite - scripts/ (install/verify/uninstall, Windows+Linux), config merge/backup/idempotency, schema migration/backup/retention, docs/ (architecture, installation, usage, security, data-dictionary), CI workflow, secret scan.
+- P09: Tam kabul - ACCEPTANCE_MATRIX guncellemesi (PASSED kanitlari), bagimsiz son inceleme (DoD 22.1: guven sinirlari, veri modeli, state transition, rapor semantigi), nihai gelistirme ozeti, Git teslimati.
