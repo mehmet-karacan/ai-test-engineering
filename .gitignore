@@ -1,0 +1,41 @@
+# Node / TypeScript
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Runtime veri (asla Git'e gitmez)
+*.db
+*.db-wal
+*.db-shm
+state.db*
+
+# Loglar
+logs/
+*.log
+npm-debug.log*
+
+# Ortam ve sirlar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Yerel onartilmamis calisma alani
+.work/
+tmp/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Java derleme ciktilari (fixture testleri)
+target/
+*.class
+hs_err_pid*
