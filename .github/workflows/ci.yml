@@ -1,10 +1,12 @@
 name: CI
 
+# CI/CD devre disi (operator karari). Yeniden acmak icin asagidaki on: bloğunu
+# push/pull_request -> [main] yapin ve bu yorumu kaldirin.
 on:
   push:
-    branches: [main]
+    branches: ["__ci_disabled__"]
   pull_request:
-    branches: [main]
+    branches: ["__ci_disabled__"]
 
 jobs:
   build-test:
