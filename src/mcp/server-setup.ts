@@ -141,10 +141,10 @@ export function registerToolsOnServer(server: McpServer, registry: ToolRegistry)
   }
 }
 
-export function createMcpServer(services: Services): McpServer {
+export function createMcpServer(services: Services, profileVersion?: string): McpServer {
   const server = new McpServer(
     { name: "ai-test-engineering", version: "0.1.0" },
-    { instructions: "AI test muhendisligi: yalniz test calisir, production degismez." },
+    { instructions: `AI test muhendisligi (profil ${profileVersion ?? "v1"}): yalniz test calisir, production degismez.` },
   );
   const registry = createToolRegistry(services);
   registerToolsOnServer(server, registry);
