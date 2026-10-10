@@ -5,7 +5,7 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ
 ## Kabul durumu degisimi
 
 - Onceki: 70/70 PASSED + FULL_ACCEPTANCE_VERIFIED (commit c5307f5) - **tarihsel model beyani olarak isaretlendi** (F13 bulgusu; bazi satirlar bilesen/metin kanitlarini tam kabul gibi toplamisti).
-- Yeni: `REMEDIATION_IN_PROGRESS` - AC'ler bilesen testi / normal MCP yolu / kesinti-guvenlik-kabul katmanlarina ayrilarak yeniden degerlendiriliyor.
+- Yeni: `REMEDIATION_TAMAMLANDI` - AC'ler bilesen testi / normal MCP yolu / kesinti-guvenlik-kabul katmanlarina ayrilarak yeniden degerlendirildi; tum satirlar kanitli.
 
 ## AC01-AC70 yeniden degerlendirme ozeti
 
