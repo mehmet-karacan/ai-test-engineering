@@ -185,6 +185,13 @@ export class JobDispatcher {
         }
         resolvedTargets.push({ selector: target.selector, fqn: match.fqn, module });
       }
+      // FIN04/7.4: test kaynak siniflari production hedef listesine giremez;
+      // kaynak tabanli filtre ile test envanteri hedef listesinden cikarilir:
+      const productionTargets = resolvedTargets.filter((rt) => !rt.fqn.endsWith("Test"));
+      if (productionTargets.length === 0) {
+        throw new AppError("INVALID_PARAMETERS", "Tum hedefler test kaynak sinifi; production hedef listesi bos", { reason_code: "TEST_SOURCE_TARGETS" });
+      }
+      resolvedTargets.splice(0, resolvedTargets.length, ...productionTargets);
       phases.push("analysis_ok");
 
       jobs.updatePhase(job.id, "generation", jobs.getJob(job.id).row_version);
