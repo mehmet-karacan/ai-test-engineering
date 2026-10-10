@@ -118,7 +118,7 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   const { storage, jobs } = requireStorage(services);
   const job = jobs.getJob(parsed.job_id);
 
-  let lastCoverage: { percent: number; basisPoints: number } | null = null;
+  const lastCoverage: { percent: number; basisPoints: number } | null = null;
   if (job.source_snapshot_id) {
     // son trusted coverage DB'den; keyfi path okuma yok
   }
