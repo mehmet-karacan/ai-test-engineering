@@ -114,6 +114,30 @@ export class LeaseManager {
   }
 
   release(jobId: string, ownerId: string): void {
-    this.db.prepare("DELETE FROM job_leases WHERE job_id = ? AND owner_id = ?").run(jobId, ownerId);
+    // D06/F08: release kaydi silmez; kalici monoton fencing icin lease'i expire eder.
+    // Token geri gitmez; yeni acquisition bir sonraki token'i alir.
+    const now = Date.now();
+    const row = this.db
+      .prepare<[string], { id: string; owner_id: string; fencing_token: number }>(
+        "SELECT id, owner_id, fencing_token FROM job_leases WHERE job_id = ?",
+      )
+      .get(jobId);
+    if (!row || row.owner_id !== ownerId) {
+      return;
+    }
+    this.db
+      .prepare("UPDATE job_leases SET expires_at = ?, heartbeat_at = ? WHERE job_id = ? AND owner_id = ?")
+      .run(now - 1, now, jobId, ownerId);
+  }
+
+  /**
+   * Kalici monoton fencing token (D06/F08): lease row silinse de gerilemeyen.
+   * Job state'indeki fencing_generation alanindan gelir; her acquisition'da artar.
+   */
+  currentGeneration(jobId: string): number {
+    const row = this.db
+      .prepare<[string], { fencing_token: number | null }>("SELECT fencing_token FROM job_leases WHERE job_id = ?")
+      .get(jobId);
+    return row?.fencing_token ?? 0;
   }
 }
