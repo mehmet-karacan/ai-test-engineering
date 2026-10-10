@@ -135,4 +135,20 @@ export class InventoryRepository {
         packaging: row.packaging,
       }));
   }
+
+  /**
+   * K06/B09: module hedefi icindeki somut sinif listesi (tam FQCN'ler).
+   */
+  listModuleClasses(snapshotId: string, moduleRelativePath: string): string[] {
+    return this.db
+      .prepare<[string, string], { fqn: string }>(
+        `SELECT cs.fqn FROM code_symbols cs
+         JOIN java_packages jp ON cs.package_id = jp.id
+         JOIN modules m ON jp.module_id = m.id
+         WHERE m.snapshot_id = ? AND m.relative_path = ? AND cs.kind IN ('class', 'interface', 'enum', 'record')
+         ORDER BY cs.fqn`,
+      )
+      .all(snapshotId, moduleRelativePath)
+      .map((row) => row.fqn);
+  }
 }

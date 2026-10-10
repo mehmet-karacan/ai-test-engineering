@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import { PatchApplier } from "../application/patch-applier.js";
-import { assertQualityGate, scanTestQuality, type QualityFinding } from "../policies/quality-gate.js";
+import { assertQualityGate, scanTestQuality, isSutShadowing, type QualityFinding } from "../policies/quality-gate.js";
 import { MavenRunner, type RunResult } from "../runners/maven-runner.js";
 import { parseJacocoXml, findClassInReport, type CounterKind } from "../coverage/jacoco-parser.js";
 import { evaluateMetric, evaluateTarget, type MetricEvaluation } from "../coverage/coverage-math.js";
@@ -197,6 +197,12 @@ export class CandidateLoop {
       let qualityFailed = false;
       for (const change of candidate.changes) {
         if (change.action !== "delete" && (change.new_content ?? change.patch)) {
+          // K06/B10: SUT shadowing candidate kabul zincirinde kontrol edilir (ayni pakette ayni sinif adi):
+          if (isSutShadowing(change.path, change.new_content ?? change.patch!, options.target_fqn)) {
+            qualityFailed = true;
+            qualityFindings.push({ rule_id: "SUT_SHADOWING", severity: "critical", location: change.path, evidence: `Test kaynaginda production sinifi aynI FQCN ile tanimlanmis: ${options.target_fqn}` });
+            continue;
+          }
           try {
             assertQualityGate(change.new_content ?? change.patch!, change.path);
           } catch (error) {
