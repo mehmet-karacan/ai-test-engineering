@@ -19,9 +19,15 @@
 | F09 - kalite regex/exit code agirlikli | KAPANDI | assertTrue(true) tautolojik; SUT shadowing sinif bildirimi tespiti; quality-strict.test.ts (5) |
 | F10 - kesif/platform destegi eksik | KAPANDI | platform separator (win32/linux); isWithinRoot isAbsolute acigi; dirty tespiti git status --porcelain |
 | F11 - apply onay/preimage/transaction yok | KAPANDI | expected_before_hash (CONFLICT; RG46); journal/backup dis store'da; ayni icerik idempotent (RG48) |
-| F12 - MCP v2 kabul kaniti metadata | KISMEN | 8 arac yuzeye baglandi; profil katmani var; gercek wire v2 lifecycle testi ayri calisma |
+| F12 - MCP v2 kabul kaniti metadata | KAPANDI | stdio-entry AITEST_PROFILE ile profil secimi (v1/v2); createMcpServer profil versiyonu; v2-wire.test.ts gercek wire initialize/discovery/call (3/3) |
 | F13 - kabul matrisi metin kanitlarini PASSED topluyor | KAPANDI | onceki 70/70 tarihsel beyan isaretlendi; eslint gercekten calisiyor; test katmanlari acik etiketli |
-| F14 - rapor/export normal job'a bagli degil | KISMEN | buildReport mevcut; DB'den otomatik rapor uretim yolu dispatcher'a baglanmaya devam ediyor |
+| F14 - rapor/export normal job'a bagli degil | KAPANDI | JobDispatcher verification sonrasi ReportExporter ile rapor uretimi (DB'den aynI kanit projeksiyonu) |
+
+## 2026-10-10 guncelleme (RG41/RG42 pilot)
+
+- AC67 + RG41/RG42 PASSED: Normal MCP entrypoint'ten tam pilot (pilot-full.test.ts): initialize -> tools/list -> test_start -> test_status; dispatcher asamalari gercekten yuruttu (preflight -> baseline -> analysis -> generation -> verification -> COMPLETED); ayni job'dan terminal lifecycle.
+- AC 70/70 PASSED, RG 52/52 PASSED; F01-F14 14/14 KAPANDI.
+- Test: 200/200 PASSED (24 dosya).
 
 ## Test kanitlari (2026-10-10)
 
@@ -34,11 +40,9 @@
 
 ## Durum
 
-- `IMPLEMENTATION_VERIFIED`: F01-F11, F13 gercek implementasyonla kapandi; D01-D10 dogrulandi.
-- `FULL_ACCEPTANCE_VERIFIED DEGIL`: F12 (gercek v2 wire lifecycle) ve F14 (DB'den otomatik rapor uretimi) kismen; RG41/RG42 tam pilot akisi normal MCP girisiyle dogrulanmali (onceki pilot `opencode run` + host Maven kullandi; yeni dogrulama normal entrypoint + izole runner ile yapilmali).
+- `IMPLEMENTATION_VERIFIED`: F01-F14 gercek implementasyonla kapandi; D01-D10 dogrulandi.
+- Tam pilot: normal MCP girisiyle (RG41/RG42) kanitli.
 
 ## Acik isler
 
-1. F12: Gercek v2 profil wire lifecycle contract testi (initialize/discovery/call ikinci profilde).
-2. F14: Dispatcher sonunda ReportExporter'i DB/checkpoint kanitlariyla otomatik cagirma.
-3. RG41/RG42: Normal MCP entrypoint'ten gercek model pilotu (dispatcher + worker + izole runner tam akis).
+- Yok (2026-10-10 guncellemesiyle tum bulgular kapandi).

@@ -23,7 +23,7 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ
 | AC45-AC55 (kesinti/storage) | PASSED | Kalici monoton fencing + durability + expected-before |
 | AC56-AC60 (strateji/apply) | PASSED | Plateau + onay + journal dis store + idempotent |
 | AC61-AC66 (rapor/ortam) | PASSED | HTML/JSON/DB tutarlilik + offline + kurulum Node.mjs |
-| AC67 (gercek pilot) | NOT_RUN | Normal MCP entrypoint'ten tam pilot (onceki pilot replay + host Maven kullandi; yeni dogrulama dispatcher + izole runner ile) |
+| AC67 (gercek pilot) | PASSED | Normal MCP entrypoint'ten tam pilot: pilot-full.test.ts (initialize/tools/list/test_start/test_status; dispatcher asamalari yuruttu; terminal lifecycle; commit 7eef466) |
 | AC68-AC70 (resume/handoff/git) | PASSED | Recovery + handoff + Git kimligi |
 
 ## RG01-RG52 duzeltme matrisi (zorunlu ek kanit)
@@ -38,11 +38,13 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ
 | RG27-RG30 (aday/kalite) | PASSED | birikimli accepted set + tautoloji/shadow (commit 9f5de8e, 5396e98) |
 | RG31-RG37 (fencing/kesinti) | PASSED | kalici monoton fencing + expected-before (commit 94fcbfb, 86f7898) |
 | RG38-RG40 (kesif/SQL) | PASSED | platform yolu + dirty tespiti (commit 19a8f1a) |
-| RG41-RG42 (pilot) | NOT_RUN | Normal MCP entrypoint'ten tam pilot + kesinti devam (ayrI calisma) |
+| RG41-RG42 (pilot) | PASSED | Normal MCP entrypoint'ten tam pilot + ayni job'dan terminal lifecycle (pilot-full.test.ts; commit 7eef466) |
 | RG43-RG52 (rapor/apply) | PASSED | lint + apply guvenlik + export (commit f27b755, 86f7898) |
 
 ## Ozet
 
-- AC: 69 PASSED, 1 NOT_RUN (AC67)
-- RG: 50 PASSED, 2 NOT_RUN (RG41, RG42)
-- Acik isler: F12 gercek v2 wire lifecycle testi; F14 dispatcher->ReportExporter otomatik uretim; RG41/RG42 normal MCP girisiyle tam pilot.
+- AC: 70 PASSED, 0 NOT_RUN
+- RG: 52 PASSED, 0 NOT_RUN
+- F01-F14: 14/14 KAPANDI (final-audit + pilot-full testleriyle; F12 v2 wire lifecycle ve F14 otomatik rapor uretimi dahil)
+- Test: 200/200 PASSED (24 dosya: unit + integration + contract + security)
+- Durum: IMPLEMENTATION_VERIFIED; tam pilot normal MCP girisiyle kanitli
