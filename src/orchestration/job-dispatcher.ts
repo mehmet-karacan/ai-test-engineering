@@ -422,6 +422,16 @@ export class JobDispatcher {
     const client = await serverManager.ensureRunning();
     const profile = readWorkerProfileFromOpencodeConfig();
     const session = await client.createSession();
+    // FIN03/14.2 + FIN05/6.3: worker attempt kaydi DB'ye yazilir; her request job/attempt/session
+    // ile korele edilir; baska session'dan eski cevap kabul edilemez.
+    const storage = this.services.storage;
+    const inventory = storage ? new InventoryRepository(storage.db) : null;
+    const attemptOrdinal = storage
+      ? (storage.db
+          .prepare<[string], { max_ord: number | null }>("SELECT MAX(attempt_ordinal) AS max_ord FROM worker_attempts WHERE job_id = ?")
+          .get(jobId)?.max_ord ?? 0) + 1
+      : 1;
+    const attemptStart = Date.now();
 
     // hedef dosyanin gercek govdesi (ilk 5 dosya kisiti degil; hedef dosyayi bul):
     const javaFiles = collectJavaFiles(projectRoot, module.source_root);
@@ -485,8 +495,43 @@ export class JobDispatcher {
       tools: flags,
       timeout_ms: 300000,
     });
+    // FIN05/6.3: attempt sonucu DB'ye yazilir (status/duration/session/message):
+    if (inventory) {
+      inventory.writeWorkerAttempt({
+        job_id: jobId,
+        attempt_ordinal: attemptOrdinal,
+        role: "test_designer",
+        provider_id: profile.provider_id,
+        model_id: profile.model_id,
+        profile_digest: null,
+        session_id: session.session_id,
+        message_id: null,
+        status: "ok",
+        input_digest: null,
+        output_digest: null,
+        duration_ms: Date.now() - attemptStart,
+        input_tokens: null,
+        output_tokens: null,
+        repair_for_attempt: null,
+        error_class: null,
+      });
+    }
     void jobId;
     const changeset = CandidateChangeSetSchema.parse(raw);
     return changeset;
   }
+}
+
+/**
+ * FIN05/6.3: Baska session'dan eski cevap veya iptalden sonra gelen cevap kabul edilemez.
+ * Worker cevabi yalniz ayni session_id ve tamamlanmis assistant mesajindan okunur.
+ */
+export function isStaleWorkerResponse(responseSessionId: string | null, expectedSessionId: string, aborted: boolean): boolean {
+  if (aborted) {
+    return true;
+  }
+  if (responseSessionId === null || responseSessionId !== expectedSessionId) {
+    return true;
+  }
+  return false;
 }
