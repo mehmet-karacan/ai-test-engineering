@@ -46,5 +46,7 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ
 - AC: 70 PASSED, 0 NOT_RUN
 - RG: 52 PASSED, 0 NOT_RUN
 - F01-F14: 14/14 KAPANDI (final-audit + pilot-full testleriyle; F12 v2 wire lifecycle ve F14 otomatik rapor uretimi dahil)
-- Test: 200/200 PASSED (24 dosya: unit + integration + contract + security)
+- B01-B12: 12/12 KAPANDI (runner factory, canonical containment, worker server manager, per-metric karar, resume dispatcher devami, bootstrap duzeltmesi dahil)
+- RT01-RT28: RT01/RT02/RT03 (rt01-host-fallback + pilot-full), RT27 (bootstrap.test.ts) kanitli; digerleri eski AC/RG eslesmeleriyle
+- Test: 204/204 PASSED (26 dosya: unit + integration + contract + security)
 - Durum: IMPLEMENTATION_VERIFIED; tam pilot normal MCP girisiyle kanitli
