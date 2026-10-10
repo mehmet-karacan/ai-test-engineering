@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "generated": "2026-10-10",
+  "task": "AITE-RUNTIME-ACCEPTANCE-003",
+  "task_version": "2.0",
+  "review_head": "c5d4a530b01bbbff21c04213aebda3416f2b70b3",
+  "note": "Tekil obligation registry. Her kayit tek gereksinim icin tekil eslesmedir; aralik ozeti veya eski PASSED etiketi bu kaydin yerine gecmez. Durumlar: NOT_RUN, BLOCKED, FAILED, PASSED. PASSED(kismen) yoktur. Bu dosya FIN00 ciktisidir; tum kayitlar baslangicta NOT_RUN'dir ve FIN01-FIN15 ilerlemesiyle gercek kanitla guncellenir.",
+  "status_counts": {
+    "AC01-AC70": "70 x NOT_RUN (tarihsel 70/70 beyani gecersiz; tekil eslesme yeniden kurulacak)",
+    "RG01-RG52": "52 x NOT_RUN (tarihsel 52/52 beyani gecersiz; tekil eslesme yeniden kurulacak)",
+    "RT01-RT28": "28 x NOT_RUN (RT01/RT02/RT03/RT27 ozel testleri tarihsel; v2.0 execution contract ile yeniden degerlendirilecek)",
+    "PRO01-PRO60": "60 x NOT_RUN (yeni kapsam)"
+  },
+  "groups": [
+    {
+      "source": "AITE-FOUNDATION-001",
+      "archive": "ai/tasks/archive/AITE-FOUNDATION-001.md",
+      "ids": "AC01-AC70",
+      "count": 70,
+      "status_default": "NOT_RUN"
+    },
+    {
+      "source": "AITE-REMEDIATION-002",
+      "archive": "ai/tasks/archive/AITE-REMEDIATION-002.md",
+      "ids": "RG01-RG52",
+      "count": 52,
+      "status_default": "NOT_RUN"
+    },
+    {
+      "source": "AKTIF_GOREV v2.0 bolum 24",
+      "archive": "AKTIF_GOREV.md#24-devralinan-normal-yol-kabulleri-rt01-rt28",
+      "ids": "RT01-RT28",
+      "count": 28,
+      "status_default": "NOT_RUN"
+    },
+    {
+      "source": "AKTIF_GOREV v2.0 bolum 25",
+      "archive": "AKTIF_GOREV.md#25-ek-kurumsal-urun-kabulleri-pro01-pro60",
+      "ids": "PRO01-PRO60",
+      "count": 60,
+      "status_default": "NOT_RUN"
+    }
+  ],
+  "rt_obligations": [
+    { "requirement_id": "RT01", "section": "24", "behavior": "Env ayari olmayan normal kurulumda customer host JVM/Maven baslamaz; izolasyon/model hazirsa worker+izole run, degilse specific BLOCKED", "package": "FIN02", "evidence_levels": ["UNIT", "INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT02", "section": "24", "behavior": "Invalid runner string/host_dev_only tip donusumune guvenilmeden red edilir", "package": "FIN02", "evidence_levels": ["UNIT"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT03", "section": "24", "behavior": "Gercek izole baseline -> candidate -> final replay tum run'larda guvenli runner kimligiyle", "package": "FIN02+FIN06", "evidence_levels": ["INTEGRATION_ISOLATED", "LIVE_MODEL"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT04", "section": "24", "behavior": "Worker yok/yanlis auth/model yetkisiz: kontrollu baslatma veya specific BLOCKED_MODEL; asla TARGET_NOT_MET_PLATEAU degil", "package": "FIN05", "evidence_levels": ["UNIT", "INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT05", "section": "24", "behavior": "Hedef dosya ilk bes dosyanin disinda ve mevcut test varken dogru kaynak/test/gap baglami aktarilir; gercek yeni test kesfedilir", "package": "FIN05", "evidence_levels": ["LIVE_MODEL"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT06", "section": "24", "behavior": "Compile error sonraki repair'e gercek feedback olarak gider; bounded repair butcesi; ayni job; accepted set korunur", "package": "FIN06", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT07", "section": "24", "behavior": "LINE=95 BRANCH=40 hedef90'da tum katmanlar (loop/dispatcher/DB/status/JSON/HTML) hedef saglanmadi der; final overwrite yok", "package": "FIN06+FIN09", "evidence_levels": ["UNIT", "INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT08", "section": "24", "behavior": "Branch-only kazanim kabul edilir; diger hedef dusukse genel basari verilmez; ortalama kullanilmaz", "package": "FIN06", "evidence_levels": ["UNIT"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT09", "section": "24", "behavior": "Branch total0/eksik rapor/eksik metadata/%89.96: N/A/UNAVAILABLE/INVALID ayri; yuvarlama sahte90 yapmaz", "package": "FIN06", "evidence_levels": ["UNIT"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT10", "section": "24", "behavior": "Final yalniz accepted+fresh replay'den gelir; forged/stale rapor kabul edilmez", "package": "FIN06", "evidence_levels": ["UNIT", "INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT11", "section": "24", "behavior": "A kabul, B kabul, C red: final A+B'yi calistirir, C yok; patch/checkpoint ayni A+B baytlari", "package": "FIN06", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT12", "section": "24", "behavior": "Hard-kill sonrasi yeni session ayni job_id/goal/budget/accepted hash'leriyle gercekten ilerler; sifir job degil", "package": "FIN07", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT13", "section": "24", "behavior": "RT12 baska yetkili model profiliyle surdurulur; eski kanit korunur; eski chat/session zorunlu degil", "package": "FIN07", "evidence_levels": ["LIVE_MODEL"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT14", "section": "24", "behavior": "Pause/cancel/timeout: yalniz o job'un child/container'lari dogrulanmis bicimde biter; gec worker cevabi state'i degistiremez", "package": "FIN07", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT15", "section": "24", "behavior": "Iki client ayni anda resume: tek owner calisir; generation artar; eski token yazamaz", "package": "FIN03+FIN07", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT16", "section": "24", "behavior": "Artifact yazma/publish/DB pointer arasinda hard-kill: yalniz tam verified checkpoint secilir; yarim aday accepted olmaz", "package": "FIN03", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT17", "section": "24", "behavior": "Resume oncesi source/POM degisti: SOURCE_CHANGED algilanir; stale coverage basari sayilmaz; kullanicinin degisikligi korunur", "package": "FIN07", "evidence_levels": ["UNIT", "INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT18", "section": "24", "behavior": "2 modul ayni simple name/profile/custom test root/package target: dogru concrete class/module/test/report", "package": "FIN04", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT19", "section": "24", "behavior": "Shadow FQCN/eski test silme/disabled/regex-assert yorumu accepted path'te engellenir; anlamlı helper testleri yanlis reddedilmez", "package": "FIN08", "evidence_levels": ["UNIT"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT20", "section": "24", "behavior": "Zero-discovered/bozuk XML/baseline failed: exit0 sahte PASSED degil; gercek kimlik/sonuc korunur", "package": "FIN08+FIN11", "evidence_levels": ["UNIT"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT21", "section": "24", "behavior": "Gercek model + ulasilabilir fixture'da normal OpenCode->MCP->worker->izole Maven/JaCoCo; iki metrik >=90; temiz final replay", "package": "FIN06+FIN05", "evidence_levels": ["LIVE_MODEL"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT22", "section": "24", "behavior": "Test-only engelli hedef/butce/plateau: son trusted kazanim korunur; neden/different attempts kanitli; dusuk sonuc hedef basarisi olmaz", "package": "FIN06", "evidence_levels": ["INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT23", "section": "24", "behavior": "status/result/HTML/JSON/DB ayni once/sonra sayac/test/model/iteration/manifest eslesmesi", "package": "FIN09", "evidence_levels": ["UNIT", "INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT24", "section": "24", "behavior": "Binary exec/nested HTML/hash corruption/reserved path: bayt-hash birebir; mismatch false; root disina yazma red", "package": "FIN09", "evidence_levels": ["UNIT"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT25", "section": "24", "behavior": "Patch-only + onaysiz apply reddi; onayli apply job/checkpoint/root/digest'e bagli; conflict'te kullanici dosyasi korunur", "package": "FIN09", "evidence_levels": ["UNIT", "REVIEW"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT26", "section": "24", "behavior": "Multi-file apply ortasinda kill: durable journal ile recovery; double-apply idempotent; backup cakismasi yok", "package": "FIN09", "evidence_levels": ["UNIT", "INTEGRATION_ISOLATED"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT27", "section": "24", "behavior": "Fresh clone + PS1 yasak + CMD/Node bootstrap; config sentinel ve diger kayitlar korunur; owned uninstall", "package": "FIN11", "evidence_levels": ["OPERATIONAL"], "status": "NOT_RUN", "proof": null },
+    { "requirement_id": "RT28", "section": "24", "behavior": "Legacy + modern protocol wire gercek revision'lari karsilar; fragmented JSON; negotiated version dogru", "package": "FIN10", "evidence_levels": ["CONTRACT"], "status": "NOT_RUN", "proof": null }
+  ],
+  "pro_obligations_note": "PRO01-PRO60 tekil kayitlari bolum 25 tablolarindan ayni sekilde uretilir; FIN01-FIN15 paket eslesmesi ve evidence_levels eklenerek catalog.json'un sonraki revizyonunda tekil satirlara acilir. Baslangicta hepsi NOT_RUN'dir.",
+  "previous_claims": [
+    { "claim": "AC 70/70 PASSED (FOUNDATION-001)", "current_truth": "TARIHSEL_BEYAN; tekil eslesme v2.0 ile yeniden degerlendirilecek" },
+    { "claim": "RG 52/52 PASSED (REMEDIATION-002)", "current_truth": "TARIHSEL_BEYAN; tekil eslesme v2.0 ile yeniden degerlendirilecek" },
+    { "claim": "003 TAMAMLANDI + tam pilot kanitli (handoff 2026-10-10-runtime-handoff.md)", "current_truth": "TARIHSEL_BEYAN; B01-B12 kismi kanitlar korunur ama v2.0 kapsam tamamlanmis sayilmaz" },
+    { "claim": "204/204 test PASSED", "current_truth": "KAYITLI_KANIT (tarihsel kosu); v2.0 zincir kabulunun tamami anlamina gelmez" }
+  ]
+}

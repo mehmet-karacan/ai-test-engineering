@@ -2,25 +2,41 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-REMEDIATION-002. Duzeltme asamalari D00-D10; bulgular F01-F14 (ai/reviews/2026-10-10-foundation-review.md).
+Aktif gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (birlestirilmis nihai kapsam). Paketler FIN00-FIN15; devralinan kabuller AC01-AC70, RG01-RG52, RT01-RT28, PRO01-PRO60.
 
-## Duzeltme asamalari
+## FIN paketleri (v2.0)
 
-| ID | Is | Ilgili F/RG | Durum | Bagimlilik | Kanit |
-| --- | --- | --- | --- | --- | --- |
-| P00 | Gorev kurulumu: arsiv + inceleme kaydi + bulgu teyidi | F01-F14 | VERIFIED | - | ai/reviews/2026-10-10-foundation-review.md (commit 2f7d595) |
-| D00 | Kabul gercegini yeniden kur; guvenli baseline; AC yeniden degerlendirme | F13, RG tumu | VERIFIED | P00 | ai/ACCEPTANCE_MATRIX.md yeniden degerlendirme (commit d99824c) |
-| D01 | Installer mcp=null silici islem kaldir; Node.mjs kurulum (PS1'siz); izole config testi | F02, F10, F13; RG05-RG10 | VERIFIED | D00 | ai/checkpoints/2026-10-10-remediation-d01.md (commit c7a77f0) |
-| D02 | test_start'i CandidateLoop'a dispatch; 8 arac; gercek orkestrasyon | F01, F12; RG11-RG14 | VERIFIED | D01 | ai/checkpoints/2026-10-10-remediation-d02.md (commit ff0d095) |
-| D03 | Runner izolasyon gecidi; canonical path containment; supervisor semantigi | F05, F06; RG15-RG20, RG34-RG36 | VERIFIED | D02 | failclosed-runner + PolicyGuard canonical (commit 6ff1076) |
-| D04 | Worker 204/mesaj shape; gercek contract testleri | F07; RG24-RG26, RG41-RG42 | VERIFIED | D03 | worker-response.test.ts (commit 340bc72) |
-| D05 | BRANCH hedefi kararlara bagla; birikimli accepted set; final replay | F03, F04, F06, F09; RG21-RG23, RG27-RG30 | VERIFIED | D04 | evaluateGoalMet + accepted-set.test.ts (commit 28d31e8, 9f5de8e) |
-| D06 | Lease/checkpoint/recovery guvenli devam semantigi | F08, F04, F10; RG31-RG37 | VERIFIED | D05 | fencing.test.ts (commit 94fcbfb) |
-| D07 | AST tabanli kalite; gercek test kimlikleri | F09, F13; RG28-RG30, RG43 | VERIFIED | D06 | quality-strict.test.ts (commit 5396e98) |
-| D08 | Effective Maven; AST discovery; platform yolu | F10, F14; RG01-RG04, RG38-RG40 | VERIFIED | D07 | platform separator + dirty tespiti (commit 19a8f1a) |
-| D09 | Apply onay/digest/transaction; binary-safe export | F11, F14; RG45-RG52 | VERIFIED | D08 | expected-before + dis store journal (commit 86f7898) |
-| D10 | Tekrar uretilebilir kabul; son bagimsiz denetim | F12, F13 | VERIFIED | D09 | eslint + final-audit (commit f27b755, 017cfed) |
+| ID | Is | Kritik yol | Durum | Kanit |
+| --- | --- | --- | --- | --- |
+| FIN00 | Baslangic, arsiv, kapsam/evidence registry, risk, guvenli baseline | - | IN_PROGRESS | bu commit: arsiv + PROJECT_STATE + catalog |
+| FIN01 | Domain/contract/config/model resolver ve source/project identity | - | TODO | - |
+| FIN02 | Verified runner, disposable workspace, cache/egress, process supervisor | X | TODO | - |
+| FIN03 | SQLite gercek veri akisi, migration, artifact publish, ownership/fencing | X | TODO | - |
+| FIN04 | Effective Maven + Java AST + hedef/test/rapor scope'u | X | TODO | - |
+| FIN05 | Kontrollu OpenCode worker + semali analiz/plan/developer/review | X | TODO | - |
+| FIN06 | Candidate/repair/coverage evaluator/cumulative accepted/final replay | X | TODO | - |
+| FIN07 | Resume/pause/cancel/late writes ve kaynak degisikligi | X | TODO | - |
+| FIN08 | Semantik test kalitesi, test koruma, flaky ve PIT adapter | - | TODO | - |
+| FIN09 | Report projection, binary-safe export, patch ve guvenilir apply | - | TODO | - |
+| FIN10 | Legacy/modern MCP adapterleri ve kisacik OpenCode kullanimi | - | TODO | - |
+| FIN11 | Fresh install, upgrade/rollback/backup/restore/owned uninstall | - | TODO | - |
+| FIN12 | Diagnostics, resource limits, history, retention ve support bundle | - | TODO | - |
+| FIN13 | Threat model, security regression, SBOM/SCA/lisans/paket provenance | - | TODO | - |
+| FIN14 | Canli benchmark/model karsilastirma, holdout, gercek proje pilotu | - | TODO | - |
+| FIN15 | Bagimsiz release dogrulamasi, dokuman senkronu, tam dagitim teslimi | - | TODO | - |
 
-## Eski gorev (arsiv)
+## FIN00 alt isleri
 
-AITE-FOUNDATION-001 isleri (W01-W30): ai/tasks/archive/AITE-FOUNDATION-001.md icindeki sozlesmeyle tamamlanmisti; F01-F14 ile yeniden degerlendirildi. Tarihsel kanitlar ai/checkpoints/ altinda korunur.
+| ID | Is | Durum | Kanit |
+| --- | --- | --- | --- |
+| FIN00.a | v1.0 aktif gorevi git nesnesinden arsivle, bayt dogrula | VERIFIED | archive blob 178a263 birebir; SHA-256 1d3b9bf2... |
+| FIN00.b | v2.0 sozlesmeyi koka koy | VERIFIED | SHA-256 40819cc6... (kaynakla ayni) |
+| FIN00.c | Tekil obligation catalog uret (AC/RG/RT/PRO) | IN_PROGRESS | ai/acceptance/catalog.json |
+| FIN00.d | Onceki beyanlari gercek duruma getir (PROJECT_STATE/BACKLOG) | VERIFIED | bu dosya |
+| FIN00.e | Ilk somut davranis testi: normal giris -> host Maven'e sifir gecis | TODO | - |
+
+## Tarihsel kayitlar (silinmez)
+
+- AITE-FOUNDATION-001 (W01-W30): ai/tasks/archive/AITE-FOUNDATION-001.md; "70/70" tarihsel beyan, F01-F14 ile yeniden degerlendirildi.
+- AITE-REMEDIATION-002 (D00-D10): ai/tasks/archive/AITE-REMEDIATION-002.md; "52/52" tarihsel beyan.
+- AITE-RUNTIME-ACCEPTANCE-003 v1.0: ai/tasks/archive/AITE-RUNTIME-ACCEPTANCE-003-v1.0.md; B01-B12 handoff beyanlari + 204/204 test kaydi tarihsel; v2.0 tekil eslesmeyle yeniden degerlendirilecek.
