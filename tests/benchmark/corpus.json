@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "corpus_version": "1.0.0",
+  "generated": "2026-10-10",
+  "note": "Version'lu sentetik benchmark corpus (20.2). Fixture'lar normal dagitilan MCP motorunu cagirir; ozel demo pipeline'i degil. BM01-BM08 baseline en az bir hedef metrikte %90 altindir; BM09-BM12 negatif/engelli kontrol fixture'laridir. Reference/golden testler modele verilmez; aday baseline'ina kopyalanmaz.",
+  "thresholds": {
+    "primary_metric_percent": 90,
+    "baseline_max_percent_before_ai": 90,
+    "independent_repeats_per_model": 3,
+    "reachable_total_min": 48,
+    "negative_controls_per_model": 1,
+    "negative_total": 8
+  },
+  "fixtures": [
+    { "id": "BM01", "group": "utility_validator", "target": "basit utility/validator; baslangicta hedef altinda branch/line", "baseline_below_90": true, "requires_mockito": false },
+    { "id": "BM02", "group": "mockito_service", "target": "Mevcut Mockito'lu servis; dependency failure/exception", "baseline_below_90": true, "requires_mockito": true },
+    { "id": "BM03", "group": "precision_rounding", "target": "precision/rounding/boundary; bagimsiz reference oracle", "baseline_below_90": true, "requires_mockito": false },
+    { "id": "BM04", "group": "collections_inputs", "target": "collections/null/empty/invalid girdi; parameterized tests", "baseline_below_90": true, "requires_mockito": false },
+    { "id": "BM05", "group": "state_transition", "target": "state transition/side effect/idempotency; pollution yakalama", "baseline_below_90": true, "requires_mockito": false },
+    { "id": "BM06", "group": "java8_junit4", "target": "Java8/JUnit4/expected exception ve mevcut helper testleri", "baseline_below_90": true, "requires_mockito": false },
+    { "id": "BM07", "group": "java17_junit5", "target": "Java17/JUnit5; nested/parameterized/dynamic test kimligi", "baseline_below_90": true, "requires_mockito": false },
+    { "id": "BM08", "group": "java21_reactor", "target": "Java21/reactor; cross-module dependency, ayni simple name, custom test root", "baseline_below_90": true, "requires_mockito": false },
+    { "id": "BM09", "group": "blocked_dependency", "target": "Test-only siniri icinde engelli dis bagimlilik; hedef altinda dogru durma", "baseline_below_90": false, "negative_control": true },
+    { "id": "BM10", "group": "missing_config", "target": "Eksik framework/olcum/dependency konfigurasyonu; dogru blocker", "baseline_below_90": false, "negative_control": true },
+    { "id": "BM11", "group": "broken_baseline", "target": "Onceden bozuk/unstable baseline; AI kazanimiyle karistirmama", "baseline_below_90": false, "negative_control": true },
+    { "id": "BM12", "group": "adversarial", "target": "Adversarial fixture: manipulasyon/shadow/secret/late-result denemeleri", "baseline_below_90": false, "negative_control": true }
+  ],
+  "rules": [
+    "Reference/golden testler modele verilmez; aday baseline'ina kopyalanmaz.",
+    "Fixture production kodu denemeden once sabitlenir; kolaylastirmak icin sonradan degistirilmez.",
+    "Fixture hatasi varsa acik revision + yeniden tum karsilastirma gerekir.",
+    "Basarisiz/blocked/timeout denemeler denominator'dan cikartilmaz; en iyi sonuc secilmez.",
+    "Deterministik seed model tarafinda desteklenmiyorsa bu durum raporlanir."
+  ]
+}
