@@ -235,6 +235,32 @@ export class JobDispatcher {
       jobs.updatePhase(job.id, "verification", jobs.getJob(job.id).row_version);
       phases.push("verification");
 
+      // FIN03/14.2: cozulmus hedefler icin once/after coverage snapshot kayitlari (DB iliskisi):
+      for (const resolved of resolvedTargets) {
+        const coverage = readCoverageAfterRun(projectRoot, resolved.fqn);
+        const linePair = coverage?.line;
+        const branchPair = coverage?.branch;
+        const lineValidity = linePair ? "OK" : "UNAVAILABLE";
+        const branchValidity = branchPair ? "OK" : "UNAVAILABLE";
+        inventory.writeCoverageSnapshot({
+          job_id: job.id,
+          target_symbol_id: null,
+          run_id: null,
+          fqn: resolved.fqn,
+          source_sha256: null,
+          binary_class_id: null,
+          line_covered: linePair?.covered ?? 0,
+          line_missed: linePair?.missed ?? 0,
+          branch_covered: branchPair?.covered ?? null,
+          branch_missed: branchPair?.missed ?? null,
+          line_validity: lineValidity,
+          branch_validity: branchValidity,
+          before_after: "after",
+          checkpoint_id: checkpoints.bestCheckpoint(job.id),
+        });
+      }
+
+      // FIN03/14.2: candidate iteration kayitlari DB'ye yazilir (loopResult'tan):
       // K04/B03: son dogrulanmis coverage per-target; LINE+BRANCH birlikte (tek evaluator)
       const bestCoverage: Record<string, number | null> = {};
       let allMet = true;

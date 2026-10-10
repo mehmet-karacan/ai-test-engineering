@@ -223,6 +223,95 @@ CREATE INDEX IF NOT EXISTS idx_checkpoints_job ON checkpoints(job_id);
 CREATE INDEX IF NOT EXISTS idx_leases_job ON job_leases(job_id);
 `,
   },
+  {
+    version: 2,
+    name: "coverage-worker-candidate-benchmark-tablolari",
+    sql: `
+CREATE TABLE IF NOT EXISTS coverage_snapshots (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES test_jobs(id),
+  target_symbol_id TEXT REFERENCES code_symbols(id),
+  run_id TEXT,
+  fqn TEXT NOT NULL,
+  source_sha256 TEXT,
+  binary_class_id TEXT,
+  line_covered INTEGER NOT NULL DEFAULT 0 CHECK (line_covered >= 0),
+  line_missed INTEGER NOT NULL DEFAULT 0 CHECK (line_missed >= 0),
+  branch_covered INTEGER,
+  branch_missed INTEGER,
+  line_validity TEXT NOT NULL CHECK (line_validity IN ('OK','NOT_APPLICABLE','UNAVAILABLE','INVALID_COVERAGE_EVIDENCE')),
+  branch_validity TEXT,
+  before_after TEXT NOT NULL CHECK (before_after IN ('before','after')),
+  checkpoint_id TEXT REFERENCES checkpoints(id),
+  created_at INTEGER NOT NULL,
+  CHECK (length(id) = 36)
+);
+
+CREATE TABLE IF NOT EXISTS worker_attempts (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES test_jobs(id),
+  attempt_ordinal INTEGER NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('analyzer','test_designer','test_developer','reviewer','gap_analyzer')),
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  profile_digest TEXT,
+  session_id TEXT,
+  message_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('ok','timeout','error','aborted')),
+  input_digest TEXT,
+  output_digest TEXT,
+  duration_ms INTEGER,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  repair_for_attempt INTEGER,
+  error_class TEXT,
+  created_at INTEGER NOT NULL,
+  CHECK (length(id) = 36),
+  UNIQUE (job_id, attempt_ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS candidate_iterations (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES test_jobs(id),
+  parent_checkpoint_id TEXT REFERENCES checkpoints(id),
+  iteration_ordinal INTEGER NOT NULL,
+  changeset_hash TEXT NOT NULL,
+  strategy_key TEXT,
+  decision TEXT NOT NULL CHECK (decision IN ('adopted','rejected','needs_review','duplicate')),
+  decision_reason TEXT,
+  coverage_before_bps INTEGER,
+  coverage_after_bps INTEGER,
+  error_fingerprint TEXT,
+  created_at INTEGER NOT NULL,
+  CHECK (length(id) = 36),
+  UNIQUE (job_id, iteration_ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS benchmark_trials (
+  id TEXT PRIMARY KEY,
+  job_id TEXT REFERENCES test_jobs(id),
+  fixture_id TEXT NOT NULL,
+  model_profile TEXT NOT NULL,
+  trial_ordinal INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  reachable INTEGER NOT NULL DEFAULT 1 CHECK (reachable IN (0, 1)),
+  coverage_gain_line_bps INTEGER,
+  coverage_gain_branch_bps INTEGER,
+  duration_ms INTEGER,
+  cost_available INTEGER NOT NULL DEFAULT 0 CHECK (cost_available IN (0, 1)),
+  raw_counters_artifact_id TEXT REFERENCES artifacts(id),
+  created_at INTEGER NOT NULL,
+  CHECK (length(id) = 36),
+  UNIQUE (fixture_id, model_profile, trial_ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_coverage_snapshots_job ON coverage_snapshots(job_id);
+CREATE INDEX IF NOT EXISTS idx_coverage_snapshots_fqn ON coverage_snapshots(fqn);
+CREATE INDEX IF NOT EXISTS idx_worker_attempts_job ON worker_attempts(job_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_iterations_job ON candidate_iterations(job_id);
+CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id, model_profile);
+`,
+  },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {
