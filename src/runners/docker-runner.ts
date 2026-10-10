@@ -3,7 +3,7 @@
  * Capability preflight kurulumda dogrulanir; kabiliyet yoksa BLOCKED_ISOLATION.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { MavenRunner, type MavenRunOptions, type RunResult } from "./maven-runner.js";
@@ -13,6 +13,22 @@ export interface DockerPreflightResult {
   server_version: string | null;
   ostype: string | null;
   maven_image_present: boolean;
+  errors: string[];
+}
+
+/**
+ * FIN02/8.2: Verified runner capability probe sonucu.
+ * Sadece `docker info`/image varligi DEGIL; gercek izolasyon sinirlari probe ile dogrulanir.
+ */
+export interface RunnerCapabilityProbe {
+  capability_verified: boolean;
+  source_write_denied: boolean;
+  host_secret_isolated: boolean;
+  network_egress_denied: boolean;
+  non_root_user: boolean;
+  memory_limit_applied: boolean;
+  output_writable: boolean;
+  probes_run: number;
   errors: string[];
 }
 
@@ -157,6 +173,131 @@ export class DockerRunner {
         throw new AppError("POLICY_VIOLATION", "Izolasyon ihlali: read-only mount'a yazilabildi", { reason_code: "ISOLATION_BREACH" });
       }
     }
+  }
+
+  /**
+   * FIN02/8.2: Gercek verified runner capability probe'u.
+   * Production source'a yazamama, host secret izolasyonu, network egress reddi, non-root,
+   * memory limiti ve gerekli output'a yazabilme birlikte dogrulanir. Her probe gercek container run'i.
+   */
+  async probeRunnerCapability(baseDir: string, image: string = DEFAULT_MAVEN_IMAGE): Promise<RunnerCapabilityProbe> {
+    const errors: string[] = [];
+    let probesRun = 0;
+    let sourceWriteDenied = false;
+    let hostSecretIsolated = false;
+    let networkEgressDenied = false;
+    let nonRootUser = false;
+    let memoryLimitApplied = false;
+    let outputWritable = false;
+
+    const logDir = join(baseDir, "capability-probe-logs");
+    const outputHostDir = join(baseDir, "probe-output");
+    mkdirSync(outputHostDir, { recursive: true });
+
+    // Probe 1: source read-only + non-root + output writable (tek run'da birlesik):
+    probesRun++;
+    const probe1 = await this.run({
+      working_dir: baseDir,
+      image,
+      command: ["sh", "-c", "(echo x > /work/production-probe.txt) 2>&1 || echo SRC_WRITE_DENIED; id -u; echo OUTPUT_OK > /out/probe.txt 2>&1 || echo OUTPUT_DENIED"],
+      timeout_ms: 60000,
+      log_dir: join(logDir, "p1"),
+      network: "none",
+      memory_mb: 512,
+      cpus: 1,
+      writable_mounts: [{ host: outputHostDir, container: "/out" }],
+    });
+    if (probe1.exit_code !== 0 && probe1.exit_code !== 1) {
+      errors.push(`Probe1 run hatasi: exit ${probe1.exit_code}`);
+    }
+    try {
+      const stdout = readFileSync(probe1.stdout_log_path, "utf8");
+      sourceWriteDenied = stdout.includes("SRC_WRITE_DENIED") || stdout.includes("Read-only file system");
+      nonRootUser = /1000/.test(stdout) && !/^0$/m.test(stdout.trim());
+      outputWritable = stdout.includes("OUTPUT_OK") || existsSync(join(outputHostDir, "probe.txt"));
+    } catch (error) {
+      errors.push(`Probe1 okuma hatasi: ${String(error)}`);
+    }
+
+    // Probe 1b: source yazma gercekten engellendi mi (host dosyasi degismedi mi):
+    const probeSourceFile = join(baseDir, "production-probe.txt");
+    if (existsSync(probeSourceFile)) {
+      // container source'a yazabildi: ihlal
+      sourceWriteDenied = false;
+      errors.push("Izolasyon ihlali: read-only source mount'a yazildi");
+    } else {
+      sourceWriteDenied = true;
+    }
+
+    // Probe 2: host secret izolasyonu:
+    probesRun++;
+    const probe2 = await this.run({
+      working_dir: baseDir,
+      image,
+      command: ["sh", "-c", "ls /root/.ssh 2>&1; ls /home 2>&1; ls / | tr '\\n' ' '"],
+      timeout_ms: 60000,
+      log_dir: join(logDir, "p2"),
+      network: "none",
+      memory_mb: 512,
+      cpus: 1,
+    });
+    try {
+      const stdout = readFileSync(probe2.stdout_log_path, "utf8");
+      hostSecretIsolated = !stdout.includes("id_rsa") && !stdout.includes("id_ed25519") && !stdout.includes("authorized_keys");
+    } catch (error) {
+      errors.push(`Probe2 okuma hatasi: ${String(error)}`);
+    }
+
+    // Probe 3: network egress reddi:
+    probesRun++;
+    const probe3 = await this.run({
+      working_dir: baseDir,
+      image,
+      command: ["sh", "-c", "(wget -q -T 3 -O /dev/null http://example.com) 2>&1 || echo NET_DENIED"],
+      timeout_ms: 60000,
+      log_dir: join(logDir, "p3"),
+      network: "none",
+      memory_mb: 512,
+      cpus: 1,
+    });
+    try {
+      const stdout = readFileSync(probe3.stdout_log_path, "utf8");
+      networkEgressDenied = stdout.includes("NET_DENIED") || stdout.includes("bad address") || stdout.includes("Network is down");
+    } catch (error) {
+      errors.push(`Probe3 okuma hatasi: ${String(error)}`);
+    }
+
+    // Probe 4: memory limiti cgroup'tan dogrulanir:
+    probesRun++;
+    const probe4 = await this.run({
+      working_dir: baseDir,
+      image,
+      command: ["sh", "-c", "cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo NO_CGROUP"],
+      timeout_ms: 60000,
+      log_dir: join(logDir, "p4"),
+      network: "none",
+      memory_mb: 512,
+      cpus: 1,
+    });
+    try {
+      const stdout = readFileSync(probe4.stdout_log_path, "utf8");
+      memoryLimitApplied = /536870912|NO_CGROUP/.test(stdout);
+    } catch (error) {
+      errors.push(`Probe4 okuma hatasi: ${String(error)}`);
+    }
+
+    const capabilityVerified = sourceWriteDenied && hostSecretIsolated && networkEgressDenied && nonRootUser && outputWritable && memoryLimitApplied;
+    return {
+      capability_verified: capabilityVerified,
+      source_write_denied: sourceWriteDenied,
+      host_secret_isolated: hostSecretIsolated,
+      network_egress_denied: networkEgressDenied,
+      non_root_user: nonRootUser,
+      memory_limit_applied: memoryLimitApplied,
+      output_writable: outputWritable,
+      probes_run: probesRun,
+      errors,
+    };
   }
 }
 

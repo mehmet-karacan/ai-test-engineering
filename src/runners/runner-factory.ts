@@ -1,11 +1,12 @@
 /**
  * Guvenli runner factory: customer job'da tek runner kaynagi; host yolu urun girisinden secilemez (K01/B01).
  * Default verified izolasyon profili; worker disabled ile sessiz basari yolu kaldirilir.
+ * FIN02/8.2: capability sadece `docker info`/image varligi degil; gercek izolasyon probe'u ile dogrulanir.
  */
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { DockerRunner, DEFAULT_MAVEN_IMAGE, assertDockerPreflightUsable, type DockerPreflightResult } from "./docker-runner.js";
+import { DockerRunner, DEFAULT_MAVEN_IMAGE, assertDockerPreflightUsable, type DockerPreflightResult, type RunnerCapabilityProbe } from "./docker-runner.js";
 import { MavenRunner, type RunResult, type MavenRunOptions } from "./maven-runner.js";
 
 export type RunnerKind = "docker" | "host_dev_only";
@@ -15,6 +16,8 @@ export interface VerifiedCapability {
   docker: DockerRunner | null;
   host: MavenRunner | null;
   preflight: DockerPreflightResult | null;
+  /** FIN02/8.2: gercek capability probe sonucu (null = probe calistirilmadi) */
+  capability_probe: RunnerCapabilityProbe | null;
   verified_at: number;
 }
 
@@ -26,11 +29,12 @@ export class CustomerRunnerFactory {
   private verified: VerifiedCapability | null = null;
 
   /**
-   * RT01: env ayari olmayan normal kurulumda docker capability preflight ile verified izolasyon uretir.
-   * Docker yoksa BLOCKED_ISOLATION; host'a dusmez.
+   * RT01: env ayari olmayan normal kurulumda docker capability preflight + gercek capability probe ile
+   * verified izolasyon uretir. Docker yoksa BLOCKED_ISOLATION; host'a dusmez.
+   * FIN02/8.2: probeOnly=false ile gercek izolasyon probe'lari da calisir.
    */
-  async ensureVerified(): Promise<VerifiedCapability> {
-    if (this.verified) {
+  async ensureVerified(options?: { probeOnly?: boolean; workspaceRoot?: string }): Promise<VerifiedCapability> {
+    if (this.verified && (options?.probeOnly || this.verified.capability_probe)) {
       return this.verified;
     }
     const docker = new DockerRunner();
@@ -41,7 +45,18 @@ export class CustomerRunnerFactory {
         errors: preflight.errors,
       });
     }
-    this.verified = { kind: "docker", docker, host: null, preflight, verified_at: Date.now() };
+    let capabilityProbe: RunnerCapabilityProbe | null = null;
+    if (!options?.probeOnly) {
+      const probeRoot = options?.workspaceRoot ?? join(resolve(".aitest-probe-tmp"), "capability");
+      capabilityProbe = await docker.probeRunnerCapability(probeRoot);
+      if (!capabilityProbe.capability_verified) {
+        throw new AppError("BLOCKED_ISOLATION", "Runner capability probe basarisiz; izolasyon sinirlari dogrulanamadi", {
+          reason_code: "CAPABILITY_PROBE_FAILED",
+          probe: capabilityProbe,
+        });
+      }
+    }
+    this.verified = { kind: "docker", docker, host: null, preflight, capability_probe: capabilityProbe, verified_at: Date.now() };
     return this.verified;
   }
 
