@@ -394,10 +394,16 @@ export class JobDispatcher {
     if (dockerRunner) {
       const targetMounts = [{ host: join(resolve(projectRoot), "target"), container: "/work/target" }];
       const settingsPath = join(homedir(), ".m2", "settings.xml");
-      const runnerOptions: { target_mounts: Array<{ host: string; container: string }>; maven_settings?: { host_path: string; container_path: string } } = { target_mounts: targetMounts };
+      const runnerOptions: { target_mounts: Array<{ host: string; container: string }>; maven_settings?: { host_path: string; container_path: string }; provisioning?: { enabled: boolean; allowed_mirrors: string[]; timeout_ms: number } } = { target_mounts: targetMounts };
       if (existsSync(settingsPath)) {
         runnerOptions.maven_settings = { host_path: settingsPath, container_path: "/settings/settings.xml" };
       }
+      // 8.3: hazirlama profili config'ten (izinli mirror listesi):
+      runnerOptions.provisioning = {
+        enabled: this.services.config.dependency_provisioning.enabled,
+        allowed_mirrors: [...this.services.config.dependency_provisioning.allowed_mirrors],
+        timeout_ms: this.services.config.dependency_provisioning.timeout_ms,
+      };
       return new DockerMavenRunner(runnerOptions, dockerRunner);
     }
     throw new AppError("BLOCKED_ISOLATION", "Verified loop runner uretilemedi; candidate calistirmasi yapilmaz (FIN00.e)");

@@ -38,6 +38,15 @@ export const AppConfigSchema = z.object({
   worker_profiles: z.array(WorkerProfileSchema).max(16).default([]),
   default_worker_profile: z.string().max(128).optional(),
   allowed_project_roots: z.array(z.string().min(1).max(1024)).max(64).default([]),
+  /**
+   * 8.3: Bagimlilik hazirlama profili. Hazirlama ayri asamada yalniz bu mirror'lara gider;
+   * execution workspace egress'i `none` kalir. Bos ise hazirlama BLOCKED_DEPENDENCIES.
+   */
+  dependency_provisioning: z.object({
+    enabled: z.boolean().default(false),
+    allowed_mirrors: z.array(z.string().min(1).max(256)).max(16).default([]),
+    timeout_ms: z.number().int().min(30000).max(3600000).default(900000),
+  }).default({ enabled: false, allowed_mirrors: [], timeout_ms: 900000 }),
 });
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 

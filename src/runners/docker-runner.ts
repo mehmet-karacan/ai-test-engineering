@@ -341,6 +341,8 @@ export interface DockerMavenRunnerOptions {
    * yalniz onayli mirror'a gider; host Maven fallback'i olamaz.
    */
   maven_settings?: { host_path: string; container_path: string };
+  /** 8.3: hazirlama profili; izinli mirror'lara sinirli erisim */
+  provisioning?: { enabled: boolean; allowed_mirrors: string[]; timeout_ms: number };
 }
 
 export class DockerMavenRunner extends MavenRunner {
@@ -368,6 +370,12 @@ export class DockerMavenRunner extends MavenRunner {
     const readonlyMounts: Array<{ host: string; container: string }> = [];
     if (this.options.maven_settings) {
       readonlyMounts.push({ host: this.options.maven_settings.host_path, container: this.options.maven_settings.container_path });
+    }
+    // 8.3: bagimlilik hazirlama gerekiyorsa (cache bos) ayri hazirlama asamasi izinli mirror'a gider;
+    // execution run'i yine `none` ile calisir (test kodu paylasilan cache'e yazamaz).
+    const provisioningNeeded = this.options.provisioning && this.options.provisioning.enabled && this.options.provisioning.allowed_mirrors.length > 0;
+    if (provisioningNeeded) {
+      await this.provisionDependencies(options);
     }
     const runOptions: DockerRunOptions = {
       working_dir: options.working_dir,
@@ -400,5 +408,36 @@ export class DockerMavenRunner extends MavenRunner {
       return [];
     }
     return ["-s", this.options.maven_settings.container_path];
+  }
+
+  /**
+   * 8.3: Ayri hazirlama asamasi — Maven dependency indirmesi yalniz izinli mirror'lara sinirli
+   * erisimle yapilir. Bu asama da sandbox'lanir (non-root, kaynak limitleri); host Maven fallback'i
+   * olamaz. Cache job'a ozel writable overlay; sonraki execution `none` ile calisir.
+   */
+  private async provisionDependencies(options: MavenRunOptions): Promise<void> {
+    const provisioning = this.options.provisioning!;
+    // mvn dependency:go-offline yerine test-compile + test-Discovery cache doldurur (izinli mirror);
+    // hata burada BLOCKED_DEPENDENCIES olarak yansir (run sonucundan).
+    const provisionOptions: DockerRunOptions = {
+      working_dir: options.working_dir,
+      image: this.options.image ?? DEFAULT_MAVEN_IMAGE,
+      command: ["mvn", ...this.settingsArgs(), "dependency:go-offline", "-B", "-ntp"],
+      timeout_ms: provisioning.timeout_ms,
+      log_dir: join(options.log_dir, "provisioning"),
+      network: "bridge",
+      memory_mb: this.options.memory_mb ?? 2048,
+      cpus: this.options.cpus ?? 2,
+    };
+    if (this.options.maven_settings) {
+      provisionOptions.readonly_mounts = [{ host: this.options.maven_settings.host_path, container: this.options.maven_settings.container_path }];
+    }
+    const probe = await this.docker.run(provisionOptions);
+    if (probe.exit_code !== 0) {
+      throw new AppError("BLOCKED_DEPENDENCIES", `Bagimlilik hazirlama basarisiz (exit ${probe.exit_code}); izinli mirror: ${provisioning.allowed_mirrors.join(",")}`, {
+        reason_code: "BLOCKED_DEPENDENCIES",
+        log: probe.stdout_log_path,
+      });
+    }
   }
 }

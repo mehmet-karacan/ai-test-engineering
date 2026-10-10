@@ -41,6 +41,12 @@ export function defaultConfig(): AppConfig {
       no_progress_window: 3,
       total_job_minutes: 120,
     },
+    // 8.3: kurum ici Nexus mirror; hazirlama asamasi yalniz bu adrese gider:
+    dependency_provisioning: {
+      enabled: true,
+      allowed_mirrors: ["http://10.10.10.45/nexus/repository/maven-public/"],
+      timeout_ms: 900000,
+    },
   });
 }
 
