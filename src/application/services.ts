@@ -21,6 +21,7 @@ import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-
 import { InventoryQueryService } from "./inventory-query.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
+import { readCoverageAfterRun, basisPointsFrom } from "../orchestration/candidate-loop.js";
 
 export const PARSER_VERSION = "statik-tarama-1";
 
@@ -421,6 +422,25 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
   }
 
   const events = jobs.listEvents(job.id, parsed.event_cursor, 50);
+  // K07/B06: last_trusted_coverage DB/job hedeflerinden gercek hesaplanir (sabit null degil).
+  // job_targets + job.location_id -> canonical root -> jacoco.xml; olcum yoksa null dogrudur.
+  let lastTrustedCoverage: { percent: number; basisPoints: number } | null = null;
+  const storage = requireServices(services).storage;
+  const locationRow = storage.db
+    .prepare<[string], { canonical_root: string }>("SELECT canonical_root FROM project_locations WHERE id = ?")
+    .get(job.location_id);
+  if (locationRow) {
+    const targetRows = storage.db
+      .prepare<[string], { selector: string }>("SELECT selector FROM job_targets WHERE job_id = ?")
+      .all(job.id);
+    if (targetRows.length > 0) {
+      const coverage = readCoverageAfterRun(locationRow.canonical_root, targetRows[0]!.selector);
+      const bps = basisPointsFrom(coverage?.line);
+      if (bps !== null) {
+        lastTrustedCoverage = { percent: bps / 100, basisPoints: bps };
+      }
+    }
+  }
   return {
     job_id: job.id,
     lifecycle: job.lifecycle,
@@ -428,7 +448,7 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
     outcome: job.outcome,
     verification_level: job.verification_level,
     apply_state: job.apply_state,
-    last_trusted_coverage: null,
+    last_trusted_coverage: lastTrustedCoverage,
     events: events.map((e) => ({ sequence: e.sequence, event_type: e.event_type, phase: e.phase })),
     required_action: job.lifecycle === "INTERRUPTED" ? "test_resume ile devam edilebilir" : null,
   };

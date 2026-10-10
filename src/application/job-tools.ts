@@ -3,7 +3,7 @@
  * MCP handler'larin cagirdigi application katmani; is mantigi burada.
  */
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "./services.js";
@@ -133,13 +133,37 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   const { storage, jobs } = requireStorage(services);
   const job = jobs.getJob(parsed.job_id);
 
-  const lastCoverage: { percent: number; basisPoints: number } | null = null;
-  if (job.source_snapshot_id) {
-    // son trusted coverage DB'den; keyfi path okuma yok
+  // K07/B06: son trusted coverage gercek hesaplanir (job.location_id -> canonical root -> jacoco.xml):
+  let lastCoverage: { percent: number; basisPoints: number } | null = null;
+  const locationRow = storage.db
+    .prepare<[string], { canonical_root: string }>("SELECT canonical_root FROM project_locations WHERE id = ?")
+    .get(job.location_id);
+  if (locationRow) {
+    const targetRows = storage.db
+      .prepare<[string], { selector: string }>("SELECT selector FROM job_targets WHERE job_id = ?")
+      .all(job.id);
+    if (targetRows.length > 0) {
+      const coverage = readCoverageAfterRun(locationRow.canonical_root, targetRows[0]!.selector);
+      const bps = basisPointsFrom(coverage?.line);
+      if (bps !== null) {
+        lastCoverage = { percent: bps / 100, basisPoints: bps };
+      }
+    }
   }
 
   const checkpoints = new CheckpointStore(storage.db, services.config.storage.root);
   const bestCheckpoint = checkpoints.bestCheckpoint(job.id);
+
+  // gercek rapor yolu: JobDispatcher'in urettigi reports dizini (workspaceRoot/jobs/<id>/reports):
+  const reportDir = join(services.config.storage.root, "jobs", job.id, "reports", "index.html");
+  const reportPath = existsSync(reportDir) ? reportDir : null;
+
+  // artifact refs: o job'a ait kayitli artifact'ler (registry'den):
+  const artifactRows = storage.db
+    .prepare<[string], { relative_store_path: string; sha256: string }>(
+      "SELECT relative_store_path, sha256 FROM artifacts WHERE job_id = ? ORDER BY created_at DESC LIMIT 20",
+    )
+    .all(job.id);
 
   return {
     job_id: job.id,
@@ -149,8 +173,8 @@ export async function handleTestResult(input: unknown, services: Services): Prom
     apply_state: job.apply_state,
     best_checkpoint_id: bestCheckpoint,
     last_trusted_coverage: lastCoverage,
-    report_path: null,
-    artifact_refs: [],
+    report_path: reportPath,
+    artifact_refs: artifactRows.map((a) => `${a.relative_store_path}#${a.sha256.slice(0, 12)}`),
   };
 }
 
