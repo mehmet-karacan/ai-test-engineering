@@ -1,13 +1,15 @@
 /**
  * Node.js kurulum girisi: PS1'siz standart yol.
  * cmd.exe uzerinden: node scripts/install.mjs
+ * Temiz clone'da (dist yokken) calisir: config-merge bootstrap'tan ONCE import edilmez.
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { mergeConfigRecord } from "../dist/configuration/config-merge.js";
 
-const thisFile = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+// K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
+const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), "..");
 const appRoot = resolveAppRoot();
 
@@ -49,7 +51,7 @@ function runNpm(args, cwd) {
   }
 }
 
-export function mainInstall() {
+export async function mainInstall() {
   step("Bolum 1: prerequisite kontrolu");
   const nodeVersion = process.version.replace("v", "");
   const nodeMajor = Number.parseInt(nodeVersion.split(".")[0], 10);
@@ -100,6 +102,8 @@ export function mainInstall() {
     writeFileSync(opencodeConfigPath, JSON.stringify({ mcp: { "ai-test-engineering": serverEntry } }, null, 2) + "\n", "utf8");
     step(`  OK: OpenCode config olusturuldu (${opencodeConfigPath})`);
   } else {
+    // K08/B07: mergeConfigRecord dynamic import (dist bootstrap'tan sonra uretilir; temiz clone'da statik import yok):
+    const { mergeConfigRecord } = await import("../dist/configuration/config-merge.js");
     const merge = mergeConfigRecord(opencodeConfigPath, {
       record_path: ["mcp", "ai-test-engineering"],
       new_value: serverEntry,
@@ -135,4 +139,7 @@ export function mainInstall() {
   return 0;
 }
 
-process.exit(mainInstall());
+mainInstall().then((code) => process.exit(code)).catch((error) => {
+  console.error(`[kurulum] beklenmeyen hata: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+});
