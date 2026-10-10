@@ -4,7 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, mkdirSync, copyFileSync, writeFileSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
 
 export type FileClassification = "production_source" | "test_source" | "build_config" | "resource" | "other";
@@ -53,8 +53,10 @@ function classify(relativePath: string): FileClassification {
 }
 
 function isWithinRoot(root: string, candidate: string): boolean {
+  // D08/F10: normal cwd'de startsWith("") nedeniyle false donen acik duzeltildi;
+  // sadece relative containment kontrol edilir.
   const rel = relative(root, candidate);
-  return rel.length > 0 && !rel.startsWith("..") && !resolve(root, rel).startsWith(process.cwd() === "" ? "\0" : "");
+  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 export class SourceSnapshot {
@@ -115,6 +117,20 @@ export class SourceSnapshot {
     const entries: ManifestEntry[] = [];
     let headCommit: string | null = null;
     let dirty = false;
+
+    // D08/F10: dirty tespiti - git status --porcelain ile gercek calisma durumu.
+    const gitDir = join(this.root, ".git");
+    if (existsSync(gitDir)) {
+      try {
+        const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+        const result = spawnSync("git", ["status", "--porcelain"], { cwd: this.root, encoding: "utf8", windowsHide: true });
+        if (result.status === 0) {
+          dirty = result.stdout.trim().length > 0;
+        }
+      } catch {
+        dirty = false;
+      }
+    }
 
     const gitHead = join(this.root, ".git", "HEAD");
     if (existsSync(gitHead)) {

@@ -171,7 +171,10 @@ export function scanTestFile(absPath: string, projectRoot: string): { testClass:
 }
 
 export function collectJavaFiles(root: string, sourceRoot: string): string[] {
-  const absSourceRoot = join(root, sourceRoot.replace(/\//g, "\\"));
+  // D08/F10: platform yolu - Windows'ta ters slash, Linux'ta duz slash; sabit \\ tasima yok.
+  const separator = process.platform === "win32" ? "\\" : "/";
+  const normalizedSourceRoot = sourceRoot.replace(/[\\/]/g, separator);
+  const absSourceRoot = join(root, normalizedSourceRoot);
   if (!existsSync(absSourceRoot)) {
     return [];
   }
