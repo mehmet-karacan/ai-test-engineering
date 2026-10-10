@@ -4,6 +4,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync, appendFileSync } from "node:fs";
 import { join, resolve, relative, sep } from "node:path";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { AppError } from "../domain/errors.js";
@@ -15,7 +16,7 @@ export interface ApplyRequest {
   patch_digest: string;
   target_workspace: string;
   approval_reference: string;
-  changes: Array<{ path: string; action: "create" | "modify" | "delete"; new_content: string | null; patch_digest: string }>;
+  changes: Array<{ path: string; action: "create" | "modify" | "delete"; new_content: string | null; patch_digest: string; /** D09/F11: degisecek dosyanin beklenen mevcut hash'i (expected-before); create'te null = absence */ expected_before_hash: string | null }>;
 }
 
 export interface ApplyJournalEntry {
@@ -51,17 +52,28 @@ export class TestApplyService {
   private readonly backupDir: string;
   private readonly journalPath: string;
   private readonly config: ApplyCapabilityConfig;
+  /** D09/F11: journal/backup dis runtime store'da (customer repo icine yazilmaz) */
+  private readonly externalStoreDir: string;
 
-  constructor(workspace: string, allowedTestRoots: AllowedTestRoot[], config: ApplyCapabilityConfig) {
+  constructor(workspace: string, allowedTestRoots: AllowedTestRoot[], config: ApplyCapabilityConfig, externalStoreDir?: string) {
     this.workspace = resolve(workspace);
     this.guard = new PolicyGuard(this.workspace, allowedTestRoots);
-    this.backupDir = join(this.workspace, ".aitest-apply-backup");
-    this.journalPath = join(this.workspace, ".aitest-apply-journal.json");
+    this.externalStoreDir = resolve(externalStoreDir ?? join(tmpdir(), "aitest-apply-store"));
+    this.backupDir = join(this.externalStoreDir, "backup");
+    this.journalPath = join(this.externalStoreDir, "journal.jsonl");
     this.config = config;
   }
 
   private sha256(data: Buffer | string): string {
     return createHash("sha256").update(data).digest("hex");
+  }
+
+  applyBackupDir(): string {
+    return this.backupDir;
+  }
+
+  journalFilePath(): string {
+    return this.journalPath;
   }
 
   private appendJournal(entry: ApplyJournalEntry): void {
@@ -92,6 +104,28 @@ export class TestApplyService {
       }
 
       const absPath = resolve(this.workspace, change.path.replace(/\//g, sep));
+      // D09/F11/RG46: expected-before hash dogrulamasi (kullanici arada degistirdiyse CONFLICT)
+      const fileExists = existsSync(absPath);
+      if (change.expected_before_hash === null && fileExists && change.action === "create") {
+        // D09/F11/RG48: ayni icerik zaten uygulanmis ise idempotent (CONFLICT degil);
+        const currentContent = readFileSync(absPath, "utf8");
+        if (change.new_content !== null && this.sha256(currentContent) === this.sha256(change.new_content)) {
+          continue;
+        }
+        conflicts.push({ path: change.path, reason: "Create talep edildi ama dosya mevcut (expected absence)" });
+        continue;
+      }
+      if (change.expected_before_hash !== null) {
+        if (!fileExists) {
+          conflicts.push({ path: change.path, reason: "Beklenen dosya yok (expected-before)" });
+          continue;
+        }
+        const currentHash = this.sha256(readFileSync(absPath));
+        if (currentHash !== change.expected_before_hash) {
+          conflicts.push({ path: change.path, reason: `Kullanici arada degistirdi (expected-before uyusmazligi)` });
+          continue;
+        }
+      }
       if (change.action === "delete") {
         continue;
       }

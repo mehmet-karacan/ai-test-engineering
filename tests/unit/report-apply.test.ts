@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -168,7 +168,7 @@ describe("TestApplyService (AC57-AC60)", () => {
       patch_digest: sha(content),
       target_workspace: workspace,
       approval_reference: "onay-ref-12345",
-      changes: [{ path: "src/test/java/com/example/payment/NewTest.java", action: "create", new_content: content, patch_digest: sha(content) }],
+      changes: [{ path: "src/test/java/com/example/payment/NewTest.java", action: "create", new_content: content, patch_digest: sha(content), expected_before_hash: null }],
     };
   }
 
@@ -190,7 +190,7 @@ describe("TestApplyService (AC57-AC60)", () => {
     const result = service.apply(applyRequest());
     expect(result.state).toBe("APPLIED");
     expect(existsSync(join(workspace, "src", "test", "java", "com", "example", "payment", "NewTest.java"))).toBe(true);
-    expect(result.journal_path).toContain("apply-journal");
+    expect(result.journal_path).toContain("journal");
   });
 
   it("production path degisikligi REJECTED olmali (AC31/AC57)", () => {
@@ -229,13 +229,29 @@ describe("TestApplyService (AC57-AC60)", () => {
     const modified = original + "\n// kullanici degisikligi\n";
     writeFileSync(existingPath, modified, "utf8");
 
-    request.changes = [{ path: "src/test/java/com/example/payment/PaymentServiceTest.java", action: "modify", new_content: "yeni icerik", patch_digest: sha("yeni icerik") }];
+    // expected-before GUNCEL (modified) hash; boylece preimage backup + APPLIED (RG46 CONFLICT yolunda ayri test):
+    request.changes = [{ path: "src/test/java/com/example/payment/PaymentServiceTest.java", action: "modify", new_content: "yeni icerik", patch_digest: sha("yeni icerik"), expected_before_hash: sha(modified) }];
     const result = service.apply(request);
     expect(result.state).toBe("APPLIED");
-    const backupFiles = require("node:fs").readdirSync(join(workspace, ".aitest-apply-backup")) as string[];
+    const backupFiles = readdirSync(service.applyBackupDir()) as string[];
     expect(backupFiles.length).toBeGreaterThan(0);
     const journal = readFileSync(result.journal_path, "utf8");
     expect(journal).toContain("backup");
     expect(journal).toContain("preimage_sha");
+  });
+
+  it("expected-before uyusmazligi (kullanici arada degistirdi) CONFLICT donmeli (RG46)", () => {
+    const service = new TestApplyService(workspace, roots, { allow_workspace_apply: true, trusted_approval_adapters: ["test"] });
+    const request = applyRequest();
+    const existingPath = join(workspace, "src", "test", "java", "com", "example", "payment", "PaymentServiceTest.java");
+    const original = readFileSync(existingPath, "utf8");
+    // beklenen hash eski; kullanici sonra degistiriyor:
+    writeFileSync(existingPath, original + "\n// kullanici degisikligi\n", "utf8");
+
+    request.changes = [{ path: "src/test/java/com/example/payment/PaymentServiceTest.java", action: "modify", new_content: "yeni icerik", patch_digest: sha("yeni icerik"), expected_before_hash: sha(original) }];
+    const result = service.apply(request);
+    expect(result.state).toBe("CONFLICT");
+    // kullanici degisikligi korunur (ezilmez):
+    expect(readFileSync(existingPath, "utf8")).toContain("kullanici degisikligi");
   });
 });
