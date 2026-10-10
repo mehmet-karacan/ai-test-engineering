@@ -5,6 +5,7 @@
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "../application/services.js";
@@ -131,16 +132,33 @@ export class JobDispatcher {
           return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Baseline basarisiz: ${baseline.failed_tests.join(", ")}` };
         }
       } else if (dockerRunner) {
-        const dockerResult = await dockerRunner.run({
+        // 8.3: credential'siz settings read-only baglanir; ayni kurallar baseline'da da gecerli:
+        const settingsPath = join(homedir(), ".m2", "settings.xml");
+        const hasSettings = existsSync(settingsPath);
+        const dockerOptions: {
+          working_dir: string;
+          image: string;
+          command: string[];
+          timeout_ms: number;
+          log_dir: string;
+          network: "none";
+          memory_mb: number;
+          cpus: number;
+          readonly_mounts?: Array<{ host: string; container: string }>;
+        } = {
           working_dir: projectRoot,
           image: DEFAULT_MAVEN_IMAGE,
-          command: ["mvn", "test"],
+          command: ["mvn", ...(hasSettings ? ["-s", "/settings/settings.xml"] : []), "test"],
           timeout_ms: 600000,
           log_dir: join(resolve(projectRoot), "target", "aitest-docker-baseline-logs"),
           network: "none",
           memory_mb: 2048,
           cpus: 2,
-        });
+        };
+        if (hasSettings) {
+          dockerOptions.readonly_mounts = [{ host: settingsPath, container: "/settings/settings.xml" }];
+        }
+        const dockerResult = await dockerRunner.run(dockerOptions);
         if (dockerResult.exit_code !== 0) {
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
@@ -365,8 +383,9 @@ export class JobDispatcher {
 
   /**
    * FIN00.e/22.2: candidate loop icin verified runner uretir.
-   * Docker verified ise DockerMavenRunner (source ro, target writable mount); host yalniz
-   * test-only composition'da (host_dev_only) acikca verilir; normal giriste host Maven yoktur.
+   * Docker verified ise DockerMavenRunner (source ro, target writable mount, settings ro mount);
+   * host yalniz test-only composition'da (host_dev_only) acikca verilir; normal giriste host Maven yoktur.
+   * 8.3: credential'siz Maven settings read-only baglanir (bagimlilik hazirlama yalniz onayli mirror'a).
    */
   private buildVerifiedLoopRunner(dockerRunner: DockerRunner | undefined, hostRunner: MavenRunner | undefined, projectRoot: string): MavenRunner {
     if (this.runnerKind === "host_dev_only" && hostRunner) {
@@ -374,7 +393,12 @@ export class JobDispatcher {
     }
     if (dockerRunner) {
       const targetMounts = [{ host: join(resolve(projectRoot), "target"), container: "/work/target" }];
-      return new DockerMavenRunner({ target_mounts: targetMounts }, dockerRunner);
+      const settingsPath = join(homedir(), ".m2", "settings.xml");
+      const runnerOptions: { target_mounts: Array<{ host: string; container: string }>; maven_settings?: { host_path: string; container_path: string } } = { target_mounts: targetMounts };
+      if (existsSync(settingsPath)) {
+        runnerOptions.maven_settings = { host_path: settingsPath, container_path: "/settings/settings.xml" };
+      }
+      return new DockerMavenRunner(runnerOptions, dockerRunner);
     }
     throw new AppError("BLOCKED_ISOLATION", "Verified loop runner uretilemedi; candidate calistirmasi yapilmaz (FIN00.e)");
   }

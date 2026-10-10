@@ -44,6 +44,8 @@ export interface DockerRunOptions {
   cpus: number;
   /** Yazilabilir alanlar ( proje disina cikmaz) */
   writable_mounts?: Array<{ host: string; container: string }>;
+  /** 8.3: Salt-okunur config mount'lari (credential'siz Maven settings gibi); yazma yok */
+  readonly_mounts?: Array<{ host: string; container: string }>;
   env?: Record<string, string>;
   user?: string;
 }
@@ -120,6 +122,7 @@ export class DockerRunner {
       "-v", `${hostProject}:/work:ro`,
       "-w", "/work",
       ...this.buildTmpMounts(options),
+      ...this.buildReadOnlyMounts(options),
       ...this.buildEnvArgs(options.env),
       options.image,
       ...options.command,
@@ -155,6 +158,15 @@ export class DockerRunner {
       mounts.push("-v", `${resolve(mount.host)}:${mount.container}`);
     }
     return mounts;
+  }
+
+  /** 8.3: Salt-okunur config baylari (settings.xml gibi); container icinde yazilamaz */
+  private buildReadOnlyMounts(options: DockerRunOptions): string[] {
+    const parts: string[] = [];
+    for (const mount of options.readonly_mounts ?? []) {
+      parts.push("-v", `${resolve(mount.host)}:${mount.container}:ro`);
+    }
+    return parts;
   }
 
   private buildEnvArgs(env: Record<string, string> | undefined): string[] {
@@ -323,6 +335,12 @@ export interface DockerMavenRunnerOptions {
   memory_mb?: number;
   cpus?: number;
   timeout_ms?: number;
+  /**
+   * 8.3: Credential'siz Maven settings (mirror config); container'a salt-okunur baglanir ve
+   * `-s <container_path>` ile Maven'e bildirilir. Bagimlilik hazirlama asamasi bu settings ile
+   * yalniz onayli mirror'a gider; host Maven fallback'i olamaz.
+   */
+  maven_settings?: { host_path: string; container_path: string };
 }
 
 export class DockerMavenRunner extends MavenRunner {
@@ -347,16 +365,21 @@ export class DockerMavenRunner extends MavenRunner {
     for (const mount of this.options.target_mounts) {
       mkdirSync(mount.host, { recursive: true });
     }
+    const readonlyMounts: Array<{ host: string; container: string }> = [];
+    if (this.options.maven_settings) {
+      readonlyMounts.push({ host: this.options.maven_settings.host_path, container: this.options.maven_settings.container_path });
+    }
     const runOptions: DockerRunOptions = {
       working_dir: options.working_dir,
       image: this.options.image ?? DEFAULT_MAVEN_IMAGE,
-      command: ["mvn", ...options.goals, "-B", "-ntp"],
+      command: ["mvn", ...this.settingsArgs(), ...options.goals, "-B", "-ntp"],
       timeout_ms: options.timeout_ms ?? this.options.timeout_ms ?? 600000,
       log_dir: options.log_dir,
       network: this.options.network ?? "none",
       memory_mb: this.options.memory_mb ?? 2048,
       cpus: this.options.cpus ?? 2,
       writable_mounts: this.options.target_mounts,
+      readonly_mounts: readonlyMounts,
     };
     if (options.env) {
       runOptions.env = options.env;
@@ -367,8 +390,15 @@ export class DockerMavenRunner extends MavenRunner {
       duration_ms: result.duration_ms,
       stdout_log_path: result.stdout_log_path,
       stderr_log_path: result.stdout_log_path,
-      command: ["mvn", ...options.goals],
+      command: ["mvn", ...this.settingsArgs(), ...options.goals],
       timed_out: result.timed_out,
     };
+  }
+
+  private settingsArgs(): string[] {
+    if (!this.options.maven_settings) {
+      return [];
+    }
+    return ["-s", this.options.maven_settings.container_path];
   }
 }
