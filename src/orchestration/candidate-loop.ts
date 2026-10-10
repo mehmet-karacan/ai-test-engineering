@@ -123,6 +123,7 @@ export class CandidateLoop {
   async iterate(options: IterateOptions, startIteration = 1): Promise<IterationLoopResult> {
     const iterations: CandidateDecision[] = [];
     let bestCoverageBps: number | null = null;
+    let bestBranchBps: number | null = null;
     let noProgressCount = 0;
     let iteration = startIteration;
     let budgetExhausted = false;
@@ -132,12 +133,32 @@ export class CandidateLoop {
     const baselineCoverage = readCoverageAfterRun(options.project_root, options.target_fqn);
     const baselineBps = basisPointsFrom(baselineCoverage?.line);
     bestCoverageBps = baselineBps;
+    bestBranchBps = basisPointsFrom(baselineCoverage?.branch);
+
+    /**
+     * Tek hedef-karar yolunu degerlendirir (D05/F03): tum done/early-exit/candidate-null/plateau/result
+     * yollari ayni fonksiyonu kullanir; LINE ve BRANCH esiklerini birlikte kontrol eder.
+     */
+    const evaluateGoalMet = (lineBps: number | null, branchBps: number | null): boolean => {
+      if (lineBps === null) {
+        return false;
+      }
+      const lineMet = lineBps >= options.line_target_bps;
+      const branchApplicable = options.branch_target_bps > 0;
+      if (!branchApplicable) {
+        return lineMet;
+      }
+      if (branchBps === null) {
+        return false;
+      }
+      return lineMet && branchBps >= options.branch_target_bps;
+    };
 
     while (iteration <= options.budget.max_candidate_iterations) {
       const candidate = await options.generate_candidate();
       if (candidate === null) {
         plateau = true;
-        outcome = bestCoverageBps !== null && bestCoverageBps >= options.line_target_bps ? "TARGET_REACHED" : "TARGET_NOT_MET_PLATEAU";
+        outcome = evaluateGoalMet(bestCoverageBps, bestBranchBps) ? "TARGET_REACHED" : "TARGET_NOT_MET_PLATEAU";
         break;
       }
 
@@ -197,6 +218,7 @@ export class CandidateLoop {
       const overlay = this.applyOverlay(options.staging_root, options.project_root, candidate.changes);
       let run: RunResult;
       let afterBps: number | null = null;
+      let afterBranchBps: number | null = null;
       try {
         run = await this.runner.run({
           working_dir: options.project_root,
@@ -210,6 +232,7 @@ export class CandidateLoop {
 
         const afterCoverage = readCoverageAfterRun(options.project_root, options.target_fqn);
         afterBps = basisPointsFrom(afterCoverage?.line);
+        afterBranchBps = basisPointsFrom(afterCoverage?.branch);
 
         if (regressionFailures.length > 0) {
           iterations.push({
@@ -268,10 +291,11 @@ export class CandidateLoop {
 
       noProgressCount = 0;
       bestCoverageBps = afterBps;
+      bestBranchBps = afterBranchBps;
       iterations.push({
         iteration,
         decision: "adopted",
-        reason: `Coverage kazanci: ${bestCoverageBps} bps`,
+        reason: `Coverage kazanci: LINE ${bestCoverageBps} bps, BRANCH ${bestBranchBps ?? "N/A"} bps`,
         coverage_before_bps: baselineBps,
         coverage_after_bps: afterBps,
         quality_findings: [],
@@ -279,8 +303,7 @@ export class CandidateLoop {
         run_exit_code: run.exit_code,
       });
 
-      const targetMet = afterBps !== null && afterBps >= options.line_target_bps;
-      if (targetMet) {
+      if (evaluateGoalMet(bestCoverageBps, bestBranchBps)) {
         outcome = "TARGET_REACHED";
         break;
       }

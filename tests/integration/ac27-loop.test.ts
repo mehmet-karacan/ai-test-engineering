@@ -98,6 +98,13 @@ ${extraAssertions}
   @Test
   public void add_overflow_throws() {
     assertThrows(IllegalArgumentException.class, () -> service.add(Integer.MAX_VALUE, 1));
+    assertThrows(IllegalArgumentException.class, () -> service.add(1, Integer.MAX_VALUE));
+  }
+
+  @Test
+  public void add_overflow_negative_second_operand() {
+    assertEquals(Integer.MAX_VALUE, service.add(Integer.MAX_VALUE, 0));
+    assertEquals(Integer.MAX_VALUE, service.add(0, Integer.MAX_VALUE));
   }
 
   @Test
