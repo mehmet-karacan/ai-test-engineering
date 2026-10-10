@@ -59,12 +59,27 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false, message: "Is zaten tamamlandi; yeniden devam etmez" };
   }
 
+  // K05/B05: resume gercek dispatcher devami - ayni job'dan kaldigi asamadan devam.
   const leases = new LeaseManager(storage.db);
-  const lease = leases.acquire(job.id, `resume-${process.pid}`, 300000, `resume-${process.pid}`);
+  leases.acquire(job.id, `resume-${process.pid}-${Date.now()}`, 300000, `resume-${process.pid}`);
   jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
   jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });
 
-  return { job_id: job.id, lifecycle: "RUNNING", phase: job.phase, resumed: true, message: "Is ayni job'dan devam ediyor" };
+  // dispatch'i ayni job'dan tekrar baslat (kaldigi asamadan; source/checkpoint dogrulamasi dispatcher'da):
+  const { JobDispatcher } = await import("../orchestration/job-dispatcher.js");
+  const { resolveRunnerKindFromEnv } = await import("../runners/runner-factory.js");
+  const dispatcher = new JobDispatcher({
+    services,
+    runnerKind: resolveRunnerKindFromEnv(process.env["AITEST_RUNNER"], true),
+    workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
+    workspaceRoot: services.config.storage.root,
+  });
+  // GoalContract job kayitlarindan yeniden kurulur (resume parametresi gerekmez):
+  void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined).catch((error: unknown) => {
+    process.stderr.write(`[aitest-dispatch] resume job ${job.id} hata: ${String(error)}\n`);
+  });
+
+  return { job_id: job.id, lifecycle: "RUNNING", phase: job.phase, resumed: true, message: "Is ayni job'dan devam ediyor (dispatcher baslatildi)" };
 }
 
 export interface TestCancelResult {

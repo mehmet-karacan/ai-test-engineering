@@ -3,7 +3,7 @@
  * P01: project_inspect, test_start, test_status temel akisi.
  * P02: guvenli kesif (snapshot, envanter, target resolution) eklendi.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, statSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { TestStartInputSchema, TestStatusInputSchema, ProjectInspectInputSchema, ProjectQueryInputSchema, percentToBasisPoints } from "../domain/tool-schemas.js";
@@ -323,6 +323,22 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     phase: "discovery",
     origin: "handleTestStart",
   });
+
+  // K02/B05: job_targets'a hedefleri kalici kaydet (resume GoalContract kaynagi)
+  const insertTarget = storage.db.prepare(
+    "INSERT INTO job_targets (id, job_id, symbol_id, module_id, selector, target_kind, resolved_scope_digest, line_target_bps, branch_target_bps, created_at) VALUES (?, ?, NULL, NULL, ?, ?, NULL, ?, ?, ?)",
+  );
+  for (const t of parsed.targets) {
+    insertTarget.run(
+      randomUUID(),
+      job.id,
+      t.selector,
+      t.kind,
+      percentToBasisPoints(parsed.coverage.percent),
+      parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : null,
+      Date.now(),
+    );
+  }
 
   // D02/F01: dispatcher'a gecici dispatch - job'a ait asamalar gercekten yurutulur.
   // Dispatcher async olarak ilerler; event loop'u bloke etmez. Kisa surede job handle doner.

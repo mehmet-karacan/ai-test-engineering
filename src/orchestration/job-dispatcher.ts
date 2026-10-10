@@ -310,6 +310,60 @@ export class JobDispatcher {
     }
   }
 
+  /**
+   * K05/B05: resume - ayni job'dan kaldigi asamadan devam.
+   * GoalContract job kayitlarindan (job_targets) yeniden kurulur; kaynak/checkpoint dogrulamasi dispatcher'da.
+   */
+  async resumeDispatch(job: JobRow, projectRootHint?: string): Promise<DispatchResult> {
+    const storage = this.services.storage;
+    const jobs = this.services.jobs;
+    if (!storage || !jobs) {
+      throw new AppError("INTERNAL_ERROR", "Storage servisleri baslatilmamis");
+    }
+    // job_targets'tan hedefleri yukle:
+    const targetRows = storage.db
+      .prepare<[string], { selector: string; target_kind: string; line_target_bps: number; branch_target_bps: number | null }>(
+        "SELECT selector, target_kind, line_target_bps, branch_target_bps FROM job_targets WHERE job_id = ?",
+      )
+      .all(job.id);
+
+    let projectRoot = projectRootHint;
+    if (!projectRoot) {
+      const locationRow = storage.db
+        .prepare<[string], { canonical_root: string }>("SELECT canonical_root FROM project_locations WHERE id = ?")
+        .get(job.location_id);
+      projectRoot = locationRow?.canonical_root;
+    }
+    if (!projectRoot) {
+      throw new AppError("INVALID_PARAMETERS", `Job icin proje koku cozumlenemedi: ${job.id}`);
+    }
+
+    // hedefler job_targets'ta kayitliysa kullan; yoksa discovery ile yeniden coz:
+    if (targetRows.length > 0) {
+      const goal: GoalContract = {
+        job_id: job.id,
+        project_root: projectRoot,
+        targets: targetRows.map((t) => ({
+          selector: t.selector,
+          kind: t.target_kind,
+          line_target_bps: t.line_target_bps,
+          branch_target_bps: t.branch_target_bps ?? 0,
+        })),
+        budget: {
+          max_candidate_iterations: this.services.config.budgets.max_candidate_iterations,
+          max_repairs_per_candidate: this.services.config.budgets.max_repairs_per_candidate,
+          no_progress_window: this.services.config.budgets.no_progress_window,
+        },
+        runner_kind: this.runnerKind,
+        model_profile: null,
+      };
+      return this.dispatch(job, goal, projectRoot);
+    }
+
+    // job_targets yoksa job'a ait request_digest'ten hedef cozulemez; discovery ile mevcut hedefleri kullan:
+    throw new AppError("INVALID_PARAMETERS", `Job hedefleri kayitli degil; test_start ile yeni is gerekli: ${job.id}`);
+  }
+
   private async generateCandidateFromWorker(projectRoot: string, targetFqn: string, module: PomModule, jobId: string): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
     // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
     const serverManager = defaultWorkerServerManager(projectRoot);
