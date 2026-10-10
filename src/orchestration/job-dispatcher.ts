@@ -28,6 +28,7 @@ import { OpenCodeWorkerClient } from "../workers/opencode/worker-client.js";
 import { readWorkerProfileFromOpencodeConfig } from "../workers/opencode/profile-reader.js";
 import { TestPlanSchema, CandidateChangeSetSchema } from "../workers/opencode/model-schemas.js";
 import { ReportExporter } from "../reporting/report-generator.js";
+import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
 
 export type RunnerKind = "docker" | "host_dev_only";
 
@@ -292,35 +293,72 @@ export class JobDispatcher {
   }
 
   private async generateCandidateFromWorker(projectRoot: string, targetFqn: string, module: PomModule, jobId: string): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
+    // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
+    const serverManager = defaultWorkerServerManager(projectRoot);
+    const client = await serverManager.ensureRunning();
     const profile = readWorkerProfileFromOpencodeConfig();
-    const client = new OpenCodeWorkerClient({ base_url: "http://127.0.0.1:14096" });
-    if (!(await client.health(5000))) {
-      return null;
-    }
     const session = await client.createSession();
-    const javaFiles = collectJavaFiles(join(resolve(projectRoot), module.module_relative_path), "src/main/java");
+
+    // hedef dosyanin gercek govdesi (ilk 5 dosya kisiti degil; hedef dosyayi bul):
+    const javaFiles = collectJavaFiles(projectRoot, module.source_root);
+    const targetFileName = `${targetFqn.split(".").pop()}.java`;
+    const targetFile = javaFiles.find((f) => f.endsWith(targetFileName));
     const signatures: string[] = [];
-    for (const file of javaFiles.slice(0, 5)) {
-      const { symbols, methods } = scanJavaFile(file, projectRoot);
+    if (targetFile) {
+      const { methods } = scanJavaFile(targetFile, projectRoot);
       for (const method of methods) {
         signatures.push(method.signature);
       }
-      void symbols;
+    } else {
+      for (const file of javaFiles.slice(0, 5)) {
+        const { methods } = scanJavaFile(file, projectRoot);
+        for (const method of methods) {
+          signatures.push(method.signature);
+        }
+      }
     }
+
+    // mevcut test ozeti (bos degil; varken "Mevcut test yok" denemez):
+    const testFiles = collectJavaFiles(projectRoot, module.test_root);
+    const existingTests: string[] = [];
+    for (const testFile of testFiles.slice(0, 5)) {
+      const { testClass, methods } = scanTestFile(testFile, projectRoot);
+      if (testClass) {
+        existingTests.push(`${testClass.fqn}: ${methods.length} test`);
+      }
+    }
+
+    // coverage aciklari: gercek satir/branch sayaclari:
+    const coverage = readCoverageAfterRun(projectRoot, targetFqn);
+    const uncoveredAreas: string[] = [];
+    if (coverage?.line) {
+      uncoveredAreas.push(`LINE: ${coverage.line.covered}/${coverage.line.covered + coverage.line.missed}`);
+    }
+    if (coverage?.branch) {
+      uncoveredAreas.push(`BRANCH: ${coverage.branch.covered}/${coverage.branch.covered + coverage.branch.missed}`);
+    }
+
     const promptContext: WorkerPromptContext = {
       role: "test_designer",
       class_name: targetFqn.split(".").pop() ?? targetFqn,
       package_name: targetFqn.split(".").slice(0, -1).join("."),
       dependencies_signatures: signatures,
-      existing_tests_summary: [],
-      uncovered_areas: [`${targetFqn}: kapsanmamis alanlar`],
+      existing_tests_summary: existingTests.length > 0 ? existingTests : ["bilinmiyor"],
+      uncovered_areas: uncoveredAreas.length > 0 ? uncoveredAreas : [`${targetFqn}: kapsanmamis alanlar (bilinmiyor)`],
       policy_rules: [...DEFAULT_POLICY_RULES],
     };
     const prompt = buildWorkerPrompt(promptContext);
+
+    // K03/B02: politika tool flags'i cagrida gercekten uygulanir (write/bash/task/web kapali):
+    const { workerToolFlags } = await import("../workers/opencode/worker-config.js");
+    const { defaultWorkerConfig } = await import("../workers/opencode/worker-config.js");
+    const flags = workerToolFlags(defaultWorkerConfig("http://127.0.0.1"));
+
     const raw = await promptForJson(client, {
       session_id: session.session_id,
       prompt,
       model: { providerID: profile.provider_id, modelID: profile.model_id },
+      tools: flags,
       timeout_ms: 300000,
     });
     void jobId;
