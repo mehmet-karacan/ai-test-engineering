@@ -96,7 +96,10 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
 
 function checkMethodBody(bodyText: string, path: string, line: number, findings: QualityFinding[]): void {
   const hasAssertion = /\bassert\w*\s*\(/.test(bodyText) || /\bverify\s*\(/.test(bodyText) || /\bfail\s*\(/.test(bodyText);
-  if (!hasAssertion) {
+  // FIN08/13.1/PRO33: JUnit4 expected exception annotation'i anlamli bir test oracle'idir;
+  // yalniz `assert` regex'i olmadigi icin yanlis reddedilmeZ.
+  const hasExpectedException = /@Test\s*\(\s*expected\s*=/.test(bodyText);
+  if (!hasAssertion && !hasExpectedException) {
     findings.push({ rule_id: "NO_ASSERTION", severity: "critical", location: `${path}:${line}`, evidence: bodyText.trim().slice(0, 200) });
   }
 }
