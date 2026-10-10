@@ -3,6 +3,7 @@
  * Sabit porta sessiz baglanmak yerine urune ait port/retry; sahipligi bilinmeyen process'i kapatmaz.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../../domain/errors.js";
 import { OpenCodeWorkerClient } from "./worker-client.js";
@@ -12,6 +13,8 @@ export interface WorkerServerOptions {
   port: number;
   startupTimeoutMs: number;
   workDir: string;
+  /** Windows cmd /c shim yolu icin ek on-argumanlar (orn. ["/c", "opencode.cmd"]) */
+  extraArgs?: string[];
 }
 
 export const DEFAULT_WORKER_PORT = 14096;
@@ -30,7 +33,7 @@ export class WorkerServerManager {
       return this.client;
     }
     const exe = resolve(this.options.opencodeExecutable);
-    const child = spawn(exe, ["serve", "--port", String(this.options.port), "--hostname", "127.0.0.1", "--pure"], {
+    const child = spawn(exe, [...(this.options.extraArgs ?? []), "serve", "--port", String(this.options.port), "--hostname", "127.0.0.1", "--pure"], {
       stdio: "ignore",
       shell: false,
       windowsHide: true,
@@ -75,13 +78,25 @@ export class WorkerServerManager {
 }
 
 export function defaultWorkerServerManager(workDir: string): WorkerServerManager {
-  const exe = process.platform === "win32"
-    ? join(process.env["APPDATA"] ?? "", "npm", "opencode.cmd")
-    : "opencode";
+  // Windows'ta .cmd dosyalari shell:false ile spawn EDILEMEZ (Node v24 CVE-2024-27980 duzeltmesi; EINVAL).
+  // NPM shim yerine gercek opencode.exe kullanilir; shim bulunamazsa cmd /c ile cmd shim calistirilir.
+  let exe = "opencode";
+  let args: string[] = [];
+  if (process.platform === "win32") {
+    const appData = process.env["APPDATA"] ?? "";
+    const realExe = join(appData, "npm", "node_modules", "opencode-ai", "bin", "opencode.exe");
+    if (appData.length > 0 && existsSync(realExe)) {
+      exe = realExe;
+    } else {
+      exe = join(process.env["ComSpec"] ?? "cmd.exe");
+      args = ["/c", "opencode.cmd"];
+    }
+  }
   return new WorkerServerManager({
     opencodeExecutable: exe,
     port: DEFAULT_WORKER_PORT,
     startupTimeoutMs: 30000,
     workDir,
+    extraArgs: args,
   });
 }
