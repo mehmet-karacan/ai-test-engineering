@@ -71,8 +71,13 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
     classBraceDepth += open - close;
   }
 
-  if (/assert\s*\(\s*true\s*\)/.test(content)) {
+  // D07/F09: tautoloji acigi - assertTrue(true)/assertEquals(x,x)/self-comparison da tautolojik.
+  if (/assert\s*\(\s*true\s*\)/.test(content) || /assertTrue\s*\(\s*true\s*\)/.test(content)) {
     findings.push({ rule_id: "TAUTOLOGICAL_ASSERT", severity: "critical", location: path, evidence: "assert(true)" });
+  }
+  const selfComparison = /assert\w*\s*\(\s*[^,()]+,\s*([^,()]+)\s*\)/.exec(content);
+  if (selfComparison && selfComparison[1] && selfComparison[0].includes(selfComparison[1]) && /assert(Equals|NotEquals|Same|NotSame)\s*\(\s*(\w+)\s*,\s*\2\s*\)/.test(content)) {
+    findings.push({ rule_id: "SELF_COMPARISON", severity: "critical", location: path, evidence: selfComparison[0] });
   }
 
   if (hasTestMethod && findings.every((f) => f.rule_id !== "NO_ASSERTION")) {
@@ -106,10 +111,25 @@ export function assertQualityGate(content: string, path: string): void {
   }
 }
 
-export function isSutShadowing(testPath: string, productionFqn: string): boolean {
-  const normalized = testPath.replace(/\\/g, "/");
-  const productionAsPath = productionFqn.replace(/\./g, "/");
-  return normalized.includes(productionAsPath) && normalized.includes("/src/main/");
+/**
+ * D07/F09: SUT shadowing tespiti - test kaynaginda production FQCN ile aynI sinif tanimi (shadow) var mi.
+ * Yalniz yol degil, sinif bildirimini kontrol eder.
+ */
+export function isSutShadowing(testPath: string, testContent: string, productionFqn: string): boolean {
+  const productionSimple = productionFqn.split(".").pop() ?? productionFqn;
+  const productionPackage = productionFqn.split(".").slice(0, -1).join(".");
+  // test kaynaginda aynI simple name ile sinif bildirimi:
+  const classDecl = new RegExp(`class\\s+${productionSimple}\\b`).test(testContent);
+  if (!classDecl) {
+    return false;
+  }
+  // aynI pakette (shadow) veya package bildirimi yok:
+  const packageMatch = /^\s*package\s+([\w.]+)\s*;/.exec(testContent);
+  const testPackage = packageMatch?.[1] ?? "";
+  if (testPackage === productionPackage) {
+    return true;
+  }
+  return false;
 }
 
 export function detectProductionPathWrite(path: string): boolean {
