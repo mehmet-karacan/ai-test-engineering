@@ -4,6 +4,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, cpSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import { PatchApplier } from "../application/patch-applier.js";
 import { assertQualityGate, scanTestQuality, type QualityFinding } from "../policies/quality-gate.js";
@@ -66,6 +67,14 @@ export function basisPointsFrom(pair: { covered: number; missed: number } | unde
   return Math.floor((pair.covered * 10000) / n);
 }
 
+function resolveAcceptedDir(acceptedDir: string): string {
+  return acceptedDir;
+}
+
+function sha256Data(data: Buffer | string): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
 export interface IterateOptions {
   project_root: string;
   target_fqn: string;
@@ -76,6 +85,10 @@ export interface IterateOptions {
   generate_candidate: () => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
+  /** D05/F04: kabul edilen aday dosyalari birikimli accepted snapshot'a yazilir (opsiyonel) */
+  accepted_snapshot_dir?: string;
+  /** D05/F04: kabul kararindan sonra cagirilir (checkpoint/blob baglantisi) */
+  on_accepted?: (info: { iteration: number; files: Array<{ path: string; sha256: string }>; line_bps: number; branch_bps: number | null }) => void;
 }
 
 export class CandidateLoop {
@@ -292,6 +305,25 @@ export class CandidateLoop {
       noProgressCount = 0;
       bestCoverageBps = afterBps;
       bestBranchBps = afterBranchBps;
+
+      // D05/F04: kabul edilen aday dosyalari birikimli accepted snapshot'a yazilir;
+      // sonraki iterasyon ve restart bu setin uzerinden devam eder.
+      if (options.accepted_snapshot_dir) {
+        const acceptedDir = resolveAcceptedDir(options.accepted_snapshot_dir);
+        for (const change of candidate.changes) {
+          if (change.action === "delete") {
+            continue;
+          }
+          const source = join(options.staging_root, change.path.replace(/\//g, "\\"));
+          if (!existsSync(source)) {
+            continue;
+          }
+          const target = join(acceptedDir, change.path.replace(/\//g, "\\"));
+          mkdirSync(join(target, ".."), { recursive: true });
+          cpSync(source, target);
+        }
+      }
+
       iterations.push({
         iteration,
         decision: "adopted",
@@ -302,6 +334,17 @@ export class CandidateLoop {
         regression_failures: [],
         run_exit_code: run.exit_code,
       });
+
+      if (options.on_accepted) {
+        const acceptedFiles = candidate.changes
+          .filter((c) => c.action !== "delete")
+          .map((c) => {
+            const source = join(options.staging_root, c.path.replace(/\//g, "\\"));
+            const content = existsSync(source) ? readFileSync(source) : Buffer.alloc(0);
+            return { path: c.path, sha256: sha256Data(content) };
+          });
+        options.on_accepted({ iteration, files: acceptedFiles, line_bps: afterBps ?? 0, branch_bps: afterBranchBps });
+      }
 
       if (evaluateGoalMet(bestCoverageBps, bestBranchBps)) {
         outcome = "TARGET_REACHED";
