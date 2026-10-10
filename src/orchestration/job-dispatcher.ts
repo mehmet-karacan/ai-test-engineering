@@ -143,7 +143,22 @@ export class JobDispatcher {
       phases.push("analysis");
 
       // hedef cozumu: hedef siniflari envanterden coz
-      const snapshotId = inventory.writeSnapshot(locationIdOf(projectRoot), null, null, "statik-tarama-1");
+      // D02/F01 duzeltmesi: once envanteri doldur (module + package + codeSymbols); sonra hedef coz.
+      // Gercek location id: job.location_id (test_jobs FK).
+      const snapshotId = inventory.writeSnapshot(job.location_id, null, null, "statik-tarama-1");
+      const discovery = discoverModules(projectRoot);
+      for (const module of discovery.modules) {
+        const moduleId = inventory.writeModule(snapshotId, module);
+        const javaFiles = collectJavaFiles(projectRoot, module.source_root);
+        for (const javaFile of javaFiles) {
+          const { symbols } = scanJavaFile(javaFile, projectRoot);
+          for (const symbol of symbols) {
+            const packageId = inventory.writePackage(moduleId, symbol.package_name || "(default)", "main");
+            inventory.writeSymbol(packageId, symbol);
+          }
+        }
+      }
+
       const resolvedTargets: Array<{ selector: string; fqn: string; module: PomModule }> = [];
       for (const target of goal.targets) {
         const matches = inventory.resolveTarget(snapshotId, target.selector);
@@ -254,7 +269,11 @@ export class JobDispatcher {
       return { job_id: job.id, phases_completed: phases, final_outcome: finalOutcome, best_coverage: bestCoverage, error: null };
     } catch (error) {
       const message = error instanceof AppError ? `${error.code}: ${error.message}` : String(error);
+      process.stderr.write(`[aitest-dispatch] job ${job.id} FAILED (${phases.join(",")}): ${message}\n`);
+      jobs.appendEvent({ job_id: job.id, event_type: "dispatch_failed", phase: (phases[phases.length - 1] as never) ?? "analysis", origin: "JobDispatcher" });
       try {
+        // dispatch hatasinda outcome DB'ye yazilir (BLOCKED_ENVIRONMENT); outcome null kalmaz:
+        jobs.updateOutcome(job.id, "BLOCKED_ENVIRONMENT", jobs.getJob(job.id).row_version);
         jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
       } catch {
         // lifecycle zaten degismis olabilir
@@ -299,8 +318,4 @@ export class JobDispatcher {
     const changeset = CandidateChangeSetSchema.parse(raw);
     return changeset;
   }
-}
-
-function locationIdOf(canonicalRoot: string): string {
-  return randomUUID();
 }
