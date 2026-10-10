@@ -90,9 +90,6 @@ export function buildJobContract(input: JobContractInput, createdAt?: number): J
       throw new Error(`Gecersiz branch_target_bps: ${target.branch_target_bps}`);
     }
   }
-  if (input.runner_kind === "host_dev_only" && false) {
-    throw new Error("ulasilamaz");
-  }
   return {
     schema_version: 1,
     scope: "TEST_ONLY",
