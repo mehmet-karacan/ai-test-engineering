@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { CandidateLoop, type IterateOptions } from "../../src/orchestration/candidate-loop.js";
+import { MavenRunner } from "../../src/runners/maven-runner.js";
 import type { CandidateChangeSet } from "../../src/workers/opencode/model-schemas.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
@@ -145,7 +146,7 @@ ${extraAssertions}
       },
     };
 
-    const loop = new CandidateLoop();
+    const loop = new CandidateLoop(new MavenRunner());
     const result = await loop.iterate(options);
 
     expect(result.iterations.length).toBeGreaterThan(0);

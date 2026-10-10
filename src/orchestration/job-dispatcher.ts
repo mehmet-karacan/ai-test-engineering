@@ -18,7 +18,7 @@ import { buildPlan, runBaseline, parseSurefireReports } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner } from "../runners/maven-runner.js";
-import { DockerRunner, DEFAULT_MAVEN_IMAGE, assertDockerPreflightUsable } from "../runners/docker-runner.js";
+import { DockerRunner, DockerMavenRunner, DEFAULT_MAVEN_IMAGE, assertDockerPreflightUsable } from "../runners/docker-runner.js";
 import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric, type TargetEvaluation } from "../coverage/coverage-math.js";
 import { findClassInReport, parseJacocoXml } from "../coverage/jacoco-parser.js";
@@ -194,7 +194,10 @@ export class JobDispatcher {
       const acceptedDir = join(this.workspaceRoot, "jobs", job.id, "accepted");
       mkdirSync(stagingRoot, { recursive: true });
       mkdirSync(acceptedDir, { recursive: true });
-      const loop = new CandidateLoop();
+      // FIN00.e/22.2 (B01 kapanisi): candidate loop yalniz verified runner capability ile kurulur;
+      // normal giris docker-backed runner kullanir; candidate calistirmalari host Maven'e HIC gecmez.
+      const loopRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot);
+      const loop = new CandidateLoop(loopRunner);
 
       for (const resolved of resolvedTargets) {
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
@@ -308,6 +311,22 @@ export class JobDispatcher {
       }
       return { job_id: job.id, phases_completed: phases, final_outcome: "FAILED", best_coverage: null, error: message };
     }
+  }
+
+  /**
+   * FIN00.e/22.2: candidate loop icin verified runner uretir.
+   * Docker verified ise DockerMavenRunner (source ro, target writable mount); host yalniz
+   * test-only composition'da (host_dev_only) acikca verilir; normal giriste host Maven yoktur.
+   */
+  private buildVerifiedLoopRunner(dockerRunner: DockerRunner | undefined, hostRunner: MavenRunner | undefined, projectRoot: string): MavenRunner {
+    if (this.runnerKind === "host_dev_only" && hostRunner) {
+      return hostRunner;
+    }
+    if (dockerRunner) {
+      const targetMounts = [{ host: join(resolve(projectRoot), "target"), container: "/work/target" }];
+      return new DockerMavenRunner({ target_mounts: targetMounts }, dockerRunner);
+    }
+    throw new AppError("BLOCKED_ISOLATION", "Verified loop runner uretilemedi; candidate calistirmasi yapilmaz (FIN00.e)");
   }
 
   /**

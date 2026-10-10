@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { CandidateLoop, type IterateOptions } from "../../src/orchestration/candidate-loop.js";
+import { MavenRunner } from "../../src/runners/maven-runner.js";
 import type { CandidateChangeSet } from "../../src/workers/opencode/model-schemas.js";
 
 const sha = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
@@ -111,7 +112,7 @@ ${extra}
       },
     };
 
-    const loop = new CandidateLoop();
+    const loop = new CandidateLoop(new MavenRunner());
     const result = await loop.iterate(options);
 
     // yalniz kazanc ureten aday kabul edilir (aday 1 rejected, aday 2 adopted):

@@ -8,8 +8,7 @@ import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import { PatchApplier } from "../application/patch-applier.js";
 import { assertQualityGate, scanTestQuality, isSutShadowing, type QualityFinding } from "../policies/quality-gate.js";
-import { MavenRunner, type RunResult } from "../runners/maven-runner.js";
-import { parseJacocoXml, findClassInReport, type CounterKind } from "../coverage/jacoco-parser.js";
+import { MavenRunner, type RunResult } from "../runners/maven-runner.js";import { parseJacocoXml, findClassInReport, type CounterKind } from "../coverage/jacoco-parser.js";
 import { evaluateMetric, evaluateTarget, type MetricEvaluation } from "../coverage/coverage-math.js";
 import { parseSurefireReports, buildPlan, type BaselineResult } from "../orchestration/build-plan.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
@@ -94,8 +93,16 @@ export interface IterateOptions {
 export class CandidateLoop {
   private readonly runner: MavenRunner;
 
-  constructor(runner?: MavenRunner) {
-    this.runner = runner ?? new MavenRunner();
+  /**
+   * FIN00.e/22.2 (4.2 kurali): CandidateLoop kendi icinde host runner YARATAMAZ;
+   * verified runner capability constructor seviyesinde ZORUNLU verilir.
+   * Varsayilan yok; parametre verilmeyen kurulum hata verir (fail-closed).
+   */
+  constructor(runner: MavenRunner) {
+    if (runner === undefined || runner === null) {
+      throw new AppError("BLOCKED_ISOLATION", "CandidateLoop verified runner capability'siz kurulamaz; host runner varsayilani kaldirildi (FIN00.e)");
+    }
+    this.runner = runner;
   }
 
   /**

@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
+import { MavenRunner, type MavenRunOptions, type RunResult } from "./maven-runner.js";
 
 export interface DockerPreflightResult {
   docker_available: boolean;
@@ -165,5 +166,68 @@ export function assertDockerPreflightUsable(preflight: DockerPreflightResult): v
   }
   if (!preflight.maven_image_present) {
     throw new AppError("BLOCKED_ISOLATION", `Maven imaji bulunamadi: ${DEFAULT_MAVEN_IMAGE}; docker pull gerekli`, { errors: preflight.errors });
+  }
+}
+
+/**
+ * Docker-backed Maven runner: MavenRunOptions kabul eder; source read-only, target writable mount.
+ * FIN00.e/22.2: candidate/final run'lari host Maven'e hic gecmez; ciktilar writable-sinirli
+ * sandbox mount'undan (job'a ozel target) alinir. Egress 'none' (bagimlilik cache volume'u onayli).
+ */
+export interface DockerMavenRunnerOptions {
+  /** Reactor/modul target dizinleri: {host: <proje>/target, container: /work/target} */
+  target_mounts: Array<{ host: string; container: string }>;
+  image?: string;
+  network?: "none" | string;
+  memory_mb?: number;
+  cpus?: number;
+  timeout_ms?: number;
+}
+
+export class DockerMavenRunner extends MavenRunner {
+  private readonly docker: DockerRunner;
+  private readonly options: DockerMavenRunnerOptions;
+
+  constructor(options: DockerMavenRunnerOptions, docker?: DockerRunner) {
+    super();
+    this.docker = docker ?? new DockerRunner();
+    this.options = options;
+  }
+
+  get kind(): "docker" {
+    return "docker";
+  }
+
+  get writableTargetMounts(): Array<{ host: string; container: string }> {
+    return this.options.target_mounts;
+  }
+
+  override async run(options: MavenRunOptions): Promise<RunResult> {
+    for (const mount of this.options.target_mounts) {
+      mkdirSync(mount.host, { recursive: true });
+    }
+    const runOptions: DockerRunOptions = {
+      working_dir: options.working_dir,
+      image: this.options.image ?? DEFAULT_MAVEN_IMAGE,
+      command: ["mvn", ...options.goals, "-B", "-ntp"],
+      timeout_ms: options.timeout_ms ?? this.options.timeout_ms ?? 600000,
+      log_dir: options.log_dir,
+      network: this.options.network ?? "none",
+      memory_mb: this.options.memory_mb ?? 2048,
+      cpus: this.options.cpus ?? 2,
+      writable_mounts: this.options.target_mounts,
+    };
+    if (options.env) {
+      runOptions.env = options.env;
+    }
+    const result = await this.docker.run(runOptions);
+    return {
+      exit_code: result.exit_code,
+      duration_ms: result.duration_ms,
+      stdout_log_path: result.stdout_log_path,
+      stderr_log_path: result.stdout_log_path,
+      command: ["mvn", ...options.goals],
+      timed_out: result.timed_out,
+    };
   }
 }
