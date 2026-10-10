@@ -19,6 +19,7 @@ import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner } from "../runners/maven-runner.js";
 import { DockerRunner, DEFAULT_MAVEN_IMAGE, assertDockerPreflightUsable } from "../runners/docker-runner.js";
+import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric, type TargetEvaluation } from "../coverage/coverage-math.js";
 import { findClassInReport, parseJacocoXml } from "../coverage/jacoco-parser.js";
 import { buildWorkerPrompt, DEFAULT_POLICY_RULES, type WorkerPromptContext } from "../workers/opencode/role-prompts.js";
@@ -97,23 +98,27 @@ export class JobDispatcher {
       jobs.updatePhase(job.id, "preflight", jobs.getJob(job.id).row_version);
       phases.push("preflight");
 
-      // izolasyon gecidi: docker capability preflight
+      // K01/B01: izolasyon gecidi - customer job'da host yolu secilemez; docker verified izolasyon zorunlu.
+      // host_dev_only yalniz urunun guvenilir gelistirme testlerinde acikca istenir (customerJob=false).
+      const runnerFactory = new CustomerRunnerFactory();
+      runnerFactory.assertHostDevOnlyAllowed(this.runnerKind, true);
       let dockerRunner: DockerRunner | undefined;
+      let hostRunner: MavenRunner | undefined;
       if (this.runnerKind === "docker") {
         dockerRunner = new DockerRunner();
         const preflight = await dockerRunner.preflight();
         assertDockerPreflightUsable(preflight);
       } else if (this.runnerKind === "host_dev_only") {
-        // urunun guvenilir gelistirme testleri disinda kullanilamaz
+        // urun girisinden gelmemis, test-only composition ile ayrilmis kullanim: host runner yalniz burada
+        hostRunner = new MavenRunner();
       }
       phases.push("preflight_ok");
 
       jobs.updatePhase(job.id, "baseline", jobs.getJob(job.id).row_version);
       phases.push("baseline");
 
-      // baseline: mevcut testler gercekten calisir
-      const hostRunner = new MavenRunner();
-      if (this.runnerKind === "host_dev_only") {
+      // baseline: mevcut testler gercekten calisir (guvenli runner contract'indan)
+      if (this.runnerKind === "host_dev_only" && hostRunner) {
         const baseline = await runBaseline(projectRoot, hostRunner, 600000);
         if (baseline.status === "FAILED") {
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);

@@ -20,6 +20,7 @@ import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { InventoryQueryService } from "./inventory-query.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
+import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 
 export const PARSER_VERSION = "statik-tarama-1";
 
@@ -325,9 +326,12 @@ export async function handleTestStart(input: unknown, services: Services): Promi
 
   // D02/F01: dispatcher'a gecici dispatch - job'a ait asamalar gercekten yurutulur.
   // Dispatcher async olarak ilerler; event loop'u bloke etmez. Kisa surede job handle doner.
+  // K01/B01: customer job'da host yolu urun girisinden secilemez; default docker (verified izolasyon).
+  // RT02: tip donusumune guvenilmez; bilinmeyen deger fail-closed.
+  const runnerKind = resolveRunnerKindFromEnv(process.env["AITEST_RUNNER"], true);
   const dispatcher = new JobDispatcher({
     services,
-    runnerKind: (process.env["AITEST_RUNNER"] as "docker" | "host_dev_only") ?? "host_dev_only",
+    runnerKind,
     workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
     workspaceRoot: services.config.storage.root,
   });
