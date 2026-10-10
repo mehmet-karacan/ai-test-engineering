@@ -1,52 +1,56 @@
-# Kabul Matrisi - AC01-AC70 ve RG01-RG52
+# Kabul Matrisi - AC/RG/RT/PRO (AITE-RUNTIME-ACCEPTANCE-003 v2.0)
 
-Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ (AITE-REMEDIATION-002 sozlesmesi).
+Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ.
 
-## Kabul durumu degisimi
+## Kabul durumu degisimi (v2.0)
 
-- Onceki: 70/70 PASSED + FULL_ACCEPTANCE_VERIFIED (commit c5307f5) - **tarihsel model beyani olarak isaretlendi** (F13 bulgusu; bazi satirlar bilesen/metin kanitlarini tam kabul gibi toplamisti).
-- Yeni: `REMEDIATION_TAMAMLANDI` - AC'ler bilesen testi / normal MCP yolu / kesinti-guvenlik-kabul katmanlarina ayrilarak yeniden degerlendirildi; tum satirlar kanitli.
+- Onceki: 70/70 + 52/52 + "003 TAMAMLANDI" beyanlari (c5307f5, 7eef466, c5d4a53) - **tarihsel uygulayici beyani olarak korundu**; v2.0 birlestirilmis nihai kapsam tekil eslesmeyle yeniden degerlendirildi.
+- Yeni: `FINALIZATION_IN_PROGRESS` -> FIN00-FIN15 paketleri IMPLEMENTATION_VERIFIED (yerel kabul motoru: 356/356 test + release verifier exit 0).
+- Registry kaynagi: `ai/acceptance/catalog.json` (RT01-RT28 tekil; AC/RG/PRO grup envanteri).
 
-## AC01-AC70 yeniden degerlendirme ozeti
+## FIN paketleri kanit matrisi (v2.0, 2026-10-10)
 
-| AC araligi | Yeni durum | Not |
-| --- | --- | --- |
-| AC01-AC12 (entegrasyon/proje/kapsam) | PASSED | Bilesen + normal MCP yolu (8 arac) + dispatch katmani dogrulandi |
-| AC13-AC16 (gercek test) | PASSED | Gercek Maven/JaCoCo run + toolchain matrisi |
-| AC17-AC23 (coverage gercegi) | PASSED | evaluateGoalMet (LINE+BRANCH) tum karar yollarinda; AC21/AC22/AC23 unit |
-| AC24-AC26 (regresyon) | PASSED | Surefire parse + CandidateLoop regresyon kapilari |
-| AC27 (erisilebilir hedef) | PASSED | Gercek fixture tam dongu (LINE+BRANCH hedefi saglandi) |
-| AC28-AC30 (unmet/uydurma) | PASSED | outcome ayrimi + gercek runner sonucu |
-| AC31-AC36 (kalite) | PASSED | canonical containment + tautoloji acigi + SUT shadow sinif tespiti |
-| AC37-AC40 (guvenlik) | PASSED | Gercek Docker izolasyon testleri (read-only, secrets, network, kota) |
-| AC41-AC44 (XML/XSS/miras) | PASSED | 204/info-parts duzeltmesi + worker config + fail-closed |
-| AC45-AC55 (kesinti/storage) | PASSED | Kalici monoton fencing + durability + expected-before |
-| AC56-AC60 (strateji/apply) | PASSED | Plateau + onay + journal dis store + idempotent |
-| AC61-AC66 (rapor/ortam) | PASSED | HTML/JSON/DB tutarlilik + offline + kurulum Node.mjs |
-| AC67 (gercek pilot) | PASSED | Normal MCP entrypoint'ten tam pilot: pilot-full.test.ts (initialize/tools/list/test_start/test_status; dispatcher asamalari yuruttu; terminal lifecycle; commit 7eef466) |
-| AC68-AC70 (resume/handoff/git) | PASSED | Recovery + handoff + Git kimligi |
+| Paket | Zorunlu cikis kaniti | Durum | Test kaniti |
+| --- | --- | --- | --- |
+| FIN00 | v1.0 arsiv blob birebir (178a263); obligation registry; normal giris -> host Maven'e sifir gecis | PASSED | fin00-isolated-loop.test.ts 6/6 |
+| FIN01 | Typed immutable contract; model kimligi birebir; trailing-space supheli anahtar tespiti | PASSED | fin01-contract.test.ts 16/16 |
+| FIN02 | Gercek capability probe (source yazma reddi + secret + network + limit; 4 gercek run) | PASSED | fin02-capability.test.ts 4/4 |
+| FIN03 | Live job'dan dolan relations; crash/future-schema fail-closed; WAL kalicilik | PASSED | fin03-relations.test.ts 9/9 |
+| FIN04 | FQCN suffix oyunu reddi; package boundary; test siniflari production hedef listesine giremez | PASSED | fin04-target-resolution.test.ts 14/14 |
+| FIN05 | Worker attempt DB kaydi; stale session red; injection negative fixture'lar | PASSED | fin05-worker-chain.test.ts 16/16 |
+| FIN06 | Branch-only kazanc (RT08); iki-metrik karar (RT07/PRO05); N/A kurallari; decision DB akisi | PASSED | fin06-evaluator.test.ts 9/9 |
+| FIN07 | Cancel kalici; gec run CANCELLED'i cevirmez; lease-lost fence red | PASSED | fin07-lifecycle.test.ts 5/5 |
+| FIN08 | JUnit4 expected exception tanisi (PRO33); PIT targeted scope + import provenance (PRO37-40) | PASSED | fin08-quality-pit.test.ts 17/17 |
+| FIN09 | PATCH_ONLY gercek patch artifact + hash zinciri (B11); redacted export (15.4); XSS korunumu | PASSED | fin09-patch-export.test.ts 9/9 |
+| FIN10 | Legacy/modern revision dogrulugu; negotiated version; fragmented JSON framing (RT28) | PASSED | fin10-protocol.test.ts 12/12 |
+| FIN11 | Online backup + blob manifest; restore ayri konumda dogrulanir; owned uninstall; upgrade quiesce | PASSED | fin11-lifecycle-ops.test.ts 6/6 |
+| FIN12 | Tek ortak diagnostic servisi (PRO02); GC iki asamali; checkpoint manifest pin (PRO26) | PASSED | fin12-diagnostics-gc.test.ts 10/10 |
+| FIN13 | Threat model dokumani; SBOM CycloneDX 1.5; scanner yokken 0 vulnerability YAZILMAZ | PASSED | fin13-sbom.test.ts 6/6 |
+| FIN14 | Corpus BM01-BM12; olcum plani 48+8; trial kaydi failure dahil | PASSED | fin14-corpus.test.ts 6/6 |
+| FIN15 | Release verifier non-zero exit yetenegi; catalog/corpus butunlugu; UNSIGNED dogru etiket | PASSED | fin15-release-verifier.test.ts 7/7 |
 
-## RG01-RG52 duzeltme matrisi (zorunlu ek kanit)
+## Devralinan kapsam durumu
 
-| RG | Durum | Kanit |
-| --- | --- | --- |
-| RG05-RG10 (kurulum) | PASSED | config-merge minimal merge + Node.mjs kurulum + izole smoke (commit c7a77f0) |
-| RG11-RG14 (MCP yuzeyi) | PASSED | 8 arac + JobDispatcher dispatch (commit ff0d095) |
-| RG15-RG20 (path/izolasyon) | PASSED | canonical containment + fail-closed runner (commit 6ff1076) |
-| RG21-RG23 (coverage) | PASSED | evaluateGoalMet LINE+BRANCH (commit 28d31e8) |
-| RG24-RG26 (worker) | PASSED | 204/info-parts + contract testleri (commit 340bc72) |
-| RG27-RG30 (aday/kalite) | PASSED | birikimli accepted set + tautoloji/shadow (commit 9f5de8e, 5396e98) |
-| RG31-RG37 (fencing/kesinti) | PASSED | kalici monoton fencing + expected-before (commit 94fcbfb, 86f7898) |
-| RG38-RG40 (kesif/SQL) | PASSED | platform yolu + dirty tespiti (commit 19a8f1a) |
-| RG41-RG42 (pilot) | PASSED | Normal MCP entrypoint'ten tam pilot + ayni job'dan terminal lifecycle (pilot-full.test.ts; commit 7eef466) |
-| RG43-RG52 (rapor/apply) | PASSED | lint + apply guvenlik + export (commit f27b755, 86f7898) |
+- AC01-AC70: FIN00-FIN15 paket kanitlarina eslestirildi (tarihsel 70/70 beyani gecersiz; tekil eslesme catalog.json'da).
+- RG01-RG52: ayni sekilde paket kanitlarina devredildi.
+- RT01-RT28: catalog.json'da tekil kayit (hepsi FIN paket eslesmeli); RT01/RT02/RT03/RT27 ozel testleri + fin00/fin07/fin10 davranis testleri kanitli.
+- PRO01-PRO60: bolum 25 tablolari FIN paketlerine eslestirildi; PRO02 (fin12), PRO05 (fin06), PRO26 (fin12), PRO33 (fin08), PRO37-40 (fin08), PRO59 (fin15) ozel unit kanitli.
+
+## Test kaniti (2026-10-10)
+
+- TypeScript: 42 dosya, **356/356 PASSED**
+- lint: 0 errors; typecheck: TEMIZ; build: TEMIZ
+- release-verify.mjs: exit 0; source tree digest 44940ab3...
+
+## Canli kabul durumu (27.2 dogru sinir)
+
+- Sentetik/yerel kabuller: IMPLEMENTATION_VERIFIED
+- Canli kurum modeli benchmark trials (20.3): BLOCKED_KAYITLI (kaynak/butce kaydi gerekiyor; altyapi hazir)
+- Gercek proje pilotu (20.5): BLOCKED_KAYITLI (hedef sinif kullaniciyla secilmeli)
+- Paket yayin durumu: UNSIGNED/NOT_PUBLISHED (kurum signing key yok; dogru etiket)
 
 ## Ozet
 
-- AC: 70 PASSED, 0 NOT_RUN
-- RG: 52 PASSED, 0 NOT_RUN
-- F01-F14: 14/14 KAPANDI (final-audit + pilot-full testleriyle; F12 v2 wire lifecycle ve F14 otomatik rapor uretimi dahil)
-- B01-B12: 12/12 KAPANDI (runner factory, canonical containment, worker server manager, per-metric karar, resume dispatcher devami, bootstrap duzeltmesi dahil)
-- RT01-RT28: RT01/RT02/RT03 (rt01-host-fallback + pilot-full), RT27 (bootstrap.test.ts) kanitli; digerleri eski AC/RG eslesmeleriyle
-- Test: 204/204 PASSED (26 dosya: unit + integration + contract + security)
-- Durum: IMPLEMENTATION_VERIFIED; tam pilot normal MCP girisiyle kanitli
+- FIN00-FIN15: 16/16 TAMAMLANDI
+- Test: 356/356 PASSED (42 dosya)
+- Canli kurum kabulleri: engel kalkinca ayni gorev (003 v2.0) surer; yeni gorev acilmaz

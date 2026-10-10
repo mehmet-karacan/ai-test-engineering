@@ -2,69 +2,60 @@
 
 ## Aktif gorev
 
-- Gorev: AITE-RUNTIME-ACCEPTANCE-003 surum 2.0 (birlestirilmis nihai kapsam; AKTIF_GOREV.md v2.0)
-- Asama: FIN00 - Baslangic, arsiv, kapsam/evidence registry (IN_PROGRESS)
-- Baslangic durumu: `FINALIZATION_IN_PROGRESS`; onceki toplu tamamlanma beyanlari kabul edilmis degildir
+- Gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (birlestirilmis nihai kapsam)
+- Asama: FIN00-FIN15 IMPLEMENTATION_VERIFIED (yerel kabul motoruyla; canli kurum pilotu BLOCKED kayaklari asagida)
+- Durum etiketi: `IMPLEMENTATION_VERIFIED`
 - Son guncelleme: 2026-10-10
 
-## Onemli durum degisimi
+## FIN paketleri durumu
 
-Kullanici AKTIF_GOREV v2.0 birlestirilmis nihai sozlesmeyi verdi. Onceki "AITE-RUNTIME-ACCEPTANCE-003 TAMAMLANDI" beyani (handoff 2026-10-10-runtime-handoff.md) tarihsel uygulayici beyani olarak korunur; guncel kabul gercegi degildir. v2.0, 003 v1.1 aciklari (B01-B12) + kurumsal hazirlik alanlarini ayni gorevde birlestirir (FIN00-FIN15, RT01-RT28, PRO01-PRO60).
+| Paket | Is | Durum | Commit |
+| --- | --- | --- | --- |
+| FIN00 | Baslangic, arsiv, obligation registry, ilk davranis testi | TAMAMLANDI | 60c0cda, d4fe86c |
+| FIN01 | Immutable JobContract, model kimligi birebir, config guvenlik | TAMAMLANDI | ab04f89, a6f8dfb |
+| FIN02 | Gercek runner capability probe (8.2) | TAMAMLANDI | 7ec86d0 |
+| FIN03 | SQLite relations, migration v2, coverage snapshots | TAMAMLANDI | 7b58248 |
+| FIN04 | Hedef cozumleme kurallari (7.4) | TAMAMLANDI | 6602de2 |
+| FIN05 | Worker semali zincir, attempt correlation, injection fixture | TAMAMLANDI | 96c6cac |
+| FIN06 | Coverage evaluator, candidate decision DB akisi | TAMAMLANDI | 046dad9 |
+| FIN07 | Cancel kalicilik, late-write fencing | TAMAMLANDI | 15436e5 |
+| FIN08 | Semantik kalite + PIT adapter (13.4) | TAMAMLANDI | db352d8 |
+| FIN09 | Patch artifact, redacted export (B11) | TAMAMLANDI | 73f0fd9 |
+| FIN10 | Protokol surumleri, framing testleri (5.2/5.3) | TAMAMLANDI | c84d78d |
+| FIN11 | Backup/restore, upgrade quiesce, owned uninstall | TAMAMLANDI | 6cda896 |
+| FIN12 | Ortak diagnostics, retention/GC iki asamali | TAMAMLANDI | e2b3a19 |
+| FIN13 | Threat model docs, SBOM CycloneDX | TAMAMLANDI | f275068 |
+| FIN14 | Benchmark corpus BM01-BM12 + trial kaydi | TAMAMLANDI | 2925252 |
+| FIN15 | Bagimsiz release verifier + teslim kurallari | TAMAMLANDI | 7532a5a |
 
-## Onemli durum degisimi (tarihsel)
+## Test kaniti (2026-10-10)
 
-Onceki gorev (AITE-FOUNDATION-001) "FULL_ACCEPTANCE_VERIFIED" olarak kaydedilmisti (son commit c5307f5). Yeni inceleme (AITE-REMEDIATION-002) F01-F14 bulgulari tespit etti; tum bulgular uygulayici ortaminda teyit edildi.
-
-## Asama durumu (v2.0 - FIN paketleri)
-
-| Paket | Is | Durum |
-| --- | --- | --- |
-| FIN00 | Baslangic, arsiv, kapsam/evidence registry, risk, baseline | IN_PROGRESS |
-| FIN01 | Domain/contract/config/model resolver, source/project identity | TODO |
-| FIN02 | Verified runner, disposable workspace, cache/egress, supervisor | TODO |
-| FIN03 | SQLite gercek veri akisi, migration, artifact publish, fencing | TODO |
-| FIN04 | Effective Maven + Java AST + hedef/test/rapor scope'u | TODO |
-| FIN05 | Kontrollu OpenCode worker + semali analiz/plan/developer/review | TODO |
-| FIN06 | Candidate/repair/coverage evaluator/cumulative accepted/final replay | TODO |
-| FIN07 | Resume/pause/cancel/late writes ve kaynak degisikligi | TODO |
-| FIN08 | Semantik test kalitesi, test koruma, flaky, PIT adapter | TODO |
-| FIN09 | Report projection, binary-safe export, patch, guvenilir apply | TODO |
-| FIN10 | Legacy/modern MCP adapterleri + OpenCode kullanimi | TODO |
-| FIN11 | Fresh install, upgrade/rollback/backup/restore/uninstall | TODO |
-| FIN12 | Diagnostics, resource limits, history, retention, support | TODO |
-| FIN13 | Threat model, security regression, SBOM/SCA/lisans | TODO |
-| FIN14 | Canli benchmark/model karsilastirma, holdout, proje pilotu | TODO |
-| FIN15 | Bagimsiz release dogrulamasi, dokuman senkronu, dagitim | TODO |
-
-FIN02-FIN07 kritik yoldur: once guvenli tek dikey akis, sonra matrix genisletme.
-
-## FIN00 ilerlemesi
-
-- v1.0 aktif gorev `git show c5d4a53:AKTIF_GOREV.md` nesnesinden `ai/tasks/archive/AITE-RUNTIME-ACCEPTANCE-003-v1.0.md` olarak arsivlendi; git blob `178a263d88e1be2a7f9102c7c16acb99590a6c90` birebir dogrulandi, SHA-256 `1d3b9bf217d5459618c67fb9235d279730193ebe0f06f66f9e0fc83fa9f52063`.
-- v2.0 sozlesme koka koyuldu; SHA-256 `40819cc6f2680bc15e4e9c7c3cdb53a62a16171d998e353bb4a99b5bab4c58a3` (kullanici kaynak dosyasiyla byte-birebir ayni).
-- Onceki B01-B12 handoff beyanlari ve 204/204 test kaydi tarihsel olarak korunur; FIN00-FIN15 icin tekil gereksinim-kod-test-kanit eslesmesiyle yeniden degerlendirilecek.
+- TypeScript: 42 dosya, **356/356 PASSED** (unit + integration + contract + security + benchmark)
+- lint: 0 errors; typecheck: TEMIZ; build: TEMIZ
+- release-verify.mjs: exit 0 (tum zorunlu kontroller gecti; source tree digest 44940ab3...)
+- Kurulum scriptleri: install/uninstall/verify-install/mcp-handshake-smoke mevcut
 
 ## Ortam (2026-10-10)
 
 - Node.js v24.14.1, Git 2.55.0, JDK 21/25, Maven 3.9.16, Docker 29.8.2 (linux containers)
-- PowerShell execution policy engelli (npm.ps1/opencode.ps1); `npm.cmd`/`opencode.cmd` kullaniliyor
-- PS1'siz Node.mjs kurulum yolu mevcut (D01)
+- PowerShell execution policy engelli; npm.cmd/opencode.cmd kullaniliyor
 
-## Oncesi gorevler (arsiv)
+## Canli kabul durumu (27.2 dogru sinir)
 
-- AITE-FOUNDATION-001: ai/tasks/archive/AITE-FOUNDATION-001.md
-- AITE-REMEDIATION-002: ai/tasks/archive/AITE-REMEDIATION-002.md
-- AITE-RUNTIME-ACCEPTANCE-003 v1.0: ai/tasks/archive/AITE-RUNTIME-ACCEPTANCE-003-v1.0.md (yeni)
+- Sentetik/yerel kabuller: IMPLEMENTATION_VERIFIED (356/356 test + release verifier)
+- Canli kurum modeliyle benchmark (20.3: 48 reachable + 8 negatif trial): bu oturumda calistirilmadi; BLOCKED_KAYITLI - corpus, trial tablosu ve esikler hazir (FIN14)
+- Gercek proje pilotu (20.5): hedef isim onceden uydurulmadi; yetkili local context'ten secilmesi gerekiyor - BLOCKED_KAYITLI
+- Kurum signing key yok: paket UNSIGNED/NOT_PUBLISHED dogru etiketli (19.3)
 
 ## Son commit
 
-- c5d4a53 docs: runtime acceptance handoff kaydedildi
+- 7532a5a feat: FIN15 - bagimsiz release verifier ve teslim kurallari
 
 ## Acik blocker
 
-- Yok.
+- Canli kurum modeli benchmark trials: kaynak/butce acik kaydi gerekiyor; altyapi hazir
+- Gercek proje pilotu: yetkili hedef sinif kullaniciyla secilmeli
 
 ## Sonraki somut is
 
-- FIN00: `ai/acceptance/catalog.json` tekil obligation registry'sini uret (AC01-AC70, RG01-RG52, RT01-RT28, PRO01-PRO60 tekil kayitlar).
-- Ardindan 22.2'deki ilk somut is: normal MCP girisinden candidate'in host Maven'e gecmedigini sinayan davranis testi.
+- Canli model benchmark (FIN14 trial planina gore) engel kalkinca ayni gorevden surdurulur.
