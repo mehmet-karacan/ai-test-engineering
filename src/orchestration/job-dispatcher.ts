@@ -191,7 +191,9 @@ export class JobDispatcher {
       phases.push("generation");
 
       const stagingRoot = join(this.workspaceRoot, "jobs", job.id, "staging");
+      const acceptedDir = join(this.workspaceRoot, "jobs", job.id, "accepted");
       mkdirSync(stagingRoot, { recursive: true });
+      mkdirSync(acceptedDir, { recursive: true });
       const loop = new CandidateLoop();
 
       for (const resolved of resolvedTargets) {
@@ -205,6 +207,17 @@ export class JobDispatcher {
           budget: goal.budget,
           staging_root: stagingRoot,
           timeout_ms_per_run: 600000,
+          // K04/B04: birikimli accepted set + checkpoint callback'i runtime'a bagli:
+          accepted_snapshot_dir: acceptedDir,
+          on_accepted: (info) => {
+            jobs.appendEvent({
+              job_id: job.id,
+              event_type: "candidate_accepted",
+              phase: "verification",
+              origin: "JobDispatcher",
+            });
+            process.stderr.write(`[aitest-dispatch] job ${job.id} iter ${info.iteration} kabul: ${info.files.length} dosya, LINE ${info.line_bps} bps\n`);
+          },
           generate_candidate: async () => {
             if (!this.workerEnabled) {
               return null;
@@ -219,15 +232,20 @@ export class JobDispatcher {
       jobs.updatePhase(job.id, "verification", jobs.getJob(job.id).row_version);
       phases.push("verification");
 
-      // son dogrulanmis coverage per-target
+      // K04/B03: son dogrulanmis coverage per-target; LINE+BRANCH birlikte (tek evaluator)
       const bestCoverage: Record<string, number | null> = {};
       let allMet = true;
       for (const resolved of resolvedTargets) {
         const coverage = readCoverageAfterRun(projectRoot, resolved.fqn);
-        const bps = basisPointsFrom(coverage?.line);
-        bestCoverage[resolved.fqn] = bps;
+        const lineBps = basisPointsFrom(coverage?.line);
+        const branchBps = basisPointsFrom(coverage?.branch);
+        bestCoverage[resolved.fqn] = lineBps;
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
-        if (bps === null || bps < targetSpec.line_target_bps) {
+        // evaluateGoalMet ile ayni per-target/per-metric dogrulayici (tek evaluator):
+        const lineMet = lineBps !== null && lineBps >= targetSpec.line_target_bps;
+        const branchApplicable = targetSpec.branch_target_bps > 0;
+        const branchMet = !branchApplicable || (branchBps !== null && branchBps >= targetSpec.branch_target_bps);
+        if (!lineMet || !branchMet) {
           allMet = false;
         }
       }
