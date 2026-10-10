@@ -228,6 +228,23 @@ export class JobDispatcher {
             });
             process.stderr.write(`[aitest-dispatch] job ${job.id} iter ${info.iteration} kabul: ${info.files.length} dosya, LINE ${info.line_bps} bps\n`);
           },
+          // FIN06/12.1: her aday karari DB candidate_iterations tablosuna yazilir (job iliskisi):
+          on_decision: (info) => {
+            if (storage) {
+              new InventoryRepository(storage.db).writeCandidateIteration({
+                job_id: job.id,
+                parent_checkpoint_id: checkpoints.bestCheckpoint(job.id),
+                iteration_ordinal: info.iteration,
+                changeset_hash: info.changeset_hash ?? "unknown",
+                strategy_key: null,
+                decision: info.decision,
+                decision_reason: info.reason,
+                coverage_before_bps: info.coverage_before_bps,
+                coverage_after_bps: info.coverage_after_bps,
+                error_fingerprint: null,
+              });
+            }
+          },
           generate_candidate: async () => {
             if (!this.workerEnabled) {
               return null;

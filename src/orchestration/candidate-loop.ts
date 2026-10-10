@@ -88,6 +88,8 @@ export interface IterateOptions {
   accepted_snapshot_dir?: string;
   /** D05/F04: kabul kararindan sonra cagirilir (checkpoint/blob baglantisi) */
   on_accepted?: (info: { iteration: number; files: Array<{ path: string; sha256: string }>; line_bps: number; branch_bps: number | null }) => void;
+  /** FIN06/12.1: her aday kararindan sonra cagirilir (DB candidate_iterations kaydi) */
+  on_decision?: (info: { iteration: number; decision: "adopted" | "rejected"; reason: string; changeset_hash: string | null; coverage_before_bps: number | null; coverage_after_bps: number | null }) => void;
 }
 
 export class CandidateLoop {
@@ -181,11 +183,13 @@ export class CandidateLoop {
         outcome = evaluateGoalMet(bestCoverageBps, bestBranchBps) ? "TARGET_REACHED" : "TARGET_NOT_MET_PLATEAU";
         break;
       }
+      const candidateHash = sha256Data(JSON.stringify(candidate));
 
       const applier = new PatchApplier(options.project_root, [{ module_relative_path: options.target_module_path, test_root: "src/test/java" }], options.staging_root);
       const applyResult = applier.apply(candidate);
 
       if (applyResult.failed.length > 0) {
+        options.on_decision?.({ iteration, decision: "rejected", reason: `Patch uygulama basarisiz: ${applyResult.failed[0]!.reason}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
         iterations.push({
           iteration,
           decision: "rejected",
@@ -224,6 +228,7 @@ export class CandidateLoop {
       }
 
       if (qualityFailed) {
+        options.on_decision?.({ iteration, decision: "rejected", reason: "Kalite kapisi basarisiz", changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
         iterations.push({
           iteration,
           decision: "rejected",
@@ -261,6 +266,7 @@ export class CandidateLoop {
         afterBranchBps = basisPointsFrom(afterCoverage?.branch);
 
         if (regressionFailures.length > 0) {
+          options.on_decision?.({ iteration, decision: "rejected", reason: `Regresyon: ${regressionFailures.join(", ")}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
           iterations.push({
             iteration,
             decision: "rejected",
@@ -276,6 +282,7 @@ export class CandidateLoop {
         }
 
         if (run.exit_code !== 0) {
+          options.on_decision?.({ iteration, decision: "rejected", reason: `Maven run basarisiz (exit ${run.exit_code})`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
           iterations.push({
             iteration,
             decision: "rejected",
@@ -296,6 +303,7 @@ export class CandidateLoop {
       const meaningfulGain = afterBps !== null && (bestCoverageBps === null || afterBps > bestCoverageBps);
       if (!meaningfulGain) {
         noProgressCount++;
+        options.on_decision?.({ iteration, decision: "rejected", reason: noProgressCount >= options.budget.no_progress_window ? "Plateau: ilerleme yok" : "Anlamsiz kazanc yok", changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
           iteration,
           decision: "rejected",
@@ -318,6 +326,8 @@ export class CandidateLoop {
       noProgressCount = 0;
       bestCoverageBps = afterBps;
       bestBranchBps = afterBranchBps;
+
+      options.on_decision?.({ iteration, decision: "adopted", reason: `Coverage kazanci: LINE ${afterBps} bps, BRANCH ${afterBranchBps ?? "N/A"} bps`, changeset_hash: candidateHash, coverage_before_bps: baselineBps, coverage_after_bps: afterBps });
 
       // D05/F04: kabul edilen aday dosyalari birikimli accepted snapshot'a yazilir;
       // sonraki iterasyon ve restart bu setin uzerinden devam eder.
