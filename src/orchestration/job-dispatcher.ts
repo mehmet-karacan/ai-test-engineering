@@ -33,8 +33,10 @@ export type RunnerKind = "docker" | "host_dev_only";
 
 export interface GoalContract {
   job_id: string;
+  /** K02/B02: hedef proje kokunden gelmeli; storage root degil */
   project_root: string;
   targets: Array<{ selector: string; kind: string; line_target_bps: number; branch_target_bps: number }>;
+  /** K02/B02: butce kullanici talebi/proje politikasindan; sabit 20/2/3 yok sayilamaz */
   budget: { max_candidate_iterations: number; max_repairs_per_candidate: number; no_progress_window: number };
   runner_kind: RunnerKind;
   model_profile: string | null;
@@ -68,15 +70,17 @@ export class JobDispatcher {
     this.workspaceRoot = options.workspaceRoot;
   }
 
-  buildGoalContract(job: JobRow, targets: Array<{ selector: string; kind: string; line_target_bps: number; branch_target_bps: number }>): GoalContract {
+  buildGoalContract(job: JobRow, targets: Array<{ selector: string; kind: string; line_target_bps: number; branch_target_bps: number }>, projectRoot: string): GoalContract {
+    // K02/B02: butce kullanici talebi/proje politikasindan (config.budgets); sabit 20/2/3 yok sayilmaz.
+    const budgets = this.services.config.budgets;
     return {
       job_id: job.id,
-      project_root: this.services.config.storage.root,
+      project_root: projectRoot,
       targets,
       budget: {
-        max_candidate_iterations: 20,
-        max_repairs_per_candidate: 2,
-        no_progress_window: 3,
+        max_candidate_iterations: budgets.max_candidate_iterations,
+        max_repairs_per_candidate: budgets.max_repairs_per_candidate,
+        no_progress_window: budgets.no_progress_window,
       },
       runner_kind: this.runnerKind,
       model_profile: null,

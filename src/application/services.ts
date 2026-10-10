@@ -341,7 +341,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     line_target_bps: percentToBasisPoints(parsed.coverage.percent),
     branch_target_bps: parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : 0,
   }));
-  const goal = dispatcher.buildGoalContract(job, goalTargets);
+  const goal = dispatcher.buildGoalContract(job, goalTargets, canonicalRoot);
   void dispatcher.dispatch(job, goal, canonicalRoot).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] job ${job.id} hata: ${String(error)}\n`);
   });
