@@ -22,6 +22,8 @@ import { InventoryQueryService } from "./inventory-query.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { readCoverageAfterRun, basisPointsFrom } from "../orchestration/candidate-loop.js";
+import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
+import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
 
 export const PARSER_VERSION = "statik-tarama-1";
 
@@ -377,6 +379,42 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     branch_target_bps: parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : 0,
   }));
   const goal = dispatcher.buildGoalContract(job, goalTargets, canonicalRoot);
+
+  // FIN01/K02/9.1: Immutable execution contract; is baslamadan sabitlenir.
+  // Secretsiz config snapshot'i job'a baglanir; sonradan global config degisince calisan job'un
+  // politikalari sessizce degismez.
+  const configSnapshot = buildSecretFreeConfigSnapshot(services.config);
+  const contract: JobContract = buildJobContract({
+    job_id: job.id,
+    project_id: location.project_id,
+    location_id: location.id,
+    canonical_root: canonicalRoot,
+    request_digest: digest,
+    idempotency_key: parsed.idempotency_key ?? null,
+    source_snapshot_digest: snapshotId,
+    resolved_targets: goalTargets.map((t) => ({
+      selector: t.selector,
+      kind: t.kind as "class" | "package" | "module",
+      resolved_fqn: null,
+      line_target_bps: t.line_target_bps,
+      branch_target_bps: t.branch_target_bps,
+    })),
+    runner_kind: runnerKind,
+    model_profile: parsed.model_profile ? { provider_id: parsed.model_profile.split("/")[0] ?? "", model_id: parsed.model_profile.split("/").slice(1).join("/") } : null,
+    policy_digest: configSnapshot.digest,
+    config_digest: configSnapshot.digest,
+    config_schema_version: services.config.schema_version,
+    budget: {
+      max_candidate_iterations: services.config.budgets.max_candidate_iterations,
+      max_repairs_per_candidate: services.config.budgets.max_repairs_per_candidate,
+      no_progress_window: services.config.budgets.no_progress_window,
+      total_job_minutes: services.config.budgets.total_job_minutes,
+    },
+    parent_contract_digest: null,
+    revision: 1,
+  });
+  jobs.updatePolicyDigest(job.id, contractRef(contract).digest, contract.config_digest, job.row_version);
+
   void dispatcher.dispatch(job, goal, canonicalRoot).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] job ${job.id} hata: ${String(error)}\n`);
   });

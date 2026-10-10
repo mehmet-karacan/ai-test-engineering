@@ -195,6 +195,22 @@ export class JobRepository {
     return this.getJob(id);
   }
 
+  /**
+   * FIN01/K02: Immutable contract referanslari job'a yazilir.
+   * policy_digest = contract digest; profile_digest = secretsiz config snapshot digest'i.
+   */
+  updatePolicyDigest(id: string, policyDigest: string, profileDigest: string | null, expectedRowVersion: number): JobRow {
+    const result = this.db
+      .prepare(
+        "UPDATE test_jobs SET policy_digest = ?, profile_digest = ?, updated_at = ?, row_version = row_version + 1 WHERE id = ? AND row_version = ?",
+      )
+      .run(policyDigest, profileDigest, Date.now(), id, expectedRowVersion);
+    if (result.changes === 0) {
+      throw new AppError("STORAGE_ERROR", `Policy digest guncelleme basarisiz (row_version cakismasi): ${id}`);
+    }
+    return this.getJob(id);
+  }
+
   appendEvent(input: JobEventInput): number {
     const tx = this.db.transaction((): number => {
       const row = this.db
