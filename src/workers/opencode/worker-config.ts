@@ -29,6 +29,10 @@ export const DEFAULT_DISABLED_TOOLS: readonly string[] = [
   "glob",
   "list",
   "read",
+  // RT21 pilot bulgusu: model, hedef sinif kaynak koduna erisemeyince 'question' tool'u ile
+  // interaktif soru soruyor (state:running) ve yanit bekliyor -> session bitmiyor (MODEL_TIMEOUT).
+  // Pilot akisi interaktif degil; interaktif ve yan MCP araclari kapali kalmali.
+  "question",
 ] as const;
 
 export const DEFAULT_ALLOWED_TOOLS: readonly string[] = [] as const;
