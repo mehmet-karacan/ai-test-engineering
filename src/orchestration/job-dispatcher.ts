@@ -19,7 +19,7 @@ import { buildPlan, runBaseline, parseSurefireReports } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner } from "../runners/maven-runner.js";
-import { DockerRunner, DockerMavenRunner, DEFAULT_MAVEN_IMAGE, assertDockerPreflightUsable } from "../runners/docker-runner.js";
+import { DockerRunner, DockerMavenRunner, assertDockerPreflightUsable } from "../runners/docker-runner.js";
 import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric, type TargetEvaluation } from "../coverage/coverage-math.js";
 import { findClassInReport, parseJacocoXml } from "../coverage/jacoco-parser.js";
@@ -132,37 +132,17 @@ export class JobDispatcher {
           return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Baseline basarisiz: ${baseline.failed_tests.join(", ")}` };
         }
       } else if (dockerRunner) {
-        // 8.3: credential'siz settings read-only baglanir; ayni kurallar baseline'da da gecerli:
-        const settingsPath = join(homedir(), ".m2", "settings.xml");
-        const hasSettings = existsSync(settingsPath);
-        const dockerOptions: {
-          working_dir: string;
-          image: string;
-          command: string[];
-          timeout_ms: number;
-          log_dir: string;
-          network: "none";
-          memory_mb: number;
-          cpus: number;
-          readonly_mounts?: Array<{ host: string; container: string }>;
-        } = {
-          working_dir: projectRoot,
-          image: DEFAULT_MAVEN_IMAGE,
-          command: ["mvn", ...(hasSettings ? ["-s", "/settings/settings.xml"] : []), "test"],
-          timeout_ms: 600000,
-          log_dir: join(resolve(projectRoot), "target", "aitest-docker-baseline-logs"),
-          network: "none",
-          memory_mb: 2048,
-          cpus: 2,
-        };
-        if (hasSettings) {
-          dockerOptions.readonly_mounts = [{ host: settingsPath, container: "/settings/settings.xml" }];
-        }
-        const dockerResult = await dockerRunner.run(dockerOptions);
-        if (dockerResult.exit_code !== 0) {
+        // KRITIK BULGU duzeltmesi: baseline da DockerMavenRunner uzerinden calisir (provisioning + izinli mirror).
+        // Onceki kusur: baseline dogrudan dockerRunner.run ile mvn test, network:none calisiyordu; cache bosken
+        // parent POM cozulemiyordu (Network is unreachable) ve BASELINE_FAILED uretiliyordu.
+        // Simdi baseline, loopRunner ile ayni DockerMavenRunner yolunu kullanir: cache bos ise provisioning
+        // asamasi izinli mirror'a gider; execution run'i yine network:none ile sandbox'lanir.
+        const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot);
+        const baseline = await runBaseline(projectRoot, baselineRunner, 600000);
+        if (baseline.status === "FAILED") {
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
-          return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Docker baseline basarisiz (exit ${dockerResult.exit_code})` };
+          return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Docker baseline basarisiz: ${baseline.failed_tests.join(", ")}` };
         }
       }
       phases.push("baseline_ok");
