@@ -12,6 +12,12 @@ export interface WorkerPromptContext {
   existing_tests_summary: string[];
   uncovered_areas: string[];
   previous_attempts?: Array<{ scenario: string; result: string; error?: string }>;
+  /**
+   * 10.2 zorunlu baglam: hedef sinifin gercek govdesi (method/class govdesi birebir).
+   * "Ilk bes dosya" veya yalniz imza yeterli degil; RT21 pilot bulgusu: govde olmadan model
+   * kaynak kodu isteyen aciklama yaziyor (JSON uretemiyor).
+   */
+  class_body?: string;
   policy_rules: string[];
 }
 
@@ -19,6 +25,11 @@ export const WORKER_ROLES: readonly WorkerRole[] = ["analyzer", "test_designer",
 
 export function buildWorkerPrompt(context: WorkerPromptContext): string {
   const roleIntro = roleIntroFor(context.role);
+  // 10.2: gercek govde prompt'a girer (RT21 pilot bulgusu: govdesiz prompt'ta model JSON uretemiyor);
+  // sinir: 12000 karakter (buyuk siniflarda kontrollu truncation + kayit yerine tam govde hedefi).
+  const classBody = context.class_body && context.class_body.length > 0
+    ? ["## Hedef sinifin gercek govdesi (birebir)", context.class_body.slice(0, 12000), ""]
+    : [];
   const sections = [
     roleIntro,
     "",
@@ -26,6 +37,7 @@ export function buildWorkerPrompt(context: WorkerPromptContext): string {
     `Paket: ${context.package_name}`,
     `Sinif: ${context.class_name}`,
     "",
+    ...classBody,
     "## Bagimlilik imzalari (sadece bunlari kullan)",
     ...context.dependencies_signatures.map((sig) => `- ${sig}`),
     "",

@@ -3,7 +3,7 @@
  * discovery -> baseline -> analiz/plan -> aday -> run -> dogrulama -> accepted checkpoint -> rapor.
  * MCP handler yalniz use-case'e yonlendirir; event loop'u bloke etmez.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -465,11 +465,15 @@ export class JobDispatcher {
     const targetFileName = `${targetFqn.split(".").pop()}.java`;
     const targetFile = javaFiles.find((f) => f.endsWith(targetFileName));
     const signatures: string[] = [];
+    let classBody = "";
     if (targetFile) {
       const { methods } = scanJavaFile(targetFile, projectRoot);
       for (const method of methods) {
         signatures.push(method.signature);
       }
+      // 10.2 zorunlu baglam: hedef sinifin gercek govdesi prompt'a girer (RT21 pilot bulgusu:
+      // govdesiz prompt'ta model kaynak kodu isteyen aciklama yaziyor, JSON uretemiyor).
+      classBody = readFileSync(targetFile, "utf8");
     } else {
       for (const file of javaFiles.slice(0, 5)) {
         const { methods } = scanJavaFile(file, projectRoot);
@@ -506,6 +510,7 @@ export class JobDispatcher {
       dependencies_signatures: signatures,
       existing_tests_summary: existingTests.length > 0 ? existingTests : ["bilinmiyor"],
       uncovered_areas: uncoveredAreas.length > 0 ? uncoveredAreas : [`${targetFqn}: kapsanmamis alanlar (bilinmiyor)`],
+      class_body: classBody.length > 0 ? classBody : "",
       policy_rules: [...DEFAULT_POLICY_RULES],
     };
     const prompt = buildWorkerPrompt(promptContext);
