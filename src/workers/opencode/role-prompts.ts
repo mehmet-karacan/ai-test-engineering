@@ -30,6 +30,8 @@ export function buildWorkerPrompt(context: WorkerPromptContext): string {
   const classBody = context.class_body && context.class_body.length > 0
     ? ["## Hedef sinifin gercek govdesi (birebir)", context.class_body.slice(0, 12000), ""]
     : [];
+  // 10.3: cikti bicimi zorlamasi (RT21 pilot bulgusu: JSON zorlanmazsa model markdown java kodu
+  // yaziyor; extractJsonCandidate bunu ceviremiyor):
   const sections = [
     roleIntro,
     "",
@@ -52,6 +54,11 @@ export function buildWorkerPrompt(context: WorkerPromptContext): string {
       : []),
     "## Zorunlu kurallar",
     ...context.policy_rules.map((r) => `- ${r}`),
+    "",
+    "## Cikti bicimi (zorunlu)",
+    "Yalnizca gecerli JSON dondur; aciklama, markdown, kod blogu veya baska metin YAZMA.",
+    'Beklenen yapis: {"schema_version":1,"changes":[{"path":"<src/test/java altinda relative yol>","action":"create|modify|delete","new_content":"<dosya tam icerigi>"}]}',
+    "new_content, dosyanin tam java icerigi olmali; kod blogu (```) icinde degil dogrudan JSON string olarak.",
   ];
   return sections.join("\n");
 }
