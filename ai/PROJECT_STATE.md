@@ -28,12 +28,21 @@
 | FIN14 | Benchmark corpus BM01-BM12 + trial kaydi | TAMAMLANDI | 2925252 |
 | FIN15 | Bagimsiz release verifier + teslim kurallari | TAMAMLANDI | 7532a5a |
 
-## Test kaniti (2026-10-10)
+## Test kaniti (2026-10-11)
 
-- TypeScript: 42 dosya, **356/356 PASSED** (unit + integration + contract + security + benchmark)
-- lint: 0 errors; typecheck: TEMIZ; build: TEMIZ
-- release-verify.mjs: exit 0 (tum zorunlu kontroller gecti; source tree digest 44940ab3...)
+- TypeScript: 44 dosya, **375/375 PASSED** (unit + integration + contract + security + benchmark)
+- lint: 1 error (release-verify.mjs sha256File unused; onceki devirlerden, kapsam disi); typecheck: TEMIZ; build: TEMIZ
+- release-verify.mjs: exit 0 (tum zorunlu kontroller gecti; source tree digest d59dbd7e...)
 - Kurulum scriptleri: install/uninstall/verify-install/mcp-handshake-smoke mevcut
+
+## RT21 pilot durumu (2026-10-11)
+
+- Gercek proje pilotu (sky_backend): BLOCKED_PROVIDER - kurum model provider'i uzun cikti isteklerinde
+  degisken davraniyor (bos yanit/finish=length/timeout); kullanici karariyla pilot bolgesi kapatildi
+- Urun tarafi hazir ve kanitli: baseline DockerMavenRunner (provisioning), worker XDG izolasyonu,
+  question tool kapanik, prompt baglami (class_body 10.2 + cikti bicimi 10.3), PATCH_ONLY siniri
+- Kanit: ai/checkpoints/2026-10-11-rt21-pilot-kapanis.md (teshis zinciri + diag komutlari)
+- Commitler: 9171338, a4bd45d, 4884e99, 76b429c, f6e494a
 
 ## Ortam (2026-10-10)
 
@@ -49,13 +58,16 @@
 
 ## Son commit
 
-- 7532a5a feat: FIN15 - bagimsiz release verifier ve teslim kurallari
+- f6e494a fix: worker prompt'una cikti bicimi JSON zorlamasi eklendi (10.3; RT21 pilot bulgusu)
 
 ## Acik blocker
 
 - Canli kurum modeli benchmark trials: kaynak/butce acik kaydi gerekiyor; altyapi hazir
-- Gercek proje pilotu: yetkili hedef sinif kullaniciyla secilmeli
+- Gercek proje pilotu (20.5): BLOCKED_PROVIDER (model provider degisken davranisi; kullanici karariyla
+  kapatildi; urun tarafi hazir - pilot yeniden acilis kosulu kapanis checkpoint'inde)
 
 ## Sonraki somut is
 
 - Canli model benchmark (FIN14 trial planina gore) engel kalkinca ayni gorevden surdurulur.
+- Pilot yeniden acilis: provider istikrarli yanit verdiginde rt21-pilot2.mjs ile ayni komutlar (kapanis
+  checkpoint'indeki kanit zinciri).

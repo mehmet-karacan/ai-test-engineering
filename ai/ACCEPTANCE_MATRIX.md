@@ -46,11 +46,14 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ
 
 - Sentetik/yerel kabuller: IMPLEMENTATION_VERIFIED
 - Canli kurum modeli benchmark trials (20.3): BLOCKED_KAYITLI (kaynak/butce kaydi gerekiyor; altyapi hazir)
-- Gercek proje pilotu (20.5): BLOCKED_KAYITLI (hedef sinif kullaniciyla secilmeli)
+- Gercek proje pilotu (20.5): BLOCKED_PROVIDER (kurum model provider'i uzun cikti isteklerinde degisken
+  davraniyor: bos yanit/finish=length/timeout; kullanici karariyla pilot bolgesi kapatildi; urun tarafi
+  hazir - worker izolasyonu, tool policy, prompt baglami 10.2/10.3, PATCH_ONLY siniri kanitli;
+  kanit: ai/checkpoints/2026-10-11-rt21-pilot-kapanis.md)
 - Paket yayin durumu: UNSIGNED/NOT_PUBLISHED (kurum signing key yok; dogru etiket)
 
 ## Ozet
 
 - FIN00-FIN15: 16/16 TAMAMLANDI
-- Test: 356/356 PASSED (42 dosya)
+- Test: 375/375 PASSED (44 dosya; 2026-10-11)
 - Canli kurum kabulleri: engel kalkinca ayni gorev (003 v2.0) surer; yeni gorev acilmaz
