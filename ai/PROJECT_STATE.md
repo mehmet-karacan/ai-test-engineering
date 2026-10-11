@@ -2,10 +2,10 @@
 
 ## Aktif gorev
 
-- Gorev: AITE-REPORT06-INTEGRATION-004 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: W00-W11 coordinator denetimi; yerel/deterministik suite gecti, tam runtime kabul ayrik
-- Durum etiketi: `004_LOCAL_VERIFIED_AUDIT_PENDING` (tam urun kabul: NOT_VERIFIED)
-- Son guncelleme: 2026-10-11
+- Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
+- Asama: P00-P01 tamamlandi; P02 lease/fencing uygulamasi ve odak testleri suruyor
+- Durum etiketi: `005_P01_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
+- Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
 ## 004 paketleri durumu (W00-W11)
@@ -24,6 +24,15 @@
 | W09 | N61 kurulum/ops | LOCAL_VERIFIED | w09-install + bootstrap |
 | W10 | F17/F18 ledger + verifier | LOCAL_VERIFIED | w10-ledger + release-verify exit 0 |
 | W11 | Nihai teslim ve model devri | SURUYOR | handoff |
+
+## 005 paketleri durumu
+
+| Paket | Is | Durum | Kanit |
+| --- | --- | --- | --- |
+| P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
+| P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
+| P02 | Lease, TTL, fencing, heartbeat ve CAS | IN_PROGRESS | durability/w05/fencing odak testleri |
+| P03-P10 | Checkpoint, izolasyon, baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
 

@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-REPORT06-INTEGRATION-004 v1.0 (sozlesme: AKTIF_GOREV.md). Yerel suite gecti; W11 coordinator denetimi suruyor.
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00 tamamlandi; P01 local/full release gate LOCAL_VERIFIED; P02 suruyor.
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 
 ## 004 uygulama paketleri (W00-W11)
@@ -21,6 +21,15 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | W09 | Yerel paket/kurulum/ops kalanlari | LOCAL_VERIFIED | w09-install + bootstrap |
 | W10 | Tum obligation'lar ve release verifier | LOCAL_VERIFIED | w10-ledger + release-verify exit 0 |
 | W11 | Nihai teslim ve model devri | IN_PROGRESS | handoff |
+
+## 005 uygulama paketleri (P00-P10)
+
+| Paket | Is | Durum | Kanit |
+| --- | --- | --- | --- |
+| P00 | Sozlesme devri, arsiv/hash ve baseline | VERIFIED | production-005-p00-baseline |
+| P01 | Fail-closed release gate ve evidence manifest dogrulamasi | LOCAL_VERIFIED | production-005-p01-gate; 25/25 |
+| P02 | Lease sahipligi, TTL/fencing ve checkpoint CAS | IN_PROGRESS | durability/w05/fencing 24/24 |
+| P03-P10 | Kalan readiness, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 

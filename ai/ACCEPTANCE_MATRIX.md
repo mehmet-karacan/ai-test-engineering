@@ -1,8 +1,15 @@
-# Kabul Matrisi - AC/RG/RT/PRO + N (AITE-RUNTIME-ACCEPTANCE-003 v2.0 + AITE-REPORT06-INTEGRATION-004 v1.0)
+# Kabul Matrisi - AC/RG/RT/PRO + N (AITE-PRODUCTION-READINESS-005 v1.0; tarihsel 003/004 kayitlari korunur)
 
 Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kismen)" KULLANILMAZ.
 
-## Kabul durumu degisimi (004 v1.0, 2026-10-11)
+## Kabul durumu degisimi (005 v1.0, 2026-10-12)
+
+- P00: aktif sozlesme devri ve baseline kayda alindi.
+- P01: release gate local/full ayrimi ve fail-closed evidence dogrulamasi LOCAL_VERIFIED; P01 25/25.
+- P02: lease/fencing odak testleri 24/24; production readiness calismasi devam ediyor.
+- Full product acceptance: **NOT_VERIFIED**; live pilot/platform kaniti uydurulmaz.
+
+## Tarihsel 004 kaydi (2026-10-11)
 
 - Onceki: 003 v2.0 FINALIZATION_IN_PROGRESS -> FIN00-FIN15 IMPLEMENTATION_VERIFIED (375/375).
 - Yeni: AITE-REPORT06-INTEGRATION-004 v1.0 coordinator denetimi -> **473/473 test + release-verify exit 0 + lint 0 error**; tam runtime/pilot kabul NOT_VERIFIED.
