@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
-| P02 | Lease, TTL, fencing, heartbeat ve CAS | IN_PROGRESS | durability/w05/fencing odak testleri |
+| P02 | Lease, TTL, fencing, heartbeat ve CAS | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-lease.md; 37/37 odak suite; Docker runtime BLOCKED |
 | P03-P10 | Checkpoint, izolasyon, baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)

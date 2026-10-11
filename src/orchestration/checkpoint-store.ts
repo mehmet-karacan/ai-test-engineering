@@ -107,12 +107,38 @@ export class CheckpointStore {
     const checkpointId = randomUUID();
 
     const tx = this.db.transaction((): { checkpoint_id: string; manifest_sha256: string } => {
+      const now = Date.now();
       if (lease) {
+        // R02/PP05: fence = owner + token + gecerlilik (expires_at). Stale VEYA
+        // expired lease accepted pointer'i ilerletemez.
         const leaseRow = this.db
-          .prepare<[string, string], { fencing_token: number }>("SELECT fencing_token FROM job_leases WHERE job_id = ? AND owner_id = ?")
+          .prepare<[string, string], { fencing_token: number; expires_at: number }>("SELECT fencing_token, expires_at FROM job_leases WHERE job_id = ? AND owner_id = ?")
           .get(manifest.job_id, lease.owner_id);
         if (!leaseRow || leaseRow.fencing_token !== lease.fencing_token) {
           throw new AppError("POLICY_VIOLATION", "Lease fence gecersiz; checkpoint publish reddedildi", { reason_code: "STALE_FENCE" });
+        }
+        if (leaseRow.expires_at <= now) {
+          throw new AppError("POLICY_VIOLATION", "Lease suresi doldu; checkpoint publish reddedildi", { reason_code: "LEASE_EXPIRED" });
+        }
+      }
+
+      // R02/PP05: expected generation/row CAS - pointer, bildirim degil GERCEK
+      // best pointer'dan gelen expected generation ile dogrulanir.
+      const jobRow = this.db
+        .prepare<[string], { best_checkpoint_id: string | null; row_version: number }>(
+          "SELECT best_checkpoint_id, row_version FROM test_jobs WHERE id = ?",
+        )
+        .get(manifest.job_id);
+
+      if (jobRow) {
+        const expectedGen = expectedParentGeneration !== null ? expectedParentGeneration : null;
+        if (expectedGen !== null && jobRow.best_checkpoint_id) {
+          const bestRow = this.db
+            .prepare<[string], { generation: number }>("SELECT generation FROM checkpoints WHERE id = ?")
+            .get(jobRow.best_checkpoint_id);
+          if (bestRow && bestRow.generation !== expectedGen) {
+            throw new AppError("POLICY_VIOLATION", "Best pointer generation cakismasi; stale publish reddedildi", { reason_code: "GENERATION_CONFLICT" });
+          }
         }
       }
 
@@ -146,9 +172,16 @@ export class CheckpointStore {
           manifest.created_at,
         );
 
-      this.db
-        .prepare("UPDATE test_jobs SET best_checkpoint_id = ?, updated_at = ?, row_version = row_version + 1 WHERE id = ?")
-        .run(checkpointId, Date.now(), manifest.job_id);
+      // R02/PP05: pointer, beklenen row version ile CAS yapilir; uyusmazsa
+      // stale/expired yazim accepted pointer'i ilerletemez (transaction rollback).
+      const pointerUpdate = jobRow
+        ? this.db
+            .prepare("UPDATE test_jobs SET best_checkpoint_id = ?, updated_at = ?, row_version = row_version + 1 WHERE id = ? AND row_version = ?")
+            .run(checkpointId, Date.now(), manifest.job_id, jobRow.row_version)
+        : null;
+      if (jobRow && pointerUpdate && pointerUpdate.changes === 0) {
+        throw new AppError("POLICY_VIOLATION", "Job row version cakismasi; pointer ilerletilemedi", { reason_code: "ROW_VERSION_CONFLICT" });
+      }
 
       return { checkpoint_id: checkpointId, manifest_sha256: manifestBlob.sha256 };
     });

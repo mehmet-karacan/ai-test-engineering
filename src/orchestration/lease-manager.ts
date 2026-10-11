@@ -34,11 +34,12 @@ export class LeaseManager {
       const now = Date.now();
       const existing = this.db
         .prepare<[string], { id: string; owner_id: string; fencing_token: number; expires_at: number; heartbeat_at: number; process_identity: string | null }>(
-          "SELECT id, owner_id, fencing_token, expires_at, heartbeat_at, process_identity FROM job_leases WHERE job_id = ?",
+          "SELECT id, owner_id, fencing_token, expires_at, heartbeat_at, process_identity FROM job_leases WHERE job_id = ? ORDER BY fencing_token DESC LIMIT 1",
         )
         .get(jobId);
 
-      if (existing && existing.owner_id === ownerId) {
+      // 1) Ayni owner, saglikli lease: idempotent yenileme (token ayni kalir).
+      if (existing && existing.owner_id === ownerId && existing.expires_at > now) {
         this.db
           .prepare("UPDATE job_leases SET expires_at = ?, heartbeat_at = ? WHERE job_id = ? AND owner_id = ?")
           .run(now + ttlMs, now, jobId, ownerId);
@@ -49,7 +50,16 @@ export class LeaseManager {
         };
       }
 
-      const previousOwnerAlive = existing !== undefined && existing.owner_id !== ownerId && existing.expires_at > now;
+      // 2) R01/PP04: saglikli BASKA owner varken atomik typed ret; DB owner/token/pointer degistirilmez.
+      if (existing && existing.owner_id !== ownerId && existing.expires_at > now) {
+        throw new AppError("POLICY_VIOLATION", "Job aktif baska owner tarafindan tutuluyor; devralma atomik olarak reddedildi", {
+          reason_code: "LEASE_HELD",
+          active_owner: existing.owner_id,
+          active_token: existing.fencing_token,
+        });
+      }
+
+      // 3) Owner yok ya da expired (ayni veya baska): yeni generation/token ile devralma.
       const nextToken = (existing?.fencing_token ?? 0) + 1;
 
       if (existing) {
@@ -61,7 +71,7 @@ export class LeaseManager {
         return {
           lease: { id: existing.id, job_id: jobId, owner_id: ownerId, fencing_token: nextToken, expires_at: now + ttlMs, heartbeat_at: now },
           created: false,
-          previous_owner_alive: previousOwnerAlive,
+          previous_owner_alive: false,
         };
       }
 
@@ -82,11 +92,13 @@ export class LeaseManager {
 
   renew(jobId: string, ownerId: string, ttlMs: number): Lease {
     const now = Date.now();
+    // R02/PP05: renewal owner + token + gecerlilik kosullariyla yapilir;
+    // expired owner+token sessiz diriltilmez (expires_at <= now ise changes 0).
     const result = this.db
-      .prepare("UPDATE job_leases SET expires_at = ?, heartbeat_at = ? WHERE job_id = ? AND owner_id = ?")
-      .run(now + ttlMs, now, jobId, ownerId);
+      .prepare("UPDATE job_leases SET expires_at = ?, heartbeat_at = ? WHERE job_id = ? AND owner_id = ? AND expires_at > ?")
+      .run(now + ttlMs, now, jobId, ownerId, now);
     if (result.changes === 0) {
-      throw new AppError("POLICY_VIOLATION", "Lease yenileme basarisiz; sahiplik degisti", { reason_code: "LEASE_LOST" });
+      throw new AppError("POLICY_VIOLATION", "Lease yenileme basarisiz; sahiplik degisti veya lease suresi doldu", { reason_code: "LEASE_LOST" });
     }
     return this.get(jobId);
   }
@@ -108,7 +120,7 @@ export class LeaseManager {
     if (lease.owner_id !== ownerId || lease.fencing_token !== fencingToken) {
       throw new AppError("POLICY_VIOLATION", "Stale fence: eski worker sonucu kabul edilmedi", { reason_code: "STALE_FENCE" });
     }
-    if (lease.expires_at < Date.now()) {
+    if (lease.expires_at <= Date.now()) {
       throw new AppError("POLICY_VIOLATION", "Lease suresi bitti", { reason_code: "LEASE_EXPIRED" });
     }
   }

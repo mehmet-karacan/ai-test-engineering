@@ -28,7 +28,7 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | --- | --- | --- | --- |
 | P00 | Sozlesme devri, arsiv/hash ve baseline | VERIFIED | production-005-p00-baseline |
 | P01 | Fail-closed release gate ve evidence manifest dogrulamasi | LOCAL_VERIFIED | production-005-p01-gate; 25/25 |
-| P02 | Lease sahipligi, TTL/fencing ve checkpoint CAS | IN_PROGRESS | durability/w05/fencing 24/24 |
+| P02 | Lease sahipligi, TTL/fencing, heartbeat, owned process ve checkpoint CAS | LOCAL_VERIFIED | production-005-p02-lease; 37/37 odak suite; Docker runtime BLOCKED |
 | P03-P10 | Kalan readiness, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)

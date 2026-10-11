@@ -3,10 +3,17 @@
  * Capability preflight kurulumda dogrulanir; kabiliyet yoksa BLOCKED_ISOLATION.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { MavenRunner, type MavenRunOptions, type RunResult } from "./maven-runner.js";
+
+const MAX_DOCKER_LOG_BYTES = 8 * 1024 * 1024;
+
+interface OwnedDockerRun {
+  child: ChildProcess;
+  cidFile: string;
+}
 
 export interface DockerPreflightResult {
   docker_available: boolean;
@@ -53,7 +60,7 @@ export interface DockerRunOptions {
 export const DEFAULT_MAVEN_IMAGE = "maven:3.9-eclipse-temurin-21";
 
 export class DockerRunner {
-  private readonly running = new Map<number, ChildProcess>();
+  private readonly running = new Map<number, OwnedDockerRun>();
 
   async preflight(image: string = DEFAULT_MAVEN_IMAGE): Promise<DockerPreflightResult> {
     const errors: string[] = [];
@@ -91,10 +98,20 @@ export class DockerRunner {
       const child = spawn(command[0]!, command.slice(1), { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
-      child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-      child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+      const stdoutState = { value: 0 };
+      const stderrState = { value: 0 };
+      const appendLimited = (current: string, chunk: Buffer, bytes: { value: number }): string => {
+        if (bytes.value >= MAX_DOCKER_LOG_BYTES) {
+          return current;
+        }
+        const accepted = chunk.subarray(0, MAX_DOCKER_LOG_BYTES - bytes.value);
+        bytes.value += accepted.length;
+        return current + accepted.toString("utf8");
+      };
+      child.stdout?.on("data", (chunk: Buffer) => { stdout = appendLimited(stdout, chunk, stdoutState); });
+      child.stderr?.on("data", (chunk: Buffer) => { stderr = appendLimited(stderr, chunk, stderrState); });
       const timer = setTimeout(() => {
-        child.kill();
+        this.stopChild(child);
         resolvePromise({ ok: false, stdout, stderr: `${stderr}\ntimeout` });
       }, timeoutMs);
       child.on("exit", (code) => {
@@ -111,10 +128,13 @@ export class DockerRunner {
   async run(options: DockerRunOptions): Promise<{ exit_code: number; duration_ms: number; stdout_log_path: string; timed_out: boolean }> {
     mkdirSync(options.log_dir, { recursive: true });
     const stdoutLog = join(options.log_dir, "docker-stdout.log");
+    const cidFile = join(options.log_dir, "container-id.txt");
+    rmSync(cidFile, { force: true });
     const hostProject = resolve(options.working_dir);
 
     const args = [
       "run", "--rm",
+      "--cidfile", cidFile,
       "--network", options.network,
       "--memory", `${options.memory_mb}m`,
       "--cpus", String(options.cpus),
@@ -132,19 +152,29 @@ export class DockerRunner {
 
     const started = Date.now();
     const child = spawn("docker", args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const ownedRun: OwnedDockerRun = { child, cidFile };
     if (child.pid !== undefined) {
-      this.running.set(child.pid, child);
+      this.running.set(child.pid, ownedRun);
     }
 
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
+      this.stopOwnedRun(ownedRun);
     }, options.timeout_ms);
 
     let stdout = "";
-    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-    child.stderr?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    let outputBytes = 0;
+    const appendLimited = (chunk: Buffer): void => {
+      if (outputBytes >= MAX_DOCKER_LOG_BYTES) {
+        return;
+      }
+      const accepted = chunk.subarray(0, MAX_DOCKER_LOG_BYTES - outputBytes);
+      outputBytes += accepted.length;
+      stdout += accepted.toString("utf8");
+    };
+    child.stdout?.on("data", appendLimited);
+    child.stderr?.on("data", appendLimited);
 
     const exitCode = await new Promise<number>((resolveExit) => {
       child.on("exit", (code) => resolveExit(code ?? -1));
@@ -162,18 +192,50 @@ export class DockerRunner {
 
   /** Yalniz bu runner'in sahip oldugu docker client process'lerini durdurur. */
   stopAll(): void {
-    for (const child of this.running.values()) {
-      try {
-        if (process.platform === "win32") {
-          spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
-        } else {
-          child.kill("SIGTERM");
-        }
-      } catch {
-        // process zaten kapanmis olabilir
-      }
+    for (const ownedRun of this.running.values()) {
+      this.stopOwnedRun(ownedRun);
     }
     this.running.clear();
+  }
+
+  private stopChild(child: ChildProcess): void {
+    try {
+      if (child.exitCode !== null) {
+        return;
+      }
+      if (process.platform === "win32") {
+        spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
+      } else {
+        child.kill("SIGTERM");
+        const forceTimer = setTimeout(() => {
+          if (child.exitCode === null) {
+            child.kill("SIGKILL");
+          }
+        }, 5000);
+        forceTimer.unref?.();
+      }
+    } catch {
+      // process zaten sonlanmis olabilir
+    }
+  }
+
+  private stopOwnedRun(ownedRun: OwnedDockerRun): void {
+    const cid = existsSync(ownedRun.cidFile) ? readFileSync(ownedRun.cidFile, "utf8").trim() : "";
+    if (!cid) {
+      this.stopChild(ownedRun.child);
+      return;
+    }
+    try {
+      const stopper = spawn("docker", ["stop", "--time", "5", cid], { stdio: "ignore", shell: false, windowsHide: true });
+      stopper.once("error", () => this.stopChild(ownedRun.child));
+      stopper.once("close", () => {
+        if (ownedRun.child.exitCode === null) {
+          this.stopChild(ownedRun.child);
+        }
+      });
+    } catch {
+      this.stopChild(ownedRun.child);
+    }
   }
 
   private buildTmpMounts(options: DockerRunOptions): string[] {

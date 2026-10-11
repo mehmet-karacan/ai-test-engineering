@@ -107,16 +107,48 @@ export class JobDispatcher {
     const checkpoints = new CheckpointStore(storage.db, this.workspaceRoot);
     const inventory = new InventoryRepository(storage.db);
     const ownerId = executionOwnerId ?? `dispatch-${process.pid}-${job.id}`;
+    const leaseTtlMs = 300000;
     let leaseAcquired = false;
     let activeLease: { owner_id: string; fencing_token: number } | null = null;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let leaseLost = false;
+    const assertLease = (): void => {
+      if (!activeLease || leaseLost) {
+        throw new AppError("POLICY_VIOLATION", "Dispatch lease kaybedildi; yeni sonuc yazilamaz", { reason_code: "LEASE_LOST" });
+      }
+      leases.assertFence(job.id, activeLease.owner_id, activeLease.fencing_token);
+    };
+    const stopHeartbeat = (): void => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    };
+    const startHeartbeat = (): void => {
+      heartbeatTimer = setInterval(() => {
+        if (!activeLease) {
+          return;
+        }
+        try {
+          leases.renew(job.id, ownerId, leaseTtlMs);
+        } catch (error) {
+          leaseLost = true;
+          process.stderr.write(`[aitest-dispatch] job ${job.id} heartbeat lease kaybi: ${String(error)}\n`);
+          this.stopOwnedProcesses(job.id);
+        }
+      }, Math.max(1000, Math.floor(leaseTtlMs / 3)));
+      heartbeatTimer.unref?.();
+    };
 
     try {
-      const acquired = leases.acquire(job.id, ownerId, 300000, `dispatcher-${process.pid}`);
+      const acquired = leases.acquire(job.id, ownerId, leaseTtlMs, `dispatcher-${process.pid}`);
       if (acquired.previous_owner_alive) {
         throw new AppError("POLICY_VIOLATION", "Job baska aktif owner tarafindan calistiriliyor", { reason_code: "LEASE_HELD" });
       }
       leaseAcquired = true;
       activeLease = { owner_id: acquired.lease.owner_id, fencing_token: acquired.lease.fencing_token };
+      startHeartbeat();
+      assertLease();
       jobs.updatePhase(job.id, "preflight", jobs.getJob(job.id).row_version);
       phases.push("preflight");
 
@@ -137,6 +169,7 @@ export class JobDispatcher {
       }
       phases.push("preflight_ok");
 
+      assertLease();
       jobs.updatePhase(job.id, "baseline", jobs.getJob(job.id).row_version);
       phases.push("baseline");
 
@@ -242,6 +275,7 @@ export class JobDispatcher {
       const loopResults = new Map<string, IterationLoopResult>();
 
       for (const resolved of resolvedTargets) {
+        assertLease();
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
         const iterateOptions: IterateOptions = {
           project_root: projectRoot,
@@ -258,6 +292,7 @@ export class JobDispatcher {
         // accepted manifest blob'u + DB checkpoint satiri + best_checkpoint pointer'i publish edilir.
         accepted_snapshot_dir: acceptedDir,
         on_accepted: (info) => {
+          assertLease();
           // 1) gercek accepted checkpoint manifest'i publish et (artifact + DB pointer):
           let publishedCheckpointId: string | null = null;
           try {
@@ -310,6 +345,7 @@ export class JobDispatcher {
         },
           // FIN06/12.1: her aday karari DB candidate_iterations tablosuna yazilir (job iliskisi):
           on_decision: (info) => {
+            assertLease();
             if (storage) {
               new InventoryRepository(storage.db).writeCandidateIteration({
                 job_id: job.id,
@@ -326,6 +362,7 @@ export class JobDispatcher {
             }
           },
           generate_candidate: async () => {
+            assertLease();
             const latest = jobs.getJob(job.id);
             if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
               throw new AppError("POLICY_VIOLATION", `Job ${latest.lifecycle} iken yeni aday baslatilamaz`, { reason_code: latest.lifecycle });
@@ -338,10 +375,12 @@ export class JobDispatcher {
           generation_failure_reason: () => this.workerEnabled ? null : "WORKER_DISABLED",
         };
         const loopResult = await loop.iterate(iterateOptions, goal.start_iteration ?? 1);
+        assertLease();
         loopResults.set(resolved.fqn, loopResult);
         phases.push(`loop_${resolved.selector}_${loopResult.outcome}`);
       }
 
+      assertLease();
       jobs.updatePhase(job.id, "verification", jobs.getJob(job.id).row_version);
       phases.push("verification");
 
@@ -436,6 +475,7 @@ export class JobDispatcher {
         coverage_after_bps: iteration.coverage_after_bps,
       })));
       const latestBeforeFinalize = jobs.getJob(job.id);
+      assertLease();
       if (latestBeforeFinalize.lifecycle === "CANCELLED" || latestBeforeFinalize.lifecycle === "PAUSED") {
         throw new AppError("POLICY_VIOLATION", `Job ${latestBeforeFinalize.lifecycle} olarak finalize edilemez`, { reason_code: latestBeforeFinalize.lifecycle });
       }
@@ -486,6 +526,7 @@ export class JobDispatcher {
 
       ownedRunners.delete(job.id);
       ownedWorkerServers.delete(job.id);
+      stopHeartbeat();
       if (leaseAcquired) {
         leases.release(job.id, ownerId);
       }
@@ -497,6 +538,7 @@ export class JobDispatcher {
       // Hata/cancel yolunda bu dispatch'in owned kaynaklari kapanir; yeni
       // dispatcher instance'i da module registry uzerinden ayni job'u bulur.
       this.stopOwnedProcesses(job.id);
+      stopHeartbeat();
       if (leaseAcquired) {
         leases.release(job.id, ownerId);
       }

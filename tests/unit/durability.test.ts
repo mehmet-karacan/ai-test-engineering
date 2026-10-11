@@ -46,27 +46,28 @@ describe("Lease/fence (AC48/AC49)", () => {
     expect(result.lease.fencing_token).toBe(1);
   });
 
-  it("aktif lease'de yeni owner devralir ve eski owner fence'i reddedilir (AC48)", () => {
+  it("aktif lease'de yeni owner atomik olarak reddedilir; owner/token degismez (R01/PP04)", () => {
     leases.acquire(jobId, "owner-1", 300000);
-    const second = leases.acquire(jobId, "owner-2", 300000);
-    expect(second.previous_owner_alive).toBe(true);
-    expect(second.lease.owner_id).toBe("owner-2");
-    expect(second.lease.fencing_token).toBe(2);
+    expect(() => leases.acquire(jobId, "owner-2", 300000)).toThrow(/aktif baska owner/);
+    const current = leases.get(jobId);
+    expect(current.owner_id).toBe("owner-1");
+    expect(current.fencing_token).toBe(1);
   });
 
-  it("lease suresi bitince yeni owner token'la devralmali (monoton token)", () => {
+  it("lease suresi bitince yeni owner token'la devralmali (monoton token)", async () => {
     leases.acquire(jobId, "owner-1", 50);
+    await new Promise((resolve) => setTimeout(resolve, 70));
     const manager = new LeaseManager(storage.db);
     const acquired = manager.acquire(jobId, "owner-2", 300000);
     expect(acquired.lease.owner_id).toBe("owner-2");
     expect(acquired.lease.fencing_token).toBe(2);
   });
 
-  it("aktif lease'de yeni owner devralir; eski owner fence'i reddedilir (AC49)", () => {
+  it("aktif lease'de yeni owner reddedilir; suresi dolunca eski fence gecersiz olur (AC49/PP04)", () => {
     const lease1 = leases.acquire(jobId, "owner-1", 300000);
+    expect(() => leases.acquire(jobId, "owner-2", 300000)).toThrow(/aktif baska owner/);
+    storage.db.prepare("UPDATE job_leases SET expires_at = ? WHERE job_id = ?").run(Date.now() - 1, jobId);
     const second = leases.acquire(jobId, "owner-2", 300000);
-    expect(second.previous_owner_alive).toBe(true);
-    expect(second.lease.owner_id).toBe("owner-2");
     expect(second.lease.fencing_token).toBe(2);
     expect(() => leases.assertFence(jobId, "owner-1", lease1.lease.fencing_token)).toThrow();
     try {
@@ -83,6 +84,7 @@ describe("Lease/fence (AC48/AC49)", () => {
 
   it("lease kaybedildiginde renew reddedilmeli", () => {
     leases.acquire(jobId, "owner-1", 300000);
+    storage.db.prepare("UPDATE job_leases SET expires_at = ? WHERE job_id = ?").run(Date.now() - 1, jobId);
     leases.acquire(jobId, "owner-2", 300000);
     expect(() => leases.renew(jobId, "owner-1", 300000)).toThrow();
   });
@@ -160,10 +162,12 @@ describe("Checkpoint atomic publish (AC47)", () => {
 
   it("stale fence ile checkpoint publish reddedilmeli (AC47/AC49)", () => {
     const lease1 = leases.acquire(jobId, "owner-1", 300000);
+    storage.db.prepare("UPDATE job_leases SET expires_at = ? WHERE job_id = ?").run(Date.now() - 1, jobId);
     leases.acquire(jobId, "owner-2", 300000);
     expect(() =>
       store.publishCheckpoint(manifest(0), { owner_id: lease1.lease.owner_id, fencing_token: lease1.lease.fencing_token }, null),
     ).toThrow();
+    expect(store.bestCheckpoint(jobId)).toBeNull();
   });
 
   it("parent generation cakismasinda publish reddedilmeli", () => {
@@ -187,6 +191,7 @@ describe("Checkpoint atomic publish (AC47)", () => {
   it("ikinci publish token'la devralmali; best pointer guncellenmeli", () => {
     const lease1 = leases.acquire(jobId, "owner-1", 300000);
     const first = store.publishCheckpoint(manifest(0), { owner_id: lease1.lease.owner_id, fencing_token: lease1.lease.fencing_token }, null);
+    storage.db.prepare("UPDATE job_leases SET expires_at = ? WHERE job_id = ?").run(Date.now() - 1, jobId);
     const lease2 = leases.acquire(jobId, "owner-2", 300000);
     const second = store.publishCheckpoint(manifest(1, first.checkpoint_id), { owner_id: lease2.lease.owner_id, fencing_token: lease2.lease.fencing_token }, 0);
     expect(store.bestCheckpoint(jobId)).toBe(second.checkpoint_id);
@@ -273,6 +278,7 @@ describe("Recovery (AC45/AC46/AC48/AC51 hazirligi)", () => {
     );
 
     const found = recovery.findResumableJob([locationId])!;
+    storage.db.prepare("UPDATE job_leases SET expires_at = ? WHERE job_id = ?").run(Date.now() - 1, job.id);
     const plan = recovery.planRecovery(found, "owner-new", { current_source_digest: null, current_build_digest: null });
     expect(plan.action).toBe("resume");
     expect(plan.checkpoint_id).toBe(ckpt.checkpoint_id);
@@ -297,13 +303,14 @@ describe("Recovery (AC45/AC46/AC48/AC51 hazirligi)", () => {
     expect(updatedJob.outcome).toBe("SOURCE_CHANGED");
   });
 
-  it("aktif owner'in lease'i devralinir; onceki owner fence'i reddedilir (AC48/AC49)", () => {
+  it("aktif owner lease'i devredilemez; recovery mutasyon yapmadan reddedilir (R01/PP04)", () => {
     const job = jobs.createJob({ locationId, requestDigest: "digest-rec-4" });
     jobs.updateLifecycle(job.id, "INTERRUPTED", 0);
     const oldLease = leases.acquire(job.id, "baska-owner", 300000);
     const found = recovery.findResumableJob([locationId])!;
-    const plan = recovery.planRecovery(found, "yeni-owner", { current_source_digest: null, current_build_digest: null });
-    expect(plan.action).toBeDefined();
-    expect(() => leases.assertFence(job.id, "baska-owner", oldLease.lease.fencing_token)).toThrow();
+    expect(() => recovery.planRecovery(found, "yeni-owner", { current_source_digest: null, current_build_digest: null })).toThrow(/aktif baska owner/);
+    const current = leases.get(job.id);
+    expect(current.owner_id).toBe("baska-owner");
+    expect(current.fencing_token).toBe(oldLease.lease.fencing_token);
   });
 });

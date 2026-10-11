@@ -114,11 +114,14 @@ describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
     expect(plan.source_changed).toBe(false);
   });
 
-  it("N36: iki resume yarısmasi tek owner; fence eski worker'i engeller", () => {
+  it("N36: iki resume yarismasi tek owner; aktif lease devredilmez, expiry sonrasi stale worker engellenir", () => {
     const { job } = createJob("INTERRUPTED");
     const first = leases.acquire(job.id, "owner-A", 300000, "proc-A");
     expect(first.created || first.previous_owner_alive === false).toBe(true);
-    // owner-B ayni isi alir: token artar, owner-A fence gecersiz olur:
+    // owner-B aktif lease'i atomik olarak devralamaz; owner-A kaydi degismez:
+    expect(() => leases.acquire(job.id, "owner-B", 300000, "proc-B")).toThrow(/aktif baska owner/);
+    expect(leases.get(job.id).owner_id).toBe("owner-A");
+    storage.db.prepare("UPDATE job_leases SET expires_at = ? WHERE job_id = ?").run(Date.now() - 1, job.id);
     const second = leases.acquire(job.id, "owner-B", 300000, "proc-B");
     expect(second.lease.fencing_token).toBeGreaterThan(first.lease.fencing_token);
     // eski owner checkpoint publish etmeye calisirsa STALE_FENCE:

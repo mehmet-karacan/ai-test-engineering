@@ -8,6 +8,8 @@ import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 
+const MAX_RUN_LOG_BYTES = 8 * 1024 * 1024;
+
 export interface RunResult {
   exit_code: number;
   duration_ms: number;
@@ -67,7 +69,10 @@ export class MavenRunner {
       windowsHide: true,
       env: { ...process.env, ...(options.env ?? {}) },
     });
-    this.running.set(child.pid!, child);
+    const pid = child.pid;
+    if (pid !== undefined) {
+      this.running.set(pid, child);
+    }
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -75,15 +80,22 @@ export class MavenRunner {
       this.killTree(child);
     }, options.timeout_ms);
 
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
+    const stdoutBytes = { value: 0 };
+    const stderrBytes = { value: 0 };
+    const appendLimited = (path: string, chunk: Buffer, state: { value: number }): void => {
+      if (state.value >= MAX_RUN_LOG_BYTES) {
+        return;
+      }
+      const remaining = MAX_RUN_LOG_BYTES - state.value;
+      const accepted = chunk.subarray(0, remaining);
+      appendFileSync(path, accepted.toString("utf8"));
+      state.value += accepted.length;
+    };
     child.stdout?.on("data", (chunk: Buffer) => {
-      stdoutChunks.push(chunk);
-      appendFileSync(stdoutLog, chunk.toString("utf8"));
+      appendLimited(stdoutLog, chunk, stdoutBytes);
     });
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderrChunks.push(chunk);
-      appendFileSync(stderrLog, chunk.toString("utf8"));
+      appendLimited(stderrLog, chunk, stderrBytes);
     });
 
     const exitCode = await new Promise<number>((resolveExit) => {
@@ -92,7 +104,9 @@ export class MavenRunner {
     });
 
     clearTimeout(timer);
-    this.running.delete(child.pid!);
+    if (pid !== undefined) {
+      this.running.delete(pid);
+    }
 
     return {
       exit_code: exitCode,
@@ -109,12 +123,15 @@ export class MavenRunner {
       if (process.platform === "win32") {
         spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
       } else {
-        child.kill("SIGTERM");
-        setTimeout(() => {
-          if (!child.killed) {
+        if (child.exitCode === null) {
+          child.kill("SIGTERM");
+        }
+        const forceTimer = setTimeout(() => {
+          if (child.exitCode === null) {
             child.kill("SIGKILL");
           }
         }, 5000);
+        forceTimer.unref?.();
       }
     } catch {
       // process zaten sonlanmis olabilir
