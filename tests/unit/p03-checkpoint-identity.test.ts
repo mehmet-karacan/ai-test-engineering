@@ -571,7 +571,7 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
     writeBaselineJacoco(0, 10);
     const decisions: Array<{ iteration: number; decision: string }> = [];
     let acceptedCalled = 0;
-    let publishFail = true;
+    const publishFail = true;
 
     const runner = new MavenRunner();
     // run'ı sahte: candidate workspace'te kazanc ureten jacoco + exit0
