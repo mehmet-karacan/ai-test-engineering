@@ -552,7 +552,9 @@ export class CandidateLoop {
         && bestBranchBps === null;
       trustedWorkspace = candidateWorkspace;
 
-      options.on_decision?.({ iteration, decision: "adopted", reason: `Coverage kazanci: LINE ${afterBps} bps, BRANCH ${afterBranchBps ?? "N/A"} bps`, changeset_hash: candidateHash, coverage_before_bps: previousBestCoverageBps, coverage_after_bps: afterBps });
+      const adoptedReason = `Coverage kazanci: LINE ${afterBps} bps, BRANCH ${afterBranchBps ?? "N/A"} bps`;
+      // P03/PR03: adopted karar kaydi checkpoint basarisindan SONRA yazilir;
+      // publish basarisinda adopted kaydi DB'de kalmaz (onceki trusted state korunur).
 
       // D05/F04 + W02/F08: kabul edilen aday dosyalari birikimli accepted snapshot'a yazilir;
       // sonraki iterasyon ve restart bu setin uzerinden devam eder. Native path (backslash donusumu yok).
@@ -605,12 +607,17 @@ export class CandidateLoop {
               });
           options.on_accepted({ iteration, files: acceptedFiles, line_bps: afterBps ?? 0, branch_bps: afterBranchBps });
         }
+        // P03/PR03: adopted karar kaydi yalniz checkpoint publish basarisindan SONRA
+        // kalici olur; publish basarisinda (at) yuklenmis aday DB'de adopted kalmaz.
+        options.on_decision?.({ iteration, decision: "adopted", reason: adoptedReason, changeset_hash: candidateHash, coverage_before_bps: previousBestCoverageBps, coverage_after_bps: afterBps });
         if (acceptedBackupDir) {
           rmSync(acceptedBackupDir, { recursive: true, force: true });
         }
       } catch (error) {
-        // Checkpoint/blob publish basarisinda uncheckpointed accepted bytes
-        // kalmaz; onceki parent set geri yuklenir (N33/N47).
+        // P03/PR03: checkpoint/accepted-blob publish basarisinda uncheckpointed
+        // accepted bytes kalmaz; onceki parent set geri yuklenir VE hata yayilir
+        // (fail-closed). Aday accepted sayilmaz, adopted karar kaydi yazilmaz,
+        // onceki trusted checkpoint korunur.
         if (acceptedBackupDir) {
           const acceptedDir = resolveAcceptedDir(options.accepted_snapshot_dir!);
           rmSync(acceptedDir, { recursive: true, force: true });

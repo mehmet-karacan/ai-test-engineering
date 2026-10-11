@@ -187,6 +187,7 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
       user_goal: "%90",
       source_snapshot_id: null,
       head_commit: null,
+      source_digest: "e".repeat(64),
       dirty_digest: null,
       build_digest: null,
       policy_digest: null,

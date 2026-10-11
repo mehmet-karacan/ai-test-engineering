@@ -7,6 +7,7 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kism
 - P00: aktif sozlesme devri ve baseline kayda alindi.
 - P01: release gate local/full ayrimi ve fail-closed evidence dogrulamasi LOCAL_VERIFIED; P01 25/25.
 - P02: lease/fencing odak testleri 24/24; production readiness calismasi devam ediyor.
+- P03: immutable contract/source/accepted blob, checkpoint CAS ve resume LOCAL_VERIFIED; P03/komsu suite 93/93; gercek hard-kill/Docker/live kaniti NOT_RUN/BLOCKED.
 - Full product acceptance: **NOT_VERIFIED**; live pilot/platform kaniti uydurulmaz.
 
 ## Tarihsel 004 kaydi (2026-10-11)

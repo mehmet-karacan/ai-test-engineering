@@ -9,6 +9,10 @@ import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { LeaseManager } from "../../src/orchestration/lease-manager.js";
 import { CheckpointStore, type CheckpointManifest } from "../../src/orchestration/checkpoint-store.js";
 import { RecoveryManager } from "../../src/orchestration/recovery-manager.js";
+import { type SourceIdentity } from "../../src/discovery/source-snapshot.js";
+
+const IDENT_A: SourceIdentity = { head_commit: "1".repeat(40), dirty: false, dirty_digest: null, source_digest: "2".repeat(64), build_digest: "3".repeat(64) };
+const IDENT_B: SourceIdentity = { head_commit: "1".repeat(40), dirty: false, dirty_digest: null, source_digest: "4".repeat(64), build_digest: "3".repeat(64) };
 
 describe("Lease/fence (AC48/AC49)", () => {
   let dir: string;
@@ -130,6 +134,7 @@ describe("Checkpoint atomic publish (AC47)", () => {
       user_goal: "coverage %90",
       source_snapshot_id: "snap-1",
       head_commit: null,
+      source_digest: "d".repeat(64),
       dirty_digest: null,
       build_digest: null,
       policy_digest: null,
@@ -236,7 +241,7 @@ describe("Recovery (AC45/AC46/AC48/AC51 hazirligi)", () => {
     const found = recovery.findResumableJob([locationId]);
     expect(found?.id).toBe(job.id);
 
-    const plan = recovery.planRecovery(found!, "owner-rec", { current_source_digest: null, current_build_digest: null });
+    const plan = recovery.planRecovery(found!, "owner-rec", { current_identity: IDENT_A });
     expect(plan.action).toBe("fresh_start");
     expect(plan.source_changed).toBe(false);
   });
@@ -254,9 +259,10 @@ describe("Recovery (AC45/AC46/AC48/AC51 hazirligi)", () => {
         target_ids: ["t1"],
         user_goal: "%90",
         source_snapshot_id: null,
-        head_commit: null,
+        head_commit: IDENT_A.head_commit,
+        source_digest: IDENT_A.source_digest,
         dirty_digest: null,
-        build_digest: null,
+        build_digest: IDENT_A.build_digest,
         policy_digest: null,
         parser_version: "v1",
         toolchain: {},
@@ -279,7 +285,8 @@ describe("Recovery (AC45/AC46/AC48/AC51 hazirligi)", () => {
 
     const found = recovery.findResumableJob([locationId])!;
     storage.db.prepare("UPDATE job_leases SET expires_at = ? WHERE job_id = ?").run(Date.now() - 1, job.id);
-    const plan = recovery.planRecovery(found, "owner-new", { current_source_digest: null, current_build_digest: null });
+    // P03: checkpoint manifest'i IDENT_A identity'sini tasir; guncel identity ayni -> resume.
+    const plan = recovery.planRecovery(found, "owner-new", { current_identity: IDENT_A });
     expect(plan.action).toBe("resume");
     expect(plan.checkpoint_id).toBe(ckpt.checkpoint_id);
   });
@@ -294,7 +301,9 @@ describe("Recovery (AC45/AC46/AC48/AC51 hazirligi)", () => {
     storage.db.prepare("UPDATE test_jobs SET source_snapshot_id = ? WHERE id = ?").run(snapId, job.id);
 
     const found = recovery.findResumableJob([locationId])!;
-    const plan = recovery.planRecovery(found, "owner-rec", { current_source_digest: "yeni-digest", current_build_digest: null });
+    // P03/R04: legacy snapshot kaydi tam source identity tasimaz (source_digest
+    // bilinmez); kayitli source digest null iken "ayni kaynak" sayilmaz.
+    const plan = recovery.planRecovery(found, "owner-rec", { current_identity: IDENT_A });
     expect(plan.action).toBe("rebaseline");
     expect(plan.source_changed).toBe(true);
     expect(plan.stale_coverage_marked).toBe(true);
@@ -308,7 +317,7 @@ describe("Recovery (AC45/AC46/AC48/AC51 hazirligi)", () => {
     jobs.updateLifecycle(job.id, "INTERRUPTED", 0);
     const oldLease = leases.acquire(job.id, "baska-owner", 300000);
     const found = recovery.findResumableJob([locationId])!;
-    expect(() => recovery.planRecovery(found, "yeni-owner", { current_source_digest: null, current_build_digest: null })).toThrow(/aktif baska owner/);
+    expect(() => recovery.planRecovery(found, "yeni-owner", { current_identity: IDENT_A })).toThrow(/aktif baska owner/);
     const current = leases.get(job.id);
     expect(current.owner_id).toBe("baska-owner");
     expect(current.fencing_token).toBe(oldLease.lease.fencing_token);

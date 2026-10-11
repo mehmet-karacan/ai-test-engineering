@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P01 tamamlandi; P02 lease/fencing uygulamasi ve odak testleri suruyor
-- Durum etiketi: `005_P01_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P03 tamamlandi; P04-P10 sirada
+- Durum etiketi: `005_P03_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
@@ -32,7 +32,8 @@
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
 | P02 | Lease, TTL, fencing, heartbeat ve CAS | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-lease.md; 37/37 odak suite; Docker runtime BLOCKED |
-| P03-P10 | Checkpoint, izolasyon, baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
+| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
+| P04-P10 | Izolasyon, baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
 

@@ -3,18 +3,19 @@
  * discovery -> baseline -> analiz/plan -> aday -> run -> dogrulama -> accepted checkpoint -> rapor.
  * MCP handler yalniz use-case'e yonlendirir; event loop'u bloke etmez.
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "../application/services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { InventoryRepository } from "../storage/inventory-repository.js";
 import { LeaseManager } from "./lease-manager.js";
-import { CheckpointStore } from "./checkpoint-store.js";
+import { CheckpointStore, resumeBudgetFromManifest, type AcceptedBlob } from "./checkpoint-store.js";
 import { RecoveryManager } from "./recovery-manager.js";
-import { SourceSnapshot } from "../discovery/source-snapshot.js";
+import { SourceSnapshot, computeSourceIdentity, type SourceIdentity, type SnapshotManifest } from "../discovery/source-snapshot.js";
+import type { JobContract } from "../domain/job-contract.js";
 import { CandidateLoop, readCoverageAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult } from "./candidate-loop.js";
 import { runBaseline } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
@@ -112,6 +113,13 @@ export class JobDispatcher {
     let activeLease: { owner_id: string; fencing_token: number } | null = null;
     let heartbeatTimer: NodeJS.Timeout | null = null;
     let leaseLost = false;
+    // P03/PP15: total job time butcesi kesinti sonrasi da korunur (kalicilik).
+    let jobDeadlineAt: number;
+    const assertJobDeadline = (): void => {
+      if (Date.now() > jobDeadlineAt) {
+        throw new AppError("POLICY_VIOLATION", "Toplam job sure butcesi asildi", { reason_code: "JOB_DEADLINE_EXCEEDED" });
+      }
+    };
     const assertLease = (): void => {
       if (!activeLease || leaseLost) {
         throw new AppError("POLICY_VIOLATION", "Dispatch lease kaybedildi; yeni sonuc yazilamaz", { reason_code: "LEASE_LOST" });
@@ -151,6 +159,10 @@ export class JobDispatcher {
       assertLease();
       jobs.updatePhase(job.id, "preflight", jobs.getJob(job.id).row_version);
       phases.push("preflight");
+      // P03/PP15: total job deadline created_at + config total_job_minutes;
+      // resume'da global config ile sifirlanmaz (ayni job satiri kullanilir).
+      jobDeadlineAt = jobs.getJob(job.id).created_at + this.services.config.budgets.total_job_minutes * 60000;
+      assertJobDeadline();
 
       // K01/B01: izolasyon gecidi - customer job'da host yolu secilemez; docker verified izolasyon zorunlu.
       // host_dev_only yalniz urunun guvenilir gelistirme testlerinde acikca istenir (customerJob=false).
@@ -212,7 +224,24 @@ export class JobDispatcher {
       // hedef cozumu: hedef siniflari envanterden coz
       // D02/F01 duzeltmesi: once envanteri doldur (module + package + codeSymbols); sonra hedef coz.
       // Gercek location id: job.location_id (test_jobs FK).
-      const snapshotId = inventory.writeSnapshot(job.location_id, null, null, "statik-tarama-1");
+      // P03/PP11: source identity KAYITLI ve DOLU olmali - HEAD (git rev-parse),
+      // sirali canonical path+byte source digest ve build config digest.
+      // Yalniz digest (null) kaydi "ayni kaynak" sayilamaz.
+      const sourceManifest = new SourceSnapshot(projectRoot).buildManifest();
+      const sourceIdentity = computeSourceIdentity(projectRoot, sourceManifest);
+      const sourceManifestArtifactId = this.persistSourceManifest(storage, job, sourceManifest);
+      this.persistJobContract(storage, job, goal, sourceIdentity);
+      const snapshotId = inventory.writeSnapshot(
+        job.location_id,
+        sourceIdentity.head_commit,
+        sourceIdentity.dirty_digest,
+        sourceIdentity.source_digest,
+        sourceIdentity.build_digest,
+        "statik-tarama-1",
+        sourceManifestArtifactId,
+      );
+      this.persistSourceIdentity(storage, snapshotId, sourceIdentity);
+      storage.db.prepare("UPDATE test_jobs SET source_snapshot_id = ? WHERE id = ?").run(snapshotId, job.id);
       const discovery = discoverModules(projectRoot);
       for (const module of discovery.modules) {
         const moduleId = inventory.writeModule(snapshotId, module);
@@ -293,23 +322,30 @@ export class JobDispatcher {
         accepted_snapshot_dir: acceptedDir,
         on_accepted: (info) => {
           assertLease();
-          // 1) gercek accepted checkpoint manifest'i publish et (artifact + DB pointer):
+          assertJobDeadline();
+          // P03/PR03:
+          // 1) accepted dosyalar immutable content-addressed blob olarak yayinlanir;
+          // 2) manifest source identity (head/dirty/build digest) + accepted envanter +
+          //    butce doludur; 3) parent GERCEK best pointer'dir ve publish CAS
+          //    (generation/row version) ile korunur.
           let publishedCheckpointId: string | null = null;
           try {
+            const projectIdRow = storage.db.prepare<[string], { project_id: string }>("SELECT project_id FROM project_locations WHERE id = ?").get(job.location_id);
             const manifest = {
               schema_version: 1 as const,
               job_id: job.id,
-              project_id: storage.db.prepare<[string], { project_id: string }>("SELECT project_id FROM project_locations WHERE id = ?").get(job.location_id)?.project_id ?? job.location_id,
+              project_id: projectIdRow?.project_id ?? job.location_id,
               location_id: job.location_id,
               target_ids: resolvedTargets.map((rt) => rt.selector),
               user_goal: `coverage:${goal.targets.find((t) => t.selector === resolved.selector)?.selector ?? resolved.selector}`,
               source_snapshot_id: snapshotId,
-              head_commit: null,
-              dirty_digest: null,
-              build_digest: null,
-              policy_digest: null,
+              head_commit: sourceIdentity.head_commit,
+              source_digest: sourceIdentity.source_digest,
+              dirty_digest: sourceIdentity.dirty_digest,
+              build_digest: sourceIdentity.build_digest,
+              policy_digest: goal.model_profile ? null : job.policy_digest,
               parser_version: "statik-tarama-1",
-              toolchain: {},
+              toolchain: { node: process.version },
               accepted_changes: info.files.map((f) => ({ path: f.path, sha256: f.sha256, action: f.action })),
               parent_checkpoint_id: checkpoints.bestCheckpoint(job.id),
               baseline_run_id: null,
@@ -317,17 +353,22 @@ export class JobDispatcher {
               active_phase: "verification",
               next_action: "candidate_accepted",
               remaining_budget: {
-                max_candidate_iterations: goal.budget.max_candidate_iterations - info.iteration,
+                max_candidate_iterations: Math.max(0, goal.budget.max_candidate_iterations - info.iteration),
                 max_repairs_per_candidate: goal.budget.max_repairs_per_candidate,
                 no_progress_window: goal.budget.no_progress_window,
               },
-              requested_model: null,
-              resolved_model: null,
+              requested_model: goal.model_profile ?? null,
+              resolved_model: goal.model_profile ?? null,
               worker_session_ref: null,
               generation: info.iteration,
               created_at: Date.now(),
             };
-            const published = checkpoints.publishCheckpoint(manifest, activeLease, null);
+            const acceptedBlobFiles = info.files.map((f) => {
+              const absPath = join(acceptedDir, f.path);
+              const content = f.action === "delete" ? "" : readFileSync(absPath, "utf8");
+              return { path: f.path, sha256: f.sha256, action: f.action, content };
+            });
+            const published = checkpoints.publishCheckpoint(manifest, activeLease, null, checkpoints.publishAcceptedBlobs(job.id, acceptedBlobFiles));
             publishedCheckpointId = published.checkpoint_id;
           } catch (checkpointError) {
             process.stderr.write(`[aitest-dispatch] job ${job.id} accepted checkpoint publish hatasi: ${String(checkpointError)}\n`);
@@ -564,6 +605,96 @@ export class JobDispatcher {
   }
 
   /**
+   * P03/PR03: immutable contract kaydi.
+   * Contract tam icerigini (hedefler, butce, model, source identity) content-addressed
+   * blob olarak kalici saklar; yalniz digest yeterli degil. Resume bu kayitla
+   * ayni hedef/butce/model'i kullanir (global config sifirlamaz).
+   */
+  private persistJobContract(
+    storage: NonNullable<Services["storage"]>,
+    job: JobRow,
+    goal: GoalContract,
+    sourceIdentity: SourceIdentity,
+  ): { contractArtifactId: string; contractHash: string } {
+    const db = storage.db;
+    const stable = {
+      job_id: job.id,
+      project_root: goal.project_root,
+      targets: goal.targets,
+      budget: goal.budget,
+      runner_kind: goal.runner_kind,
+      model_profile: goal.model_profile,
+      source_digest: sourceIdentity.source_digest,
+      build_digest: sourceIdentity.build_digest,
+    };
+    const contractHash = createHash("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
+    const contractJson = JSON.stringify({ schema_version: 1, ...stable, contract_hash: contractHash }, null, 2);
+    const contractArtifactId = randomUUID();
+    const contractBlobDir = join(this.workspaceRoot, "jobs", job.id, "contract");
+    mkdirSync(contractBlobDir, { recursive: true });
+    const contractPath = join(contractBlobDir, contractHash);
+    if (!existsSync(contractPath)) {
+      const tmpPath = `${contractPath}.tmp-${process.pid}-${Date.now()}`;
+      writeFileSync(tmpPath, contractJson, "utf8");
+      renameSync(tmpPath, contractPath);
+    }
+    const existing = db
+      .prepare<[string, string], { id: string }>("SELECT id FROM artifacts WHERE sha256 = ? AND relative_store_path = ?")
+      .get(contractHash, `jobs/${job.id}/contract/${contractHash}`);
+    if (existing) {
+      return { contractArtifactId: existing.id, contractHash };
+    }
+    db.prepare(
+      "INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, ?, ?, ?, ?, '1', 'internal', 'READY', 'job_contract', ?)",
+    ).run(contractArtifactId, job.id, "job_contract", `jobs/${job.id}/contract/${contractHash}`, contractHash, Buffer.byteLength(contractJson, "utf8"), Date.now());
+    return { contractArtifactId, contractHash };
+  }
+
+  /**
+   * P03/PR03: kaynak manifestinin tam icerigi de immutable artifact olarak saklanir;
+   * source snapshot satiri contract blob ile karistirilmaz.
+   */
+  private persistSourceManifest(storage: NonNullable<Services["storage"]>, job: JobRow, manifest: SnapshotManifest): string {
+    const db = storage.db;
+    const persisted = {
+      ...manifest,
+      entries: manifest.entries.map(({ source_location: _sourceLocation, ...entry }) => entry),
+    };
+    const content = JSON.stringify(persisted, null, 2);
+    const hash = createHash("sha256").update(content, "utf8").digest("hex");
+    const relativePath = `jobs/${job.id}/source/${hash}`;
+    const targetDir = join(this.workspaceRoot, "jobs", job.id, "source");
+    const target = join(targetDir, hash);
+    mkdirSync(targetDir, { recursive: true });
+    if (!existsSync(target)) {
+      const tmpPath = `${target}.tmp-${process.pid}-${Date.now()}`;
+      writeFileSync(tmpPath, content, "utf8");
+      renameSync(tmpPath, target);
+    }
+    const existing = db.prepare<[string, string], { id: string }>("SELECT id FROM artifacts WHERE sha256 = ? AND relative_store_path = ?").get(hash, relativePath);
+    if (existing) {
+      return existing.id;
+    }
+    const artifactId = randomUUID();
+    db.prepare(
+      "INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, ?, ?, ?, ?, '1', 'internal', 'READY', 'source_manifest', ?)",
+    ).run(artifactId, job.id, "source_manifest", relativePath, hash, Buffer.byteLength(content, "utf8"), Date.now());
+    return artifactId;
+  }
+
+  /**
+   * P03/PP11: source identity kaydi - snapshot'a bagli tam identity (head/dirty/
+   * source/build digest). Resume bu kayitla guncel identity'yi karsilastirir;
+   * null/bilinmeyen recorded identity "degismeyen kaynak" sayilmaz (R04).
+   */
+  private persistSourceIdentity(storage: NonNullable<Services["storage"]>, snapshotId: string, identity: SourceIdentity): void {
+    const db = storage.db;
+    db.prepare("DELETE FROM source_identities WHERE snapshot_id = ?").run(snapshotId);
+    db.prepare("INSERT INTO source_identities (snapshot_id, head_commit, dirty_digest, source_digest, build_digest, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(snapshotId, identity.head_commit, identity.dirty_digest, identity.source_digest, identity.build_digest, Date.now());
+  }
+
+  /**
    * W03/F05/N21: hedef dosya test source-set'inde mi (test_root altinda mi)?
    * Dosya adiendsWith("Test") sezgisi yerine gercek kaynak konumu ile ayrisim:
    * LoadTest gibi production siniflari test source-set'inde DEGILSE production hedef kalir.
@@ -644,12 +775,14 @@ export class JobDispatcher {
       throw new AppError("INVALID_PARAMETERS", `Job icin proje koku cozumlenemedi: ${job.id}`);
     }
 
-    // W05/F11: kaynak fingerprint dogrulamasi (SOURCE_CHANGED ayrisimi):
+    // P03/PP11: kaynak kontrolu tam source identity ile: HEAD + sirali canonical
+    // path+byte source digest + build config digest. Null/bilinmeyen recorded
+    // identity "degismeyen kaynak" sayilmaz (R04).
     const snapshot = new SourceSnapshot(projectRoot);
-    const manifest = snapshot.buildManifest();
-    const currentSourceDigest = manifest.dirty ? createHash("sha256").update(JSON.stringify({ entries: manifest.entries.map((e) => e.sha256) }), "utf8").digest("hex") : null;
+    const snapshotManifest = snapshot.buildManifest();
+    const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
     const recoveryOwnerId = `resume-${process.pid}-${job.id}`;
-    const plan = recovery.planRecovery(job, recoveryOwnerId, { current_source_digest: currentSourceDigest, current_build_digest: null });
+    const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity });
 
     if (plan.action === "rebaseline") {
       // W05/F11/N35: kaynak degisti; stale coverage isaretlenir; kontrollu rebaseline
@@ -657,57 +790,61 @@ export class JobDispatcher {
       // Eski accepted set ve coverage yeni customer bytes ile birlestirilmez.
       // Kontrollu rebaseline yeni revision/explicit start gerektirir.
       leases.release(job.id, recoveryOwnerId);
-      throw new AppError("SOURCE_CHANGED", "Resume kaynagi degismis; eski accepted checkpoint ile devam edilmedi", { reason_code: "SOURCE_CHANGED" });
-    }
-    if (plan.action === "resume" && plan.checkpoint_id) {
-      jobs.appendEvent({ job_id: job.id, event_type: "resume_checkpoint_verified", phase: job.phase, origin: "resumeDispatch" });
+      throw new AppError("SOURCE_CHANGED", `Resume kaynagi degismis (${plan.reason}); eski accepted checkpoint ile devam edilmedi`, { reason_code: "SOURCE_CHANGED" });
     }
 
-    // hedefler job_targets'ta kayitliysa kullan; yoksa discovery ile yeniden coz:
-    if (targetRows.length > 0) {
-      // W05/F11/N34: kalan iterasyon/butce checkpoint manifest'inden yuklenir (config sifirlamaz):
-      let remainingIterations = this.services.config.budgets.max_candidate_iterations;
-      let remainingRepairs = this.services.config.budgets.max_repairs_per_candidate;
-      let startIteration = 1;
-      if (plan.checkpoint_id) {
-        const verification = checkpoints.verifyCheckpoint(plan.checkpoint_id);
-        if (verification.valid && verification.manifest) {
-          const rb = verification.manifest.remaining_budget;
-          if (typeof rb["max_candidate_iterations"] === "number" && rb["max_candidate_iterations"] >= 0) {
-            remainingIterations = rb["max_candidate_iterations"];
-          }
-          if (typeof rb["max_repairs_per_candidate"] === "number" && rb["max_repairs_per_candidate"] >= 0) {
-            remainingRepairs = rb["max_repairs_per_candidate"];
-          }
-          if (verification.manifest.generation >= 1) {
-            startIteration = verification.manifest.generation + 1;
-          }
-        }
-      }
-      const goal: GoalContract = {
-        job_id: job.id,
-        project_root: projectRoot,
-        targets: targetRows.map((t) => ({
-          selector: t.selector,
-          kind: t.target_kind,
-          line_target_bps: t.line_target_bps,
-          branch_target_bps: t.branch_target_bps ?? 0,
-        })),
-        budget: {
-          max_candidate_iterations: startIteration + remainingIterations - 1,
-          max_repairs_per_candidate: remainingRepairs,
-          no_progress_window: this.services.config.budgets.no_progress_window,
-        },
-        runner_kind: this.runnerKind,
-        model_profile: null,
-        start_iteration: startIteration,
+    if (targetRows.length === 0) {
+      // job_targets yoksa hedef cozulemez; sessiz discovery ile baslatma yok.
+      leases.release(job.id, recoveryOwnerId);
+      throw new AppError("INVALID_PARAMETERS", `Job hedefleri kayitli degil; test_start ile yeni is gerekli: ${job.id}`);
+    }
+
+    // P03/PP15: resume ayni job/target/accepted set/butce/kontratta surer.
+    // Butce ve tursu YALNIZ dogrulanmis checkpoint manifest'inden yuklenir;
+    // global config butceyi sifirlamaz (config yalniz checkpoint'siz yolda kullanilir).
+    const configBudgets = this.services.config.budgets;
+    let budget = {
+      max_candidate_iterations: configBudgets.max_candidate_iterations,
+      max_repairs_per_candidate: configBudgets.max_repairs_per_candidate,
+      no_progress_window: configBudgets.no_progress_window,
+    };
+    let startIteration = 1;
+    let goalModelProfile: string | null = null;
+    if (plan.action === "resume" && plan.checkpoint_id && plan.checkpoint_manifest) {
+      const rb = resumeBudgetFromManifest(plan.checkpoint_manifest, configBudgets);
+      budget = {
+        max_candidate_iterations: rb.remaining_iterations,
+        max_repairs_per_candidate: rb.remaining_repairs,
+        no_progress_window: rb.no_progress_window,
       };
-      return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
+      startIteration = rb.start_iteration;
+      goalModelProfile = plan.checkpoint_manifest.requested_model;
+      jobs.appendEvent({ job_id: job.id, event_type: "resume_checkpoint_verified", phase: job.phase, origin: "resumeDispatch" });
+      // Accepted set mutable klasordeki durumdan degil, immutable content-addressed
+      // blob'lardan geri yuklenir; klasor karismasi resume'yu bozamaz.
+      const acceptedDir = join(this.workspaceRoot, "jobs", job.id, "accepted");
+      if (plan.checkpoint_manifest.accepted_changes.length > 0) {
+        checkpoints.restoreAcceptedFiles(job.id, plan.checkpoint_manifest.accepted_changes, acceptedDir);
+      }
+    } else {
+      jobs.appendEvent({ job_id: job.id, event_type: "resume_fresh_start", phase: job.phase, origin: "resumeDispatch" });
     }
 
-    // job_targets yoksa job'a ait request_digest'ten hedef cozulemez; discovery ile mevcut hedefleri kullan:
-    leases.release(job.id, recoveryOwnerId);
-    throw new AppError("INVALID_PARAMETERS", `Job hedefleri kayitli degil; test_start ile yeni is gerekli: ${job.id}`);
+    const goal: GoalContract = {
+      job_id: job.id,
+      project_root: projectRoot,
+      targets: targetRows.map((t) => ({
+        selector: t.selector,
+        kind: t.target_kind,
+        line_target_bps: t.line_target_bps,
+        branch_target_bps: t.branch_target_bps ?? 0,
+      })),
+      budget,
+      runner_kind: this.runnerKind,
+      model_profile: goalModelProfile,
+      start_iteration: startIteration,
+    };
+    return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
   }
 
   /**

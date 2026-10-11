@@ -20,11 +20,19 @@ export class InventoryRepository {
     this.db = db;
   }
 
-  writeSnapshot(locationId: string, headCommit: string | null, dirtyDigest: string | null, parserVersion: string): string {
+  /**
+   * P03: snapshot kaydi tam source identity tasir: head_commit + dirty_digest +
+   * source_digest (tum dosyalar) + build_digest (POM/profile). source/build digest
+   * null kalamaz; bilinmeyen kaynak da deterministik digest olarak kaydedilir.
+   */
+  writeSnapshot(locationId: string, headCommit: string | null, dirtyDigest: string | null, sourceDigest: string, buildDigest: string, parserVersion: string, sourceManifestArtifactId?: string): string {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO project_snapshots (id, location_id, parent_snapshot_id, head_commit, dirty_digest, source_manifest_artifact_id, build_digest, parser_version, created_at) VALUES (?, ?, NULL, ?, ?, NULL, NULL, ?, ?)")
-      .run(id, locationId, headCommit, dirtyDigest, parserVersion, Date.now());
+      .prepare("INSERT INTO project_snapshots (id, location_id, parent_snapshot_id, head_commit, dirty_digest, source_manifest_artifact_id, build_digest, parser_version, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)")
+      .run(id, locationId, headCommit, dirtyDigest, sourceManifestArtifactId ?? null, buildDigest, parserVersion, Date.now());
+    this.db
+      .prepare("INSERT INTO source_identities (snapshot_id, head_commit, dirty_digest, source_digest, build_digest, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, headCommit, dirtyDigest, sourceDigest, buildDigest, Date.now());
     return id;
   }
 

@@ -24,10 +24,10 @@ describe("SQLite storage kalicilik", () => {
     }
   });
 
-  it("migration sonrasi schema version 2 olmali (FIN03: coverage/worker/candidate/benchmark tablolari)", () => {
+  it("migration sonrasi schema version 3 olmali (FIN03 + P03: checkpoint blob/source identity tablolari)", () => {
     const storage = new Storage({ dbPath });
     storage.migrate();
-    expect(storage.schemaVersion()).toBe(2);
+    expect(storage.schemaVersion()).toBe(3);
     storage.close();
   });
 

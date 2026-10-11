@@ -311,7 +311,34 @@ CREATE INDEX IF NOT EXISTS idx_worker_attempts_job ON worker_attempts(job_id);
 CREATE INDEX IF NOT EXISTS idx_candidate_iterations_job ON candidate_iterations(job_id);
 CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id, model_profile);
 `,
-  },
+   },
+   {
+     version: 3,
+     name: "checkpoint-accepted-blob-baglanti",
+     sql: `
+ CREATE TABLE IF NOT EXISTS checkpoint_blobs (
+   checkpoint_id TEXT NOT NULL REFERENCES checkpoints(id),
+   artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+   blob_path TEXT NOT NULL,
+   blob_sha256 TEXT NOT NULL CHECK (length(blob_sha256) = 64),
+   bytes INTEGER NOT NULL CHECK (bytes >= 0),
+   action TEXT NOT NULL,
+   PRIMARY KEY (checkpoint_id, artifact_id),
+   UNIQUE (checkpoint_id, blob_path)
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_checkpoint_blobs_artifact ON checkpoint_blobs(artifact_id);
+
+ CREATE TABLE IF NOT EXISTS source_identities (
+   snapshot_id TEXT PRIMARY KEY REFERENCES project_snapshots(id),
+   head_commit TEXT,
+   dirty_digest TEXT,
+   source_digest TEXT NOT NULL,
+   build_digest TEXT NOT NULL,
+   created_at INTEGER NOT NULL
+ );
+ `,
+   },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

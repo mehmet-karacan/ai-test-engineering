@@ -15,7 +15,7 @@ import { InventoryRepository } from "../storage/inventory-repository.js";
 import { ArtifactStore } from "../storage/artifact-store.js";
 import { loadConfig, defaultConfig } from "../configuration/config-loader.js";
 import type { AppConfig } from "../configuration/config-schema.js";
-import { SourceSnapshot } from "../discovery/source-snapshot.js";
+import { SourceSnapshot, computeSourceIdentity } from "../discovery/source-snapshot.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { InventoryQueryService } from "./inventory-query.js";
@@ -125,11 +125,12 @@ export async function handleProjectInspect(input: unknown, services: Services): 
     projectId = project.id;
 
     if (parsed.refresh || modules.length > 0) {
-      const inventory = new InventoryRepository(services.storage.db);
-      const snapshot = new SourceSnapshot(canonicalRoot);
-      const manifest = snapshot.buildManifest();
-      const dirtyDigest = manifest.dirty ? requestDigest({ entries: manifest.entries.map((e) => e.sha256) }) : null;
-      snapshotId = inventory.writeSnapshot(location.id, manifest.head_commit, dirtyDigest, PARSER_VERSION);
+        const inventory = new InventoryRepository(services.storage.db);
+        const snapshot = new SourceSnapshot(canonicalRoot);
+        const manifest = snapshot.buildManifest();
+        // P03: snapshot tam source identity tasir (head/dirty/source/build digest).
+        const identity = computeSourceIdentity(canonicalRoot, manifest);
+        snapshotId = inventory.writeSnapshot(location.id, identity.head_commit, identity.dirty_digest, identity.source_digest, identity.build_digest, PARSER_VERSION);
       for (const module of modules) {
         const moduleId = inventory.writeModule(snapshotId, module);
         const javaFiles = collectJavaFiles(canonicalRoot, module.source_root);
@@ -203,7 +204,11 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   );
 
   const inventory = new InventoryRepository(storage.db);
-  const snapshotId = inventory.writeSnapshot(location.id, null, null, PARSER_VERSION);
+  // P03: test_start snapshot'i tam source identity ile yazilir (null digest kaydi
+  // "ayni kaynak" kaniti degil; resume identity karsilastirmasi bu kayitla yapilir).
+  const startManifest = new SourceSnapshot(canonicalRoot).buildManifest();
+  const startIdentity = computeSourceIdentity(canonicalRoot, startManifest);
+  const snapshotId = inventory.writeSnapshot(location.id, startIdentity.head_commit, startIdentity.dirty_digest, startIdentity.source_digest, startIdentity.build_digest, PARSER_VERSION);
   let resolvedTargets: Array<{ selector: string; matches: number; fqns: string[] }> | undefined;
   let ambiguous: Array<{ selector: string; candidates: string[] }> | undefined;
 

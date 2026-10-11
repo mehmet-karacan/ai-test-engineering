@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { Storage } from "../../src/storage/storage.js";
 import { JobRepository } from "../../src/storage/job-repository.js";
 import { ProjectRepository } from "../../src/storage/project-repository.js";
@@ -59,6 +59,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
       user_goal: "coverage %90",
       source_snapshot_id: "snap-1",
       head_commit: null,
+      source_digest: "9".repeat(64),
       dirty_digest: null,
       build_digest: null,
       policy_digest: null,
@@ -79,8 +80,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     };
   }
 
-  it("schema v2: coverage_snapshots + worker_attempts + candidate_iterations + benchmark_trials var", () => {
-    expect(storage.schemaVersion()).toBe(2);
+  it("schema v3: coverage_snapshots + worker_attempts + candidate_iterations + benchmark_trials + checkpoint_blobs var", () => {
+    expect(storage.schemaVersion()).toBe(3);
     const tables = storage.db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
@@ -89,7 +90,23 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     expect(tables).toContain("worker_attempts");
     expect(tables).toContain("candidate_iterations");
     expect(tables).toContain("benchmark_trials");
+    expect(tables).toContain("checkpoint_blobs");
   });
+
+  /** P03: manifest accepted_changes'i iceren publish icin immutable accepted blob. */
+  function publishWithAccepted(manifest: CheckpointManifest, leaseOwner: string, leaseToken: number) {
+    const contentByPath = new Map<string, string>();
+    for (const entry of manifest.accepted_changes) {
+      const content = `x-${entry.path}`;
+      contentByPath.set(entry.path, content);
+      entry.sha256 = createHash("sha256").update(content).digest("hex");
+    }
+    const blobs = checkpoints.publishAcceptedBlobs(
+      jobId,
+      manifest.accepted_changes.map((entry) => ({ path: entry.path, sha256: entry.sha256, action: entry.action, content: contentByPath.get(entry.path) })),
+    );
+    return checkpoints.publishCheckpoint(manifest, { owner_id: leaseOwner, fencing_token: leaseToken }, null, blobs);
+  }
 
   it("canli job'dan dolan relations: coverage snapshot + iteration + attempt ayni job'a bagli", () => {
     // canli job akisi simülasyonu:
@@ -97,7 +114,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
     // checkpoint publish (verified):
     const lease = leases.acquire(jobId, "owner-fin03", 300000);
-    const ckpt = checkpoints.publishCheckpoint(manifest(), { owner_id: lease.lease.owner_id, fencing_token: lease.lease.fencing_token }, null);
+    const ckpt = publishWithAccepted(manifest(), lease.lease.owner_id, lease.lease.fencing_token);
 
     // coverage snapshot once/after:
     const beforeId = inventory.writeCoverageSnapshot({
@@ -193,7 +210,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("coverage_snapshot checkpoint referansi verified checkpoint ile doluyor", () => {
     const lease = leases.acquire(jobId, "owner-fin03b", 300000);
-    const ckpt = checkpoints.publishCheckpoint(manifest(), { owner_id: lease.lease.owner_id, fencing_token: lease.lease.fencing_token }, null);
+    const ckpt = publishWithAccepted(manifest(), lease.lease.owner_id, lease.lease.fencing_token);
     inventory.writeCoverageSnapshot({
       job_id: jobId,
       target_symbol_id: null,
@@ -262,9 +279,9 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     expect(inventory.listCandidateIterations(jobId)).toHaveLength(1);
   });
 
-  it("checkpoint blob'u dogrulanir; DB kaydi blob'suz trusted sayilmaz (canli job zinciri)", () => {
+  it("checkpoint blob'u + accepted blob dogrulanir; DB kaydi blob'suz trusted sayilmaz (canli job zinciri)", () => {
     const lease = leases.acquire(jobId, "owner-fin03c", 300000);
-    const ckpt = checkpoints.publishCheckpoint(manifest(), { owner_id: lease.lease.owner_id, fencing_token: lease.lease.fencing_token }, null);
+    const ckpt = publishWithAccepted(manifest(), lease.lease.owner_id, lease.lease.fencing_token);
     const verification = checkpoints.verifyCheckpoint(ckpt.checkpoint_id);
     expect(verification.valid).toBe(true);
     expect(verification.manifest?.accepted_changes).toHaveLength(1);
@@ -274,7 +291,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("migration idempotent: migrate tekrar cagrildiginda hata yok", () => {
     expect(() => storage.migrate()).not.toThrow();
-    expect(storage.schemaVersion()).toBe(2);
+    expect(storage.schemaVersion()).toBe(3);
   });
 
   it("future schema fail-closed: bilinmeyen yuksek version yazmayi durdurur", () => {

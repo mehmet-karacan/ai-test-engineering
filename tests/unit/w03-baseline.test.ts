@@ -176,7 +176,8 @@ describe("W03/N21: gercek hedef listesi (ayni simple name iki modulde)", () => {
     storage.db
       .prepare("INSERT INTO project_locations (id, project_id, canonical_root, platform, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, 'win32', ?, ?, ?)")
       .run(locationId, projectId, join(dbDir, locationId), now, now, now);
-    return inventory.writeSnapshot(locationId, null, null, "statik-tarama-1");
+    // P03: source/build digest null kalamaz; izole fixture icin deterministik digest.
+    return inventory.writeSnapshot(locationId, null, null, "0".repeat(64), "1".repeat(64), "statik-tarama-1");
   }
 
   function writeModuleAndSymbol(snapshotId: string, modulePath: string, fqn: string): void {

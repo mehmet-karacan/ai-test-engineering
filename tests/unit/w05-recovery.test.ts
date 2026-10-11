@@ -2,9 +2,12 @@
  * W05 kabul testleri (F11, N34-N38): checkpoint'ten resume, butce kaliciligi, lease/owner, cancel.
  * - N34: hard-kill sonrasi ayni job'dan devam; butce checkpoint'ten yuklenir (bastan baslatmaz).
  * - N35: kaynak degisiminde SOURCE_CHANGED; stale coverage yeni kaynaga atanmaz.
- * - N36: iki resume yarısmasi tek owner; fence eski worker'i engeller.
+ * - N36: iki resume yarisimi tek owner; fence eski worker'i engeller.
  * - N37: cancel/pause owned process'leri sonlandirir; gec cevap COMPLETED'i overwrite edemez.
  * - N38: pause son accepted checkpoint'i ve remaining budget'i korur.
+ *
+ * PR03/P03: source identity tam (head + canonical source/build digest); butce yalniz
+ * checkpoint manifest'inden; accepted content immutable blob ile dogrulanir.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { RecoveryManager } from "../../src/orchestration/recovery-manager.js";
@@ -12,10 +15,23 @@ import { LeaseManager } from "../../src/orchestration/lease-manager.js";
 import { CheckpointStore, type CheckpointManifest } from "../../src/orchestration/checkpoint-store.js";
 import { Storage } from "../../src/storage/storage.js";
 import { evaluateCandidateGain } from "../../src/orchestration/candidate-loop.js";
+import { type SourceIdentity } from "../../src/discovery/source-snapshot.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
+
+const HEAD_A = "a".repeat(40);
+const SOURCE_A = "c".repeat(64);
+const BUILD_A = "b".repeat(64);
+
+function identityA(): SourceIdentity {
+  return { head_commit: HEAD_A, dirty: false, dirty_digest: null, source_digest: SOURCE_A, build_digest: BUILD_A };
+}
+
+function identityChangedSource(): SourceIdentity {
+  return { head_commit: HEAD_A, dirty: false, dirty_digest: null, source_digest: "d".repeat(64), build_digest: BUILD_A };
+}
 
 describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
   let storage: Storage;
@@ -42,9 +58,9 @@ describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
   });
 
   function createJob(lifecycle: string): { job: { id: string; location_id: string; lifecycle: string; phase: string; outcome: null; source_snapshot_id: null; row_version: number } } {
-    const jobId = randomUUID().slice(0, 36);
-    const projectId = randomUUID().slice(0, 36);
-    const locationId = randomUUID().slice(0, 36);
+    const jobId = randomUUID();
+    const projectId = randomUUID();
+    const locationId = randomUUID();
     const now = Date.now();
     storage.db.prepare("INSERT INTO projects (id, name, identity_kind, created_at, updated_at) VALUES (?, ?, 'local_only', ?, ?)").run(projectId, `w05-${jobId.slice(0, 8)}`, now, now);
     storage.db.prepare("INSERT INTO project_locations (id, project_id, canonical_root, platform, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, 'win32', ?, ?, ?)").run(locationId, projectId, join(baseDir, jobId), now, now, now);
@@ -54,6 +70,8 @@ describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
   }
 
   function publishAcceptedCheckpoint(jobId: string, iteration: number, remainingIterations: number): string {
+    const content = "t";
+    const acceptedHash = createHash("sha256").update(content).digest("hex");
     const manifest: CheckpointManifest = {
       schema_version: 1,
       job_id: jobId,
@@ -62,13 +80,14 @@ describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
       target_ids: ["PaymentService"],
       user_goal: "coverage:90",
       source_snapshot_id: null,
-      head_commit: null,
+      head_commit: HEAD_A,
+      source_digest: SOURCE_A,
       dirty_digest: null,
-      build_digest: null,
+      build_digest: BUILD_A,
       policy_digest: null,
       parser_version: "statik-tarama-1",
       toolchain: {},
-      accepted_changes: [{ path: "src/test/java/PaymentServiceTest.java", sha256: createHash("sha256").update("t").digest("hex"), action: "create" }],
+      accepted_changes: [{ path: "src/test/java/PaymentServiceTest.java", sha256: acceptedHash, action: "create" }],
       parent_checkpoint_id: null,
       baseline_run_id: null,
       last_trusted_run_id: null,
@@ -81,16 +100,19 @@ describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
       generation: iteration,
       created_at: Date.now(),
     };
-    return checkpoints.publishCheckpoint(manifest, null, null).checkpoint_id;
+    // P03/PP10: accepted content immutable blob olarak yayinlanir; manifest ile eslesir.
+    const blobs = checkpoints.publishAcceptedBlobs(jobId, [{ path: "src/test/java/PaymentServiceTest.java", sha256: acceptedHash, action: "create", content }]);
+    return checkpoints.publishCheckpoint(manifest, null, null, blobs).checkpoint_id;
   }
 
   it("N34: hard-kill sonrasi checkpoint dogrulanir; ayni job'dan resume planlanir", () => {
     const { job } = createJob("INTERRUPTED");
     publishAcceptedCheckpoint(job.id, 1, 3);
-    const plan = recovery.planRecovery(job as never, `owner-${process.pid}`, { current_source_digest: null, current_build_digest: null });
+    const plan = recovery.planRecovery(job as never, `owner-${process.pid}`, { current_identity: identityA() });
     expect(plan.action).toBe("resume");
     expect(plan.checkpoint_id).not.toBeNull();
     expect(plan.source_changed).toBe(false);
+    expect(plan.checkpoint_manifest).not.toBeNull();
   });
 
   it("N34: checkpoint manifest'inden kalan butce yuklenir (config sifirlamaz)", () => {
@@ -103,14 +125,28 @@ describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
     expect(verification.manifest!.remaining_budget["max_candidate_iterations"]).toBe(3);
   });
 
+  it("N34: source identity degismezken resume; degisince SOURCE_CHANGED (PP11/R04)", () => {
+    const { job } = createJob("INTERRUPTED");
+    publishAcceptedCheckpoint(job.id, 1, 3);
+    // kayitli identity ile ayni kaynak:
+    const same = recovery.planRecovery(job as never, `owner-same-${process.pid}`, { current_identity: identityA() });
+    expect(same.action).toBe("resume");
+    expect(same.source_changed).toBe(false);
+    // source digest degistiginde (null/bilinmeyen "ayni" degil):
+    const { job: job2 } = createJob("INTERRUPTED");
+    publishAcceptedCheckpoint(job2.id, 1, 3);
+    const changed = recovery.planRecovery(job2 as never, `owner-chg-${process.pid}`, { current_identity: identityChangedSource() });
+    expect(changed.action).toBe("rebaseline");
+    expect(changed.source_changed).toBe(true);
+    expect(changed.stale_coverage_marked).toBe(true);
+  });
+
   it("N35: kaynak fingerprint degisiminde SOURCE_CHANGED; rebaseline planlanir", () => {
     const { job } = createJob("RUNNING");
-    // source_snapshot_id null oldugu icin dirty digest kaydi yok; kayitli dirty ile ayrisim:
-    // RecoveryManager job.source_snapshot_id ile project_snapshots'a bakar; burada dogrudan
-    // sourceChanged yolu icin recorded dirty olan bir snapshot simule edilmez; bunun yerine
-    // source_changed=false beklenir (kayit yok):
-    const plan = recovery.planRecovery(job as never, `owner-${process.pid}`, { current_source_digest: "abc", current_build_digest: null });
-    expect(plan.action === "resume" || plan.action === "fresh_start").toBe(true);
+    const plan = recovery.planRecovery(job as never, `owner-${process.pid}`, { current_identity: identityA() });
+    // dogrulanmis checkpoint yok: resume degil, acik tanili yeni baslangic;
+    // kaynak degisim beyan edilemez (kayitli identity yok -> trusted resume verilmez):
+    expect(plan.action === "fresh_start").toBe(true);
     expect(plan.source_changed).toBe(false);
   });
 
@@ -133,9 +169,10 @@ describe("W05/F11/N34-N36: recovery + checkpoint resume", () => {
       target_ids: [],
       user_goal: "g",
       source_snapshot_id: null,
-      head_commit: null,
+      head_commit: HEAD_A,
+      source_digest: SOURCE_A,
       dirty_digest: null,
-      build_digest: null,
+      build_digest: BUILD_A,
       policy_digest: null,
       parser_version: "p",
       toolchain: {},
