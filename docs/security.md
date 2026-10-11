@@ -14,9 +14,11 @@
 | Sinir | Uygulama |
 | --- | --- |
 | Test-only yazma | PolicyGuard canonical containment + FORBIDDEN_PATTERNS (src/main, pom.xml, .git, coverage*.xml) |
-| Egress | Test-yurutme egress `none`; dependency hazirlama ayri onayli asama |
+| Egress | Test-yurutme egress `none`; dependency hazirlama ayri onayli asama; P04: provisioning settings YALNIZ izinli mirror'lari icerir (host settings devre disi) |
 | Runner izolasyonu | Docker: non-root, read-only rootfs source, writable target mount, no-new-privileges, pids/memory/cpu limitleri |
-| Capability probe | Sadece `docker info` degil; gercek run ile source yazma reddi + host secret + network + limit probe'lari (FIN02) |
+| Capability probe | Sadece `docker info` degil; gercek run ile source yazma reddi + host secret + network + limit probe'lari (FIN02); P04: probe fail-closed (bos/eksik cikti capability uretmez), normal customer job probe'suz baslamaz (PP16) |
+| Cache izolasyonu | P04: Maven cache job'a ozel volume (`aitest-m2-cache-<job_id>`); paylasilan cache cross-job bozulamaz (PP19) |
+| Maven settings | P04: mount ONCESI secret taramasi (`scanMavenSettingsForSecrets`); credential'li/bos/eksik settings container'a girmez (PP19) |
 | Worker izinleri | bash/edit/write/task/web/grep/glob kapali (allowlist bos) |
 | Secret | Config'te secret degeri tasimaz; `{env:...}` referansi; profil secret scan (assertNoSecretValue) |
 | Apply | allow_workspace_apply=false varsayilan; expected-before hash + journal + conflict'te kullanici korumasI |

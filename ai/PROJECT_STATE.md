@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P03 tamamlandi; P04-P10 sirada
-- Durum etiketi: `005_P03_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P04 tamamlandi; P05-P10 sirada
+- Durum etiketi: `005_P04_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
@@ -33,7 +33,8 @@
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
 | P02 | Lease, TTL, fencing, heartbeat ve CAS | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-lease.md; 37/37 odak suite; Docker runtime BLOCKED |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
-| P04-P10 | Izolasyon, baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
+| P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md; P04 11/11 + security/contract 90 passed/10 skipped(Docker NOT_RUN); Docker capability/egress tam kaniti NOT_RUN |
+| P05-P10 | Baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
 
@@ -86,5 +87,6 @@
 
 ## Sonraki somut is
 
-- Coordinator denetimi: kod/fixture kaniti ile tam urun/pilot kanitini ayir; bilinmeyen Java dosyasini koru ve commit/push icin kullanici onayi bekle
+- P05: tek resolver, model/mode, persistent butce ve repair (PR06); kullanici onayli commit/push ayri
+- Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

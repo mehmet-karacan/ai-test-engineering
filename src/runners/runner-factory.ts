@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { DockerRunner, DEFAULT_MAVEN_IMAGE, assertDockerPreflightUsable, type DockerPreflightResult, type RunnerCapabilityProbe } from "./docker-runner.js";
+import { DockerRunner, DEFAULT_MAVEN_IMAGE, type DockerPreflightResult, type RunnerCapabilityProbe } from "./docker-runner.js";
 import { MavenRunner, type RunResult, type MavenRunOptions } from "./maven-runner.js";
 
 export type RunnerKind = "docker" | "host_dev_only";
@@ -18,6 +18,10 @@ export interface VerifiedCapability {
   preflight: DockerPreflightResult | null;
   /** FIN02/8.2: gercek capability probe sonucu (null = probe calistirilmadi) */
   capability_probe: RunnerCapabilityProbe | null;
+  /** P04/PP16: probe'un baglandigi profil/image/config kimligi; baska image/profil icin gecerli degil */
+  image: string | null;
+  server_version: string | null;
+  ostype: string | null;
   verified_at: number;
 }
 
@@ -32,9 +36,16 @@ export class CustomerRunnerFactory {
    * RT01: env ayari olmayan normal kurulumda docker capability preflight + gercek capability probe ile
    * verified izolasyon uretir. Docker yoksa BLOCKED_ISOLATION; host'a dusmez.
    * FIN02/8.2: probeOnly=false ile gercek izolasyon probe'lari da calisir.
+   * P04/PP16: customer job normal akisinda probeOnly true ISE bile tam probe zorunlu;
+   * probe'suz capability production customer job'a verilemez (fail-closed). probeOnly yalniz
+   * urunun guvenilir gelistirme/durum sorgulama yollarinda acikca kullanilir.
    */
-  async ensureVerified(options?: { probeOnly?: boolean; workspaceRoot?: string }): Promise<VerifiedCapability> {
-    if (this.verified && (options?.probeOnly || this.verified.capability_probe)) {
+  async ensureVerified(options?: { probeOnly?: boolean; workspaceRoot?: string; customerJob?: boolean }): Promise<VerifiedCapability> {
+    const customerJob = options?.customerJob ?? true;
+    if (this.verified && this.verified.capability_probe) {
+      return this.verified;
+    }
+    if (this.verified && options?.probeOnly && !customerJob) {
       return this.verified;
     }
     const docker = new DockerRunner();
@@ -45,18 +56,27 @@ export class CustomerRunnerFactory {
         errors: preflight.errors,
       });
     }
-    let capabilityProbe: RunnerCapabilityProbe | null = null;
-    if (!options?.probeOnly) {
-      const probeRoot = options?.workspaceRoot ?? join(resolve(".aitest-probe-tmp"), "capability");
-      capabilityProbe = await docker.probeRunnerCapability(probeRoot);
-      if (!capabilityProbe.capability_verified) {
-        throw new AppError("BLOCKED_ISOLATION", "Runner capability probe basarisiz; izolasyon sinirlari dogrulanamadi", {
-          reason_code: "CAPABILITY_PROBE_FAILED",
-          probe: capabilityProbe,
-        });
-      }
+    // P04/PP16: normal MCP customer job'u gercek verified capability probe sonucu olmadan baslamaz;
+    // `docker info`/image varligi tek basina izolasyon kaniti degildir (PR04 kaynak incelemesi).
+    const probeRoot = options?.workspaceRoot ?? join(resolve(".aitest-probe-tmp"), "capability");
+    const capabilityProbe = await docker.probeRunnerCapability(probeRoot);
+    if (!capabilityProbe.capability_verified) {
+      throw new AppError("BLOCKED_ISOLATION", "Runner capability probe basarisiz; izolasyon sinirlari dogrulanamadi", {
+        reason_code: "CAPABILITY_PROBE_FAILED",
+        probe: capabilityProbe,
+      });
     }
-    this.verified = { kind: "docker", docker, host: null, preflight, capability_probe: capabilityProbe, verified_at: Date.now() };
+    this.verified = {
+      kind: "docker",
+      docker,
+      host: null,
+      preflight,
+      capability_probe: capabilityProbe,
+      image: preflight.maven_image_present ? DEFAULT_MAVEN_IMAGE : null,
+      server_version: preflight.server_version,
+      ostype: preflight.ostype,
+      verified_at: Date.now(),
+    };
     return this.verified;
   }
 

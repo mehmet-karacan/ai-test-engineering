@@ -14,7 +14,7 @@ import { CustomerRunnerFactory } from "../../src/runners/runner-factory.js";
 describe("FIN02: verified runner capability probe (gercek Docker)", () => {
   let dockerUsable = false;
 
-  it("preflight + gercek capability probe dogrulanir", async () => {
+  it("preflight + gercek capability probe dogrulanir", async (ctx) => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-fin02-"));
     try {
       mkdirSync(join(dir, "project"), { recursive: true });
@@ -22,8 +22,9 @@ describe("FIN02: verified runner capability probe (gercek Docker)", () => {
       const runner = new DockerRunner();
       const preflight = await runner.preflight();
       if (!preflight.docker_available || !preflight.maven_image_present) {
+        // P04: Docker/imaj yok; NOT_RUN kaniti (skip), sahte yesil yok
         dockerUsable = false;
-        return;
+        ctx.skip();
       }
       dockerUsable = true;
       const probe = await runner.probeRunnerCapability(join(dir, "probe-root"));
@@ -47,9 +48,9 @@ describe("FIN02: verified runner capability probe (gercek Docker)", () => {
     }
   }, 300000);
 
-  it("CustomerRunnerFactory ensureVerified capability probe ile verified uretir", async () => {
+  it("CustomerRunnerFactory ensureVerified capability probe ile verified uretir", async (ctx) => {
     if (!dockerUsable) {
-      return;
+      ctx.skip();
     }
     const dir = mkdtempSync(join(tmpdir(), "aitest-fin02-factory-"));
     try {
@@ -74,9 +75,9 @@ describe("FIN02: verified runner capability probe (gercek Docker)", () => {
     expect(() => factory.assertHostDevOnlyAllowed("docker", true)).not.toThrow();
   });
 
-  it("DockerMavenRunner target mount plani writable-sinirli; source read-only kalir", async () => {
+  it("DockerMavenRunner target mount plani writable-sinirli; source read-only kalir", async (ctx) => {
     if (!dockerUsable) {
-      return;
+      ctx.skip();
     }
     const dir = mkdtempSync(join(tmpdir(), "aitest-fin02-mvn-"));
     try {

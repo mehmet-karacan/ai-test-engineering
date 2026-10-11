@@ -21,7 +21,7 @@ import { runBaseline } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner } from "../runners/maven-runner.js";
-import { DockerRunner, DockerMavenRunner, assertDockerPreflightUsable } from "../runners/docker-runner.js";
+import { DockerRunner, DockerMavenRunner, scanMavenSettingsForSecrets } from "../runners/docker-runner.js";
 import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric } from "../coverage/coverage-math.js";
 import { buildWorkerPrompt, DEFAULT_POLICY_RULES, type WorkerPromptContext } from "../workers/opencode/role-prompts.js";
@@ -166,14 +166,27 @@ export class JobDispatcher {
 
       // K01/B01: izolasyon gecidi - customer job'da host yolu secilemez; docker verified izolasyon zorunlu.
       // host_dev_only yalniz urunun guvenilir gelistirme testlerinde acikca istenir (customerJob=false).
+      // P04/PP16: normal MCP customer job'u GERCEK verified capability probe sonucu olmadan baslamaz;
+      // ensureVerified probe yolunu zorunlu kullanir (docker info/image tek basina kanit degil - PR04).
       const runnerFactory = new CustomerRunnerFactory();
       runnerFactory.assertHostDevOnlyAllowed(this.runnerKind, true);
       let dockerRunner: DockerRunner | undefined;
+      let dockerImage: string | undefined;
       let hostRunner: MavenRunner | undefined;
       if (this.runnerKind === "docker") {
-        dockerRunner = new DockerRunner();
-        const preflight = await dockerRunner.preflight();
-        assertDockerPreflightUsable(preflight);
+        // P04/PR04: ensureVerified preflight + tam capability probe calistirir;
+        // probe basarisizsa BLOCKED_ISOLATION ile job fail-closed (host fallback yok).
+        const capability = await runnerFactory.ensureVerified({ workspaceRoot: join(this.workspaceRoot, "jobs", job.id, "probe") });
+        dockerRunner = capability.docker ?? undefined;
+        if (capability.image) {
+          dockerImage = capability.image;
+        }
+        jobs.appendEvent({
+          job_id: job.id,
+          event_type: "isolation_capability_verified",
+          phase: "preflight",
+          origin: "JobDispatcher",
+        });
       } else if (this.runnerKind === "host_dev_only") {
         // urun girisinden gelmemis, test-only composition ile ayrilmis kullanim: host runner yalniz burada
         hostRunner = new MavenRunner();
@@ -203,7 +216,7 @@ export class JobDispatcher {
         // parent POM cozulemiyordu (Network is unreachable) ve BASELINE_FAILED uretiliyordu.
         // Simdi baseline, loopRunner ile ayni DockerMavenRunner yolunu kullanir: cache bos ise provisioning
         // asamasi izinli mirror'a gider; execution run'i yine network:none ile sandbox'lanir.
-        const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot);
+        const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot, job.id, dockerImage);
         ownedRunners.set(job.id, baselineRunner);
         const baseline = await runBaseline(projectRoot, baselineRunner, 600000);
         if (baseline.status === "FAILED") {
@@ -298,7 +311,7 @@ export class JobDispatcher {
       // FIN00.e/22.2 (B01 kapanisi): candidate loop yalniz verified runner capability ile kurulur;
       // normal giris docker-backed runner kullanir; candidate calistirmalari host Maven'e HIC gecmez.
       // W02/F08: accepted set + staging bilgisi loop'a verilir; aday ayri workspace'te calisir.
-      const loopRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot);
+      const loopRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot, job.id, dockerImage);
       ownedRunners.set(job.id, loopRunner);
       const loop = new CandidateLoop(loopRunner, { accepted_set_dir: acceptedDir, staging_root: stagingRoot });
       const loopResults = new Map<string, IterationLoopResult>();
@@ -590,7 +603,14 @@ export class JobDispatcher {
         // overwrite edemez (N37). Normal hata typed FAILED/BLOCKED olarak kalir.
         if (currentJob.lifecycle !== "CANCELLED" && currentJob.lifecycle !== "PAUSED") {
           const errorCode = error instanceof AppError ? error.code : "INTERNAL_ERROR";
-          const outcome = errorCode === "POLICY_VIOLATION" ? "POLICY_VIOLATION" : "BLOCKED_ENVIRONMENT";
+          // P04/PR04: typed blocker'lar outcome'ta ayrisir; hepsi generic BLOCKED_ENVIRONMENT ezilmez
+          const outcome = errorCode === "POLICY_VIOLATION"
+            ? "POLICY_VIOLATION"
+            : errorCode === "BLOCKED_ISOLATION"
+              ? "BLOCKED_ISOLATION"
+              : errorCode === "BLOCKED_DEPENDENCIES"
+                ? "BLOCKED_DEPENDENCIES"
+                : "BLOCKED_ENVIRONMENT";
           jobs.updateOutcome(job.id, outcome, jobs.getJob(job.id).row_version);
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
         }
@@ -718,17 +738,28 @@ export class JobDispatcher {
    * Docker verified ise DockerMavenRunner (source ro, target writable mount, settings ro mount);
    * host yalniz test-only composition'da (host_dev_only) acikca verilir; normal giriste host Maven yoktur.
    * 8.3: credential'siz Maven settings read-only baglanir (bagimlilik hazirlama yalniz onayli mirror'a).
+   * P04/PP19: settings mount ONCESI secret taranir (credential'li dosya container'a girmez);
+   * Maven cache job'a ozel volume ile izole edilir (job A, job B cache'ini degistiremez).
    */
-  private buildVerifiedLoopRunner(dockerRunner: DockerRunner | undefined, hostRunner: MavenRunner | undefined, projectRoot: string): MavenRunner {
+  private buildVerifiedLoopRunner(dockerRunner: DockerRunner | undefined, hostRunner: MavenRunner | undefined, projectRoot: string, jobId?: string, verifiedImage?: string): MavenRunner {
     if (this.runnerKind === "host_dev_only" && hostRunner) {
       return hostRunner;
     }
     if (dockerRunner) {
       const targetMounts = [{ host: join(resolve(projectRoot), "target"), container: "/work/target" }];
       const settingsPath = join(homedir(), ".m2", "settings.xml");
-      const runnerOptions: { target_mounts: Array<{ host: string; container: string }>; maven_settings?: { host_path: string; container_path: string }; provisioning?: { enabled: boolean; allowed_mirrors: string[]; timeout_ms: number } } = { target_mounts: targetMounts };
+      const runnerOptions: { target_mounts: Array<{ host: string; container: string }>; image?: string; maven_settings?: { host_path: string; container_path: string }; provisioning?: { enabled: boolean; allowed_mirrors: string[]; timeout_ms: number }; maven_cache_volume?: string } = { target_mounts: targetMounts };
+      if (verifiedImage) {
+        runnerOptions.image = verifiedImage;
+      }
       if (existsSync(settingsPath)) {
-        runnerOptions.maven_settings = { host_path: settingsPath, container_path: "/settings/settings.xml" };
+        // P04/PP19: secret tarayici; credential'li host settings container'a aktarilmaz
+        const scan = scanMavenSettingsForSecrets(settingsPath);
+        if (scan.usable) {
+          runnerOptions.maven_settings = { host_path: settingsPath, container_path: "/settings/settings.xml" };
+        } else {
+          process.stderr.write(`[aitest-dispatch] job ${jobId ?? "?"} host settings mount reddedildi: ${scan.reason_code} (${scan.reason})\n`);
+        }
       }
       // 8.3: hazirlama profili config'ten (izinli mirror listesi):
       runnerOptions.provisioning = {
@@ -736,6 +767,10 @@ export class JobDispatcher {
         allowed_mirrors: [...this.services.config.dependency_provisioning.allowed_mirrors],
         timeout_ms: this.services.config.dependency_provisioning.timeout_ms,
       };
+      // P04/PP19: job'a ozel Maven cache volume; paylasilan cache cross-job bozulamaz
+      if (jobId) {
+        runnerOptions.maven_cache_volume = `aitest-m2-cache-${jobId}`;
+      }
       return new DockerMavenRunner(runnerOptions, dockerRunner);
     }
     throw new AppError("BLOCKED_ISOLATION", "Verified loop runner uretilemedi; candidate calistirmasi yapilmaz (FIN00.e)");

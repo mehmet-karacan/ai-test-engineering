@@ -2,6 +2,7 @@
  * AC39/AC40: Izole Docker runner fault testleri.
  * Host source/home/secrets erisimi engellenir; network/kotasI gercekten uygulanir.
  * Kontrollu, yerel, sentetik; gercek kurum sistemi hedeflenmez.
+ * P04: Docker daemon yoksa test sahte yesile cevrilmez; skip kaniti NOT_RUN kalir.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { join } from "node:path";
@@ -19,6 +20,19 @@ const RUN_OPTS = (projectDir: string, logDir: string) => ({
   memory_mb: 1024,
   cpus: 1,
 });
+
+/**
+ * P04: Docker daemon erisilemezse test ctx.skip ile NOT_RUN olarak isaretlenir;
+ * capability BLOCKED/NOT_RUN kaniti korunur, sahte yesil uretilmez.
+ */
+async function requireDockerOrSkip(ctx: { skip(): void }, runner: DockerRunner = new DockerRunner()): Promise<boolean> {
+  const preflight = await runner.preflight();
+  if (!preflight.docker_available) {
+    ctx.skip();
+    return false;
+  }
+  return true;
+}
 
 describe("AC39: izole runner host erisimi (gercek Docker)", () => {
   let dir: string;
@@ -39,15 +53,22 @@ describe("AC39: izole runner host erisimi (gercek Docker)", () => {
     }
   });
 
-  it("preflight temiz olmali", async () => {
+  it("preflight temiz olmali", async (ctx) => {
     const runner = new DockerRunner();
     const preflight = await runner.preflight();
+    if (!preflight.docker_available) {
+      // P04: Docker yok; NOT_RUN kaniti (skip), sahte yesil yok
+      ctx.skip();
+    }
     assertDockerPreflightUsable(preflight);
     expect(preflight.docker_available).toBe(true);
   }, 60000);
 
-  it("read-only mount'a yazma engellenmeli (AC39)", async () => {
+  it("read-only mount'a yazma engellenmeli (AC39)", async (ctx) => {
     const runner = new DockerRunner();
+    if (!(await requireDockerOrSkip(ctx, runner))) {
+      return;
+    }
     const result = await runner.run({
       ...RUN_OPTS(projectDir, join(dir, "logs-1")),
       command: ["sh", "-c", "(echo hacked > /work/src/Secret.java) 2>&1 || echo WRITE_DENIED"],
@@ -57,8 +78,11 @@ describe("AC39: izole runner host erisimi (gercek Docker)", () => {
     expect(readFileSync(join(projectDir, "src", "Secret.java"), "utf8")).toBe("public class Secret {}\n");
   }, 180000);
 
-  it("host home/secrets container'a verilmez (AC39)", async () => {
+  it("host home/secrets container'a verilmez (AC39)", async (ctx) => {
     const runner = new DockerRunner();
+    if (!(await requireDockerOrSkip(ctx, runner))) {
+      return;
+    }
     const result = await runner.run({
       ...RUN_OPTS(projectDir, join(dir, "logs-2")),
       command: ["sh", "-c", "ls /root/.ssh 2>&1 || echo NO_SSH; ls /work/.. 2>&1 | head -3"],
@@ -67,8 +91,11 @@ describe("AC39: izole runner host erisimi (gercek Docker)", () => {
     expect(output).not.toContain("id_rsa");
   }, 180000);
 
-  it("yalniz /work mount edilmis olmali; host ozel dizinleri yok (AC39)", async () => {
+  it("yalniz /work mount edilmis olmali; host ozel dizinleri yok (AC39)", async (ctx) => {
     const runner = new DockerRunner();
+    if (!(await requireDockerOrSkip(ctx, runner))) {
+      return;
+    }
     const result = await runner.run({
       ...RUN_OPTS(projectDir, join(dir, "logs-3")),
       command: ["sh", "-c", "ls / | tr '\\n' ' '"],
@@ -107,8 +134,11 @@ describe("AC40: kotalar gercekten uygulanmali (gercek Docker)", () => {
     }
   });
 
-  it("network kapali: dis ag erisimi engellenmeli (AC40)", async () => {
+  it("network kapali: dis ag erisimi engellenmeli (AC40)", async (ctx) => {
     const runner = new DockerRunner();
+    if (!(await requireDockerOrSkip(ctx, runner))) {
+      return;
+    }
     const result = await runner.run({
       ...RUN_OPTS(projectDir, join(dir, "logs-net")),
       command: ["sh", "-c", "(wget -q -T 3 -O /dev/null http://example.com) 2>&1 || echo NETWORK_DENIED"],
@@ -117,8 +147,11 @@ describe("AC40: kotalar gercekten uygulanmali (gercek Docker)", () => {
     expect(output).toContain("NETWORK_DENIED");
   }, 180000);
 
-  it("non-root kullanici ile calismali (AC39/AC40)", async () => {
+  it("non-root kullanici ile calismali (AC39/AC40)", async (ctx) => {
     const runner = new DockerRunner();
+    if (!(await requireDockerOrSkip(ctx, runner))) {
+      return;
+    }
     const result = await runner.run({
       ...RUN_OPTS(projectDir, join(dir, "logs-user")),
       command: ["sh", "-c", "id -u; id -g"],
@@ -128,8 +161,11 @@ describe("AC40: kotalar gercekten uygulanmali (gercek Docker)", () => {
     expect(output).not.toContain("\n0\n");
   }, 180000);
 
-  it("memory limiti konteyner'a uygulanmali", async () => {
+  it("memory limiti konteyner'a uygulanmali", async (ctx) => {
     const runner = new DockerRunner();
+    if (!(await requireDockerOrSkip(ctx, runner))) {
+      return;
+    }
     const result = await runner.run({
       ...RUN_OPTS(projectDir, join(dir, "logs-mem")),
       command: ["sh", "-c", "cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo NO_CGROUP"],

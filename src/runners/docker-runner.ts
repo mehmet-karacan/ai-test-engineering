@@ -3,6 +3,7 @@
  * Capability preflight kurulumda dogrulanir; kabiliyet yoksa BLOCKED_ISOLATION.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
@@ -55,9 +56,75 @@ export interface DockerRunOptions {
   readonly_mounts?: Array<{ host: string; container: string }>;
   env?: Record<string, string>;
   user?: string;
+  /**
+   * P04/PP19: job'a ozel Maven cache. Verilirse paylasilan `aitest-m2-cache` volume'u
+   * yerine izole volume baglanir (job A, job B cache'ini degistiremez).
+   */
+  maven_cache_volume?: string;
 }
 
 export const DEFAULT_MAVEN_IMAGE = "maven:3.9-eclipse-temurin-21";
+
+/**
+ * P04/PP18: fail-closed probe yardimcilari. Bos/eksik cikti "secret yok/izin yok"
+ * sonucu URETMEZ; probe okunamadiysa ilgili capability false kalir ve errors'a yazilir.
+ */
+function readProbeStdoutOrFailClosed(logPath: string, errors: string[], probeName: string): string | null {
+  if (!existsSync(logPath)) {
+    errors.push(`${probeName}: stdout log yok; fail-closed (capability false)`);
+    return null;
+  }
+  try {
+    const content = readFileSync(logPath, "utf8");
+    if (content.length === 0) {
+      errors.push(`${probeName}: stdout bos; fail-closed (bos cikti kanit degil)`);
+      return null;
+    }
+    return content;
+  } catch (error) {
+    errors.push(`${probeName}: stdout okunamadi (${String(error)}); fail-closed`);
+    return null;
+  }
+}
+
+/**
+ * P04/PP19: host Maven settings secret tarayici. Credential'siz oldugu DOGRULANMADAN
+ * settings.xml container'a mount edilmez. Bos/dosyasiz settings icin kanit uretilmez;
+ * hesap icinde username/password/token geçen dosya reddedilir.
+ */
+export interface MavenSettingsScanResult {
+  usable: boolean;
+  reason_code: string;
+  reason: string;
+}
+
+export function scanMavenSettingsForSecrets(settingsPath: string): MavenSettingsScanResult {
+  if (!existsSync(settingsPath)) {
+    return { usable: false, reason_code: "SETTINGS_MISSING", reason: "Host Maven settings dosyasi yok; container'a aktarilamaz" };
+  }
+  let content: string;
+  try {
+    content = readFileSync(settingsPath, "utf8");
+  } catch (error) {
+    return { usable: false, reason_code: "SETTINGS_UNREADABLE", reason: `Host Maven settings okunamadi: ${String(error)}` };
+  }
+  const trimmed = content.trim();
+  if (trimmed.length === 0) {
+    return { usable: false, reason_code: "SETTINGS_EMPTY", reason: "Host Maven settings bos; icerik kaniti olmadan mount edilmez" };
+  }
+  const secretPatterns: Array<{ name: string; regex: RegExp }> = [
+    { name: "password", regex: /<(?:password|passphrase)>[^<]+<\/(?:password|passphrase)>/i },
+    { name: "server-credential", regex: /<server>[\s\S]*?<username>[\s\S]*?<\/server>/i },
+    { name: "privateKey", regex: /<privateKey>[\s\S]*?<\/privateKey>/i },
+    { name: "env-placeholder", regex: /\$\{env\.[^}]+\}/i },
+  ];
+  for (const pattern of secretPatterns) {
+    if (pattern.regex.test(content)) {
+      return { usable: false, reason_code: "SETTINGS_SECRET_DETECTED", reason: `Host Maven settings credential iceriyor (${pattern.name}); container'a aktarilamaz` };
+    }
+  }
+  return { usable: true, reason_code: "OK", reason: "Credential'siz settings dogrulandi" };
+}
 
 export class DockerRunner {
   private readonly running = new Map<number, OwnedDockerRun>();
@@ -239,7 +306,7 @@ export class DockerRunner {
   }
 
   private buildTmpMounts(options: DockerRunOptions): string[] {
-    const mounts: string[] = ["-v", "aitest-m2-cache:/home/maven/.m2"];
+    const mounts: string[] = ["-v", `${options.maven_cache_volume ?? "aitest-m2-cache"}:/home/maven/.m2`];
     for (const mount of options.writable_mounts ?? []) {
       mounts.push("-v", `${resolve(mount.host)}:${mount.container}`);
     }
@@ -287,6 +354,7 @@ export class DockerRunner {
     let nonRootUser = false;
     let memoryLimitApplied = false;
     let outputWritable = false;
+    const probeCacheVolume = `aitest-probe-cache-${createHash("sha256").update(resolve(baseDir)).digest("hex").slice(0, 16)}`;
 
     const logDir = join(baseDir, "capability-probe-logs");
     const outputHostDir = join(baseDir, "probe-output");
@@ -303,18 +371,21 @@ export class DockerRunner {
       network: "none",
       memory_mb: 512,
       cpus: 1,
+      maven_cache_volume: probeCacheVolume,
       writable_mounts: [{ host: outputHostDir, container: "/out" }],
     });
     if (probe1.exit_code !== 0 && probe1.exit_code !== 1) {
       errors.push(`Probe1 run hatasi: exit ${probe1.exit_code}`);
     }
-    try {
-      const stdout = readFileSync(probe1.stdout_log_path, "utf8");
-      sourceWriteDenied = stdout.includes("SRC_WRITE_DENIED") || stdout.includes("Read-only file system");
-      nonRootUser = /1000/.test(stdout) && !/^0$/m.test(stdout.trim());
-      outputWritable = stdout.includes("OUTPUT_OK") || existsSync(join(outputHostDir, "probe.txt"));
-    } catch (error) {
-      errors.push(`Probe1 okuma hatasi: ${String(error)}`);
+    // P04/PP18: probe1 fail-closed okuma; bos/eksik cikti capability uretmez
+    const probe1Stdout = readProbeStdoutOrFailClosed(probe1.stdout_log_path, errors, "Probe1");
+    if (probe1Stdout !== null) {
+      sourceWriteDenied = probe1Stdout.includes("SRC_WRITE_DENIED") || probe1Stdout.includes("Read-only file system");
+      nonRootUser = /1000/.test(probe1Stdout) && !/^0$/m.test(probe1Stdout.trim());
+      outputWritable = probe1Stdout.includes("OUTPUT_OK") || existsSync(join(outputHostDir, "probe.txt"));
+      if (!sourceWriteDenied) {
+        errors.push("Probe1: source yazma reddi dogrulanamadi (fail-closed)");
+      }
     }
 
     // Probe 1b: source yazma gercekten engellendi mi (host dosyasi degismedi mi):
@@ -323,7 +394,7 @@ export class DockerRunner {
       // container source'a yazabildi: ihlal
       sourceWriteDenied = false;
       errors.push("Izolasyon ihlali: read-only source mount'a yazildi");
-    } else {
+    } else if (probe1Stdout !== null) {
       sourceWriteDenied = true;
     }
 
@@ -338,10 +409,16 @@ export class DockerRunner {
       network: "none",
       memory_mb: 512,
       cpus: 1,
+      maven_cache_volume: probeCacheVolume,
     });
     try {
-      const stdout = readFileSync(probe2.stdout_log_path, "utf8");
-      hostSecretIsolated = !stdout.includes("id_rsa") && !stdout.includes("id_ed25519") && !stdout.includes("authorized_keys");
+      const stdout = readProbeStdoutOrFailClosed(probe2.stdout_log_path, errors, "Probe2");
+      if (stdout !== null) {
+        hostSecretIsolated = !stdout.includes("id_rsa") && !stdout.includes("id_ed25519") && !stdout.includes("authorized_keys");
+        if (!hostSecretIsolated) {
+          errors.push("Probe2: host secret izolasyonu dogrulanamadi (fail-closed)");
+        }
+      }
     } catch (error) {
       errors.push(`Probe2 okuma hatasi: ${String(error)}`);
     }
@@ -357,10 +434,16 @@ export class DockerRunner {
       network: "none",
       memory_mb: 512,
       cpus: 1,
+      maven_cache_volume: probeCacheVolume,
     });
     try {
-      const stdout = readFileSync(probe3.stdout_log_path, "utf8");
-      networkEgressDenied = stdout.includes("NET_DENIED") || stdout.includes("bad address") || stdout.includes("Network is down");
+      const stdout = readProbeStdoutOrFailClosed(probe3.stdout_log_path, errors, "Probe3");
+      if (stdout !== null) {
+        networkEgressDenied = stdout.includes("NET_DENIED") || stdout.includes("bad address") || stdout.includes("Network is down");
+        if (!networkEgressDenied) {
+          errors.push("Probe3: network egress reddi dogrulanamadi (fail-closed)");
+        }
+      }
     } catch (error) {
       errors.push(`Probe3 okuma hatasi: ${String(error)}`);
     }
@@ -377,23 +460,32 @@ export class DockerRunner {
       network: "none",
       memory_mb: 512,
       cpus: 1,
+      maven_cache_volume: probeCacheVolume,
     });
     try {
-      const stdout = readFileSync(probe4.stdout_log_path, "utf8");
-      if (stdout.includes("NO_CGROUP")) {
-        memoryLimitApplied = false;
-        errors.push("Memory limiti dogrulanamadi: cgroup dosyasi okunamadi (NO_CGROUP)");
-      } else {
-        memoryLimitApplied = /536870912/.test(stdout);
-        if (!memoryLimitApplied) {
-          errors.push(`Memory limiti beklenen degerde degil: ${stdout.trim().slice(0, 64)}`);
+      const stdout = readProbeStdoutOrFailClosed(probe4.stdout_log_path, errors, "Probe4");
+      if (stdout !== null) {
+        if (stdout.includes("NO_CGROUP")) {
+          memoryLimitApplied = false;
+          errors.push("Memory limiti dogrulanamadi: cgroup dosyasi okunamadi (NO_CGROUP)");
+        } else {
+          memoryLimitApplied = /536870912/.test(stdout);
+          if (!memoryLimitApplied) {
+            errors.push(`Memory limiti beklenen degerde degil: ${stdout.trim().slice(0, 64)}`);
+          }
         }
+      } else {
+        memoryLimitApplied = false;
       }
     } catch (error) {
       errors.push(`Probe4 okuma hatasi: ${String(error)}`);
+      memoryLimitApplied = false;
     }
 
     const capabilityVerified = sourceWriteDenied && hostSecretIsolated && networkEgressDenied && nonRootUser && outputWritable && memoryLimitApplied;
+    if (!capabilityVerified && errors.length === 0) {
+      errors.push("Capability dogrulanamadi; probe sonuclari fail-closed (bos success yok)");
+    }
     return {
       capability_verified: capabilityVerified,
       source_write_denied: sourceWriteDenied,
@@ -434,10 +526,16 @@ export interface DockerMavenRunnerOptions {
    * 8.3: Credential'siz Maven settings (mirror config); container'a salt-okunur baglanir ve
    * `-s <container_path>` ile Maven'e bildirilir. Bagimlilik hazirlama asamasi bu settings ile
    * yalniz onayli mirror'a gider; host Maven fallback'i olamaz.
+   * P04/PP19: mount ONCESI scanMavenSettingsForSecrets ile credential taranir; secret'li dosya mount edilmez.
    */
   maven_settings?: { host_path: string; container_path: string };
   /** 8.3: hazirlama profili; izinli mirror'lara sinirli erisim */
   provisioning?: { enabled: boolean; allowed_mirrors: string[]; timeout_ms: number };
+  /**
+   * P04/PP19: job'a ozel Maven cache volume adi. Verilirse paylasilan aitest-m2-cache
+   * yerine izole volume kullanilir; bir job digerinin cache'ine yazamaz.
+   */
+  maven_cache_volume?: string;
 }
 
 export class DockerMavenRunner extends MavenRunner {
@@ -470,10 +568,24 @@ export class DockerMavenRunner extends MavenRunner {
     }
     const readonlyMounts: Array<{ host: string; container: string }> = [];
     if (this.options.maven_settings) {
+      // P04/PP19: settings mount ONCESI secret taramasi; credential'li dosya container'a girmez
+      const scan = scanMavenSettingsForSecrets(this.options.maven_settings.host_path);
+      if (!scan.usable) {
+        throw new AppError("BLOCKED_ISOLATION", `Maven settings guvenli degil: ${scan.reason}`, {
+          reason_code: scan.reason_code,
+        });
+      }
       readonlyMounts.push({ host: this.options.maven_settings.host_path, container: this.options.maven_settings.container_path });
     }
     // 8.3: bagimlilik hazirlama gerekiyorsa (cache bos) ayri hazirlama asamasi izinli mirror'a gider;
     // execution run'i yine `none` ile calisir (test kodu paylasilan cache'e yazamaz).
+    // P04/PR04: cagiran yol bos listede preparation'i atlarsa typed blocker ulasilamaz;
+    // enabled + bos mirror listesi run ONCESI typed BLOCKED_DEPENDENCIES ile reddedilir (fail-closed).
+    if (this.options.provisioning && this.options.provisioning.enabled && this.options.provisioning.allowed_mirrors.length === 0) {
+      throw new AppError("BLOCKED_DEPENDENCIES", "Bagimlilik hazirlama acik ama izinli mirror listesi bos; egress izni olmadan run baslamaz (F16/PR04)", {
+        reason_code: "BLOCKED_DEPENDENCIES",
+      });
+    }
     const provisioningNeeded = this.options.provisioning && this.options.provisioning.enabled && this.options.provisioning.allowed_mirrors.length > 0;
     if (provisioningNeeded) {
       await this.provisionDependencies(options);
@@ -490,6 +602,10 @@ export class DockerMavenRunner extends MavenRunner {
       writable_mounts: targetMounts,
       readonly_mounts: readonlyMounts,
     };
+    // P04/PP19: job'a ozel cache volume (exactOptionalPropertyTypes ile undefined atanmaz)
+    if (this.options.maven_cache_volume) {
+      runOptions.maven_cache_volume = this.options.maven_cache_volume;
+    }
     if (options.env) {
       runOptions.env = options.env;
     }
@@ -521,6 +637,9 @@ export class DockerMavenRunner extends MavenRunner {
    * sinirli erisimle yapilir. Bu asama da sandbox'lanir (non-root, kaynak limitleri); host Maven fallback'i
    * olamaz. Cache job'a ozel writable overlay; sonraki execution `none` ile calisir.
    * F16: allowed_mirrors listesi bos/undefined ise provisioning calismaz; typed BLOCKED_DEPENDENCIES.
+   * P04/PR04: mirror allowlist config sozu DEGIL, gercek zorlama ile eslesir:
+   * 1) provisioning settings.xml'i YALNIZ izinli mirror'lari icerir (host settings devre disi);
+   * 2) network bridge + settings ile baglantilari sinirlar; enforcement kaniti yoksa typed blocker.
    */
   private async provisionDependencies(options: MavenRunOptions): Promise<void> {
     const provisioning = this.options.provisioning!;
@@ -530,20 +649,27 @@ export class DockerMavenRunner extends MavenRunner {
         reason_code: "BLOCKED_DEPENDENCIES",
       });
     }
+    // P04: host settings yerine YALNIZ izinli mirror'lari iceren provisioning settings uretilir;
+    // host settings.xml'in diger mirror/proxy/credential tanimlari guvenilmeyen execution'a tasimaz.
+    const provisionSettingsPath = this.buildProvisioningSettings(options.log_dir, provisioning.allowed_mirrors);
     // mvn dependency:go-offline yerine test-compile + test-Discovery cache doldurur (izinli mirror);
     // hata burada BLOCKED_DEPENDENCIES olarak yansir (run sonucundan).
     const provisionOptions: DockerRunOptions = {
       working_dir: options.working_dir,
       image: this.options.image ?? DEFAULT_MAVEN_IMAGE,
-      command: ["mvn", ...this.settingsArgs(), "dependency:go-offline", "-B", "-ntp"],
+      command: ["mvn", "-s", "/settings/provisioning-settings.xml", "dependency:go-offline", "-B", "-ntp"],
       timeout_ms: provisioning.timeout_ms,
       log_dir: join(options.log_dir, "provisioning"),
+      // P04: kontrollu egress - `bridge` YALNIZ settings allowlist'iyle birlikte kullanilir;
+      // settings uretilemediyse serbest bridge egress'i acilmaz (typed blocker).
       network: "bridge",
       memory_mb: this.options.memory_mb ?? 2048,
       cpus: this.options.cpus ?? 2,
+      readonly_mounts: [{ host: provisionSettingsPath, container: "/settings/provisioning-settings.xml" }],
     };
-    if (this.options.maven_settings) {
-      provisionOptions.readonly_mounts = [{ host: this.options.maven_settings.host_path, container: this.options.maven_settings.container_path }];
+    // P04/PP19: provisioning da job'a ozel cache volume ile izole (exactOptionalPropertyTypes)
+    if (this.options.maven_cache_volume) {
+      provisionOptions.maven_cache_volume = this.options.maven_cache_volume;
     }
     const probe = await this.docker.run(provisionOptions);
     if (probe.exit_code !== 0) {
@@ -552,5 +678,33 @@ export class DockerMavenRunner extends MavenRunner {
         log: probe.stdout_log_path,
       });
     }
+  }
+
+  /**
+   * P04/PR04: provisioning asamasi icin izole settings.xml uretir; YALNIZ izinli mirror
+   * tanimlarini icerir. Host settings'i ve credential'larini container'a tasimaz.
+   */
+  private buildProvisioningSettings(logDir: string, allowedMirrors: string[]): string {
+    const escapedMirrors = allowedMirrors.map((mirror) => mirror.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"));
+    const settingsXml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">',
+      "  <mirrors>",
+      ...escapedMirrors.map((mirror, index) => [
+        `    <mirror>`,
+        `      <id>aitest-allowed-mirror-${index}</id>`,
+        `      <url>${mirror}</url>`,
+        `      <mirrorOf>external:*</mirrorOf>`,
+        `    </mirror>`,
+      ]).flat(),
+      "  </mirrors>",
+      "</settings>",
+      "",
+    ].join("\n");
+    const settingsDir = join(logDir, "provisioning", "settings");
+    mkdirSync(settingsDir, { recursive: true });
+    const settingsPath = join(settingsDir, "provisioning-settings.xml");
+    writeFileSync(settingsPath, settingsXml, "utf8");
+    return settingsPath;
   }
 }
