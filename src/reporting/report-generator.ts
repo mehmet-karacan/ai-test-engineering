@@ -1,12 +1,15 @@
 /**
  * Offline Report Generator: DB'den dogrulanmis JSON'u uretir ve HTML'e render eder.
  * Raporun resmi sonucu modele yazdirilmaz; dogrulanmis JSON'dan render edilir.
+ * W06/F14: facts-only - model narrative hicbir yuzeye girmez; 'yorumlar AI tarafindan uretildi'
+ * metni KALDIRILDI. Uretim kayitlari facts-only metadata ile (rol/provider/model kimligi) gosterilir.
  * Harici font/script/CDN yok; tum metinler escape edilir.
  */
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, lstatSync } from "node:fs";
+import { join, resolve, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
+import { sanitizeNarrativeFields } from "./report-data-contract.js";
 
 export interface ReportTarget {
   target_id: string;
@@ -146,8 +149,8 @@ ${iterationRows}
 ${gapRows}
 </table></div>
 
-<h2>AI katkisi</h2>
-<div class="card"><p>Olcumler arac tarafindan (Maven/JaCoCo); yorumlar AI tarafindan uretildi.</p><table>
+<h2>Uretim kayitlari (facts-only)</h2>
+<div class="card"><p>Olcumler arac tarafindan (Maven/JaCoCo); rapor motoru kayitlari gosterir, model narrative tasimaz.</p><table>
 <tr><th>Rol</th><th>Provider</th><th>Model</th></tr>
 ${modelRows}
 </table></div>
@@ -183,6 +186,38 @@ export interface ExportResult {
   files: Array<{ name: string; sha256: string; bytes: number }>;
   verification_passed: boolean;
   missing_files: string[];
+  /** W06/F13: kirpilan narrative alanlari (tam yol; sessiz kirpma yok) */
+  sanitized_paths: string[];
+  hash_mismatch: string[];
+}
+
+/**
+ * W06/F15: canonical path containment - manifest dosya adi kok disina cikamaz;
+ * traversal/symlink yolu reddedilir.
+ */
+function containedReportPath(reportRoot: string, name: string): string {
+  const absPath = resolve(reportRoot, name);
+  const rel = relative(reportRoot, absPath);
+  if (rel.startsWith("..") || rel.length === 0 || (process.platform === "win32" && name.includes(":"))) {
+    throw new AppError("POLICY_VIOLATION", `Rapor dosya yolu kok disina cikiyor: ${name}`, { reason_code: "PATH_ESCAPE" });
+  }
+  // Existing junction/symlink components are an escape even when the lexical
+  // relative path stays below reportRoot.
+  let cursor = resolve(reportRoot);
+  for (const part of rel.split(/[\\/]/)) {
+    cursor = join(cursor, part);
+    try {
+      if (lstatSync(cursor).isSymbolicLink()) {
+        throw new AppError("POLICY_VIOLATION", `Rapor yolu symlink/junction iceriyor: ${name}`, { reason_code: "SYMLINK_ESCAPE" });
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      // Yol henuz yaratilmadiysa normaldir; write() daha sonra parent'i olusturur.
+    }
+  }
+  return absPath;
 }
 
 export class ReportExporter {
@@ -195,6 +230,12 @@ export class ReportExporter {
 
   export(data: ReportData, extraFiles?: Record<string, string>): ExportResult {
     const files: ExportResult["files"] = [];
+    // W06/F13/N02: facts-only sanitization - model narrative alanlari report JSON'a giremez;
+    // kirpilan yollar kayitli olur (sessiz kirpma yok).
+    const sanitized = sanitizeNarrativeFields(data);
+    if (!sanitized.clean) {
+      process.stderr.write(`[aitest-report] narrative alanlari kirpildi: ${sanitized.removed_paths.join(", ")}\n`);
+    }
     const reportJson = JSON.stringify(data, null, 2);
     this.write("report.json", reportJson, files);
     this.write("index.html", buildReport(data), files);
@@ -206,6 +247,9 @@ export class ReportExporter {
       artifacts: files.map((f) => ({ relative_path: f.name, sha256: f.sha256, bytes: f.bytes, kind: f.name === "index.html" ? "report_html" : f.name === "report.json" ? "report_json" : "summary_text", sensitivity: "sensitive" })),
     };
     for (const [name, content] of Object.entries(extraFiles ?? {})) {
+      if (["report.json", "index.html", "summary.txt", "manifest.json"].includes(name) || files.some((file) => file.name === name)) {
+        throw new AppError("POLICY_VIOLATION", `Rapor extra dosyasi ayrilmis yolu ezemez: ${name}`, { reason_code: "REPORT_OVERWRITE" });
+      }
       this.write(name, content, files);
       (manifest["artifacts"] as Array<Record<string, unknown>>).push({ relative_path: name, sha256: createHash("sha256").update(content).digest("hex"), bytes: Buffer.byteLength(content, "utf8"), kind: "extra", sensitivity: "sensitive" });
     }
@@ -214,21 +258,68 @@ export class ReportExporter {
     this.write("manifest.json", manifestJson, files);
 
     const verification = this.verifyExport(files);
-    return { report_dir: this.reportRoot, files, verification_passed: verification.missing.length === 0, missing_files: verification.missing };
+    // W06/F15: verification_passed arttik missing VE hash_mismatch'e bakiyor:
+    const verificationPassed = verification.missing.length === 0 && verification.hash_mismatch.length === 0;
+    return {
+      report_dir: this.reportRoot,
+      files,
+      verification_passed: verificationPassed,
+      missing_files: verification.missing,
+      sanitized_paths: sanitized.removed_paths,
+      hash_mismatch: verification.hash_mismatch,
+    };
   }
 
   private write(name: string, content: string, files: ExportResult["files"]): void {
-    const path = join(this.reportRoot, name);
+    const path = containedReportPath(this.reportRoot, name);
+    // W07/N44: nested directory kontrollu olusturulur (asset alt dizinleri):
+    mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, content, "utf8");
     files.push({ name, sha256: createHash("sha256").update(content).digest("hex"), bytes: Buffer.byteLength(content, "utf8") });
   }
 
+  /**
+   * W06/F15/N45: parametresiz verify canonical manifest'i yukler ve dogrular;
+   * bos listeyi dogrulamak yerine manifest artifacts'ini okur (corrupt manifest fail-closed).
+   */
   verifyExport(expected?: ExportResult["files"]): { missing: string[]; hash_mismatch: string[] } {
-    const files = expected ?? [];
+    let files = expected;
+    if (!files || files.length === 0) {
+      // canonical manifest'ten yukle:
+      const manifestPath = containedReportPath(this.reportRoot, "manifest.json");
+      if (!existsSync(manifestPath)) {
+        return { missing: ["manifest.json"], hash_mismatch: [] };
+      }
+      let manifest: Record<string, unknown>;
+      try {
+        manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+      } catch {
+        // corrupt manifest fail-closed:
+        return { missing: ["manifest.json (corrupt)"], hash_mismatch: [] };
+      }
+      const artifacts = manifest["artifacts"];
+      if (!Array.isArray(artifacts)) {
+        return { missing: ["manifest.json (artifacts eksik)"], hash_mismatch: [] };
+      }
+      files = (artifacts as Array<Record<string, unknown>>).map((a) => ({
+        name: String(a["relative_path"] ?? ""),
+        sha256: String(a["sha256"] ?? ""),
+        bytes: Number(a["bytes"] ?? 0),
+      }));
+    }
     const missing: string[] = [];
     const hashMismatch: string[] = [];
     for (const file of files) {
-      const path = join(this.reportRoot, file.name);
+      if (file.name.length === 0) {
+        continue;
+      }
+      let path: string;
+      try {
+        path = containedReportPath(this.reportRoot, file.name);
+      } catch {
+        hashMismatch.push(file.name);
+        continue;
+      }
       if (!existsSync(path)) {
         missing.push(file.name);
         continue;

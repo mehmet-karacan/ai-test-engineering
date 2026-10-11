@@ -1,40 +1,43 @@
 # BACKLOG - Is Listesi
 
-Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
+Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0. FIN00-FIN15 IMPLEMENTATION_VERIFIED.
+Aktif gorev: AITE-REPORT06-INTEGRATION-004 v1.0 (sozlesme: AKTIF_GOREV.md). Yerel suite gecti; W11 coordinator denetimi suruyor.
+Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 
-## FIN paketleri (v2.0)
+## 004 uygulama paketleri (W00-W11)
 
-| ID | Is | Kritik yol | Durum | Kanit |
-| --- | --- | --- | --- | --- |
-| FIN00 | Baslangic, arsiv, kapsam/evidence registry, ilk davranis testi | - | VERIFIED | 60c0cda + d4fe86c; fin00-isolated-loop.test.ts 6/6 |
-| FIN01 | Domain/contract/config resolver ve source/project identity | - | VERIFIED | ab04f89 + a6f8dfb; fin01-contract.test.ts 16/16 |
-| FIN02 | Verified runner, disposable workspace, capability probe | X | VERIFIED | 7ec86d0; fin02-capability.test.ts 4/4 (gercek Docker) |
-| FIN03 | SQLite gercek veri akisi, migration v2, artifact publish, fencing | X | VERIFIED | 7b58248; fin03-relations.test.ts 9/9 |
-| FIN04 | Effective Maven + hedef/test/rapor scope'u | X | VERIFIED | 6602de2; fin04-target-resolution.test.ts 14/14 |
-| FIN05 | Kontrollu OpenCode worker + semali roller | X | VERIFIED | 96c6cac; fin05-worker-chain.test.ts 16/16 |
-| FIN06 | Candidate/repair/evaluator/cumulative accepted/final replay | X | VERIFIED | 046dad9; fin06-evaluator.test.ts 9/9 |
-| FIN07 | Resume/pause/cancel/late writes ve kaynak degisikligi | X | VERIFIED | 15436e5; fin07-lifecycle.test.ts 5/5 |
-| FIN08 | Semantik test kalitesi, PIT adapter | - | VERIFIED | db352d8; fin08-quality-pit.test.ts 17/17 |
-| FIN09 | Report projection, binary-safe export, patch, apply | - | VERIFIED | 73f0fd9; fin09-patch-export.test.ts 9/9 |
-| FIN10 | Legacy/modern MCP adapterleri | - | VERIFIED | c84d78d; fin10-protocol.test.ts 12/12 + v2-wire.test.ts |
-| FIN11 | Fresh install, upgrade/rollback/backup/restore/uninstall | - | VERIFIED | 6cda896; fin11-lifecycle-ops.test.ts 6/6 |
-| FIN12 | Diagnostics, retention/GC, support | - | VERIFIED | e2b3a19; fin12-diagnostics-gc.test.ts 10/10 |
-| FIN13 | Threat model, SBOM/SCA | - | VERIFIED | f275068; fin13-sbom.test.ts 6/6 + docs/SECURITY.md |
-| FIN14 | Benchmark corpus + trial kaydi | - | VERIFIED | 2925252; fin14-corpus.test.ts 6/6 + corpus.json |
-| FIN15 | Bagimsiz release verifier, dagitim teslimi | - | VERIFIED | 7532a5a; fin15-release-verifier.test.ts 7/7 + release-verify.mjs exit 0 |
+| Paket | Is | Durum | Kanit |
+| --- | --- | --- | --- |
+| W00 | Devir, kaynak/hash, ledger ve test baseline'i | VERIFIED | ai/checkpoints/2026-10-11-report06-w00-baseline.md; 375/375; typecheck 0 |
+| W01 | Typed worker state, context/profil, attempt/cleanup | LOCAL_VERIFIED | w01 worker fixture'lari + tam suite |
+| W02 | Guvenli runner/workspace/provisioning | LOCAL_VERIFIED | ac27/accepted-set/izolasyon fixture'lari; tam Docker pilotu yok |
+| W03 | Baseline-only ve Maven/JUnit/JaCoCo collector | LOCAL_VERIFIED | w03-baseline + fixture run |
+| W04 | Cumulative adaylar, repair, exact coverage, final replay | LOCAL_VERIFIED | evaluator/accepted-set + kod denetimi |
+| W05 | Kalici contract, checkpoint, resume/cancel | LOCAL_VERIFIED | w05-recovery + fin07; hard-kill kaniti yok |
+| W06 | Facts-only data contract + sanitizer/export | LOCAL_VERIFIED | w06-facts-contract + tam suite |
+| W07 | Artifact/patch/guvenli export ve uygulama siniri | LOCAL_VERIFIED | w07-export + fin09 |
+| W08 | 06 referans + renderer (N01/N08/N54) | LOCAL_VERIFIED | w08-reference |
+| W09 | Yerel paket/kurulum/ops kalanlari | LOCAL_VERIFIED | w09-install + bootstrap |
+| W10 | Tum obligation'lar ve release verifier | LOCAL_VERIFIED | w10-ledger + release-verify exit 0 |
+| W11 | Nihai teslim ve model devri | IN_PROGRESS | handoff |
 
-## Canli kabul (engel kalkinca ayni gorevden surer)
+## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
+
+| ID | Durum | Kanit |
+| --- | --- | --- |
+| F01-F18 | LOCAL_VERIFIED; tam runtime/pilot NOT_VERIFIED | ai/checkpoints/2026-10-11-report06-coordinator-audit.md |
+
+## Canli kabul (engel kalkinca ayri kosuda surer)
 
 | Is | Durum | Engel |
 | --- | --- | --- |
-| Canli kurum modeli benchmark (48 reachable + 8 negatif trial, FIN14 plani) | BLOCKED_KAYITLI | kaynak/butce acik kaydi gerekiyor; altyapi hazir |
-| Gercek proje pilotu (yetkili kurum Maven projesinde hedef sinif) | BLOCKED_KAYITLI | hedef isim kullaniciyla secilmeli; onceden uydurulmadi |
+| Canli kurum modeli benchmark (FIN14 plani) | BLOCKED_KAYITLI | kullanici acik onayi gerekir; bu gorev baslatmaz |
+| Gercek proje pilotu (RT21) | PAUSED_BY_USER / NOT_PASSED | provider istikrari + kullanici karari |
 | Kurum signing key ile imzali yayin | UNSIGNED/NOT_PUBLISHED (dogru) | kurum anahtari yok; uydurulmaz |
 
 ## Tarihsel kayitlar (silinmez)
 
 - AITE-FOUNDATION-001 (W01-W30): ai/tasks/archive/AITE-FOUNDATION-001.md
 - AITE-REMEDIATION-002 (D00-D10): ai/tasks/archive/AITE-REMEDIATION-002.md
-- AITE-RUNTIME-ACCEPTANCE-003 v1.0: ai/tasks/archive/AITE-RUNTIME-ACCEPTANCE-003-v1.0.md
+- AITE-RUNTIME-ACCEPTANCE-003 v1.0/v2.0: ai/tasks/archive/

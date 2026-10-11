@@ -46,12 +46,19 @@ export function buildPlan(projectRoot: string, affectedModulePaths: string[]): B
 
 export interface BaselineResult {
   status: "PASSED" | "FAILED" | "UNSTABLE" | "NO_TESTS";
-  run: RunResult;
+  /** W03/F06: gercek run yapilmadiysa null; sentetik exit0 kaydi uretilmez */
+  run: RunResult | null;
   failed_tests: string[];
   total_tests: number;
   failures: number;
   errors: number;
   skipped: number;
+  /** W03/F06: framework yok/test yok/skip ayrisimi icin neden kodu */
+  reason_code: string | null;
+  /** W03/F06: bozuk XML raporlari; silently continue edilmez */
+  malformed_reports: string[];
+  /** W03/F06: skip politika izleri (surefire skipTests/maven.test.skip) */
+  skip_config_detected: string[];
 }
 
 const surefireParser = new XMLParser({
@@ -70,7 +77,7 @@ export interface SurefireSuite {
   failed_test_names: string[];
 }
 
-export function parseSurefireReports(projectRoot: string, moduleRelativePath: string): SurefireSuite[] {
+export function parseSurefireReports(projectRoot: string, moduleRelativePath: string, malformedOut?: string[]): SurefireSuite[] {
   const reportDir = join(resolve(projectRoot), moduleRelativePath, "target", "surefire-reports");
   if (!existsSync(reportDir)) {
     return [];
@@ -101,31 +108,54 @@ export function parseSurefireReports(projectRoot: string, moduleRelativePath: st
           failed_test_names: failedNames,
         });
       }
-    } catch {
-      continue;
+    } catch (error) {
+      // W03/F06: bozuk XML silently continue edilmez; dosya kaydedilir, etkilenen sonuc eksik kalir
+      malformedOut?.push(`${name}: ${String(error).slice(0, 120)}`);
     }
   }
   return suites;
 }
 
+/**
+ * W03/F06: skip politika izleri - POM/properties icinde literal skip bayraklari.
+ * Kullanici politikasi sessizce degistirilmez; izler raporda gorunur.
+ */
+export function detectSkipConfig(projectRoot: string): string[] {
+  const detected: string[] = [];
+  const pomPath = join(resolve(projectRoot), "pom.xml");
+  if (existsSync(pomPath)) {
+    const content = readFileSync(pomPath, "utf8");
+    if (/<skipTests>\s*true\s*<\/skipTests>/.test(content)) {
+      detected.push("pom.xml: skipTests=true");
+    }
+    if (/<maven\.test\.skip>\s*true\s*<\/maven\.test\.skip>/.test(content)) {
+      detected.push("pom.xml: maven.test.skip=true");
+    }
+    if (/<skipITs>\s*true\s*<\/skipITs>/.test(content)) {
+      detected.push("pom.xml: skipITs=true");
+    }
+  }
+  return detected;
+}
+
 export async function runBaseline(projectRoot: string, runner: MavenRunner, timeoutMs = 600000): Promise<BaselineResult> {
   const plan = buildPlan(projectRoot, []);
+  const malformedReports: string[] = [];
+  const skipConfig = detectSkipConfig(projectRoot);
+
+  // W03/F06: framework yok -> GERCEK run YAPILMAZ; run:null + reason; sentetik exit0 kaydi YOK
   if (plan.test_framework === "none") {
     return {
       status: "NO_TESTS",
-      run: {
-        exit_code: 0,
-        duration_ms: 0,
-        stdout_log_path: "",
-        stderr_log_path: "",
-        command: [],
-        timed_out: false,
-      },
+      run: null,
       failed_tests: [],
       total_tests: 0,
       failures: 0,
       errors: 0,
       skipped: 0,
+      reason_code: "NO_TEST_FRAMEWORK",
+      malformed_reports: [],
+      skip_config_detected: skipConfig,
     };
   }
 
@@ -139,7 +169,7 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
 
   const suites: SurefireSuite[] = [];
   for (const module of plan.modules) {
-    suites.push(...parseSurefireReports(projectRoot, module.module_relative_path));
+    suites.push(...parseSurefireReports(projectRoot, module.module_relative_path, malformedReports));
   }
   const totalTests = suites.reduce((acc, s) => acc + s.tests, 0);
   const failures = suites.reduce((acc, s) => acc + s.failures, 0);
@@ -147,12 +177,21 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
   const skipped = suites.reduce((acc, s) => acc + s.skipped, 0);
   const failedTests = suites.flatMap((s) => s.failed_test_names);
 
+  // W03/F06: run exit0 olsa bile XML failure/error varken PASSED OLAMAZ
   let status: BaselineResult["status"] = "PASSED";
-  if (run.exit_code !== 0) {
-    status = failures + errors > 0 ? "FAILED" : "FAILED";
-    if (totalTests === 0 && run.exit_code !== 0) {
-      status = "FAILED";
-    }
+  let reasonCode: string | null = null;
+  if (failures + errors > 0) {
+    status = "FAILED";
+    reasonCode = failures > 0 && errors > 0 ? "TEST_FAILURES_AND_ERRORS" : failures > 0 ? "TEST_FAILURES" : "TEST_ERRORS";
+  } else if (run.exit_code !== 0) {
+    status = "FAILED";
+    reasonCode = "MAVEN_EXIT_NONZERO";
+  } else if (totalTests === 0) {
+    status = "NO_TESTS";
+    reasonCode = "NO_DISCOVERED_TESTS";
+  } else if (malformedReports.length > 0) {
+    status = "UNSTABLE";
+    reasonCode = "MALFORMED_TEST_REPORT";
   }
 
   return {
@@ -163,6 +202,9 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
     failures,
     errors,
     skipped,
+    reason_code: reasonCode,
+    malformed_reports: malformedReports,
+    skip_config_detected: skipConfig,
   };
 }
 

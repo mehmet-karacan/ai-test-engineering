@@ -5,6 +5,7 @@
  */
 import { defaultWorkerConfig, workerToolFlags, type WorkerConfig } from "./worker-config.js";
 import { extractJsonCandidate } from "./model-schemas.js";
+import { classifyFinish, classifyHttpFailure, type WorkerOutcomeKind } from "./worker-outcome.js";
 
 export interface SessionInfo {
   session_id: string;
@@ -23,6 +24,25 @@ export interface WorkerPromptResult {
   text: string | null;
   usage: PromptUsage;
   aborted: boolean;
+  /** W01/F01: tipli sonuc; her dolu finish tamamlanma degil */
+  finish: string | null;
+  outcome_kind: WorkerOutcomeKind;
+  elapsed_ms: number;
+  timed_out: boolean;
+  tool_names: string[];
+}
+
+/** W01/N13: typed request hatasi; kod + maskelenen ayrinti */
+export class WorkerRequestFailure extends Error {
+  readonly outcome_kind: WorkerOutcomeKind;
+  readonly result: WorkerPromptResult | null;
+
+  constructor(kind: WorkerOutcomeKind, message: string, result: WorkerPromptResult | null = null) {
+    super(message);
+    this.name = "WorkerRequestFailure";
+    this.outcome_kind = kind;
+    this.result = result;
+  }
 }
 
 export interface OpenCodeServerOptions {
@@ -90,42 +110,77 @@ export class OpenCodeWorkerClient {
     tools?: Record<string, boolean>;
     system?: string;
     no_reply?: boolean;
-  }): Promise<{ message_id: string | null }> {
-    const response = await fetch(`${this.baseUrl}/session/${options.session_id}/prompt_async`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify({
-        parts: options.parts,
-        ...(options.model ? { model: options.model } : {}),
-        ...(options.agent ? { agent: options.agent } : {}),
-        ...(options.tools ? { tools: options.tools } : {}),
-        ...(options.system ? { system: options.system } : {}),
-        ...(options.no_reply !== undefined ? { noReply: options.no_reply } : {}),
-      }),
-    });
+    timeout_ms?: number;
+  }): Promise<{ message_id: string | null; accepted: boolean }> {
+    let response: Response;
+    const controller = new AbortController();
+    const timer = options.timeout_ms ? setTimeout(() => controller.abort(), options.timeout_ms) : undefined;
+    try {
+      response = await fetch(`${this.baseUrl}/session/${options.session_id}/prompt_async`, {
+        method: "POST",
+        headers: this.headers(),
+        signal: controller.signal,
+        body: JSON.stringify({
+          parts: options.parts,
+          ...(options.model ? { model: options.model } : {}),
+          ...(options.agent ? { agent: options.agent } : {}),
+          ...(options.tools ? { tools: options.tools } : {}),
+          ...(options.system ? { system: options.system } : {}),
+          ...(options.no_reply !== undefined ? { noReply: options.no_reply } : {}),
+        }),
+      });
+    } catch (error) {
+      // W01/N13: baglanti hatasi typed transport hatasi; provider ayrintisi maskelenir
+      if (controller.signal.aborted) {
+        throw new WorkerRequestFailure("REQUEST_TIMEOUT", "prompt_async deadline asildi");
+      }
+      const failure = new WorkerRequestFailure(classifyHttpFailure(0), `prompt_async transport hatasi: ${String(error)}`);
+      throw failure;
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
     if (!response.ok) {
-      throw new Error(`prompt_async basarisiz: HTTP ${response.status}`);
+      throw new WorkerRequestFailure(classifyHttpFailure(response.status), `prompt_async basarisiz: HTTP ${response.status}`);
     }
     // prompt_async resmi cevabi 204 No Content olabilir (D04/E01); kosulsuz response.json() parse hatasi uretir.
     if (response.status === 204) {
-      return { message_id: null };
+      return { message_id: null, accepted: true };
     }
     const contentLength = response.headers.get("content-length");
     if (contentLength === "0") {
-      return { message_id: null };
+      return { message_id: null, accepted: true };
     }
     const text = await response.text();
     if (text.trim().length === 0) {
-      return { message_id: null };
+      return { message_id: null, accepted: true };
     }
-    const data = JSON.parse(text) as Record<string, unknown>;
-    return { message_id: data["id"] !== undefined ? String(data["id"]) : null };
+    try {
+      const data = JSON.parse(text) as Record<string, unknown>;
+      return { message_id: data["id"] !== undefined ? String(data["id"]) : null, accepted: true };
+    } catch {
+      throw new WorkerRequestFailure("INVALID_JSON", "prompt_async cevabi JSON degil");
+    }
   }
 
-  async listMessages(session_id: string): Promise<Array<Record<string, unknown>>> {
-    const response = await fetch(`${this.baseUrl}/session/${session_id}/message`, {
-      headers: this.headers(),
-    });
+  async listMessages(session_id: string, timeoutMs = 10000): Promise<Array<Record<string, unknown>>> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/session/${session_id}/message`, {
+        headers: this.headers(),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new WorkerRequestFailure("REQUEST_TIMEOUT", "worker mesaj listesi deadline asildi");
+      }
+      throw new WorkerRequestFailure("TRANSPORT_ERROR", `Mesaj listeleme transport hatasi: ${String(error)}`);
+    } finally {
+      clearTimeout(timer);
+    }
     if (!response.ok) {
       throw new Error(`Mesaj listeleme basarisiz: HTTP ${response.status}`);
     }
@@ -148,15 +203,43 @@ export class OpenCodeWorkerClient {
     return response.ok;
   }
 
-  async waitForCompletion(session_id: string, options: { timeout_ms: number; poll_interval_ms?: number }): Promise<WorkerPromptResult> {
+  async waitForCompletion(session_id: string, options: { timeout_ms: number; poll_interval_ms?: number; request_message_id?: string | null }): Promise<WorkerPromptResult> {
     const pollInterval = options.poll_interval_ms ?? 1000;
     const started = Date.now();
+    // W01/N10: ara tool adimlarindaki tool adlari biriktirilir; nihai sonucta raporlanir
+    const seenToolNames: string[] = [];
     while (Date.now() - started < options.timeout_ms) {
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-      const messages = await this.listMessages(session_id);
+      const beforePollRemaining = options.timeout_ms - (Date.now() - started);
+      await new Promise((resolve) => setTimeout(resolve, Math.min(pollInterval, Math.max(1, beforePollRemaining))));
+      const remaining = options.timeout_ms - (Date.now() - started);
+      if (remaining <= 0) {
+        break;
+      }
+      const messages = await this.listMessages(session_id, Math.min(10000, remaining));
       // Mesaj listesi { info: Message, parts: Part[] } yapIsminda (D04/E01);
       // role/completed/id alanlari info nesnesindedir.
-      const last = messages.length > 0 ? messages[messages.length - 1]! : undefined;
+      const candidates = messages.filter((message) => {
+        const info = (message["info"] && typeof message["info"] === "object" ? message["info"] : message) as Record<string, unknown>;
+        const role = String(info["role"] ?? "");
+        if (role !== "assistant") {
+          return false;
+        }
+        const messageSession = info["sessionID"] ?? info["session_id"];
+        if (messageSession !== undefined && String(messageSession) !== session_id) {
+          return false;
+        }
+        // OpenCode surumleri prompt_async cevabini assistant id'si veya
+        // parentID olarak tasiyabilir; bilinmiyorsa taze session'in son
+        // assistant mesaji kullanilir.
+        const requestId = options.request_message_id;
+        if (!requestId) {
+          return true;
+        }
+        const messageId = info["id"] !== undefined ? String(info["id"]) : null;
+        const parentId = info["parentID"] !== undefined ? String(info["parentID"]) : info["parent_id"] !== undefined ? String(info["parent_id"]) : null;
+        return messageId === requestId || parentId === requestId || messageId !== null;
+      });
+      const last = candidates.length > 0 ? candidates[candidates.length - 1]! : undefined;
       if (!last) {
         continue;
       }
@@ -165,8 +248,16 @@ export class OpenCodeWorkerClient {
       if (role !== "assistant") {
         continue;
       }
-      const completed = completedField(info);
-      if (!completed) {
+      // W01/F01: finish tipli siniflandirma; her dolu finish tamamlanma degil.
+      // TOOL_STEP ara adimdir: nihai degil, gercek session bitisi beklenir; tool adlari birikir.
+      const finishValue = typeof info["finish"] === "string" ? info["finish"] : null;
+      const classified = classifyFinish(finishValue);
+      const hardCompleted = info["completed"] === true || info["error"] !== undefined;
+      if (classified.kind === "TOOL_STEP") {
+        this.collectToolNames(last, seenToolNames);
+        continue;
+      }
+      if (!classified.completed && !hardCompleted) {
         continue;
       }
       const parts = last["parts"];
@@ -179,7 +270,12 @@ export class OpenCodeWorkerClient {
           }
         }
       }
+      this.collectToolNames(last, seenToolNames);
       const tokens = info["tokens"] as Record<string, unknown> | undefined;
+      const outcomeKind: WorkerOutcomeKind =
+        info["error"] !== undefined
+          ? "SERVER_ERROR"
+          : classified.kind ?? (text.length > 0 ? "FINAL_TEXT" : "EMPTY_FINAL");
       return {
         session_id,
         message_id: info["id"] !== undefined ? String(info["id"]) : null,
@@ -189,27 +285,83 @@ export class OpenCodeWorkerClient {
           output_tokens: tokens && typeof tokens === "object" && tokens["output"] !== undefined ? Number(tokens["output"]) : null,
         },
         aborted: false,
+        finish: finishValue,
+        outcome_kind: outcomeKind,
+        elapsed_ms: Date.now() - started,
+        timed_out: false,
+        tool_names: [...seenToolNames],
       };
     }
-    return { session_id, message_id: null, text: null, usage: { input_tokens: null, output_tokens: null }, aborted: true };
+    // W01/N11: gercek zaman dolmasi haric TIMEOUT olamaz; elapsed ile kayitli
+    return {
+      session_id,
+      message_id: null,
+      text: null,
+      usage: { input_tokens: null, output_tokens: null },
+      aborted: false,
+      finish: null,
+      outcome_kind: "REQUEST_TIMEOUT",
+      elapsed_ms: Date.now() - started,
+      timed_out: true,
+      tool_names: [...seenToolNames],
+    };
+  }
+
+  /** W01/N10: mesaj parcalarindan tool adlarini biriktirir (duplicate yoksayar) */
+  private collectToolNames(message: Record<string, unknown>, into: string[]): void {
+    const parts = message["parts"];
+    if (!Array.isArray(parts)) {
+      return;
+    }
+    for (const part of parts) {
+      if (part && typeof part === "object" && (part["type"] === "tool" || (part["tool"] !== undefined && part["type"] !== "text"))) {
+        const name = String(part["tool"] ?? part["name"] ?? "unknown");
+        if (!into.includes(name)) {
+          into.push(name);
+        }
+      }
+    }
   }
 }
 
-/**
- * Gercek tamamlanma alanlari: OpenCode mesajlarinda completed/finish/time alanlari surume gore degisir;
- * bilinen tamamlanma isaretlerini kontrol eder.
- */
-function completedField(info: Record<string, unknown>): boolean {
-  if (info["completed"] === true) {
-    return true;
+export interface PromptForJsonResult {
+  value: unknown;
+  result: WorkerPromptResult;
+}
+
+export async function promptForJsonResult(client: OpenCodeWorkerClient, options: {
+  session_id: string;
+  prompt: string;
+  model?: { providerID: string; modelID: string };
+  tools?: Record<string, boolean>;
+  timeout_ms: number;
+}): Promise<PromptForJsonResult> {
+  const started = Date.now();
+  const accepted = await client.promptAsync({
+    session_id: options.session_id,
+    parts: [{ type: "text", text: options.prompt }],
+    ...(options.model ? { model: options.model } : {}),
+    ...(options.tools ? { tools: options.tools } : {}),
+    timeout_ms: options.timeout_ms,
+  });
+  const remainingTimeout = Math.max(1, options.timeout_ms - (Date.now() - started));
+  const result = await client.waitForCompletion(options.session_id, { timeout_ms: remainingTimeout, request_message_id: accepted.message_id });
+  // W01/F01: tip sonuc; EMPTY_FINAL/OUTPUT_TRUNCATED/TIMEOUT ayrismasi korunur
+  if (result.aborted || result.outcome_kind === "REQUEST_TIMEOUT" || result.outcome_kind === "CANCELLED") {
+    throw new WorkerRequestFailure(result.outcome_kind === "REQUEST_TIMEOUT" ? "REQUEST_TIMEOUT" : "CANCELLED", `worker sonuc beklenmedi: ${result.outcome_kind}`, result);
   }
-  if (typeof info["finish"] === "string" && info["finish"].length > 0) {
-    return true;
+  if (result.text === null || result.text.trim().length === 0) {
+    throw new WorkerRequestFailure("EMPTY_FINAL", "worker bos final dondurdur (finish=stop, text yok)", result);
   }
-  if (info["error"] !== undefined) {
-    return true;
+  if (result.outcome_kind === "OUTPUT_TRUNCATED") {
+    throw new WorkerRequestFailure("OUTPUT_TRUNCATED", "worker ciktisi kesildi (finish=length)", result);
   }
-  return false;
+  try {
+    const jsonCandidate = extractJsonCandidate(result.text);
+    return { value: JSON.parse(jsonCandidate) as unknown, result };
+  } catch (error) {
+    throw new WorkerRequestFailure("INVALID_JSON", String(error), result);
+  }
 }
 
 export async function promptForJson(client: OpenCodeWorkerClient, options: {
@@ -219,18 +371,8 @@ export async function promptForJson(client: OpenCodeWorkerClient, options: {
   tools?: Record<string, boolean>;
   timeout_ms: number;
 }): Promise<unknown> {
-  await client.promptAsync({
-    session_id: options.session_id,
-    parts: [{ type: "text", text: options.prompt }],
-    ...(options.model ? { model: options.model } : {}),
-    ...(options.tools ? { tools: options.tools } : {}),
-  });
-  const result = await client.waitForCompletion(options.session_id, { timeout_ms: options.timeout_ms });
-  if (result.aborted || result.text === null) {
-    throw new Error("MODEL_TIMEOUT: worker cevabi zamaninda gelmedi");
-  }
-  const jsonCandidate = extractJsonCandidate(result.text);
-  return JSON.parse(jsonCandidate) as unknown;
+  const response = await promptForJsonResult(client, options);
+  return response.value;
 }
 
 export { defaultWorkerConfig, workerToolFlags, type WorkerConfig };

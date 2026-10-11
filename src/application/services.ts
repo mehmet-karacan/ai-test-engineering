@@ -247,8 +247,9 @@ export async function handleTestStart(input: unknown, services: Services): Promi
       const resolvedList: Array<{ selector: string; matches: number; fqns: string[] }> = [];
       for (const target of parsed.targets) {
         if (target.kind === "package") {
-          // K06/B09: package hedefi somut class listesine acilir (sessiz repo genisletme yok):
-          const pkgClasses = inventory.resolveTarget(snapshotId, `${target.selector}.`);
+          // K06/B09 + W03/F05: package hedefi boundary-aware cosulur (nokta siniri korunur;
+          // packAB prefix cakismasi sizmaz); somut class listesine acilir:
+          const pkgClasses = inventory.resolvePackageBoundary(snapshotId, target.selector);
           if (pkgClasses.length === 0) {
             throw new AppError("INVALID_PARAMETERS", `Paket hedefi icinde sinif bulunamadi: ${target.selector}`);
           }

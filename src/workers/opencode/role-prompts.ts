@@ -23,13 +23,54 @@ export interface WorkerPromptContext {
 
 export const WORKER_ROLES: readonly WorkerRole[] = ["analyzer", "test_designer", "reviewer", "gap_analyzer"] as const;
 
+/**
+ * W01/F04: context manifest - govde/bolum kesme kararlari kayitli olur; sessiz kesme yok.
+ */
+export interface ContextManifestEntry {
+  section: string;
+  included_bytes: number;
+  total_bytes: number;
+  truncated: boolean;
+}
+
+export interface ContextManifest {
+  entries: ContextManifestEntry[];
+  total_context_chars: number;
+  excluded_notes: string[];
+}
+
+export function buildContextManifest(context: WorkerPromptContext, classBodyLimit = 12000): ContextManifest {
+  const entries: ContextManifestEntry[] = [];
+  const excludedNotes: string[] = [];
+  const bodyTotal = context.class_body?.length ?? 0;
+  const bodyIncluded = Math.min(bodyTotal, classBodyLimit);
+  if (bodyTotal > 0) {
+    entries.push({ section: "class_body", included_bytes: bodyIncluded, total_bytes: bodyTotal, truncated: bodyTotal > classBodyLimit });
+    if (bodyTotal > classBodyLimit) {
+      excludedNotes.push(`class_body: ilk ${classBodyLimit} karakter dahil; kalan ${bodyTotal - classBodyLimit} karakter haric (satir araligi/hash ile replan gerekli)`);
+    }
+  }
+  if (context.dependencies_signatures.length > 20) {
+    excludedNotes.push(`dependencies_signatures: ${context.dependencies_signatures.length} imza; ilk 20 dahil`);
+  }
+  let total = 0;
+  for (const entry of entries) {
+    total += entry.included_bytes;
+  }
+  return { entries, total_context_chars: total, excluded_notes: excludedNotes };
+}
+
 export function buildWorkerPrompt(context: WorkerPromptContext): string {
   const roleIntro = roleIntroFor(context.role);
-  // 10.2: gercek govde prompt'a girer (RT21 pilot bulgusu: govdesiz prompt'ta model JSON uretemiyor);
-  // sinir: 12000 karakter (buyuk siniflarda kontrollu truncation + kayit yerine tam govde hedefi).
-  const classBody = context.class_body && context.class_body.length > 0
-    ? ["## Hedef sinifin gercek govdesi (birebir)", context.class_body.slice(0, 12000), ""]
-    : [];
+  // 10.2 + W01/F04: gercek govde prompt'a girer; 12000 karakterden uzunsa ACIK truncation isareti ile
+  // (sessiz kesme yok; 'birebir' etiketi yalniz gercekten tam govde icin).
+  const classBodyFull = context.class_body && context.class_body.length > 0;
+  const classBodyTruncated = classBodyFull && context.class_body!.length > 12000;
+  const classBodyLabel = !classBodyFull
+    ? []
+    : classBodyTruncated
+      ? [`## Hedef sinifin gercek govdesi (ILK 12000 KARAKTER; TOPLAM ${context.class_body!.length}; KESILDI)`, context.class_body!.slice(0, 12000), ""]
+      : ["## Hedef sinifin gercek govdesi (birebir)", context.class_body!, ""];
   // 10.3: cikti bicimi zorlamasi (RT21 pilot bulgusu: JSON zorlanmazsa model markdown java kodu
   // yaziyor; extractJsonCandidate bunu ceviremiyor):
   const sections = [
@@ -39,9 +80,9 @@ export function buildWorkerPrompt(context: WorkerPromptContext): string {
     `Paket: ${context.package_name}`,
     `Sinif: ${context.class_name}`,
     "",
-    ...classBody,
+    ...classBodyLabel,
     "## Bagimlilik imzalari (sadece bunlari kullan)",
-    ...context.dependencies_signatures.map((sig) => `- ${sig}`),
+    ...context.dependencies_signatures.slice(0, 20).map((sig) => `- ${sig}`),
     "",
     "## Mevcut test durumu",
     ...(context.existing_tests_summary.length > 0 ? context.existing_tests_summary.map((t) => `- ${t}`) : ["- Mevcut test yok"]),

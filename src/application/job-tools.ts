@@ -3,18 +3,17 @@
  * MCP handler'larin cagirdigi application katmani; is mantigi burada.
  */
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "./services.js";
 import { canonicalProjectRoot } from "./services.js";
-import { JobRepository, type JobRow } from "../storage/job-repository.js";
+import type { JobRow } from "../storage/job-repository.js";
 import { ProjectRepository } from "../storage/project-repository.js";
 import { LeaseManager } from "../orchestration/lease-manager.js";
 import { CheckpointStore } from "../orchestration/checkpoint-store.js";
-import { readCoverageAfterRun, basisPointsFrom } from "../orchestration/candidate-loop.js";
-import { ReportExporter, type ReportData } from "../reporting/report-generator.js";
-import { TestApplyService, defaultApplyConfig } from "../reporting/test-apply.js";
+import { defaultApplyConfig } from "../reporting/test-apply.js";
+import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 
 export interface TestResumeResult {
   job_id: string;
@@ -60,8 +59,6 @@ export async function handleTestResume(input: unknown, services: Services): Prom
   }
 
   // K05/B05: resume gercek dispatcher devami - ayni job'dan kaldigi asamadan devam.
-  const leases = new LeaseManager(storage.db);
-  leases.acquire(job.id, `resume-${process.pid}-${Date.now()}`, 300000, `resume-${process.pid}`);
   jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
   jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });
 
@@ -100,20 +97,37 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
 
   const leases = new LeaseManager((requireStorage(services)).storage.db);
   try {
-    leases.release(job.id, `resume-${process.pid}`);
+    const currentLease = leases.get(job.id);
+    leases.release(job.id, currentLease.owner_id);
   } catch {
     // lease zaten yok olabilir
+  }
+
+  // W05/F11/N37: cancel/pause - owned worker/Maven process'leri sonlandirilir (yalniz owned kaynaklar).
+  // Gec cevap CANCELLED/PAUSED'i COMPLETED'e ceviremez; late-write fencing lease fence ile korunur.
+  try {
+    const { JobDispatcher } = await import("../orchestration/job-dispatcher.js");
+    const dispatcher = new JobDispatcher({
+      services,
+      runnerKind: resolveRunnerKindFromEnv(process.env["AITEST_RUNNER"], true),
+      workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
+      workspaceRoot: services.config.storage.root,
+    });
+    dispatcher.stopOwnedProcesses(job.id);
+  } catch (stopError) {
+    // owned process sonlandirma hatasi lifecycle akisini bozmaz; kayitli olur
+    process.stderr.write(`[aitest-cancel] job ${job.id} owned process stop hatasi: ${String(stopError)}\n`);
   }
 
   if (parsed.reason === "pause") {
     jobs.updateLifecycle(job.id, "PAUSED", job.row_version);
     jobs.appendEvent({ job_id: job.id, event_type: "test_paused", phase: job.phase, origin: "handleTestCancel" });
-    return { job_id: job.id, lifecycle: "PAUSED", paused: true, message: "Is duraklatildi; test_resume ile devam edilebilir" };
+    return { job_id: job.id, lifecycle: "PAUSED", paused: true, message: "Is duraklatildi; owned process'ler sonlandirildi; test_resume ile devam edilebilir" };
   }
 
   jobs.updateLifecycle(job.id, "CANCELLED", job.row_version);
   jobs.appendEvent({ job_id: job.id, event_type: "test_cancelled", phase: job.phase, origin: "handleTestCancel" });
-  return { job_id: job.id, lifecycle: "CANCELLED", paused: false, message: "Iptal edildi; artifact'ler korunur" };
+  return { job_id: job.id, lifecycle: "CANCELLED", paused: false, message: "Iptal edildi; owned process'ler sonlandirildi; artifact'ler korunur" };
 }
 
 export interface TestResultResult {
@@ -133,21 +147,19 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   const { storage, jobs } = requireStorage(services);
   const job = jobs.getJob(parsed.job_id);
 
-  // K07/B06: son trusted coverage gercek hesaplanir (job.location_id -> canonical root -> jacoco.xml):
+  // K07/B06: son trusted coverage yalniz dispatcher'in final replay DB kanitindan
+  // okunur; kullanici checkout'undaki stale jacoco.xml trusted sayilmaz.
   let lastCoverage: { percent: number; basisPoints: number } | null = null;
-  const locationRow = storage.db
-    .prepare<[string], { canonical_root: string }>("SELECT canonical_root FROM project_locations WHERE id = ?")
-    .get(job.location_id);
-  if (locationRow) {
-    const targetRows = storage.db
-      .prepare<[string], { selector: string }>("SELECT selector FROM job_targets WHERE job_id = ?")
-      .all(job.id);
-    if (targetRows.length > 0) {
-      const coverage = readCoverageAfterRun(locationRow.canonical_root, targetRows[0]!.selector);
-      const bps = basisPointsFrom(coverage?.line);
-      if (bps !== null) {
-        lastCoverage = { percent: bps / 100, basisPoints: bps };
-      }
+  const coverageRow = storage.db
+    .prepare<[string], { line_covered: number; line_missed: number }>(
+      "SELECT line_covered, line_missed FROM coverage_snapshots WHERE job_id = ? AND before_after = 'after' AND line_validity = 'OK' ORDER BY created_at DESC LIMIT 1",
+    )
+    .get(job.id);
+  if (coverageRow) {
+    const total = coverageRow.line_covered + coverageRow.line_missed;
+    if (total > 0) {
+      const bps = Math.floor((coverageRow.line_covered * 10000) / total);
+      lastCoverage = { percent: bps / 100, basisPoints: bps };
     }
   }
 
@@ -189,7 +201,7 @@ export interface TestApplyResult {
 
 export async function handleTestApply(input: unknown, services: Services): Promise<TestApplyResult> {
   const parsed = TestApplyInputSchema.parse(input);
-  const { storage, jobs } = requireStorage(services);
+  const { jobs } = requireStorage(services);
   const job = jobs.getJob(parsed.job_id);
 
   if (job.apply_state === "APPLIED") {

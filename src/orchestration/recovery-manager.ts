@@ -4,7 +4,6 @@
  * 4. Kaynak fingerprint kontrol  5. Degisiklik yoksa devam; degistiyse SOURCE_CHANGED.
  */
 import type BetterSqlite3 from "better-sqlite3";
-import { AppError } from "../domain/errors.js";
 import { LeaseManager } from "./lease-manager.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import type { JobRow } from "../storage/job-repository.js";

@@ -123,6 +123,30 @@ export class InventoryRepository {
     return rows as unknown as Array<{ symbol_id: string; fqn: string; module_relative_path: string; relative_path: string }>;
   }
 
+  /**
+   * W03/F05/N21: package hedefi boundary-aware cosulur.
+   * `com.example.packA.` selector'u yalniz o paketteki siniflari dondurur;
+   * `com.example.packAB` gibi prefix cakismasi sizmaz (nokta siniri korunur).
+   */
+  resolvePackageBoundary(snapshotId: string, packageSelector: string): Array<{ symbol_id: string; fqn: string; module_relative_path: string; relative_path: string }> {
+    // selector trailing nokta ile gelmeli ("com.example.packA."); yoksa ekle
+    const prefix = packageSelector.endsWith(".") ? packageSelector : `${packageSelector}.`;
+    // prefix + nokta kontrolu: LIKE 'com.example.packA.%' (SQLite escape ile);
+    // nokta siniri korunur: packAB prefix cakismasi sizmaz
+    const escaped = prefix.replace(/[\\%_]/g, (m) => `\\${m}`);
+    const rows = this.db
+      .prepare<[string, string], { symbol_id: string; fqn: string; module_relative_path: string; relative_path: string }>(
+        `SELECT cs.id AS symbol_id, cs.fqn, m.relative_path AS module_relative_path, cs.relative_path
+         FROM code_symbols cs
+         JOIN java_packages jp ON cs.package_id = jp.id
+         JOIN modules m ON jp.module_id = m.id
+         WHERE m.snapshot_id = ? AND cs.fqn LIKE ? ESCAPE '\\'
+         ORDER BY cs.fqn`,
+      )
+      .all(snapshotId, `${escaped}%`);
+    return rows as unknown as Array<{ symbol_id: string; fqn: string; module_relative_path: string; relative_path: string }>;
+  }
+
   listModules(snapshotId: string): Array<{ module_relative_path: string; artifact_id: string; packaging: string }> {
     return this.db
       .prepare<[string], { relative_path: string; artifact_id: string; packaging: string }>(
@@ -268,6 +292,43 @@ export class InventoryRepository {
         Date.now(),
       );
     return id;
+  }
+
+  /**
+   * W01/F02: attempt sonucu guncellenir (istek oncesi yazilan satira).
+   * Tum sonuclar bitirilir: ok/timeout/error/aborted; unknown usage null kalir.
+   */
+  updateWorkerAttemptOutcome(input: {
+    job_id: string;
+    attempt_ordinal: number;
+    status: "ok" | "timeout" | "error" | "aborted";
+    session_id: string | null;
+    message_id: string | null;
+    input_digest: string | null;
+    output_digest: string | null;
+    duration_ms: number | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    error_class: string | null;
+  }): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE worker_attempts SET status = ?, session_id = ?, message_id = ?, input_digest = ?, output_digest = ?, duration_ms = ?, input_tokens = ?, output_tokens = ?, error_class = ? WHERE job_id = ? AND attempt_ordinal = ?",
+      )
+      .run(
+        input.status,
+        input.session_id,
+        input.message_id,
+        input.input_digest,
+        input.output_digest,
+        input.duration_ms,
+        input.input_tokens,
+        input.output_tokens,
+        input.error_class,
+        input.job_id,
+        input.attempt_ordinal,
+      );
+    return result.changes > 0;
   }
 
   /**

@@ -9,6 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { AppError } from "../../domain/errors.js";
 import { OpenCodeWorkerClient } from "./worker-client.js";
 
@@ -21,9 +22,40 @@ export interface WorkerServerOptions {
   extraArgs?: string[];
   /** XDG_CONFIG_HOME worker izolasyonu icin; verilirse kullanici config mirasi kesilir */
   isolatedConfigHome?: string | null;
+  /**
+   * W01/F03: job/profil bazli izole config. Verilirse config dosyasi her kosuda
+   * bu digeste gore yeniden yazilir (stale dosya reuse yok).
+   */
+  config_instance_key?: string | null;
 }
 
 export const DEFAULT_WORKER_PORT = 14096;
+
+/**
+ * W01/F03: worker config iceriginin deterministic digest'i.
+ * Config degisince stale dosya reuse engellenir; ayni icerik reuse edilir.
+ */
+export function workerConfigDigest(content: Record<string, unknown>): string {
+  return createHash("sha256").update(JSON.stringify(content), "utf8").digest("hex");
+}
+
+/** W01/F03: worker env allowlist - tum process.env kopyalanmaz; yalniz bu on ekler + sentinel tasi */
+function buildAllowedEnv(): Record<string, string> {
+  const allowed: Record<string, string> = {};
+  const allowPrefixes = ["PATH", "PATHEXT", "SYSTEMROOT", "COMSPEC", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "USERPROFILE", "HOME", "JAVA_HOME", "MAVEN_HOME", "NO_COLOR", "LANG", "TZ"];
+  for (const key of allowPrefixes) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      allowed[key] = value;
+    }
+  }
+  // OpenCode server auth sentinel'i (varsa) iletilir; diger secret'lar tasinmaz
+  const password = process.env["OPENCODE_SERVER_PASSWORD"];
+  if (password !== undefined) {
+    allowed["OPENCODE_SERVER_PASSWORD"] = password;
+  }
+  return allowed;
+}
 
 export class WorkerServerManager {
   private server: ChildProcess | null = null;
@@ -51,38 +83,62 @@ export class WorkerServerManager {
     });
     this.server = child;
     const client = new OpenCodeWorkerClient({ base_url: `http://127.0.0.1:${this.options.port}` });
-    for (let i = 0; i < 30; i++) {
+    const attempts = Math.max(1, Math.ceil(this.options.startupTimeoutMs / 1000));
+    for (let i = 0; i < attempts; i++) {
       await new Promise((r) => setTimeout(r, 1000));
+      if (child.exitCode !== null || child.killed) {
+        this.stopOwnedServer();
+        throw new AppError("BLOCKED_ISOLATION", `Worker server baslatilamadi; process erken sonlandi (port ${this.options.port})`, {
+          reason_code: "WORKER_SERVER_EXITED",
+        });
+      }
       if (await client.health(3000)) {
         this.client = client;
         return client;
       }
     }
+    this.stopOwnedServer();
     throw new AppError("BLOCKED_ISOLATION", `Worker server ${this.options.startupTimeoutMs} ms icinde hazir olmadi (port ${this.options.port})`, {
       reason_code: "WORKER_SERVER_UNAVAILABLE",
     });
   }
 
   /**
-   * RT21 pilot: kullanici MCP config'i worker session'ina miras kalmaz. isolatedConfigHome
+   * W01/F03: kullanici MCP config'i worker session'ina miras kalmaz. isolatedConfigHome
    * verildiyse XDG_CONFIG_HOME/XDG_DATA_HOME/XDG_CACHE_HOME/XDG_STATE_HOME o dizinlere cekilir ve
    * opencode/opencode.json (kullanici provider tanimi + mcp:{}) o dizine yazilir.
    * Secret degeri okunmaz/yazilmaz; {env:...} referansi korunur.
+   * config_instance_key verildiyse config dosyasi instance bazli ayrilir; stale reuse yok.
    */
   private buildIsolatedEnv(): Record<string, string> {
-    const base: Record<string, string> = { ...process.env } as Record<string, string>;
+    // W01/F03: tum process.env kopyalanmaz; allowlist uygulanir
+    const base: Record<string, string> = buildAllowedEnv();
     const configHome = this.options.isolatedConfigHome;
     if (!configHome) {
       return base;
     }
-    const configDir = join(configHome, "opencode");
+    const instanceKey = this.options.config_instance_key ?? null;
+    const configDir = instanceKey
+      ? join(configHome, "instances", instanceKey, "opencode")
+      : join(configHome, "opencode");
     mkdirSync(configDir, { recursive: true });
     mkdirSync(join(configHome, "data"), { recursive: true });
     const workerConfigPath = join(configDir, "opencode.json");
-    if (!existsSync(workerConfigPath)) {
-      writeFileSync(workerConfigPath, JSON.stringify(this.buildWorkerConfigContent(), null, 2), "utf8");
+    const content = this.buildWorkerConfigContent();
+    const digest = workerConfigDigest(content);
+    // W01/F03: config digest dosyada degisince yeniden yazilir (stale reuse yok)
+    let needsWrite = true;
+    if (existsSync(workerConfigPath)) {
+      const digestMarker = `${workerConfigPath}.digest`;
+      if (existsSync(digestMarker) && readFileSync(digestMarker, "utf8").trim() === digest) {
+        needsWrite = false;
+      }
     }
-    base["XDG_CONFIG_HOME"] = configHome;
+    if (needsWrite) {
+      writeFileSync(workerConfigPath, JSON.stringify(content, null, 2), "utf8");
+      writeFileSync(`${workerConfigPath}.digest`, digest, "utf8");
+    }
+    base["XDG_CONFIG_HOME"] = instanceKey ? join(configHome, "instances", instanceKey) : configHome;
     base["XDG_DATA_HOME"] = join(configHome, "data");
     base["XDG_CACHE_HOME"] = join(configHome, "data", "cache");
     base["XDG_STATE_HOME"] = join(configHome, "data", "state");
@@ -145,7 +201,7 @@ export class WorkerServerManager {
   }
 }
 
-export function defaultWorkerServerManager(workDir: string): WorkerServerManager {
+export function defaultWorkerServerManager(workDir: string, options?: { config_instance_key?: string; port?: number }): WorkerServerManager {
   // Windows'ta .cmd dosyalari shell:false ile spawn EDILEMEZ (Node v24 CVE-2024-27980 duzeltmesi; EINVAL).
   // NPM shim yerine gercek opencode.exe kullanilir; shim bulunamazsa cmd /c ile cmd shim calistirilir.
   let exe = "opencode";
@@ -161,13 +217,15 @@ export function defaultWorkerServerManager(workDir: string): WorkerServerManager
     }
   }
   // RT21 pilot: kullanici MCP config'i worker'a miras kalmaz; worker'a ozel XDG izolasyon dizini.
+  // W01/F03: config_instance_key verilirse instance bazli ayrilir.
   const isolatedConfigHome = join(tmpdir(), "aitest-worker-xdg");
   return new WorkerServerManager({
     opencodeExecutable: exe,
-    port: DEFAULT_WORKER_PORT,
+    port: options?.port ?? DEFAULT_WORKER_PORT,
     startupTimeoutMs: 30000,
     workDir,
     extraArgs: args,
     isolatedConfigHome,
+    config_instance_key: options?.config_instance_key ?? null,
   });
 }

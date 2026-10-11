@@ -3,7 +3,7 @@
  * hedef_saglandi = covered * 10000 >= hedef_bps * n
  */
 import { AppError } from "../domain/errors.js";
-import type { Counter, CounterKind } from "./jacoco-parser.js";
+import type { CounterKind } from "./jacoco-parser.js";
 
 export interface CounterPair {
   covered: number;
@@ -108,10 +108,14 @@ export function evaluateTarget(
   if (!line) {
     throw new AppError("INVALID_COVERAGE_EVIDENCE", "LINE metrik degerlendirmesi zorunlu");
   }
-  const requiredMet = requiredKinds.every((kind) => {
-    const metric = metrics.find((m) => m.kind === kind);
-    return metric !== undefined && metric.target_met;
-  });
+  const requiredMetrics = requiredKinds.map((kind) => metrics.find((m) => m.kind === kind)).filter((metric): metric is MetricEvaluation => metric !== undefined);
+  const applicableRequired = requiredMetrics.filter((metric) => metric.validity === "OK");
+  // Gecerli total=0 counter hedefe uygulanamaz; diger metric OK ve hedefi
+  // sagliyorsa bunu eksik/bozuk kanit gibi red etmeyiz. Tum metrikler N/A ise
+  // yine otomatik basari yoktur (N27).
+  const requiredMet = applicableRequired.length > 0
+    && applicableRequired.every((metric) => metric.target_met)
+    && requiredMetrics.every((metric) => metric.validity === "OK" || metric.validity === "NOT_APPLICABLE");
   const validity: TargetEvaluation["validity"] =
     line.validity === "INVALID_COVERAGE_EVIDENCE" || branch?.validity === "INVALID_COVERAGE_EVIDENCE"
       ? "INVALID"
@@ -123,7 +127,7 @@ export function evaluateTarget(
     fqn,
     line,
     branch: branch ?? line,
-    all_required_met: requiredMet && validity === "OK",
+    all_required_met: requiredMet,
     validity,
   };
 }

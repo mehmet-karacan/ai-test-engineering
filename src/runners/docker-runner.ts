@@ -2,7 +2,7 @@
  * Izole Docker runner: non-root, read-only source mount, kapali varsayilan ag, kaynak limitleri.
  * Capability preflight kurulumda dogrulanir; kabiliyet yoksa BLOCKED_ISOLATION.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
@@ -53,6 +53,8 @@ export interface DockerRunOptions {
 export const DEFAULT_MAVEN_IMAGE = "maven:3.9-eclipse-temurin-21";
 
 export class DockerRunner {
+  private readonly running = new Map<number, ChildProcess>();
+
   async preflight(image: string = DEFAULT_MAVEN_IMAGE): Promise<DockerPreflightResult> {
     const errors: string[] = [];
     let serverVersion: string | null = null;
@@ -130,6 +132,9 @@ export class DockerRunner {
 
     const started = Date.now();
     const child = spawn("docker", args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (child.pid !== undefined) {
+      this.running.set(child.pid, child);
+    }
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -147,9 +152,28 @@ export class DockerRunner {
     });
 
     clearTimeout(timer);
+    if (child.pid !== undefined) {
+      this.running.delete(child.pid);
+    }
     writeFileSync(stdoutLog, stdout, "utf8");
 
     return { exit_code: exitCode, duration_ms: Date.now() - started, stdout_log_path: stdoutLog, timed_out: timedOut };
+  }
+
+  /** Yalniz bu runner'in sahip oldugu docker client process'lerini durdurur. */
+  stopAll(): void {
+    for (const child of this.running.values()) {
+      try {
+        if (process.platform === "win32") {
+          spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
+        } else {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        // process zaten kapanmis olabilir
+      }
+    }
+    this.running.clear();
   }
 
   private buildTmpMounts(options: DockerRunOptions): string[] {
@@ -280,6 +304,7 @@ export class DockerRunner {
     }
 
     // Probe 4: memory limiti cgroup'tan dogrulanir:
+    // W02/F16: NO_CGROUP basarili olcum DEGIL; capability_verified false kalir ve errors'a yazilir.
     probesRun++;
     const probe4 = await this.run({
       working_dir: baseDir,
@@ -293,7 +318,15 @@ export class DockerRunner {
     });
     try {
       const stdout = readFileSync(probe4.stdout_log_path, "utf8");
-      memoryLimitApplied = /536870912|NO_CGROUP/.test(stdout);
+      if (stdout.includes("NO_CGROUP")) {
+        memoryLimitApplied = false;
+        errors.push("Memory limiti dogrulanamadi: cgroup dosyasi okunamadi (NO_CGROUP)");
+      } else {
+        memoryLimitApplied = /536870912/.test(stdout);
+        if (!memoryLimitApplied) {
+          errors.push(`Memory limiti beklenen degerde degil: ${stdout.trim().slice(0, 64)}`);
+        }
+      }
     } catch (error) {
       errors.push(`Probe4 okuma hatasi: ${String(error)}`);
     }
@@ -364,7 +397,13 @@ export class DockerMavenRunner extends MavenRunner {
   }
 
   override async run(options: MavenRunOptions): Promise<RunResult> {
-    for (const mount of this.options.target_mounts) {
+    // Candidate/final workspace degistiginde JaCoCo target'i original checkout'a
+    // degil, o run'in workspace'ine yazilir. Sabit mount stale/fake final evidence
+    // uretirdi (F08/F10/N32).
+    const targetMounts = this.options.target_mounts.map((mount) =>
+      mount.container === "/work/target" ? { ...mount, host: join(resolve(options.working_dir), "target") } : mount,
+    );
+    for (const mount of targetMounts) {
       mkdirSync(mount.host, { recursive: true });
     }
     const readonlyMounts: Array<{ host: string; container: string }> = [];
@@ -386,7 +425,7 @@ export class DockerMavenRunner extends MavenRunner {
       network: this.options.network ?? "none",
       memory_mb: this.options.memory_mb ?? 2048,
       cpus: this.options.cpus ?? 2,
-      writable_mounts: this.options.target_mounts,
+      writable_mounts: targetMounts,
       readonly_mounts: readonlyMounts,
     };
     if (options.env) {
@@ -403,6 +442,11 @@ export class DockerMavenRunner extends MavenRunner {
     };
   }
 
+  override stopAll(): void {
+    super.stopAll();
+    this.docker.stopAll();
+  }
+
   private settingsArgs(): string[] {
     if (!this.options.maven_settings) {
       return [];
@@ -411,12 +455,19 @@ export class DockerMavenRunner extends MavenRunner {
   }
 
   /**
-   * 8.3: Ayri hazirlama asamasi — Maven dependency indirmesi yalniz izinli mirror'lara sinirli
-   * erisimle yapilir. Bu asama da sandbox'lanir (non-root, kaynak limitleri); host Maven fallback'i
+   * 8.3/W02/F16: Ayri hazirlama asamasi — Maven dependency indirmesi yalniz izinli mirror'lara
+   * sinirli erisimle yapilir. Bu asama da sandbox'lanir (non-root, kaynak limitleri); host Maven fallback'i
    * olamaz. Cache job'a ozel writable overlay; sonraki execution `none` ile calisir.
+   * F16: allowed_mirrors listesi bos/undefined ise provisioning calismaz; typed BLOCKED_DEPENDENCIES.
    */
   private async provisionDependencies(options: MavenRunOptions): Promise<void> {
     const provisioning = this.options.provisioning!;
+    // F16: mirror listesi gercekten bos ise egress izni olmadigindan run FAIL olacak; onceden typed blocker:
+    if (!provisioning.allowed_mirrors || provisioning.allowed_mirrors.length === 0) {
+      throw new AppError("BLOCKED_DEPENDENCIES", "Bagimlilik hazirlama izinli mirror listesi bos; egress izni yok (F16)", {
+        reason_code: "BLOCKED_DEPENDENCIES",
+      });
+    }
     // mvn dependency:go-offline yerine test-compile + test-Discovery cache doldurur (izinli mirror);
     // hata burada BLOCKED_DEPENDENCIES olarak yansir (run sonucundan).
     const provisionOptions: DockerRunOptions = {

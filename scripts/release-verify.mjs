@@ -50,6 +50,22 @@ function checkMandatoryFiles() {
   }
 }
 
+// W10/F17/N01: referans/arsiv hash butunlugu - onayli 06 HTML referansi beklenen hash ile eslesmeli;
+// farkliysa verifier non-zero doner (sessiz ezme/ikame yok).
+const REFERENCE_HTML_EXPECTED_SHA256 = "e3c8fd2da77000a0fd39ed88a00b3159e1100e4cf35146b0bbb83969eaef8c80";
+
+function checkReferenceHtmlIntegrity() {
+  const referencePath = join(repoRoot, "docs", "reporting", "reference", "innova_test_raporu_tasarim_06.html");
+  if (!existsSync(referencePath)) {
+    errors.push("REFERANS_06_EKSIK: docs/reporting/reference/innova_test_raporu_tasarim_06.html bulunamadi");
+    return;
+  }
+  const actual = sha256File(referencePath);
+  if (actual !== REFERENCE_HTML_EXPECTED_SHA256) {
+    errors.push(`REFERANS_06_HASH_UYUSMAZ: beklenen ${REFERENCE_HTML_EXPECTED_SHA256.slice(0, 16)}..., bulunan ${actual.slice(0, 16)}...`);
+  }
+}
+
 function checkDistNotStale() {
   const entryPath = join(repoRoot, "dist", "mcp", "stdio-entry.js");
   const sourcePath = join(repoRoot, "src", "mcp", "stdio-entry.ts");
@@ -187,6 +203,7 @@ function main() {
   checkCorpusIntegrity();
   checkSecurityDoc();
   checkNoSecretsInStagedTree();
+  checkReferenceHtmlIntegrity();
   const treeDigest = checkSourceTreeDigest();
 
   if (warnings.length > 0) {

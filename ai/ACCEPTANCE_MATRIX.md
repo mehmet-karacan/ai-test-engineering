@@ -1,59 +1,53 @@
-# Kabul Matrisi - AC/RG/RT/PRO (AITE-RUNTIME-ACCEPTANCE-003 v2.0)
+# Kabul Matrisi - AC/RG/RT/PRO + N (AITE-RUNTIME-ACCEPTANCE-003 v2.0 + AITE-REPORT06-INTEGRATION-004 v1.0)
 
-Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED. "PASSED (kismen)" KULLANILMAZ.
+Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kismen)" KULLANILMAZ.
 
-## Kabul durumu degisimi (v2.0)
+## Kabul durumu degisimi (004 v1.0, 2026-10-11)
 
-- Onceki: 70/70 + 52/52 + "003 TAMAMLANDI" beyanlari (c5307f5, 7eef466, c5d4a53) - **tarihsel uygulayici beyani olarak korundu**; v2.0 birlestirilmis nihai kapsam tekil eslesmeyle yeniden degerlendirildi.
-- Yeni: `FINALIZATION_IN_PROGRESS` -> FIN00-FIN15 paketleri IMPLEMENTATION_VERIFIED (yerel kabul motoru: 356/356 test + release verifier exit 0).
-- Registry kaynagi: `ai/acceptance/catalog.json` (RT01-RT28 tekil; AC/RG/PRO grup envanteri).
+- Onceki: 003 v2.0 FINALIZATION_IN_PROGRESS -> FIN00-FIN15 IMPLEMENTATION_VERIFIED (375/375).
+- Yeni: AITE-REPORT06-INTEGRATION-004 v1.0 coordinator denetimi -> **473/473 test + release-verify exit 0 + lint 0 error**; tam runtime/pilot kabul NOT_VERIFIED.
+- Registry kaynagi: `ai/acceptance/catalog.json` (RT01-RT28 tekil; N01-N64 tekil; AC/RG/PRO grup envanteri; 214+ kimlik).
+- Tam urun kabul (FULL_PRODUCT_ACCEPTANCE_VERIFIED): **NOT_VERIFIED** - durdurulmus canli pilot + ertelenmis canli kabuller ayri.
 
-## FIN paketleri kanit matrisi (v2.0, 2026-10-10)
+## 004 W paketleri kanit matrisi (2026-10-11)
 
 | Paket | Zorunlu cikis kaniti | Durum | Test kaniti |
 | --- | --- | --- | --- |
-| FIN00 | v1.0 arsiv blob birebir (178a263); obligation registry; normal giris -> host Maven'e sifir gecis | PASSED | fin00-isolated-loop.test.ts 6/6 |
-| FIN01 | Typed immutable contract; model kimligi birebir; trailing-space supheli anahtar tespiti | PASSED | fin01-contract.test.ts 16/16 |
-| FIN02 | Gercek capability probe (source yazma reddi + secret + network + limit; 4 gercek run) | PASSED | fin02-capability.test.ts 4/4 |
-| FIN03 | Live job'dan dolan relations; crash/future-schema fail-closed; WAL kalicilik | PASSED | fin03-relations.test.ts 9/9 |
-| FIN04 | FQCN suffix oyunu reddi; package boundary; test siniflari production hedef listesine giremez | PASSED | fin04-target-resolution.test.ts 14/14 |
-| FIN05 | Worker attempt DB kaydi; stale session red; injection negative fixture'lar | PASSED | fin05-worker-chain.test.ts 16/16 |
-| FIN06 | Branch-only kazanc (RT08); iki-metrik karar (RT07/PRO05); N/A kurallari; decision DB akisi | PASSED | fin06-evaluator.test.ts 9/9 |
-| FIN07 | Cancel kalici; gec run CANCELLED'i cevirmez; lease-lost fence red | PASSED | fin07-lifecycle.test.ts 5/5 |
-| FIN08 | JUnit4 expected exception tanisi (PRO33); PIT targeted scope + import provenance (PRO37-40) | PASSED | fin08-quality-pit.test.ts 17/17 |
-| FIN09 | PATCH_ONLY gercek patch artifact + hash zinciri (B11); redacted export (15.4); XSS korunumu | PASSED | fin09-patch-export.test.ts 9/9 |
-| FIN10 | Legacy/modern revision dogrulugu; negotiated version; fragmented JSON framing (RT28) | PASSED | fin10-protocol.test.ts 12/12 |
-| FIN11 | Online backup + blob manifest; restore ayri konumda dogrulanir; owned uninstall; upgrade quiesce | PASSED | fin11-lifecycle-ops.test.ts 6/6 |
-| FIN12 | Tek ortak diagnostic servisi (PRO02); GC iki asamali; checkpoint manifest pin (PRO26) | PASSED | fin12-diagnostics-gc.test.ts 10/10 |
-| FIN13 | Threat model dokumani; SBOM CycloneDX 1.5; scanner yokken 0 vulnerability YAZILMAZ | PASSED | fin13-sbom.test.ts 6/6 |
-| FIN14 | Corpus BM01-BM12; olcum plani 48+8; trial kaydi failure dahil | PASSED | fin14-corpus.test.ts 6/6 |
-| FIN15 | Release verifier non-zero exit yetenegi; catalog/corpus butunlugu; UNSIGNED dogru etiket | PASSED | fin15-release-verifier.test.ts 7/7 |
+| W00 | Referans/arsiv hash dogrulandi; 375/375 baseline; F01-F18 kod incelemesi | PASSED | report06-w00-baseline checkpoint |
+| W01 | Typed worker outcome (N09-N13); durable attempt (N14); context manifest (N15); izole config (N16) | LOCAL_VERIFIED | w01-worker-outcome + w01-attempt + w01-context-isolation |
+| W02 | Ayrı candidate workspace (F08/N17); egress typed blocker + NO_CGROUP engeli (F16) | LOCAL_VERIFIED | ac27-loop + accepted-set + izolasyon fixture'lari; tam Docker pilotu yok |
+| W03 | Baseline ayrisimlari (F06/N22-N23); boundary resolver + source-set filtresi (F05/N21) | LOCAL_VERIFIED | w03-baseline + maven-jacoco fixture |
+| W04 | Tek evaluator (F10/N25-N28); accepted checkpoint publish (F09/N29) | LOCAL_VERIFIED | evaluator + accepted-set + final replay kod denetimi |
+| W05 | Checkpoint'ten resume + butce yukleme (F11/N34-N36); cancel owned process (N37) | LOCAL_VERIFIED | w05-recovery + fin07; hard-kill/iki owner kaniti yok |
+| W06 | Facts-only kontrat + sanitizer (F13/F14/N02-N04); export hash_mismatch (F15/N45-N46) | LOCAL_VERIFIED | w06-facts-contract + tam suite |
+| W07 | Binary/nested export (N44); atomik publish korunumu (N47); patch artifact (N48) | LOCAL_VERIFIED | w07-export + fin09 |
+| W08 | 06 referans hash (N01); asama verisi yok (N08); ornek veri yok (N54) | LOCAL_VERIFIED | w08-reference |
+| W09 | PS1'siz kurulum (N61); offline assetler (N51 hazirligi) | LOCAL_VERIFIED | w09-install + bootstrap |
+| W10 | 214 kimlik tekil ledger (N58); referans hash verifier (N59 hazirligi); pause ayrisimi (N60) | LOCAL_VERIFIED | w10-ledger + release-verify exit 0 |
+| W11 | Teslim tutarliligi (N64) | SURUYOR | handoff |
 
-## Devralinan kapsam durumu
+## Devralinan kapsam durumu (003 v2.0; korunur)
 
-- AC01-AC70: FIN00-FIN15 paket kanitlarina eslestirildi (tarihsel 70/70 beyani gecersiz; tekil eslesme catalog.json'da).
-- RG01-RG52: ayni sekilde paket kanitlarina devredildi.
-- RT01-RT28: catalog.json'da tekil kayit (hepsi FIN paket eslesmeli); RT01/RT02/RT03/RT27 ozel testleri + fin00/fin07/fin10 davranis testleri kanitli.
-- PRO01-PRO60: bolum 25 tablolari FIN paketlerine eslestirildi; PRO02 (fin12), PRO05 (fin06), PRO26 (fin12), PRO33 (fin08), PRO37-40 (fin08), PRO59 (fin15) ozel unit kanitli.
+- AC01-AC70 / RG01-RG52 / PRO01-PRO60: FIN paket eslesmesi catalog.json'da.
+- RT01-RT28: tekil kayit (28); FIN eslesmeli.
+- N01-N64: tekil kayit (64); W paket eslesmeli; evidence_levels ile.
 
-## Test kaniti (2026-10-10)
+## Test kaniti (2026-10-11)
 
-- TypeScript: 42 dosya, **356/356 PASSED**
-- lint: 0 errors; typecheck: TEMIZ; build: TEMIZ
-- release-verify.mjs: exit 0; source tree digest 44940ab3...
+- TypeScript: 56 dosya, **473/473 PASSED**
+- lint: **0 errors** (88 warning); typecheck: TEMIZ; build: TEMIZ
+- release-verify.mjs: exit 0; source tree digest d09649c8...
 
-## Canli kabul durumu (27.2 dogru sinir)
+## Canli kabul durumu (degismedi)
 
-- Sentetik/yerel kabuller: IMPLEMENTATION_VERIFIED
-- Canli kurum modeli benchmark trials (20.3): BLOCKED_KAYITLI (kaynak/butce kaydi gerekiyor; altyapi hazir)
-- Gercek proje pilotu (20.5): BLOCKED_PROVIDER (kurum model provider'i uzun cikti isteklerinde degisken
-  davraniyor: bos yanit/finish=length/timeout; kullanici karariyla pilot bolgesi kapatildi; urun tarafi
-  hazir - worker izolasyonu, tool policy, prompt baglami 10.2/10.3, PATCH_ONLY siniri kanitli;
-  kanit: ai/checkpoints/2026-10-11-rt21-pilot-kapanis.md)
+- Yerel/deterministik kabuller: 004_LOCAL_VERIFIED (473/473 + release verifier)
+- Tam urun kabul (FULL_PRODUCT_ACCEPTANCE_VERIFIED): **NOT_VERIFIED**
+- Canli kurum modeli benchmark/pilot: PAUSED_BY_USER / NOT_PASSED / root_cause UNRESOLVED
 - Paket yayin durumu: UNSIGNED/NOT_PUBLISHED (kurum signing key yok; dogru etiket)
 
 ## Ozet
 
-- FIN00-FIN15: 16/16 TAMAMLANDI
-- Test: 375/375 PASSED (44 dosya; 2026-10-11)
-- Canli kurum kabulleri: engel kalkinca ayni gorev (003 v2.0) surer; yeni gorev acilmaz
+- 004 W00-W10: kod + yerel fixture kapilari gecti; W11 coordinator denetimi suruyor
+- Test: 473/473 PASSED (56 dosya; 2026-10-11)
+- F01-F18: uygulama mevcut; tam runtime/pilot kaniti NOT_VERIFIED
+- Canli kurum kabulleri: kullanici onayi ile ayri kosuda surer; bu gorev baslatmaz

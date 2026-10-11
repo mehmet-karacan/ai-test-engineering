@@ -105,7 +105,9 @@ describe("MavenRunner baseline akisi (gercek run)", () => {
     expect(baseline.status).toBe("PASSED");
     expect(baseline.total_tests).toBe(3);
     expect(baseline.failures).toBe(0);
-    expect(baseline.run.exit_code).toBe(0);
-    expect(existsSync(baseline.run.stdout_log_path)).toBe(true);
+    expect(baseline.run).not.toBeNull();
+    expect(baseline.run!.exit_code).toBe(0);
+    expect(existsSync(baseline.run!.stdout_log_path)).toBe(true);
+    expect(baseline.reason_code).toBeNull();
   }, 700000);
 });

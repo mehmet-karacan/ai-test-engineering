@@ -125,6 +125,7 @@ ${extraAssertions}
       budget: { max_candidate_iterations: 5, max_repairs_per_candidate: 2, no_progress_window: 3 },
       staging_root: stagingDir,
       timeout_ms_per_run: 600000,
+      workspace_root: join(dir, "workspaces"),
       generate_candidate: async () => {
         if (iteration >= candidates.length) {
           return null;

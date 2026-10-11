@@ -42,12 +42,15 @@ describe("RT21: prompt baglaminda hedef sinifin gercek govdesi (10.2)", () => {
     expect(prompt).not.toContain("## Hedef sinifin gercek govdesi");
   });
 
-  it("class_body 12000 karakterden uzunsa kontrollu truncation uygulanir", () => {
+  it("class_body 12000 karakterden uzunsa kontrollu truncation uygulanir (W01/F04: acik KESILDI isareti)", () => {
     const longBody = "a".repeat(20000);
     const prompt = buildWorkerPrompt(baseContext({ class_body: longBody }));
-    const bodyIndex = prompt.indexOf("## Hedef sinifin gercek govdesi (birebir)");
+    const bodyIndex = prompt.indexOf("## Hedef sinifin gercek govdesi");
     expect(bodyIndex).toBeGreaterThan(0);
     const bodySection = prompt.slice(bodyIndex);
+    // W01/F04: acik truncation isareti; sessiz 'birebir' iddiasi yok:
+    expect(bodySection).toContain("KESILDI");
+    expect(bodySection).toContain("TOPLAM 20000");
     // govde bolumu truncation sonrasi en fazla 12000 karakter govde icerir:
     expect(bodySection.includes("a".repeat(12001))).toBe(false);
     expect(bodySection.includes("a".repeat(12000))).toBe(true);

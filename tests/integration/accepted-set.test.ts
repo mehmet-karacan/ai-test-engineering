@@ -95,6 +95,7 @@ ${extra}
       budget: { max_candidate_iterations: 5, max_repairs_per_candidate: 2, no_progress_window: 3 },
       staging_root: stagingDir,
       accepted_snapshot_dir: acceptedDir,
+      workspace_root: join(dir, "workspaces"),
       on_accepted: (info) => {
         acceptedCalls.push({ iteration: info.iteration, files: info.files.length });
       },
