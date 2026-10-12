@@ -3,11 +3,14 @@
  * Kurulumun baglanti dogrulamasi icin; tam kabul suite'i ayridir.
  */
 import { spawn } from "node:child_process";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 
-const repoRoot = resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+// K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
+const thisFile = fileURLToPath(import.meta.url);
+const repoRoot = resolve(dirname(thisFile), "..");
 
 function main() {
   const dir = mkdtempSync(join(tmpdir(), "aitest-smoke-"));

@@ -3,12 +3,15 @@
  * cmd.exe uzerinden: node scripts/uninstall.mjs
  */
 import { existsSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { removeConfigRecord } from "../dist/configuration/config-merge.js";
 import { resolveOpenCodeConfigPath, resolveRuntimeRoot } from "../dist/configuration/runtime-paths.js";
 import { ownedUninstall } from "../dist/storage/lifecycle-ops.js";
 
-const repoRoot = resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+// K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
+const thisFile = fileURLToPath(import.meta.url);
+const repoRoot = resolve(dirname(thisFile), "..");
 
 function main() {
   console.log("[uninstall] Bolum 1: OpenCode MCP girdisi (sadece ai-test-engineering)");

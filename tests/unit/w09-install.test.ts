@@ -25,6 +25,19 @@ describe("W09/N61: PS1'siz temiz kurulum", () => {
     expect(content).not.toMatch(/\.ps1/);
   });
 
+  it("PR08/PP42: kurulum scriptleri repoRoot'u fileURLToPath ile cozer; percent-encoded pathname cozumu yok", () => {
+    const scripts = ["install.mjs", "uninstall.mjs", "verify-install.mjs", "mcp-handshake-smoke.mjs"];
+    for (const script of scripts) {
+      const content = readFileSync(join(repoRoot, "scripts", script), "utf8");
+      // fileURLToPath zorunlu (Unicode/bosluk path'te percent-encoded pathname bozuk fiziksel path uretir):
+      expect(content).toContain("fileURLToPath");
+      expect(content).toContain('resolve(dirname(thisFile), "..")');
+      // new URL(...).pathname cozumu YOK (Windows Unicode/space path acigi):
+      expect(content).not.toMatch(/new URL\([^)]*\)\.pathname/);
+      expect(content).not.toMatch(/import\.meta\.url\)\.pathname/);
+    }
+  });
+
   it("uninstall.mjs ve verify-install.mjs PS1'siz Node girisleri olarak mevcut", () => {
     expect(existsSync(join(repoRoot, "scripts", "uninstall.mjs"))).toBe(true);
     expect(existsSync(join(repoRoot, "scripts", "verify-install.mjs"))).toBe(true);
