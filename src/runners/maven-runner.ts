@@ -29,6 +29,23 @@ export interface MavenRunOptions {
   env?: Record<string, string>;
 }
 
+/**
+ * P06: test/coverage kosusu sessiz skip veya failure-ignore ile basarili
+ * sayilamaz. CLI property'leri proje POM'indeki ayni user property'leri
+ * override eder; boylece gercek test kosusu ve JaCoCo raporu zorlanir.
+ */
+export function strictTestExecutionProperties(): Record<string, string> {
+  return {
+    skipTests: "false",
+    "maven.test.skip": "false",
+    skipITs: "false",
+    testFailureIgnore: "false",
+    "maven.test.failure.ignore": "false",
+    "jacoco.skip": "false",
+    failIfNoTests: "true",
+  };
+}
+
 export class MavenRunner {
   private running = new Map<number, ChildProcess>();
 

@@ -5,10 +5,23 @@ import { tmpdir } from "node:os";
 import { assertCoverageConfigured, buildPlan, compareTestInventory, type SurefireSuite } from "../../src/orchestration/build-plan.js";
 import { AppError } from "../../src/domain/errors.js";
 import { readCoverageAfterRun, readCoverageEvidenceAfterRun } from "../../src/orchestration/candidate-loop.js";
+import { strictTestExecutionProperties } from "../../src/runners/maven-runner.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
 
 describe("P06-B2 effective Maven affected-module scope", () => {
+  it("Maven test/coverage skip ve failure-ignore property'lerini kapatir", () => {
+    expect(strictTestExecutionProperties()).toEqual({
+      skipTests: "false",
+      "maven.test.skip": "false",
+      skipITs: "false",
+      testFailureIgnore: "false",
+      "maven.test.failure.ignore": "false",
+      "jacoco.skip": "false",
+      failIfNoTests: "true",
+    });
+  });
+
   it("cok modullu reactor'da -pl/-am gercek coverage komutuna tasinir", () => {
     const plan = buildPlan(join(FIXTURES, "java21-multi-module"), ["app"]);
 

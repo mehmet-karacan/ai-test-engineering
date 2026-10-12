@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { XMLParser } from "fast-xml-parser";
 import { AppError } from "../domain/errors.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
-import { MavenRunner, type RunResult, type MavenRunOptions } from "../runners/maven-runner.js";
+import { MavenRunner, strictTestExecutionProperties, type RunResult, type MavenRunOptions } from "../runners/maven-runner.js";
 
 export interface BuildPlan {
   reactor_root: string;
@@ -317,6 +317,7 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
   const runOptions: MavenRunOptions = {
     working_dir: executionRoot,
     goals: options.collect_coverage ? plan.maven_goals_coverage : plan.maven_goals_test,
+    properties: strictTestExecutionProperties(),
     timeout_ms: timeoutMs,
     log_dir: join(executionRoot, "target", "aitest-baseline-logs"),
   };

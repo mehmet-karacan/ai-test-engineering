@@ -8,7 +8,8 @@ import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import { PatchApplier } from "../application/patch-applier.js";
 import { assertQualityGate, isSutShadowing, type QualityFinding } from "../policies/quality-gate.js";
-import { MavenRunner, type RunResult } from "../runners/maven-runner.js";import { parseJacocoXml, findClassInReport } from "../coverage/jacoco-parser.js";
+import { MavenRunner, strictTestExecutionProperties, type RunResult } from "../runners/maven-runner.js";
+import { parseJacocoXml, findClassInReport } from "../coverage/jacoco-parser.js";
 import { summarizeTestReports, assertCoverageConfigured, buildPlan, type SurefireSuite } from "../orchestration/build-plan.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 
@@ -723,6 +724,7 @@ export class CandidateLoop {
       const run: RunResult = await this.runner.run({
         working_dir: candidateWorkspace,
         goals,
+        properties: strictTestExecutionProperties(),
         timeout_ms: Math.min(options.timeout_ms_per_run ?? 600000, remainingDeadline ?? Number.MAX_SAFE_INTEGER),
         log_dir: join(candidateWorkspace, "target", `aitest-iter-${iteration}-logs`),
       });
@@ -996,6 +998,7 @@ export class CandidateLoop {
     const run = await this.runner.run({
       working_dir: workspace,
       goals: plan.maven_goals_coverage,
+      properties: strictTestExecutionProperties(),
       timeout_ms: options.timeout_ms ?? 600000,
       log_dir: join(workspace, "target", "aitest-final-replay-logs"),
     });
