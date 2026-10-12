@@ -6,11 +6,14 @@
  * - Owned uninstall: yalniz beklenen hash'teki girdiler; user modified korunur.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync } from "node:fs";
-import { join, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync, linkSync, lstatSync } from "node:fs";
+import { dirname, join, parse, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
+import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, journalPathForDb, type RestorePhase } from "./restore-journal.js";
+import { hasOpenStorageHandle } from "./storage.js";
 
 export interface BackupResult {
   backup_id: string;
@@ -42,6 +45,174 @@ export function sha256Data(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
+interface BackupBlob {
+  relative_path: string;
+  sha256: string;
+  bytes: number;
+}
+
+interface BackupManifest {
+  schema_version: 1;
+  backup_id: string;
+  blobs: BackupBlob[];
+}
+
+interface SnapshotInspection {
+  schema_ok: boolean;
+  integrity_ok: boolean;
+  rows: Array<{ relative_store_path: string; sha256: string; bytes: number }>;
+  reason: string | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isCanonicalRelativeBlobPath(path: string): boolean {
+  if (!path || path.startsWith("/") || /[\\:<>"|?*]/.test(path) ||
+      [...path].some((character) => character.charCodeAt(0) < 32)) return false;
+  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".."
+    && !/[. ]$/.test(segment)
+    && !/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(segment));
+}
+
+function isBackupBlob(value: unknown): value is BackupBlob {
+  return isRecord(value)
+    && typeof value["relative_path"] === "string" && value["relative_path"].length > 0
+    && typeof value["sha256"] === "string" && /^[a-f0-9]{64}$/.test(value["sha256"])
+    && typeof value["bytes"] === "number" && Number.isSafeInteger(value["bytes"]) && value["bytes"] >= 0;
+}
+
+function isBackupManifest(value: unknown): value is BackupManifest {
+  return isRecord(value) && value["schema_version"] === 1
+    && typeof value["backup_id"] === "string" && value["backup_id"].trim().length > 0
+    && Array.isArray(value["blobs"]) && value["blobs"].every(isBackupBlob);
+}
+
+/** Reject reparse traversal and file/directory collisions before restore publication. */
+function assertSafePathComponents(path: string, finalKind: "file" | "directory", operation: "BACKUP" | "RESTORE" = "RESTORE"): void {
+  const absolute = resolve(path);
+  const root = parse(absolute).root;
+  const components: string[] = [];
+  for (let cursor = absolute; cursor !== root; cursor = dirname(cursor)) components.push(cursor);
+  components.push(root);
+  components.reverse();
+  for (const [index, component] of components.entries()) {
+    let entry: ReturnType<typeof lstatSync>;
+    try { entry = lstatSync(component); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new AppError("POLICY_VIOLATION", `Path could not be inspected: ${component}`, {
+        reason_code: `${operation}_PATH_UNREADABLE`, path: component,
+      });
+    }
+    if (entry.isSymbolicLink()) {
+      throw new AppError("POLICY_VIOLATION", `Path contains a reparse point: ${component}`, {
+        reason_code: `${operation}_REPARSE_POINT`, path: component,
+      });
+    }
+    const isFinal = index === components.length - 1;
+    if ((!isFinal || finalKind === "directory") && !entry.isDirectory()) {
+      throw new AppError("POLICY_VIOLATION", `Path parent is not a directory: ${component}`, {
+        reason_code: `${operation}_PARENT_NOT_DIRECTORY`, path: component,
+      });
+    }
+    if (isFinal && finalKind === "file" && !entry.isFile()) {
+      throw new AppError("POLICY_VIOLATION", `Path target is not a file: ${component}`, {
+        reason_code: `${operation}_PATH_COLLISION`, path: component,
+      });
+    }
+  }
+}
+
+function pathWithinOrEqual(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${pathSep}`));
+}
+
+function assertRestoreRootsDisjoint(backupDir: string, targetDbPath: string, targetArtifactRoot: string): void {
+  const source = resolve(backupDir);
+  if (pathWithinOrEqual(source, targetArtifactRoot) || pathWithinOrEqual(targetArtifactRoot, source) ||
+      pathWithinOrEqual(source, targetDbPath)) {
+    throw new AppError("POLICY_VIOLATION", "Backup and restore target paths overlap", {
+      reason_code: "RESTORE_PATH_OVERLAP",
+    });
+  }
+}
+
+function assertTargetRestoreQuiesced(targetDbPath: string): void {
+  if (hasOpenStorageHandle(targetDbPath)) {
+    throw new AppError("POLICY_VIOLATION", "Target Storage handle remains open", { reason_code: "RESTORE_DB_OPEN" });
+  }
+  if (!existsSync(targetDbPath)) return;
+  let target: BetterSqlite3.Database | undefined;
+  try {
+    target = new Database(targetDbPath, { readonly: true, fileMustExist: true });
+    const columns = target.prepare<[], { name: string }>("PRAGMA table_info(test_jobs)").all().map((column) => column.name);
+    if (!columns.includes("lifecycle")) throw new Error("Target test_jobs lifecycle unavailable");
+    const applying = columns.includes("apply_state") ? " OR apply_state = 'APPLYING'" : "";
+    const active = target.prepare<[], { id: string }>(
+      `SELECT id FROM test_jobs WHERE lifecycle IS NULL OR lifecycle NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')${applying} LIMIT 1`,
+    ).get();
+    if (active) {
+      throw new AppError("POLICY_VIOLATION", "Target DB contains a nonterminal job", {
+        reason_code: "RESTORE_ACTIVE_JOBS", job_id: active.id,
+      });
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError("STORAGE_ERROR", "Target DB could not be checked for active jobs", {
+      reason_code: "RESTORE_TARGET_DB_UNREADABLE",
+    });
+  } finally {
+    target?.close();
+  }
+}
+
+/** Canli DB degil, restore edilecek snapshot tek otoritedir. */
+function inspectBackupSnapshot(dbPath: string): SnapshotInspection {
+  let checkDb: BetterSqlite3.Database | undefined;
+  let schemaOk = false;
+  let integrityOk = false;
+  try {
+    checkDb = new Database(dbPath, { readonly: true });
+    const tables = checkDb.prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+    schemaOk = ["test_jobs", "schema_migrations", "artifacts"].every((name) => tables.some((table) => table.name === name));
+    integrityOk = checkDb.pragma("integrity_check", { simple: true }) === "ok";
+    if (!schemaOk || !integrityOk) {
+      return { schema_ok: schemaOk, integrity_ok: integrityOk, rows: [], reason: "BACKUP_VERIFICATION_FAILED" };
+    }
+    // SQLite integrity_check FOREIGN KEY ihlallerini denetlemez.
+    if ((checkDb.pragma("foreign_key_check") as unknown[]).length > 0) {
+      return { schema_ok: true, integrity_ok: false, rows: [], reason: "BACKUP_FOREIGN_KEY_CHECK_FAILED" };
+    }
+    const rows = checkDb
+      .prepare<[], { relative_store_path: string; sha256: string; bytes: number }>(
+        "SELECT relative_store_path, sha256, bytes FROM artifacts WHERE status = 'READY'",
+      ).all();
+    if (rows.some((row) => !isCanonicalRelativeBlobPath(row.relative_store_path))) {
+      return { schema_ok: true, integrity_ok: true, rows: [], reason: "BACKUP_BLOB_PATH_INVALID" };
+    }
+    const destinations = new Map<string, string>();
+    for (const row of rows) {
+      const key = row.relative_store_path.toLowerCase();
+      const previous = destinations.get(key);
+      if (previous !== undefined && previous !== row.relative_store_path) {
+        return { schema_ok: true, integrity_ok: true, rows: [], reason: "BACKUP_BLOB_PATH_INVALID" };
+      }
+      destinations.set(key, row.relative_store_path);
+    }
+    if (rows.some((row) => !isBackupBlob({ relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes }))) {
+      return { schema_ok: true, integrity_ok: true, rows: [], reason: "BACKUP_ARTIFACT_METADATA_INVALID" };
+    }
+    return { schema_ok: true, integrity_ok: true, rows, reason: null };
+  } catch {
+    return { schema_ok: schemaOk, integrity_ok: false, rows: [], reason: "BACKUP_DB_BOZUK" };
+  } finally {
+    checkDb?.close();
+  }
+}
+
 /**
  * Online SQLite backup API + blob manifest (18.5).
  * Backup complete marker ancak tum blob/hash dogrulamalari gecince yazilir.
@@ -49,19 +220,24 @@ export function sha256Data(data: Buffer | string): string {
 export async function createBackup(db: BetterSqlite3.Database, dbPath: string, artifactRoot: string, backupRoot: string): Promise<BackupResult> {
   const backupId = randomUUID();
   const backupDir = join(backupRoot, backupId);
-  mkdirSync(backupDir, { recursive: true });
+  assertSafePathComponents(dbPath, "file", "BACKUP");
+  assertSafePathComponents(artifactRoot, "directory", "BACKUP");
+  assertSafePathComponents(backupDir, "directory", "BACKUP");
+  const release = acquireMaintenanceLock(artifactRoot, "backup");
   try {
+    mkdirSync(backupDir, { recursive: true });
     const backupDbPath = join(backupDir, "state.db");
     await db.backup(backupDbPath);
 
     // DB'nin referans verdigi blob'lari manifest'e sabitle. READY kaydi eksik,
     // bozuk veya artifact kokunun disindaysa backup sessizce eksik olamaz.
-    const blobManifest: Array<{ relative_path: string; sha256: string; bytes: number }> = [];
-    const artifactRows = db
-      .prepare<[], { relative_store_path: string; sha256: string; bytes: number }>(
-        "SELECT relative_store_path, sha256, bytes FROM artifacts WHERE status = 'READY'",
-      )
-      .all();
+    const blobManifest: BackupBlob[] = [];
+    // await sonrasi canli db degismis olabilir; satirlari kopyalanan state.db'den oku.
+    const snapshot = inspectBackupSnapshot(backupDbPath);
+    if (snapshot.reason !== null) {
+      throw new AppError("STORAGE_ERROR", "Backup DB snapshot dogrulanamadi", { reason_code: snapshot.reason });
+    }
+    const artifactRows = snapshot.rows;
     const artifactRootPath = resolve(artifactRoot);
     for (const row of artifactRows) {
       const relativeBlob = row.relative_store_path.replace(/\//g, pathSep);
@@ -77,6 +253,7 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
           relative_path: row.relative_store_path,
         });
       }
+      assertSafePathComponents(blobPath, "file", "BACKUP");
       const blobData = readFileSync(blobPath);
       const actualHash = sha256Data(blobData);
       if (actualHash !== row.sha256 || blobData.byteLength !== row.bytes) {
@@ -86,8 +263,10 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
         });
       }
       const copiedPath = join(backupDir, "blobs", relativeBlob);
+      assertSafePathComponents(copiedPath, "file", "BACKUP");
       mkdirSync(join(copiedPath, ".."), { recursive: true });
-      copyFileSync(blobPath, copiedPath);
+      // Hash'i olculen baytlar yazilir; kaynak ikinci kez okunup degisik bayt kopyalanmaz.
+      writeFileSync(copiedPath, blobData);
       blobManifest.push({ relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes });
     }
     const manifestPath = join(backupDir, "blob-manifest.json");
@@ -107,6 +286,8 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
     // Incomplete snapshots cannot later be mistaken for a restorable backup.
     rmSync(backupDir, { recursive: true, force: true });
     throw error;
+  } finally {
+    release();
   }
 }
 
@@ -115,126 +296,345 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
  * Eksik/bozuk blob varsa backup/restore PASSED degil.
  */
 export function verifyBackup(backupDir: string): RestoreVerification {
+  const invalid = (reason: string): RestoreVerification => ({
+    schema_ok: false, integrity_ok: false, blob_check_ok: false,
+    missing_blobs: [], valid: false, reason,
+  });
   const dbPath = join(backupDir, "state.db");
+  try {
+    assertSafePathComponents(backupDir, "directory", "BACKUP");
+    assertSafePathComponents(dbPath, "file", "BACKUP");
+    assertSafePathComponents(join(backupDir, "blob-manifest.json"), "file", "BACKUP");
+    assertSafePathComponents(join(backupDir, "complete.json"), "file", "BACKUP");
+    assertSafePathComponents(join(backupDir, "blobs"), "directory", "BACKUP");
+  } catch { return invalid("BACKUP_UNSAFE_PATH"); }
   if (!existsSync(dbPath)) {
-    return { schema_ok: false, integrity_ok: false, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BACKUP_DB_EKSIK" };
+    return invalid("BACKUP_DB_EKSIK");
   }
   const manifestPath = join(backupDir, "blob-manifest.json");
   if (!existsSync(manifestPath)) {
-    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BLOB_MANIFEST_EKSIK" };
+    return invalid("BLOB_MANIFEST_EKSIK");
   }
-  if (!existsSync(join(backupDir, "complete.json"))) {
-    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BACKUP_COMPLETE_MARKER_EKSIK" };
+  const completePath = join(backupDir, "complete.json");
+  if (!existsSync(completePath)) {
+    return invalid("BACKUP_COMPLETE_MARKER_EKSIK");
   }
-  let manifest: { blobs: Array<{ relative_path: string; sha256: string; bytes?: number }> };
+  let manifest: BackupManifest;
   try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { blobs: Array<{ relative_path: string; sha256: string; bytes?: number }> };
-    if (!Array.isArray(manifest.blobs)) {
-      throw new Error("blob listesi yok");
+    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!isBackupManifest(parsed)) {
+      return invalid("BLOB_MANIFEST_BOZUK");
+    }
+    manifest = parsed;
+  } catch {
+    return invalid("BLOB_MANIFEST_BOZUK");
+  }
+  const invalidPaths = manifest.blobs.filter((blob) => !isCanonicalRelativeBlobPath(blob.relative_path)).map((blob) => blob.relative_path);
+  if (invalidPaths.length > 0) return { ...invalid("BACKUP_BLOB_PATH_INVALID"), missing_blobs: invalidPaths };
+  try {
+    const marker: unknown = JSON.parse(readFileSync(completePath, "utf8"));
+    if (!isRecord(marker) || marker["schema_version"] !== 1 || marker["complete"] !== true
+        || marker["backup_id"] !== manifest.backup_id) {
+      return invalid("BACKUP_COMPLETE_MARKER_BOZUK");
     }
   } catch {
-    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BLOB_MANIFEST_BOZUK" };
+    return invalid("BACKUP_COMPLETE_MARKER_BOZUK");
   }
 
-  // integrity + schema check (ayri baglanti):
-  const checkDb = new Database(dbPath, { readonly: true });
-  let integrityOk = false;
-  let schemaOk = false;
-  try {
-    const integrity = checkDb.pragma("integrity_check", { simple: true });
-    integrityOk = integrity === "ok";
-    const tableRows = checkDb
-      .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all();
-    schemaOk = tableRows.some((t) => t.name === "test_jobs") && tableRows.some((t) => t.name === "schema_migrations");
-  } finally {
-    checkDb.close();
+  const snapshot = inspectBackupSnapshot(dbPath);
+  if (snapshot.reason !== null) {
+    return { ...invalid(snapshot.reason), schema_ok: snapshot.schema_ok, integrity_ok: snapshot.integrity_ok };
   }
 
-  // blob check:
-  const missingBlobs: string[] = [];
+  // Manifest kendi kendisini dogrulayamaz: READY satirlari ile iki yonlu eslesme.
+  // Ayni content-addressed blob'a ait esit tekrarlar eski v1 backup'larda gecerlidir.
+  const expected = new Map<string, BackupBlob>();
+  const declared = new Map<string, BackupBlob>();
+  const missingBlobs = new Set<string>();
+  const physicalDestinations = new Map<string, string>();
+  const indexBlob = (index: Map<string, BackupBlob>, blob: BackupBlob): void => {
+    const previous = index.get(blob.relative_path);
+    if (previous && (previous.sha256 !== blob.sha256 || previous.bytes !== blob.bytes)) {
+      missingBlobs.add(blob.relative_path);
+    }
+    index.set(blob.relative_path, blob);
+  };
+  for (const row of snapshot.rows) {
+    indexBlob(expected, { relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes });
+  }
   for (const blob of manifest.blobs) {
-    const relativeBlob = blob.relative_path.replace(/\//g, pathSep);
-    const copiedPath = resolve(join(backupDir, "blobs"), relativeBlob);
-    const blobRoot = resolve(join(backupDir, "blobs"));
+    const key = blob.relative_path.toLowerCase();
+    const previous = physicalDestinations.get(key);
+    if (previous !== undefined && previous !== blob.relative_path) missingBlobs.add(blob.relative_path);
+    physicalDestinations.set(key, blob.relative_path);
+    indexBlob(declared, blob);
+  }
+  for (const [path, blob] of expected) {
+    const entry = declared.get(path);
+    if (!entry || entry.sha256 !== blob.sha256 || entry.bytes !== blob.bytes) {
+      missingBlobs.add(path);
+    }
+  }
+  for (const [path, blob] of declared) {
+    if (!expected.has(path)) {
+      missingBlobs.add(path);
+    }
+    const blobRoot = resolve(backupDir, "blobs");
+    const copiedPath = resolve(blobRoot, path.replace(/\//g, pathSep));
     const relFromRoot = relative(blobRoot, copiedPath);
-    // PP39/PP42: capraz surucu/mutlak hedefte relative() tam mutlak yol dondurur;
-    // isAbsolute eki olmadan escape kontrolu kacisir (PP44 backup zinciri acigi).
     const escaped = isAbsolute(relFromRoot) || relFromRoot.startsWith(`..${pathSep}`) || relFromRoot === "..";
     if (escaped) {
-      missingBlobs.push(blob.relative_path);
+      missingBlobs.add(path);
       continue;
     }
-    if (!existsSync(copiedPath)) {
-      missingBlobs.push(blob.relative_path);
-      continue;
-    }
-    const actualHash = sha256Data(readFileSync(copiedPath));
-    if (actualHash !== blob.sha256 || (blob.bytes !== undefined && readFileSync(copiedPath).byteLength !== blob.bytes)) {
-      missingBlobs.push(blob.relative_path);
+    try {
+      assertSafePathComponents(copiedPath, "file", "BACKUP");
+      const data = readFileSync(copiedPath);
+      if (sha256Data(data) !== blob.sha256 || data.byteLength !== blob.bytes) {
+        missingBlobs.add(path);
+      }
+    } catch {
+      missingBlobs.add(path);
     }
   }
-  const blobCheckOk = missingBlobs.length === 0;
+  const blobCheckOk = missingBlobs.size === 0;
   return {
-    schema_ok: schemaOk,
-    integrity_ok: integrityOk,
+    schema_ok: snapshot.schema_ok,
+    integrity_ok: snapshot.integrity_ok,
     blob_check_ok: blobCheckOk,
-    missing_blobs: missingBlobs,
-    valid: schemaOk && integrityOk && blobCheckOk,
-    reason: schemaOk && integrityOk && blobCheckOk ? null : "BACKUP_VERIFICATION_FAILED",
+    missing_blobs: [...missingBlobs].sort(),
+    valid: blobCheckOk,
+    reason: blobCheckOk ? null : "BACKUP_VERIFICATION_FAILED",
   };
+}
+
+function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: BackupManifest): void {
+  const snapshot = inspectBackupSnapshot(dbPath);
+  if (snapshot.reason !== null || snapshot.rows.length !== manifest.blobs.length) {
+    throw new AppError("STORAGE_ERROR", "Published restore DB verification failed", { reason_code: "RESTORE_PUBLISHED_DB_INVALID" });
+  }
+  const rows = new Map(snapshot.rows.map((row) => [row.relative_store_path, row]));
+  for (const blob of manifest.blobs) {
+    const row = rows.get(blob.relative_path);
+    if (!row || row.sha256 !== blob.sha256 || row.bytes !== blob.bytes) {
+      throw new AppError("STORAGE_ERROR", "Published restore manifest mismatch", { reason_code: "RESTORE_PUBLISHED_SET_MISMATCH" });
+    }
+    const bytes = readFileSync(resolve(artifactRoot, blob.relative_path.replace(/\//g, pathSep)));
+    if (bytes.byteLength !== blob.bytes || sha256Data(bytes) !== blob.sha256) {
+      throw new AppError("STORAGE_ERROR", "Published restore blob mismatch", { reason_code: "RESTORE_PUBLISHED_BLOB_INVALID" });
+    }
+  }
 }
 
 /**
  * Dogrulanmis backup'i yeni runtime konumuna uygular. Hedef DB acik olmamali;
  * DB once temp dosyaya kopyalanir, sonra isim degisikligiyle yayinlanir.
+ * S01/WN restore preflight'u: blob hedefi HICBIR sey degistirilmeden
+ * once calisir; farkli baytli mevcut hedef blob'da restore durur (EEXIST benzeri),
+ * esit hash'li mevcut hedef blob yeniden kullanilir. Blob'lar staging dosyasina
+ * kopyalanip DB yayini oncesinde rename ile yayinlanir; yarim blob yazisi
+ * hedefi ezmez. Journal yarim restore'u acilista engeller; hard-kill recovery
+ * dogrulanmadan crash-safe kabul verilmez.
  */
 export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
+  targetDbPath = resolve(targetDbPath);
+  targetArtifactRoot = resolve(targetArtifactRoot);
+  backupDir = resolve(backupDir);
+  assertRestoreRootsDisjoint(backupDir, targetDbPath, targetArtifactRoot);
+  assertSafePathComponents(backupDir, "directory");
+  assertSafePathComponents(join(backupDir, "state.db"), "file");
+  assertSafePathComponents(join(backupDir, "blob-manifest.json"), "file");
+  assertSafePathComponents(join(backupDir, "complete.json"), "file");
+  assertSafePathComponents(join(backupDir, "blobs"), "directory");
+  assertSafePathComponents(targetDbPath, "file");
+  assertSafePathComponents(targetArtifactRoot, "directory");
+  const releaseDb = acquireRestoreDbLock(targetDbPath);
+  try {
+  assertRestoreReadyBeforeOpen(targetDbPath);
+  assertTargetRestoreQuiesced(targetDbPath);
+  const release = acquireMaintenanceLock(targetArtifactRoot, "restore");
+  try {
+  let manifestParsed: unknown;
+  try { manifestParsed = JSON.parse(readFileSync(join(backupDir, "blob-manifest.json"), "utf8")); }
+  catch { throw new AppError("STORAGE_ERROR", "Backup blob manifesti okunamadi", { reason_code: "BLOB_MANIFEST_BOZUK" }); }
+  if (!isBackupManifest(manifestParsed)) {
+    throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: "BLOB_MANIFEST_BOZUK" });
+  }
+  const manifest = manifestParsed;
+  for (const blob of manifest.blobs) {
+    if (!isCanonicalRelativeBlobPath(blob.relative_path)) {
+      throw new AppError("POLICY_VIOLATION", "Restore blob path is not canonical", {
+        reason_code: /[:\\]/.test(blob.relative_path) || blob.relative_path.startsWith("/") || blob.relative_path.includes("..")
+          ? "PATH_ESCAPE" : "RESTORE_BLOB_PATH_INVALID",
+        relative_path: blob.relative_path,
+      });
+    }
+  }
+  const backupBlobRoot = resolve(join(backupDir, "blobs"));
+  const targetRoot = resolve(targetArtifactRoot);
+  for (const blob of manifest.blobs) {
+    const source = resolve(backupBlobRoot, blob.relative_path.replace(/\//g, pathSep));
+    if (!pathWithinOrEqual(backupBlobRoot, source)) {
+      throw new AppError("POLICY_VIOLATION", "Backup blob path escapes its root", { reason_code: "PATH_ESCAPE" });
+    }
+    assertSafePathComponents(source, "file");
+  }
   const verification = verifyBackup(backupDir);
   if (!verification.valid) {
     throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: verification.reason ?? "BACKUP_VERIFICATION_FAILED" });
   }
-  const manifest = JSON.parse(readFileSync(join(backupDir, "blob-manifest.json"), "utf8")) as { backup_id: string; blobs: Array<{ relative_path: string }> };
+
+  // Preflight: tum hedef blob yollari, aktif DB veya mevcut blob'lar
+  // degistirilmeden once cozulur ve dogrulanir.
+  const plan: Array<{ source: string; destination: string; stage: string; sha256: string; skip: boolean }> = [];
+  for (const blob of manifest.blobs) {
+    const rel = blob.relative_path.replace(/\//g, pathSep);
+    const source = resolve(backupBlobRoot, rel);
+    const destination = resolve(targetRoot, rel);
+    assertSafePathComponents(destination, "file");
+    if ([targetDbPath, `${targetDbPath}-wal`, `${targetDbPath}-shm`,
+      journalPathForDb(targetDbPath), `${targetDbPath}.restore.lock`,
+      join(targetRoot, ".aitest-maintenance.lock")].some((protectedPath) => relative(protectedPath, destination) === "") ||
+      destination.toLowerCase().startsWith(`${targetDbPath}.restore-`.toLowerCase())) {
+      throw new AppError("POLICY_VIOLATION", "Restore blob path collides with runtime control data", {
+        reason_code: "RESTORE_PATH_COLLISION", relative_path: blob.relative_path,
+      });
+    }
+    const destinationRel = relative(targetRoot, destination);
+    // PP39/PP42: capraz surucu hedefte relative() mutlak yol dondurur; isAbsolute eki zorunlu.
+    if (isAbsolute(destinationRel) || destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {
+      throw new AppError("POLICY_VIOLATION", "Backup blob yolu artifact kokunu asiyor", { reason_code: "PATH_ESCAPE" });
+    }
+    let skip = false;
+    if (existsSync(destination)) {
+      let conflict = true;
+      try {
+        const existing = readFileSync(destination);
+        // Esit hash + esit byte: mevcut hedef blob yeniden kullanilir (idempotent restore).
+        conflict = !(sha256Data(existing) === blob.sha256 && existing.byteLength === blob.bytes);
+      } catch {
+        // Okunamayan hedef (orn. dizin): fail-closed cakisma.
+        conflict = true;
+      }
+      if (conflict) {
+        throw new AppError("STORAGE_ERROR", `Restore hedef blob cakismasi: ${blob.relative_path} mevcut ve baytlari farkli`, {
+          reason_code: "RESTORE_BLOB_EXISTS_MISMATCH",
+          relative_path: blob.relative_path,
+        });
+      }
+      skip = true;
+    }
+    plan.push({ source, destination, stage: `${destination}.restore-${randomUUID()}.tmp`, sha256: blob.sha256, skip });
+  }
+
   mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
   mkdirSync(targetArtifactRoot, { recursive: true });
   const tempDb = `${targetDbPath}.restore-${randomUUID()}`;
-  copyFileSync(join(backupDir, "state.db"), tempDb);
+  const oldSuffix = `.restore-old-${randomUUID()}`;
+  const journalPath = journalPathForDb(targetDbPath);
+  const journalBase = {
+    generation: randomUUID(), targetDbPath, artifactRoot: targetArtifactRoot,
+    stagedDbPath: tempDb, preservedDbPath: `${targetDbPath}${oldSuffix}`,
+    publishedBlobs: plan.filter((item) => !item.skip).map((item) => ({ path: item.destination, sha256: item.sha256 })),
+  };
+  let journalStarted = false;
+  let journalTerminal = false;
+  const phase = (value: RestorePhase): void => {
+    appendRestorePhase(journalPath, { ...journalBase, phase: value });
+    journalStarted = true;
+    if (value === "COMMITTED" || value === "ROLLED_BACK") journalTerminal = true;
+  };
   try {
-    if (existsSync(targetDbPath)) {
-      rmSync(targetDbPath, { force: true });
+    copyFileSync(join(backupDir, "state.db"), tempDb);
+  } catch (error) {
+    // PREPARED henuz yazilmadi; yarim staging DB'si yeni restore sanilamaz.
+    rmSync(tempDb, { force: true });
+    throw error;
+  }
+  const publishedNew: string[] = [];
+  let dbPublished = false;
+  let safeRollback = true;
+  try {
+    phase("PREPARED");
+    // Tum blob kopyalari ve olasi IO hatalari DB yayini oncesinde tamamlanir.
+    for (const item of plan) {
+      if (item.skip) continue;
+      mkdirSync(resolve(item.destination, ".."), { recursive: true });
+      copyFileSync(item.source, item.stage);
     }
-    // PP44: hedef DB yanindaki eski -wal/-shm dosyalari silinmezse sonraki acilista
-    // eski (crash/hard-kill sonrasi) WAL icerigi restore edilen DB'ye geri oynatilir ve
-    // backup'in birebir icerigi bozulur. Restore atomik yayini yan dosyalarla birlikte yapar.
+    for (const item of plan) {
+      if (item.skip) continue;
+      // Stage ve hedef ayni dizindedir. Hard link atomik olarak yeni isim
+      // olusturur; yarista ortaya cikan mevcut dosyayi rename gibi ezmez.
+      linkSync(item.stage, item.destination);
+      publishedNew.push(item.destination);
+    }
+    phase("BLOBS_READY");
+    // Eski DB ve WAL/SHM, yeni DB yayini basarisiz olursa geri konmak uzere
+    // ayni volume'de tutulur. Crash-safe recovery journal sonraki asamadir.
     const staleWal = `${targetDbPath}-wal`;
     const staleShm = `${targetDbPath}-shm`;
-    if (existsSync(staleWal)) {
-      rmSync(staleWal, { force: true });
-    }
-    if (existsSync(staleShm)) {
-      rmSync(staleShm, { force: true });
-    }
-    renameSync(tempDb, targetDbPath);
-    const backupBlobRoot = resolve(join(backupDir, "blobs"));
-    const targetRoot = resolve(targetArtifactRoot);
-    for (const blob of manifest.blobs) {
-      const rel = blob.relative_path.replace(/\//g, pathSep);
-      const source = resolve(backupBlobRoot, rel);
-      const destination = resolve(targetRoot, rel);
-      const destinationRel = relative(targetRoot, destination);
-      // PP39/PP42: capraz surucu hedefte relative() mutlak yol dondurur; isAbsolute eki zorunlu.
-      if (isAbsolute(destinationRel) || destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {
-        throw new AppError("POLICY_VIOLATION", "Backup blob yolu artifact kokunu asiyor", { reason_code: "PATH_ESCAPE" });
+    const preserved: Array<{ original: string; saved: string }> = [];
+    try {
+      for (const original of [targetDbPath, staleWal, staleShm]) {
+        if (!existsSync(original)) continue;
+        const saved = `${original}${oldSuffix}`;
+        renameSync(original, saved);
+        preserved.push({ original, saved });
       }
-      mkdirSync(resolve(destination, ".."), { recursive: true });
-      copyFileSync(source, destination);
+      phase("OLD_DB_PRESERVED");
+      renameSync(tempDb, targetDbPath);
+      dbPublished = true;
+      phase("NEW_DB_PUBLISHED");
+      verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest);
+      // Read-only SQLite dogrulamasi WAL/SHM yan dosyasi olusturabilir;
+      // baglanti kapandiktan sonra yeni generation yan dosyalari kaldirilir.
+      for (const sidecar of [staleWal, staleShm]) {
+        if (existsSync(sidecar)) rmSync(sidecar, { force: true });
+      }
+      phase("VERIFIED");
+      phase("COMMITTED");
+    } catch (error) {
+      try {
+        if (dbPublished && existsSync(targetDbPath)) {
+          for (const sidecar of [staleWal, staleShm]) {
+            if (existsSync(sidecar)) rmSync(sidecar, { force: true });
+          }
+          renameSync(targetDbPath, tempDb);
+          dbPublished = false;
+        }
+        for (const item of [...preserved].reverse()) {
+          if (existsSync(item.saved)) renameSync(item.saved, item.original);
+        }
+      } catch {
+        safeRollback = false;
+      }
+      throw error;
     }
+    // Eski generation, journal/retention karari olmadan otomatik silinmez.
+  } catch (error) {
+    if (safeRollback && !dbPublished) {
+      for (const path of publishedNew.reverse()) {
+        if (existsSync(path)) rmSync(path, { force: true });
+      }
+      if (journalStarted && !journalTerminal) phase("ROLLED_BACK");
+    }
+    throw error;
   } finally {
+    for (const item of plan) {
+      if (existsSync(item.stage)) rmSync(item.stage, { force: true });
+    }
     if (existsSync(tempDb)) {
       rmSync(tempDb, { force: true });
     }
   }
   return { backup_id: manifest.backup_id, db_path: targetDbPath, artifact_root: targetArtifactRoot, verification };
+  } finally {
+    release();
+  }
+  } finally {
+    releaseDb();
+  }
 }
 
 export interface UninstallDecision {

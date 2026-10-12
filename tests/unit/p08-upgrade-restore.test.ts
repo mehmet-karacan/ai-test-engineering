@@ -104,6 +104,7 @@ describe("P08/PP44: upgrade/migration veri korunumu", () => {
 
   it("restore: upgrade sonrasi backup DB'sinden son trusted job geri gelir (veri kaybi yok)", async () => {
     const { createBackup, restoreBackup } = await import("../../src/storage/lifecycle-ops.js");
+    const { journalPathForDb, readRestoreJournal } = await import("../../src/storage/restore-journal.js");
     const storage = new Storage({ dbPath });
     storage.migrate();
     const backup = await createBackup(storage.db, dbPath, artifactRoot, join(dir, "backups"));
@@ -112,6 +113,7 @@ describe("P08/PP44: upgrade/migration veri korunumu", () => {
     const restoredDb = join(dir, "restored", "state.db");
     const restoredArtifacts = join(dir, "restored", "artifacts");
     restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
+    expect(readRestoreJournal(journalPathForDb(restoredDb))?.phase).toBe("COMMITTED");
     const restored = new Storage({ dbPath: restoredDb });
     try {
       expect(restored.schemaVersion()).toBeGreaterThanOrEqual(7);

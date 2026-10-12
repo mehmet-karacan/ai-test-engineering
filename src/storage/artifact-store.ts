@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import { AppError } from "../domain/errors.js";
+import { acquireMaintenanceLock } from "./maintenance-lock.js";
 
 export interface ArtifactRecord {
   id: string;
@@ -46,6 +47,8 @@ export class ArtifactStore {
   }
 
   publish(kind: string, data: Buffer | string, options?: { schemaVersion?: string; sensitivity?: "public" | "internal" | "sensitive" }): ArtifactRecord {
+    const release = acquireMaintenanceLock(this.root, "publish");
+    try {
     const buffer = typeof data === "string" ? Buffer.from(data, "utf8") : data;
     const hash = this.sha256(buffer);
     const target = this.blobPath(hash);
@@ -73,6 +76,9 @@ export class ArtifactStore {
       sensitivity: options?.sensitivity ?? "internal",
       status: "READY",
     };
+    } finally {
+      release();
+    }
   }
 
   read(hash: string): Buffer {
@@ -113,11 +119,16 @@ export class ArtifactStore {
     if (Date.now() - publishedAtMs < graceMs) {
       return false;
     }
-    const path = this.blobPath(hash);
-    if (!existsSync(path)) {
-      return false;
+    const release = acquireMaintenanceLock(this.root, "delete");
+    try {
+      const path = this.blobPath(hash);
+      if (!existsSync(path)) {
+        return false;
+      }
+      rmSync(path, { force: true });
+      return true;
+    } finally {
+      release();
     }
-    rmSync(path, { force: true });
-    return true;
   }
 }
