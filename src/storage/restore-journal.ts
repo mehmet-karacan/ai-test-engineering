@@ -136,16 +136,16 @@ export function captureRestoreEvidence(dbPath: string, sourceDbPath: string, man
   };
 }
 
-/** Only PREPARED is recoverable without renaming or deleting any DB, WAL or blob. */
-export function recoverPreparedRestoreBeforeOpen(dbPath: string): void {
+/** Only an intact old generation before any DB/sidecar move can be reopened without file mutation. */
+export function recoverIntactOldRestoreBeforeOpen(dbPath: string): void {
   dbPath = resolve(dbPath);
   const path = journalPathForDb(dbPath);
   const first = readRestoreJournal(path);
-  if (first?.formatVersion !== 2 || first.phase !== "PREPARED") return;
+  if (first?.formatVersion !== 2 || (first.phase !== "PREPARED" && first.phase !== "BLOBS_READY")) return;
   const release = acquireRestoreDbLock(dbPath);
   try {
     const last = readRestoreJournal(path);
-    if (!last || last.generation !== first.generation || last.phase !== "PREPARED" || last.targetDbPath !== dbPath) return;
+    if (!last || last.generation !== first.generation || last.phase !== first.phase || last.targetDbPath !== dbPath) return;
     // Reject a changed path shape or any old-generation move. No cleanup occurs here.
     for (const check of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, path, last.stagedDbPath,
       last.preservedDbPath, `${dbPath}-wal${last.preservedDbPath.slice(dbPath.length)}`,

@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
 import { createBackup, restoreBackup, sha256Data } from "../dist/storage/lifecycle-ops.js";
-import { assertRestoreReadyBeforeOpen, journalPathForDb, readRestoreJournal, recoverPreparedRestoreBeforeOpen } from "../dist/storage/restore-journal.js";
+import { journalPathForDb, readRestoreJournal } from "../dist/storage/restore-journal.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "../dist/storage/maintenance-lock.js";
 import { Storage } from "../dist/storage/storage.js";
 
@@ -130,16 +130,19 @@ try {
         .map((name) => join(dirname(targetDb), name))];
       assert.ok(shmCopies.some(existsSync), `${mode}: old -shm path lost`);
     }
-    if (mode === "PREPARED" || mode === "LINK") {
-      const reopened = new Storage({ dbPath: targetDb });
-      assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
-      reopened.close();
-    } else recoverPreparedRestoreBeforeOpen(targetDb);
     let startupBlocked = false;
-    try { assertRestoreReadyBeforeOpen(targetDb); }
-    catch (error) { startupBlocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED"; }
-    assert.equal(startupBlocked, mode !== "COMMITTED" && mode !== "PREPARED" && mode !== "LINK", `${mode}: startup gate mismatch`);
-    if (mode === "PREPARED" || mode === "LINK") {
+    try {
+      const reopened = new Storage({ dbPath: targetDb });
+      if (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+        assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
+      }
+      reopened.close();
+    } catch (error) {
+      startupBlocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED";
+      if (!startupBlocked) throw error;
+    }
+    assert.equal(startupBlocked, mode !== "COMMITTED" && mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY", `${mode}: startup gate mismatch`);
+    if (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
       assert.equal(readRestoreJournal(journalPathForDb(targetDb))?.phase, "ROLLED_BACK");
     }
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
