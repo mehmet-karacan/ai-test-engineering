@@ -239,8 +239,9 @@ describe("P04/PP19: DockerMavenRunner settings guard + job cache izolasyonu", ()
       );
       try {
         await runner.run({ working_dir: projectDir, goals: ["--version"], timeout_ms: 60000, log_dir: join(dir, "logs") });
-      } catch {
-        // Docker yok: spawn fail; settings uretimi yine de dogrulanabilir (run oncesi uretilir)
+      } catch (error) {
+        // Allowlist tek basina enforcement degildir; normal akista typed blocker beklenir.
+        expect((error as AppError).code).toBe("BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE");
       }
       const provSettings = join(dir, "logs", "provisioning", "settings", "provisioning-settings.xml");
       if (existsSync(provSettings)) {

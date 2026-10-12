@@ -30,7 +30,7 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P01 | Fail-closed release gate ve evidence manifest dogrulamasi | LOCAL_VERIFIED | production-005-p01-gate; 25/25 |
 | P02 | Lease sahipligi, TTL/fencing, heartbeat, erken donus cleanup, owned process ve checkpoint CAS | LOCAL_VERIFIED | production-005-p02-dispatch-cleanup; cleanup 1/1 + onceki 37/37; Docker runtime BLOCKED |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | production-005-p03-checkpoint; P03/komsu suite 93/93 |
-| P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri | LOCAL_VERIFIED | production-005-p04-isolation; P04 11/11 + security/contract 90 passed/10 skipped (Docker NOT_RUN) |
+| P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri ve egress fail-closed | LOCAL_VERIFIED | production-005-p04-isolation + p04-egress-blocker; odak 24/24 + typecheck/lint PASS; Docker runtime NOT_RUN |
 | P05-A | Frozen concrete resolver, source-set, exact model ve deadline baglantisi | LOCAL_VERIFIED | production-005-p05a-target-resolver; 57/57 + typecheck |
 | P05-B | Repair feedback/bounded repair, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | production-005-p05b-resume; 46/46 resume/storage + 2/2 handler zinciri + typecheck |
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | production-005-p06a-frozen-baseline; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |

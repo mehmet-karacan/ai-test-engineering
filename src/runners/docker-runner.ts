@@ -652,8 +652,16 @@ export class DockerMavenRunner extends MavenRunner {
     // P04: host settings yerine YALNIZ izinli mirror'lari iceren provisioning settings uretilir;
     // host settings.xml'in diger mirror/proxy/credential tanimlari guvenilmeyen execution'a tasimaz.
     const provisionSettingsPath = this.buildProvisioningSettings(options.log_dir, provisioning.allowed_mirrors);
-    // mvn dependency:go-offline yerine test-compile + test-Discovery cache doldurur (izinli mirror);
-    // hata burada BLOCKED_DEPENDENCIES olarak yansir (run sonucundan).
+    // Maven settings mirror listesi tek basina DNS/redirect/socket egress'ini
+    // sinirlamaz. Docker network policy/proxy enforcement'i bagli degilse
+    // guvenilmeyen POM/plugin serbest ag erisimine acilamaz; fail-closed.
+    throw new AppError("BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE", "Izinli Maven mirror'lari icin enforce edilen egress politikasi yok; provisioning baslatilmadi", {
+      reason_code: "EGRESS_ENFORCEMENT_UNAVAILABLE",
+      allowed_mirrors: provisioning.allowed_mirrors,
+      settings_path: provisionSettingsPath,
+    });
+    // Bu kod yolu ancak ileride gerçek Docker network/proxy policy baglandiginda
+    // acilabilir; yukaridaki blocker fail-closed varsayilandir.
     const provisionOptions: DockerRunOptions = {
       working_dir: options.working_dir,
       image: this.options.image ?? DEFAULT_MAVEN_IMAGE,
@@ -666,11 +674,8 @@ export class DockerMavenRunner extends MavenRunner {
       memory_mb: this.options.memory_mb ?? 2048,
       cpus: this.options.cpus ?? 2,
       readonly_mounts: [{ host: provisionSettingsPath, container: "/settings/provisioning-settings.xml" }],
+      ...(this.options.maven_cache_volume !== undefined ? { maven_cache_volume: this.options.maven_cache_volume } : {}),
     };
-    // P04/PP19: provisioning da job'a ozel cache volume ile izole (exactOptionalPropertyTypes)
-    if (this.options.maven_cache_volume) {
-      provisionOptions.maven_cache_volume = this.options.maven_cache_volume;
-    }
     const probe = await this.docker.run(provisionOptions);
     if (probe.exit_code !== 0) {
       throw new AppError("BLOCKED_DEPENDENCIES", `Bagimlilik hazirlama basarisiz (exit ${probe.exit_code}); izinli mirror: ${provisioning.allowed_mirrors.join(",")}`, {

@@ -965,6 +965,8 @@ export class JobDispatcher {
               ? "BLOCKED_ISOLATION"
               : errorCode === "BLOCKED_DEPENDENCIES"
                 ? "BLOCKED_DEPENDENCIES"
+                  : errorCode === "BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE"
+                    ? "BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE"
                 : errorCode === "BLOCKED_TARGET_RESOLUTION"
                   ? "BLOCKED_TARGET_RESOLUTION"
                   : errorCode === "BLOCKED_COVERAGE_CONFIGURATION"
