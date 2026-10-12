@@ -2,6 +2,8 @@
 
 ## Son durum
 
+- GLM runtime denetimi (2026-10-12, branch `codex/glm-prod005-runtime`, HEAD `4140d9ba`): P02/P03 odak 7 dosya **63/63 PASS** yeniden dogrulandi; build exit 0; Docker 29.8.2 **linux/amd64** dogrulandi. PP08: probe container `docker stop` sonrasi `STATUS=exited, EXITCODE=137` (gercek stop/inspect kaniti). PP09: Linux container'da `uname -s=Linux` + `node -e process.exit(3)` -> exit 3 yakalandi; host spawn ENOENT event'i gozlendi. Yeni uygulanabilir kod/harness acigi yok; kod degisikligi yapilmadi. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-runtime-glm.md`. Kalan: iki-process TTL harness, tam Linux spawn-failure harness, gercek hard-kill live kaniti NOT_RUN.
+
 - Coordinator branch: `main`; GLM model commit'i `71a9660` (main cherry-pick `e269340`), Qwen model commit'i `5df8a87` (main cherry-pick `6144e4e`) olarak entegre edildi. Push sonrasi HEAD/origin/main eslesmesi `fa2149f` ile dogrulandi.
 - Tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
 - P02/P03 (PR02/PR03) GLM izole audit: PR02/PR03 yerel (kod + test) hattinda yeni uygulanabilir kod acigi yok; PP04-PP15 mevcut kaynaklarla fail-closed dogrulandi. Odak 63/63 PASS, typecheck/build PASS, lint 0 error.
