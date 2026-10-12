@@ -31,14 +31,14 @@
 | --- | --- | --- | --- |
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
-| P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md; p02 cleanup 1/1 + onceki 37/37; Docker runtime BLOCKED |
-| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
-| P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri ve egress fail-closed | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md + p04-egress-blocker; odak 24/24, typecheck/lint PASS; Docker capability/allowlist runtime kaniti NOT_RUN |
-| P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md; odak suite 57/57 + typecheck |
-| P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md; 46/46 resume/storage + 2/2 handler zinciri + typecheck |
+| P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md + pr02-pr03-audit; odak 63/63 PASS; iki owner/hard-kill runtime kaniti NOT_RUN |
+| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit; P03/komsu odak 63/63 PASS; tam live/hard-kill NOT_RUN |
+| P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri ve egress fail-closed | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md + pr04-pr06-audit; Docker isolation/capability 11/11, P04 runtime 13/13, egress allowlist enforcement yoksa typed blocker |
+| P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md + pr04-pr06-audit; odak suite 57/57 + runtime target 13/13 + typecheck |
+| P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md + pr04-pr06-audit; 46/46 resume/storage + 2/2 handler + runtime 13/13 + typecheck |
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06a-frozen-baseline.md; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
-| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06-frozen-counter + p06-strict-maven-gate; odak 35/35 + typecheck/lint |
+| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven/JaCoCo runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-binary-evidence + p07b-published-reserved + report-path-authority; accepted NUL'suz binary 6/6, reserved marker 16/16, report path 5/5 odak + 1/1 gercek MavenRunner evidence + typecheck/lint/build; Docker customer dispatcher BLOCKED |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry ve readiness ayrimi | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + PR08/PP42; 24/24 install, 8/8 Unicode path install, 7/7 lifecycle + 7/7 manifest/uninstall contract; gercek Windows/Linux e2e ve upgrade rollback eksik |
@@ -71,6 +71,7 @@
 - lint: **0 errors** (son kosuda 88 warning); typecheck: TEMIZ; build: TEMIZ
 - release-verify.mjs: exit 0 (referans hash kontrolu dahil; son coordinator kosusu)
 - Guncel P09 regresyonu: **67 dosya, 598/598 PASSED**, lint 0 error / 89 warning, typecheck ve build PASS.
+- Guncel P04-P06 runtime: Docker isolation/capability 11/11, P04 runtime 13/13, Maven/effective-scope/baseline 29/29, P05 resume/target 13/13 PASS.
 
 ## FIN paketleri durumu (onceki gorev 003 v2.0; tarihsel kayit)
 
