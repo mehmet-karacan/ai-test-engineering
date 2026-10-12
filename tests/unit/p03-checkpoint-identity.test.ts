@@ -387,7 +387,7 @@ describe("P03/PP12: canonical source/build digest - git clean/dirty/rename/POM",
     execSync("git -c user.email=t@t -c user.name=t commit -qm second", { cwd: root });
     const afterCommit = computeSourceIdentity(root, new SourceSnapshot(root).buildManifest());
     expect(afterCommit.head_commit).not.toBe(clean.head_commit);
-  });
+  }, 120000);
 
   it("computeSourceChange: HEAD degisimi (clean commit) kaynak kontrolu uretir", () => {
     const change = computeSourceChange(makeIdentity({ head_commit: sha40("a") }), makeIdentity({ head_commit: sha40("b") }));

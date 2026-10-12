@@ -18,6 +18,8 @@
 - `npm.cmd test -- --run tests/unit/p04-isolation-policy.test.ts tests/security/fin00-isolated-loop.test.ts tests/contract/rt21-pilot-remediation.test.ts`: 3 dosya, 24/24 PASS.
 - `npm.cmd run typecheck`: PASS.
 - `npm.cmd run lint`: 0 error, 90 mevcut warning.
+- Egress paketi sonrasi tam regresyon: `npm.cmd test` 66 dosya, 588/588 PASS.
+- Windows parallel Git fixture testinin yalanci timeout'ini azaltmak icin ilgili test timeout'i 120 saniyeye cikarildi; davranis testi tek basina ve tam suite icinde PASS.
 
 ## Kalan
 
