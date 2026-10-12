@@ -5,6 +5,7 @@
 - Tarih: 2026-10-12
 - Paket: P09 full regression/release verifier reconciliation
 - Baslangic HEAD: 1dde3b6
+- Son dogrulanan HEAD: `bee3fcb` (`gorev: p08 backup blob dogrulamasini fail-closed yap`)
 - Kullanici dosyasi: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java` dokunulmadi ve stage edilmeyecek.
 
 ## Yapilanlar
@@ -14,7 +15,7 @@
 
 ## Kanit
 
-- `npm.cmd test`: 66/66 test dosyasi, 590 PASS, 0 FAIL.
+- `npm.cmd test`: 66/66 test dosyasi, 592 PASS, 0 FAIL.
 - `npm.cmd run lint`: 0 error; 90 mevcut warning.
 - `npm.cmd run typecheck`: PASS.
 - `npm.cmd run build`: PASS.
