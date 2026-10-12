@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P05-B, P06-A ve P06-B1 tamamlandi; P06-B2-P10 sirada
-- Durum etiketi: `005_P06B2_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P05-B, P06-A, P06-B1 ve P06-B2 tamamlandi; P07-A uygulanip P07-P10 suruyor
+- Durum etiketi: `005_P07A_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
@@ -39,7 +39,8 @@
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06a-frozen-baseline.md; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity ve module report listesi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity + p06b-module-reports; odak suite + typecheck |
-| P06-P10 | Effective Maven/JaCoCo provenance, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P06-B2 kalan parcalari devam ediyor |
+| P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
+| P07-P10 | Report06 renderer/ham kanit export, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P07-A sonrasi devam ediyor |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
 
@@ -92,6 +93,6 @@
 
 ## Sonraki somut is
 
-- P06-B kalan: P06-B2 module report listesi tamamlandi; sonraki paketlerde kurulum/full gate ve Docker kanitina gec
+- Sonraki somut is: P07-B Report06 renderer ve final replay ham kanit/binary export; ardindan P08 kurulum, P09 full gate ve P10 handoff
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

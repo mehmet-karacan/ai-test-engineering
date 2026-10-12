@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P05-B, P06-A, P06-B1 ve P06-B2 scope/provenance cekirdegi local olarak dogrulandi; snapshot/manifest coverage baglantisi ve P07-P10 suruyor.
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P05-B, P06-A, P06-B1, P06-B2 ve P07-A facts/export cekirdegi local olarak dogrulandi; Report06/ham kanit renderer'i ve P07-P10 suruyor.
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 
 ## 004 uygulama paketleri (W00-W11)
@@ -36,7 +36,8 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | production-005-p06a-frozen-baseline; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | production-005-p06b-module-final-gates; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity ve module report listesi | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity + p06b-module-reports; odak suite + typecheck |
-| P06-P10 | Kalan readiness, JaCoCo provenance, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P06-B2 provenance/inventory ve sonraki paketler devam ediyor |
+| P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | production-005-p07a-facts-export; 81/81 odak suite + typecheck |
+| P07-P10 | Report06 renderer/ham kanit export, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P07-A sonrasi devam ediyor |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 

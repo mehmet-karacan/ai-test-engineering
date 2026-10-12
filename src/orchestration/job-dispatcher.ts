@@ -29,6 +29,7 @@ import { promptForJsonResult, WorkerRequestFailure, type WorkerPromptResult } fr
 import { parseExactModelSpec, readWorkerProfileFromOpencodeConfig } from "../workers/opencode/profile-reader.js";
 import { CandidateChangeSetSchema } from "../workers/opencode/model-schemas.js";
 import { ReportExporter } from "../reporting/report-generator.js";
+import { projectAcceptedChanges, projectRunSummary } from "../reporting/report-projection.js";
 import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
 import { buildFrozenTargetList, rebuildFrozenTargetDigest, type ConcreteTarget } from "../discovery/target-resolver.js";
 
@@ -760,7 +761,7 @@ export class JobDispatcher {
         ordinal: iteration.iteration,
         strategy: "worker_candidate",
         decision: iteration.decision,
-        reason: iteration.reason,
+        reason: iteration.decision === "adopted" ? "COVERAGE_IMPROVED" : "CANDIDATE_REJECTED",
         coverage_before_bps: iteration.coverage_before_bps,
         coverage_after_bps: iteration.coverage_after_bps,
       })));
@@ -769,18 +770,35 @@ export class JobDispatcher {
       if (latestBeforeFinalize.lifecycle === "CANCELLED" || latestBeforeFinalize.lifecycle === "PAUSED") {
         throw new AppError("POLICY_VIOLATION", `Job ${latestBeforeFinalize.lifecycle} olarak finalize edilemez`, { reason_code: latestBeforeFinalize.lifecycle });
       }
-      jobs.updateOutcome(job.id, finalOutcome, jobs.getJob(job.id).row_version);
-      jobs.updateLifecycle(job.id, finalOutcome === "FINAL_VERIFICATION_FAILED" ? "FAILED" : "COMPLETED", jobs.getJob(job.id).row_version);
-      phases.push("completed");
-      jobs.appendEvent({ job_id: job.id, event_type: "verification_completed", phase: "verification", origin: "JobDispatcher" });
-
       // D09/F14: rapor DB/checkpoint kanitlarindan otomatik uretilir (ayni kanit projeksiyonu)
       const reportDir = join(this.workspaceRoot, "jobs", job.id, "reports");
+      const bestCheckpointId = checkpoints.bestCheckpoint(job.id);
+      const checkpointVerification = bestCheckpointId ? checkpoints.verifyCheckpoint(bestCheckpointId) : null;
+      const checkpointTrusted = bestCheckpointId === null || checkpointVerification?.valid === true;
+      const acceptedChanges = checkpointVerification?.valid && checkpointVerification.manifest ? checkpointVerification.manifest.accepted_changes : [];
+      const changeProjection = projectAcceptedChanges(projectRoot, acceptedChanges);
+      const runSummary = projectRunSummary(finalReports);
+      const workerModels = storage.db
+        .prepare<[string], { role: string; provider_id: string; model_id: string }>("SELECT DISTINCT role, provider_id, model_id FROM worker_attempts WHERE job_id = ? ORDER BY role, provider_id, model_id")
+        .all(job.id)
+        .map((model) => ({ role: model.role, provider: model.provider_id, model: model.model_id }));
+      const testOnlyStatus = !replaySucceeded || !checkpointTrusted
+        ? "NOT_RUN" as const
+        : changeProjection.production_changed_files > 0
+          ? "FAILED" as const
+          : "PASSED" as const;
+      const reportGaps = [
+        ...(finalInventoryRegression.missing_tests.length > 0 ? [{ gap_key: "MISSING_BASELINE_TESTS", blocker: "MISSING_TESTS", attempted: ["final_replay"] }] : []),
+        ...(finalInventoryRegression.newly_skipped_tests.length > 0 ? [{ gap_key: "NEWLY_SKIPPED_TESTS", blocker: "NEWLY_SKIPPED_TESTS", attempted: ["final_replay"] }] : []),
+        ...(!replayEvidenceComplete ? [{ gap_key: "COVERAGE_EVIDENCE_UNAVAILABLE", blocker: "INVALID_COVERAGE_EVIDENCE", attempted: ["final_replay"] }] : []),
+        ...(!checkpointTrusted ? [{ gap_key: "ACCEPTED_CHECKPOINT_INVALID", blocker: "CHECKPOINT_INVALID", attempted: ["checkpoint_verify"] }] : []),
+        ...(changeProjection.production_changed_files > 0 ? [{ gap_key: "PRODUCTION_CHANGES_PRESENT", blocker: "TEST_ONLY_POLICY", attempted: ["accepted_checkpoint"] }] : []),
+      ];
       const reportData = {
         schema_version: 1 as const,
         job_id: job.id,
         project_root: projectRoot.replace(/\\/g, "/"),
-        head_commit: null,
+        head_commit: sourceIdentity.head_commit,
         snapshot_id: snapshotId,
         outcome: finalOutcome,
         verification_scope: "AFFECTED_SCOPE",
@@ -801,18 +819,31 @@ export class JobDispatcher {
           };
         }),
         iterations: reportIterations,
-        tests_added: 0,
-        tests_modified: 0,
-        run_summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
-        gates: [{ name: "test_only_policy", status: "PASSED" as const, detail: "production degisikligi 0" }],
-        gaps: [],
-        models: [],
-        production_changed_files: 0,
+        tests_added: changeProjection.tests_added,
+        tests_modified: changeProjection.tests_modified,
+        run_summary: runSummary,
+        gates: [
+          { name: "test_only_policy", status: testOnlyStatus, detail: testOnlyStatus === "PASSED" ? "production degisikligi 0; final replay dogrulandi" : testOnlyStatus === "FAILED" ? "production degisikligi var" : "final replay dogrulanmadi" },
+          { name: "final_replay", status: replaySucceeded ? "PASSED" as const : "FAILED" as const, detail: replaySucceeded ? "final replay dogrulandi" : "final replay kosullari saglanmadi" },
+        ],
+        gaps: reportGaps,
+        models: workerModels,
+        production_changed_files: changeProjection.production_changed_files,
         generated_at: Date.now(),
       };
       const exporter = new ReportExporter(reportDir);
       const exportResult = exporter.export(reportData);
+      if (!exportResult.verification_passed) {
+        throw new AppError("REPORT_EXPORT_FAILED", "Rapor export dogrulamasi basarisiz", {
+          missing_files: exportResult.missing_files,
+          hash_mismatch: exportResult.hash_mismatch,
+        });
+      }
       phases.push(`report_${exportResult.verification_passed ? "ok" : "inconsistent"}`);
+      jobs.updateOutcome(job.id, finalOutcome, jobs.getJob(job.id).row_version);
+      jobs.updateLifecycle(job.id, finalOutcome === "FINAL_VERIFICATION_FAILED" ? "FAILED" : "COMPLETED", jobs.getJob(job.id).row_version);
+      phases.push("completed");
+      jobs.appendEvent({ job_id: job.id, event_type: "verification_completed", phase: "verification", origin: "JobDispatcher" });
 
       ownedRunners.delete(job.id);
       ownedWorkerServers.delete(job.id);
@@ -840,7 +871,9 @@ export class JobDispatcher {
         if (currentJob.lifecycle !== "CANCELLED" && currentJob.lifecycle !== "PAUSED") {
           const errorCode = error instanceof AppError ? error.code : "INTERNAL_ERROR";
           // P04/PR04: typed blocker'lar outcome'ta ayrisir; hepsi generic BLOCKED_ENVIRONMENT ezilmez
-          const outcome = errorCode === "POLICY_VIOLATION"
+          const outcome = errorCode === "REPORT_EXPORT_FAILED"
+            ? "FINAL_VERIFICATION_FAILED"
+            : errorCode === "POLICY_VIOLATION"
             ? "POLICY_VIOLATION"
             : errorCode === "BLOCKED_ISOLATION"
               ? "BLOCKED_ISOLATION"

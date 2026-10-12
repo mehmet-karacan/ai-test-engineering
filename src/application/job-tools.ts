@@ -2,7 +2,7 @@
  * Kalan MCP araclari: test_resume, test_cancel, test_result, test_apply use-case'leri.
  * MCP handler'larin cagirdigi application katmani; is mantigi burada.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
@@ -15,6 +15,7 @@ import { CheckpointStore } from "../orchestration/checkpoint-store.js";
 import { defaultApplyConfig } from "../reporting/test-apply.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
+import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 
 export interface TestResumeResult {
   job_id: string;
@@ -153,6 +154,7 @@ export interface TestResultResult {
   apply_state: string;
   best_checkpoint_id: string | null;
   last_trusted_coverage: { percent: number; basisPoints: number } | null;
+  report_facts: ReportStatusFacts | null;
   report_path: string | null;
   artifact_refs: string[];
 }
@@ -184,6 +186,15 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   // gercek rapor yolu: JobDispatcher'in urettigi reports dizini (workspaceRoot/jobs/<id>/reports):
   const reportDir = join(services.config.storage.root, "jobs", job.id, "reports", "index.html");
   const reportPath = existsSync(reportDir) ? reportDir : null;
+  const reportJsonPath = join(services.config.storage.root, "jobs", job.id, "reports", "report.json");
+  let reportFacts: ReportStatusFacts | null = null;
+  if (existsSync(reportJsonPath)) {
+    try {
+      reportFacts = projectReportStatusFacts(JSON.parse(readFileSync(reportJsonPath, "utf8")), job.id);
+    } catch {
+      reportFacts = null;
+    }
+  }
 
   // artifact refs: o job'a ait kayitli artifact'ler (registry'den):
   const artifactRows = storage.db
@@ -201,6 +212,7 @@ export async function handleTestResult(input: unknown, services: Services): Prom
     best_checkpoint_id: bestCheckpoint,
     last_trusted_coverage: lastCoverage,
     report_path: reportPath,
+    report_facts: reportFacts,
     artifact_refs: artifactRows.map((a) => `${a.relative_store_path}#${a.sha256.slice(0, 12)}`),
   };
 }

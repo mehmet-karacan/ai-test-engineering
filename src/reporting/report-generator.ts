@@ -5,7 +5,7 @@
  * metni KALDIRILDI. Uretim kayitlari facts-only metadata ile (rol/provider/model kimligi) gosterilir.
  * Harici font/script/CDN yok; tum metinler escape edilir.
  */
-import { mkdirSync, writeFileSync, existsSync, readFileSync, lstatSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, lstatSync, renameSync, rmSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
@@ -228,7 +228,7 @@ export class ReportExporter {
     mkdirSync(this.reportRoot, { recursive: true });
   }
 
-  export(data: ReportData, extraFiles?: Record<string, string>): ExportResult {
+  export(data: ReportData, extraFiles?: Record<string, string | Buffer>): ExportResult {
     const files: ExportResult["files"] = [];
     // W06/F13/N02: facts-only sanitization - model narrative alanlari report JSON'a giremez;
     // kirpilan yollar kayitli olur (sessiz kirpma yok).
@@ -257,7 +257,7 @@ export class ReportExporter {
     const manifestJson = JSON.stringify(manifest, null, 2);
     this.write("manifest.json", manifestJson, files);
 
-    const verification = this.verifyExport(files);
+    const verification = this.verifyExport();
     // W06/F15: verification_passed arttik missing VE hash_mismatch'e bakiyor:
     const verificationPassed = verification.missing.length === 0 && verification.hash_mismatch.length === 0;
     return {
@@ -270,12 +270,20 @@ export class ReportExporter {
     };
   }
 
-  private write(name: string, content: string, files: ExportResult["files"]): void {
+  private write(name: string, content: string | Buffer, files: ExportResult["files"]): void {
     const path = containedReportPath(this.reportRoot, name);
     // W07/N44: nested directory kontrollu olusturulur (asset alt dizinleri):
     mkdirSync(join(path, ".."), { recursive: true });
-    writeFileSync(path, content, "utf8");
-    files.push({ name, sha256: createHash("sha256").update(content).digest("hex"), bytes: Buffer.byteLength(content, "utf8") });
+    const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      writeFileSync(temporaryPath, content);
+      renameSync(temporaryPath, path);
+    } finally {
+      if (existsSync(temporaryPath)) {
+        rmSync(temporaryPath, { force: true });
+      }
+    }
+    files.push({ name, sha256: createHash("sha256").update(content).digest("hex"), bytes: Buffer.isBuffer(content) ? content.byteLength : Buffer.byteLength(content, "utf8") });
   }
 
   /**
@@ -301,18 +309,42 @@ export class ReportExporter {
       if (!Array.isArray(artifacts)) {
         return { missing: ["manifest.json (artifacts eksik)"], hash_mismatch: [] };
       }
-      files = (artifacts as Array<Record<string, unknown>>).map((a) => ({
-        name: String(a["relative_path"] ?? ""),
-        sha256: String(a["sha256"] ?? ""),
-        bytes: Number(a["bytes"] ?? 0),
-      }));
+      if (artifacts.length === 0) {
+        return { missing: ["manifest.json (artifacts bos)"], hash_mismatch: [] };
+      }
+      const names = new Set<string>();
+      const structuralErrors: string[] = [];
+      files = (artifacts as Array<Record<string, unknown>>).map((a) => {
+        const name = typeof a["relative_path"] === "string" ? a["relative_path"] : "";
+        const sha256 = typeof a["sha256"] === "string" ? a["sha256"] : "";
+        const bytes = typeof a["bytes"] === "number" ? a["bytes"] : -1;
+        if (name.length === 0) {
+          structuralErrors.push("manifest.json (bos relative_path)");
+        } else if (names.has(name)) {
+          structuralErrors.push(`manifest.json (duplicate: ${name})`);
+        } else {
+          names.add(name);
+        }
+        if (name === "manifest.json") {
+          structuralErrors.push("manifest.json (reserved path)");
+        }
+        if (!/^[a-f0-9]{64}$/.test(sha256) || !Number.isInteger(bytes) || bytes < 0) {
+          structuralErrors.push(`manifest.json (invalid metadata: ${name || "unknown"})`);
+        }
+        return { name, sha256, bytes };
+      });
+      for (const required of ["report.json", "index.html", "summary.txt"]) {
+        if (!names.has(required)) {
+          structuralErrors.push(`manifest.json (zorunlu artifact eksik: ${required})`);
+        }
+      }
+      if (structuralErrors.length > 0) {
+        return { missing: structuralErrors, hash_mismatch: [] };
+      }
     }
     const missing: string[] = [];
     const hashMismatch: string[] = [];
     for (const file of files) {
-      if (file.name.length === 0) {
-        continue;
-      }
       let path: string;
       try {
         path = containedReportPath(this.reportRoot, file.name);
@@ -326,7 +358,7 @@ export class ReportExporter {
       }
       const content = readFileSync(path);
       const hash = createHash("sha256").update(content).digest("hex");
-      if (hash !== file.sha256) {
+      if (hash !== file.sha256 || content.byteLength !== file.bytes) {
         hashMismatch.push(file.name);
       }
     }

@@ -5,7 +5,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, statSync, readFileSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { TestStartInputSchema, TestStatusInputSchema, ProjectInspectInputSchema, ProjectQueryInputSchema, percentToBasisPoints } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import { Storage } from "../storage/storage.js";
@@ -22,7 +22,7 @@ import { buildFrozenTargetList, type ConcreteTarget } from "../discovery/target-
 import { InventoryQueryService } from "./inventory-query.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
-import { readCoverageAfterRun, basisPointsFrom } from "../orchestration/candidate-loop.js";
+import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
@@ -557,6 +557,7 @@ export interface TestStatusResult {
   verification_level: string;
   apply_state: string;
   last_trusted_coverage: { percent: number; basisPoints: number } | null;
+  report_facts: ReportStatusFacts | null;
   events: Array<{ sequence: number; event_type: string; phase: string | null }>;
   required_action: string | null;
 }
@@ -581,23 +582,29 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
   }
 
   const events = jobs.listEvents(job.id, parsed.event_cursor, 50);
-  // K07/B06: last_trusted_coverage DB/job hedeflerinden gercek hesaplanir (sabit null degil).
-  // job_targets + job.location_id -> canonical root -> jacoco.xml; olcum yoksa null dogrudur.
+  // K07/B06: last_trusted_coverage yalniz dispatcher final replay DB kanitindan okunur;
+  // kullanici checkout'undaki eski XML trusted veri degildir.
   let lastTrustedCoverage: { percent: number; basisPoints: number } | null = null;
   const storage = requireServices(services).storage;
-  const locationRow = storage.db
-    .prepare<[string], { canonical_root: string }>("SELECT canonical_root FROM project_locations WHERE id = ?")
-    .get(job.location_id);
-  if (locationRow) {
-    const targetRows = storage.db
-      .prepare<[string], { selector: string }>("SELECT selector FROM job_targets WHERE job_id = ?")
-      .all(job.id);
-    if (targetRows.length > 0) {
-      const coverage = readCoverageAfterRun(locationRow.canonical_root, targetRows[0]!.selector);
-      const bps = basisPointsFrom(coverage?.line);
-      if (bps !== null) {
-        lastTrustedCoverage = { percent: bps / 100, basisPoints: bps };
-      }
+  const coverageRow = storage.db
+    .prepare<[string], { line_covered: number; line_missed: number }>(
+      "SELECT line_covered, line_missed FROM coverage_snapshots WHERE job_id = ? AND before_after = 'after' AND line_validity = 'OK' ORDER BY created_at DESC LIMIT 1",
+    )
+    .get(job.id);
+  if (coverageRow) {
+    const total = coverageRow.line_covered + coverageRow.line_missed;
+    if (total > 0) {
+      const basisPoints = Math.floor((coverageRow.line_covered * 10000) / total);
+      lastTrustedCoverage = { percent: basisPoints / 100, basisPoints };
+    }
+  }
+  const reportPath = join(services.config.storage.root, "jobs", job.id, "reports", "report.json");
+  let reportFacts: ReportStatusFacts | null = null;
+  if (existsSync(reportPath)) {
+    try {
+      reportFacts = projectReportStatusFacts(JSON.parse(readFileSync(reportPath, "utf8")), job.id);
+    } catch {
+      reportFacts = null;
     }
   }
   return {
@@ -608,6 +615,7 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
     verification_level: job.verification_level,
     apply_state: job.apply_state,
     last_trusted_coverage: lastTrustedCoverage,
+    report_facts: reportFacts,
     events: events.map((e) => ({ sequence: e.sequence, event_type: e.event_type, phase: e.phase })),
     required_action: job.lifecycle === "INTERRUPTED" ? "test_resume ile devam edilebilir" : null,
   };
