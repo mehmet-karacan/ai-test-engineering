@@ -40,8 +40,8 @@
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven/JaCoCo runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
-| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-binary-evidence + p07b-published-reserved + report-path-authority + normal-mcp-runtime; accepted NUL'suz binary 6/6, reserved marker 16/16, report path 5/5, P07 runtime 17/17, normal MCP RG41/RG42 2/2 + 1/1 gercek MavenRunner evidence; tam print/offline/DOM/link ve egress allowlist kaniti eksik |
-| P08 | Kurulum/config/runtime resolver, OpenCode entry ve readiness ayrimi | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + PR08/PP42; 24/24 install, 8/8 Unicode path install, lifecycle/install 15/15, 7/7 manifest/uninstall contract; gercek Windows/Linux e2e ve upgrade rollback eksik |
+| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces (PP34/35/37/38/40); accepted NUL'suz binary 6/6, reserved marker 16/16, report path 5/5, surfaces 9/9, P07 odak 101/101; referans hash byte-exact; tam browser print/DOM e2e ve egress allowlist kaniti eksik |
+| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths (PP42) + p08-upgrade-restore (PP44) + w09 PP43; 101/101 odak (P07+P08), typecheck 0 error, lint 0 error; gercek Windows/Linux e2e install/upgrade rollback ve browser/DOM NOT_RUN |
 | P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | p09-regression + P08/P04/P06/P07B sonrasi tam kosu; 67 dosya, 598/598 PASS, lint 0 error, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
 | P07-P10 | Report06 renderer/ham kanit export, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P07-A sonrasi devam ediyor |
 
@@ -72,6 +72,7 @@
 - release-verify.mjs: exit 0 (referans hash kontrolu dahil; son coordinator kosusu)
 - Guncel P09 regresyonu: **67 dosya, 598/598 PASSED**, lint 0 error / 89 warning, typecheck ve build PASS.
 - Guncel P04-P06 runtime: Docker isolation/capability 11/11, P04 runtime 13/13, Maven/effective-scope/baseline 29/29, P05 resume/target 13/13 PASS.
+- P07/P08 PP34-PP44 denetimi (2026-10-12): kaynak kod acigi yok; 22 yeni yerel test (P07 surfaces 9 + P08 paths 7 + P08 upgrade/restore 3 + P08/PP43 install 3). Odak suite 12 dosya 101/101 PASS, typecheck 0, lint 0 error/89 warning. `ai/checkpoints/2026-10-12-production-005-p07p08-pp34-pp44-audit.md`. Tam (67 dosya) suite bu oturumda yeniden kosulmadi.
 
 ## FIN paketleri durumu (onceki gorev 003 v2.0; tarihsel kayit)
 
