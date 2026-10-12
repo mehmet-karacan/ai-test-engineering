@@ -59,3 +59,8 @@
 
 - Salt okunur reviewer, yalniz owned Temp fixture'da ayri `better-sqlite3` holder process ile idle/open, read transaction, write transaction, checkpoint sonrasi acik ve Storage acik olmak uzere 5 zamanlama yokladi. Restore hedef DB rename adiminda 5/5 `EBUSY`; journal 5/5 `ROLLED_BACK`. Holder yasarken eski DB ve WAL byte SHA-256 degismedi; holder kapandiktan sonra Storage eski mantiksal kayitlari 5/5 acti. SHM bazen readonly preflight sirasinda degisti veya EBUSY ile okunamadi; kalici kimlik otoritesi sayilmiyor.
 - Probe dosyalari repository disindaki `%LOCALAPPDATA%/Temp/aitest-wn12-data-NrqcyV` ve `%LOCALAPPDATA%/Temp/aitest-wn12-probe-b2f20e5b788a44c98a41de8eadfd06a5` altinda. Bu 5 schedule evrensel cross-process exclusion kaniti degildir; WN12 ve S01 NO_GO korunur. Musteri/GPU veya ana checkout verisi degismedi.
+
+## WN11 erken nesil kurtarma - 2026-10-13
+
+- S01 `714dd1f` ve salt okunur layout/icerik probe'u `1fd9c08` bagimsiz inceleme sonrasi coordinator'a `5e482c3` ile alindi. v2 PREPARED, LINK ve BLOBS_READY kesitlerinde eski DB/WAL hash/varlik, SHM varligi, staged DB hash'i ve preserved adlarin yoklugu dogrulanir; DB/blob silmeden veya tasimadan ROLLED_BACK yazilir. MOVE_DB'den VERIFIED'a 7 ara kesit fail-closed, COMMITTED yeni nesli acar.
+- Birlesik kodda odak 18 dosya/157 PASS; typecheck/build/lint exit 0 (89 onceki warning), local release gate exit 0. Native Windows taskkill 11 kesit exit 0: ilk ucunde eski `test_jobs.old` var / yeni `artifacts.new` yok; COMMITTED kesitinde tersi; yedi ara kesit `RESTORE_RECOVERY_REQUIRED`. Tam recovery kabul modu 7 blok nedeniyle RED, S01/WN11-WN13 NO_GO. Bu dilim full 006 GO veya G1 izni degildir.
