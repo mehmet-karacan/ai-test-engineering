@@ -203,6 +203,17 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     if (existsSync(targetDbPath)) {
       rmSync(targetDbPath, { force: true });
     }
+    // PP44: hedef DB yanindaki eski -wal/-shm dosyalari silinmezse sonraki acilista
+    // eski (crash/hard-kill sonrasi) WAL icerigi restore edilen DB'ye geri oynatilir ve
+    // backup'in birebir icerigi bozulur. Restore atomik yayini yan dosyalarla birlikte yapar.
+    const staleWal = `${targetDbPath}-wal`;
+    const staleShm = `${targetDbPath}-shm`;
+    if (existsSync(staleWal)) {
+      rmSync(staleWal, { force: true });
+    }
+    if (existsSync(staleShm)) {
+      rmSync(staleShm, { force: true });
+    }
     renameSync(tempDb, targetDbPath);
     const backupBlobRoot = resolve(join(backupDir, "blobs"));
     const targetRoot = resolve(targetArtifactRoot);
