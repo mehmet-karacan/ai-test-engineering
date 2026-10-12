@@ -1,7 +1,7 @@
 /** Append-only restore journal. File fsync is used; Windows directory fsync is unavailable here. */
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { closeSync, fsyncSync, openSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
 
 export type RestorePhase = "PREPARED" | "BLOBS_READY" | "OLD_DB_PRESERVED" | "NEW_DB_PUBLISHED" | "VERIFIED" | "COMMITTED" | "ROLLED_BACK";
@@ -61,10 +61,12 @@ export function journalPathForDb(dbPath: string): string {
 }
 
 export function readRestoreJournal(path: string): RestoreJournalRecord | null {
-  if (!existsSync(path)) return null;
   let text: string;
   try { text = readFileSync(path, "utf8"); }
-  catch { throw recoveryError("journal unreadable"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw recoveryError("journal unreadable");
+  }
   if (!text || !text.endsWith("\n")) throw recoveryError("journal truncated");
   let previous: RestoreJournalRecord | null = null;
   for (const line of text.trimEnd().split("\n")) {
@@ -99,6 +101,16 @@ export function appendRestorePhase(path: string, record: RestoreJournalRecord): 
 /** Called before SQLite can create/open state.db; incomplete restore is a hard blocker. */
 export function assertRestoreReadyBeforeOpen(dbPath: string): void {
   const last = readRestoreJournal(journalPathForDb(dbPath));
+  if (last === null) {
+    try {
+      const prefix = `${basename(dbPath)}.restore-old-`;
+      if (readdirSync(dirname(resolve(dbPath))).some((name) => name.startsWith(prefix))) {
+        throw recoveryError("preserved DB exists without journal");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
   if (last && last.phase !== "COMMITTED" && last.phase !== "ROLLED_BACK") {
     throw recoveryError(`unfinished generation ${last.generation}, phase ${last.phase}`);
   }

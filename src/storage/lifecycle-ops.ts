@@ -312,7 +312,8 @@ function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: 
  * once calisir; farkli baytli mevcut hedef blob'da restore durur (EEXIST benzeri),
  * esit hash'li mevcut hedef blob yeniden kullanilir. Blob'lar staging dosyasina
  * kopyalanip DB yayini oncesinde rename ile yayinlanir; yarim blob yazisi
- * hedefi ezmez. Crash-safe journal/rollback ayri asamada tamamlanacaktir.
+ * hedefi ezmez. Journal yarim restore'u acilista engeller; hard-kill recovery
+ * dogrulanmadan crash-safe kabul verilmez.
  */
 export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
   targetDbPath = resolve(targetDbPath);
@@ -384,7 +385,13 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     journalStarted = true;
     if (value === "COMMITTED" || value === "ROLLED_BACK") journalTerminal = true;
   };
-  copyFileSync(join(backupDir, "state.db"), tempDb);
+  try {
+    copyFileSync(join(backupDir, "state.db"), tempDb);
+  } catch (error) {
+    // PREPARED henuz yazilmadi; yarim staging DB'si yeni restore sanilamaz.
+    rmSync(tempDb, { force: true });
+    throw error;
+  }
   const publishedNew: string[] = [];
   let dbPublished = false;
   let safeRollback = true;

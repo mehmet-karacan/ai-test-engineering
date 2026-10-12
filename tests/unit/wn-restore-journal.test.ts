@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
@@ -38,5 +38,14 @@ describe("S01 restore journal fail-closed", () => {
       expect(() => { opened = new Storage({ dbPath: db }); }).toThrow(/RESTORE_RECOVERY_REQUIRED/);
       expect(existsSync(db)).toBe(false);
     } finally { opened?.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("blocks startup when an old DB is stranded but the journal file is missing", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-lost-"));
+    try {
+      const db = join(root, "state.db");
+      writeFileSync(`${db}.restore-old-generation`, "old database bytes");
+      expect(() => assertRestoreReadyBeforeOpen(db)).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
