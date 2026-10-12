@@ -573,11 +573,11 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
     const canonicalRoot = canonicalProjectRoot(parsed.project_root);
     const projects = new ProjectRepository((requireServices(services)).storage.db);
     const locations = projects.listLocationsProjects(canonicalRoot);
-    const resumable = jobs.findResumableJobsByLocations(locations.map((l) => l.id));
-    if (resumable.length === 0) {
-      throw new AppError("INVALID_PARAMETERS", `Bu projede aktif job bulunamadi: ${parsed.project_root}`);
+    const latest = jobs.findLatestJobByLocations(locations.map((l) => l.id));
+    if (!latest) {
+      throw new AppError("INVALID_PARAMETERS", `Bu projede job bulunamadi: ${parsed.project_root}`);
     }
-    job = resumable[0]!;
+    job = latest;
   } else {
     throw new AppError("INVALID_PARAMETERS", "job_id veya project_root gereklidir");
   }

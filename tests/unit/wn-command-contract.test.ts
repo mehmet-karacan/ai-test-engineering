@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NativeToolchainResolver, buildNativeMavenArgv, probeNativeMavenVersion } from "../../src/runners/native-toolchain.js";
+import { NativeToolchainResolver, buildNativeMavenArgv, probeNativeMavenVersion, effectiveMavenEnvironment } from "../../src/runners/native-toolchain.js";
 
 describe("S02 native Maven command contract", () => {
+  it("rejects conflicting Windows environment casing and omits unrelated keys", () => {
+    expect(() => effectiveMavenEnvironment({ Path: "A", PATH: "B" })).toThrow();
+    expect(effectiveMavenEnvironment({ Path: "A", PRIVATE_SENTINEL: "secret" })).toEqual({ Path: "A" });
+    expect(() => effectiveMavenEnvironment({ Path: "A" }, { MAVEN_OPTS: "-X & echo SENTINEL" })).toThrow();
+  });
   it("uses installed Maven by default and honors Windows Path casing", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-toolchain-"));
     try {
@@ -71,6 +76,24 @@ describe("S02 native Maven command contract", () => {
       expect(JSON.stringify(fourth)).not.toContain("SECRET_SENTINEL");
       expect(buildNativeMavenArgv({ goals: ["test"], settingsPath: settings, toolchainsPath: toolchains }))
         .toEqual(["test", "-s", settings, "-t", toolchains, "-B", "-ntp"]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("includes inherited parent .mvn configuration in identity", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-parent-config-"));
+    try {
+      const bin = join(root, "bin");
+      const module = join(root, "module");
+      mkdirSync(bin);
+      mkdirSync(module);
+      mkdirSync(join(root, ".mvn"));
+      writeFileSync(join(bin, "mvn.cmd"), "@echo off\r\n");
+      const config = join(root, ".mvn", "maven.config");
+      writeFileSync(config, "-Pfirst");
+      const first = NativeToolchainResolver.resolve({ cwd: module, env: { Path: bin }, platform: "win32" });
+      writeFileSync(config, "-Psecond");
+      const second = NativeToolchainResolver.resolve({ cwd: module, env: { Path: bin }, platform: "win32" });
+      expect(second.identity).not.toBe(first.identity);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

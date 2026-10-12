@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { NativeToolchainResolver, buildNativeMavenArgv } from "./native-toolchain.js";
+import { NativeToolchainResolver, buildNativeMavenArgv, verifyNativeToolchain, effectiveMavenEnvironment } from "./native-toolchain.js";
 import { WindowsProcessSupervisor, type NativeProcessResult } from "./windows-process-supervisor.js";
 
 export interface RunResult {
@@ -31,6 +31,7 @@ export interface MavenRunOptions {
   prefer_wrapper?: boolean;
   settings_path?: string;
   toolchains_path?: string;
+  expected_toolchain_identity?: string;
 }
 
 /** Runtime test/coverage flags override skip and failure-ignore settings from a POM. */
@@ -46,22 +47,11 @@ export function strictTestExecutionProperties(): Record<string, string> {
   };
 }
 
-function effectiveEnvironment(overrides: Record<string, string> | undefined): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const [key, value] of Object.entries(overrides ?? {})) {
-    for (const existing of Object.keys(env)) {
-      if (existing.toLowerCase() === key.toLowerCase()) delete env[existing];
-    }
-    env[key] = value;
-  }
-  return env;
-}
-
 export class MavenRunner {
   private readonly running = new Set<AbortController>();
 
   async run(options: MavenRunOptions): Promise<RunResult> {
-    const env = effectiveEnvironment(options.env);
+    const env = effectiveMavenEnvironment(process.env, options.env);
     const toolchain = NativeToolchainResolver.resolve({
       cwd: options.working_dir, env,
       ...(options.executable !== undefined ? { executable: options.executable } : {}),
@@ -78,13 +68,19 @@ export class MavenRunner {
       ...(options.toolchains_path !== undefined ? { toolchainsPath: options.toolchains_path } : {}),
     });
     const command = [toolchain.executable, ...argv];
-    mkdirSync(options.log_dir, { recursive: true });
-    const stdoutLog = join(options.log_dir, "maven-stdout.log");
-    const stderrLog = join(options.log_dir, "maven-stderr.log");
     const controller = new AbortController();
     this.running.add(controller);
     let result: NativeProcessResult;
+    let effectiveIdentity: string;
     try {
+      const verified = await verifyNativeToolchain(toolchain, env, controller.signal);
+      effectiveIdentity = verified.identity;
+      if (options.expected_toolchain_identity !== undefined && options.expected_toolchain_identity !== effectiveIdentity) {
+        throw new AppError("BLOCKED_ISOLATION", "Maven/Java toolchain changed since the approved plan", {
+          reason_code: "TOOLCHAIN_IDENTITY_CHANGED",
+        });
+      }
+      mkdirSync(options.log_dir, { recursive: true });
       result = await new WindowsProcessSupervisor().run({
         executable: toolchain.executable, cwd: toolchain.cwd, argv,
         timeoutMs: options.timeout_ms, env,
@@ -92,6 +88,8 @@ export class MavenRunner {
     } finally {
       this.running.delete(controller);
     }
+    const stdoutLog = join(options.log_dir, "maven-stdout.log");
+    const stderrLog = join(options.log_dir, "maven-stderr.log");
     writeFileSync(stdoutLog, result.stdout);
     writeFileSync(stderrLog, result.stderr);
     if (result.status !== "success" && result.status !== "nonzero") {
@@ -99,7 +97,7 @@ export class MavenRunner {
         reason_code: `NATIVE_MAVEN_${result.status.toUpperCase()}`,
         stdout_log_path: stdoutLog,
         stderr_log_path: stderrLog,
-        toolchain_identity: toolchain.identity,
+        toolchain_identity: effectiveIdentity,
       });
     }
     return {
@@ -112,7 +110,7 @@ export class MavenRunner {
       native_status: result.status,
       stdout_truncated_bytes: result.stdoutTruncatedBytes,
       stderr_truncated_bytes: result.stderrTruncatedBytes,
-      toolchain_identity: toolchain.identity,
+      toolchain_identity: effectiveIdentity,
     };
   }
 

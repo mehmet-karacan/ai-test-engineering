@@ -13,7 +13,7 @@ import { ProjectRepository } from "../storage/project-repository.js";
 import { LeaseManager } from "../orchestration/lease-manager.js";
 import { CheckpointStore } from "../orchestration/checkpoint-store.js";
 import { defaultApplyConfig } from "../reporting/test-apply.js";
-import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
+import { CustomerRunnerFactory, resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { ReportExporter } from "../reporting/report-generator.js";
@@ -75,6 +75,11 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     workspaceRoot: services.config.storage.root,
   });
   dispatcher.assertRecordedRunnerKind(storage, job);
+  if (runnerKind === "windows_native") {
+    // Do not mark a resumed job RUNNING when customer process ownership is
+    // still unavailable. The dispatcher will recheck before any Maven probe.
+    new CustomerRunnerFactory().assertNativeCustomerReady();
+  }
 
   // K05/B05: resume gercek dispatcher devami - ayni job'dan kaldigi asamadan devam.
   jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
