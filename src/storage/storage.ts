@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { migrate, currentSchemaVersion } from "./migrations.js";
-import { assertRestoreReadyBeforeOpen, recoverPreparedRestoreBeforeOpen } from "./restore-journal.js";
+import { assertRestoreReadyBeforeOpen, recoverIntactOldRestoreBeforeOpen } from "./restore-journal.js";
 
 export interface StorageOptions {
   dbPath: string;
@@ -29,7 +29,7 @@ export class Storage {
   private readonly dbPath: string;
 
   constructor(options: StorageOptions) {
-    recoverPreparedRestoreBeforeOpen(options.dbPath);
+    recoverIntactOldRestoreBeforeOpen(options.dbPath);
     assertRestoreReadyBeforeOpen(options.dbPath);
     this.dbPath = options.dbPath;
     const parent = dirname(options.dbPath);

@@ -2,10 +2,68 @@ import { describe, expect, it } from "vitest";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, journalPathForDb, readRestoreJournal, recoverPreparedRestoreBeforeOpen } from "../../src/storage/restore-journal.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, journalPathForDb, readRestoreJournal, recoverIntactOldRestoreBeforeOpen } from "../../src/storage/restore-journal.js";
 import { Storage } from "../../src/storage/storage.js";
 
 describe("S01 restore journal fail-closed", () => {
+  it("v2 BLOBS_READY eski DB/WAL hedefte ayniyken blob silmeden eskiyi acar", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-v2-blobs-ready-"));
+    try {
+      const db = join(root, "state.db");
+      const stage = join(root, "state.db.stage");
+      const manifest = join(root, "manifest.json");
+      const orphan = join(root, "artifacts", "blob");
+      writeFileSync(db, "old-db-bytes");
+      writeFileSync(`${db}-wal`, "old-wal-bytes");
+      writeFileSync(`${db}-shm`, "old-shm-bytes");
+      writeFileSync(stage, "new-db-bytes");
+      writeFileSync(manifest, "new-manifest");
+      const base = { formatVersion: 2 as const, generation: "generation-v2-blobs", targetDbPath: db,
+        artifactRoot: join(root, "artifacts"), stagedDbPath: stage,
+        preservedDbPath: join(root, "state.db.restore-old-v2"), publishedBlobs: [],
+        evidence: captureRestoreEvidence(db, stage, manifest, []) };
+      const path = journalPathForDb(db);
+      appendRestorePhase(path, { ...base, phase: "PREPARED" });
+      appendRestorePhase(path, { ...base, phase: "BLOBS_READY" });
+      mkdirSync(join(root, "artifacts"));
+      writeFileSync(orphan, "linked-orphan");
+      recoverIntactOldRestoreBeforeOpen(db);
+      expect(readRestoreJournal(path)?.phase).toBe("ROLLED_BACK");
+      expect(() => assertRestoreReadyBeforeOpen(db)).not.toThrow();
+      expect(existsSync(orphan)).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it.each(["db-changed", "wal-changed", "shm-missing", "old-db-preserved", "old-wal-preserved", "old-shm-preserved"])(
+    "v2 BLOBS_READY %s kaniti bozulunca fail-closed kalir", (fault) => {
+      const root = mkdtempSync(join(tmpdir(), "wn-journal-v2-blobs-negative-"));
+      try {
+        const db = join(root, "state.db");
+        const stage = join(root, "state.db.stage");
+        const manifest = join(root, "manifest.json");
+        const preserved = join(root, "state.db.restore-old-v2");
+        writeFileSync(db, "old-db-bytes");
+        writeFileSync(`${db}-wal`, "old-wal-bytes");
+        writeFileSync(`${db}-shm`, "old-shm-bytes");
+        writeFileSync(stage, "new-db-bytes");
+        writeFileSync(manifest, "new-manifest");
+        const base = { formatVersion: 2 as const, generation: `generation-v2-${fault}`, targetDbPath: db,
+          artifactRoot: join(root, "artifacts"), stagedDbPath: stage, preservedDbPath: preserved,
+          publishedBlobs: [], evidence: captureRestoreEvidence(db, stage, manifest, []) };
+        const path = journalPathForDb(db);
+        appendRestorePhase(path, { ...base, phase: "PREPARED" });
+        appendRestorePhase(path, { ...base, phase: "BLOBS_READY" });
+        if (fault === "db-changed") writeFileSync(db, "changed-db-bytes");
+        if (fault === "wal-changed") writeFileSync(`${db}-wal`, "changed-wal-bytes");
+        if (fault === "shm-missing") rmSync(`${db}-shm`);
+        if (fault === "old-db-preserved") writeFileSync(preserved, "other-db");
+        if (fault === "old-wal-preserved") writeFileSync(`${db}-wal.restore-old-v2`, "other-wal");
+        if (fault === "old-shm-preserved") writeFileSync(`${db}-shm.restore-old-v2`, "other-shm");
+        expect(() => recoverIntactOldRestoreBeforeOpen(db)).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+        expect(readRestoreJournal(path)?.phase).toBe("BLOBS_READY");
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+
   it("v2 PREPARED'da eski DB kimligi dogrulanir, yetim blob silinmeden eski generation acilir", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-journal-v2-prepared-"));
     try {
@@ -23,7 +81,7 @@ describe("S01 restore journal fail-closed", () => {
       appendRestorePhase(journalPathForDb(db), { ...base, phase: "PREPARED" });
       mkdirSync(join(root, "artifacts"));
       writeFileSync(orphan, "new-orphan");
-      recoverPreparedRestoreBeforeOpen(db);
+      recoverIntactOldRestoreBeforeOpen(db);
       expect(readRestoreJournal(journalPathForDb(db))?.phase).toBe("ROLLED_BACK");
       expect(() => assertRestoreReadyBeforeOpen(db)).not.toThrow();
       expect(existsSync(orphan)).toBe(true);
@@ -45,7 +103,7 @@ describe("S01 restore journal fail-closed", () => {
         evidence: captureRestoreEvidence(db, stage, manifest, []) };
       appendRestorePhase(journalPathForDb(db), { ...base, phase: "PREPARED" });
       writeFileSync(db, "other-db-bytes");
-      expect(() => recoverPreparedRestoreBeforeOpen(db)).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      expect(() => recoverIntactOldRestoreBeforeOpen(db)).toThrow(/RESTORE_RECOVERY_REQUIRED/);
       expect(readRestoreJournal(journalPathForDb(db))?.phase).toBe("PREPARED");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
