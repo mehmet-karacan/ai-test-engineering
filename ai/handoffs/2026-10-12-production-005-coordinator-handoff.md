@@ -51,9 +51,9 @@
 
 - Kalan ana kapanis paketi sayisi: **3** (`P07-B`, `P08`, `P10`). P09 yerel olarak kapali; evidence reconciliation P10 kapanisinin alt kanitidir.
 - P07-B gercek customer dispatcher COMPLETED + Report06 export runtime kosusu: **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi; typed blocker fail-closed korunuyor).
-- P08 gercek Windows CMD install/uninstall/upgrade rollback ve desteklenen Linux/macOS platform kaniti: NOT_RUN.
+- P08: gercek Windows CMD install/verify/uninstall (PP41) ve gercek iki-binary v4->v7 upgrade + kayip/restore (PP44) artik RUNTIME_VERIFIED (`p08-pp44-realbin-e2e`); kalan: macOS makine kaniti ve downgrade (geri surum) e2e NOT_RUN.
 - P06 effective Maven profile/skip/ignoreFailures ve multi-module runtime kaniti: local kod kapilari var, tam runtime kaniti eksik.
-- PP09 tam Linux spawn-failure event harness kosusu (host win32): Docker komut seviyesi kanit alindi; tam event harness NOT_RUN.
+- PP09 artik RUNTIME_VERIFIED (`p02p03-remaining-runtime-kanit`: Linux taskkill yok + exit 3 yakalanmasi + stop/inspect 137 + log butcesi kod/test); bu madde kapanmistir.
 - PP17 tam allowlist egress enforcement: BLOCKED (typed blocker fail-closed).
 - P10 final handoff/release karari: full gate NO_GO oldugu icin teknik handoff suruyor; production GO verilmedi.
 
