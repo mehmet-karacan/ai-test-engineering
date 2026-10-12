@@ -49,39 +49,60 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
   const backupId = randomUUID();
   const backupDir = join(backupRoot, backupId);
   mkdirSync(backupDir, { recursive: true });
+  try {
+    const backupDbPath = join(backupDir, "state.db");
+    await db.backup(backupDbPath);
 
-  const backupDbPath = join(backupDir, "state.db");
-  await db.backup(backupDbPath);
-
-  // DB'nin referans verdigi blob'lari manifest'e sabitle:
-  const blobManifest: Array<{ relative_path: string; sha256: string; bytes: number }> = [];
-  const artifactRows = db
-    .prepare<[], { relative_store_path: string; sha256: string; bytes: number }>(
-      "SELECT relative_store_path, sha256, bytes FROM artifacts WHERE status = 'READY'",
-    )
-    .all();
-  for (const row of artifactRows) {
-    const blobPath = join(artifactRoot, row.relative_store_path.replace(/\//g, pathSep));
-    if (existsSync(blobPath)) {
-      const copiedPath = join(backupDir, "blobs", row.relative_store_path.replace(/\//g, pathSep));
+    // DB'nin referans verdigi blob'lari manifest'e sabitle. READY kaydi eksik,
+    // bozuk veya artifact kokunun disindaysa backup sessizce eksik olamaz.
+    const blobManifest: Array<{ relative_path: string; sha256: string; bytes: number }> = [];
+    const artifactRows = db
+      .prepare<[], { relative_store_path: string; sha256: string; bytes: number }>(
+        "SELECT relative_store_path, sha256, bytes FROM artifacts WHERE status = 'READY'",
+      )
+      .all();
+    const artifactRootPath = resolve(artifactRoot);
+    for (const row of artifactRows) {
+      const relativeBlob = row.relative_store_path.replace(/\//g, pathSep);
+      const blobPath = resolve(artifactRootPath, relativeBlob);
+      const blobRelative = relative(artifactRootPath, blobPath);
+      if (blobRelative.startsWith(`..${pathSep}`) || blobRelative === ".." || !existsSync(blobPath)) {
+        throw new AppError("STORAGE_ERROR", `Backup blob eksik veya artifact kokunun disinda: ${row.relative_store_path}`, {
+          reason_code: "BACKUP_BLOB_MISSING",
+          relative_path: row.relative_store_path,
+        });
+      }
+      const blobData = readFileSync(blobPath);
+      const actualHash = sha256Data(blobData);
+      if (actualHash !== row.sha256 || blobData.byteLength !== row.bytes) {
+        throw new AppError("STORAGE_ERROR", `Backup blob hash/byte dogrulamasi basarisiz: ${row.relative_store_path}`, {
+          reason_code: "BACKUP_BLOB_HASH_MISMATCH",
+          relative_path: row.relative_store_path,
+        });
+      }
+      const copiedPath = join(backupDir, "blobs", relativeBlob);
       mkdirSync(join(copiedPath, ".."), { recursive: true });
       copyFileSync(blobPath, copiedPath);
       blobManifest.push({ relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes });
     }
-  }
-  const manifestPath = join(backupDir, "blob-manifest.json");
-  writeFileSync(manifestPath, JSON.stringify({ schema_version: 1, backup_id: backupId, blobs: blobManifest, taken_at: Date.now() }, null, 2), "utf8");
-  writeFileSync(join(backupDir, "complete.json"), JSON.stringify({ schema_version: 1, backup_id: backupId, complete: true }, null, 2), "utf8");
+    const manifestPath = join(backupDir, "blob-manifest.json");
+    writeFileSync(manifestPath, JSON.stringify({ schema_version: 1, backup_id: backupId, blobs: blobManifest, taken_at: Date.now() }, null, 2), "utf8");
+    writeFileSync(join(backupDir, "complete.json"), JSON.stringify({ schema_version: 1, backup_id: backupId, complete: true }, null, 2), "utf8");
 
-  return {
-    backup_id: backupId,
-    backup_dir: backupDir,
-    db_path: backupDbPath,
-    blob_manifest_path: manifestPath,
-    complete: true,
-    blob_count: blobManifest.length,
-    taken_at: Date.now(),
-  };
+    return {
+      backup_id: backupId,
+      backup_dir: backupDir,
+      db_path: backupDbPath,
+      blob_manifest_path: manifestPath,
+      complete: true,
+      blob_count: blobManifest.length,
+      taken_at: Date.now(),
+    };
+  } catch (error) {
+    // Incomplete snapshots cannot later be mistaken for a restorable backup.
+    rmSync(backupDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /**

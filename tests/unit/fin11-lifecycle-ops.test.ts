@@ -98,6 +98,31 @@ describe("FIN11: backup/restore gercek zinciri (18.5)", () => {
       restored.close();
     }
   }, 60000);
+
+  it("READY blob eksik veya bozuksa eksik backup'i tamamlanmis gostermeden reddeder", async () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-fin11-invalid-blob" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const record = artifacts.publish("report", "backup-kaydi");
+    storage.db
+      .prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, ?, ?, ?, ?, '1', 'internal', 'READY', ?)")
+      .run(record.id, job.id, record.kind, record.relativeStorePath, record.sha256, record.bytes, Date.now());
+    rmSync(join(artifactRoot, record.relativeStorePath), { force: true });
+
+    await expect(createBackup(storage.db, join(dir, "state.db"), artifactRoot, join(dir, "backups")))
+      .rejects.toMatchObject({
+        code: "STORAGE_ERROR",
+        details: { reason_code: "BACKUP_BLOB_MISSING" },
+      });
+
+    const blobPath = join(artifactRoot, record.relativeStorePath);
+    mkdirSync(join(blobPath, ".."), { recursive: true });
+    writeFileSync(blobPath, "degismis-blob", "utf8");
+    await expect(createBackup(storage.db, join(dir, "state.db"), artifactRoot, join(dir, "backups")))
+      .rejects.toMatchObject({
+        code: "STORAGE_ERROR",
+        details: { reason_code: "BACKUP_BLOB_HASH_MISMATCH" },
+      });
+  }, 60000);
 });
 
 describe("FIN11: upgrade quiesce + owned uninstall (18.4/18.2)", () => {
