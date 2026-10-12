@@ -66,11 +66,13 @@ describe("W10/F17/N59-N60: verifier negatifleri + kabul ayrisimi", () => {
     expect(verifier).toContain("REFERANS_06_HASH_UYUSMAZ");
   });
 
-  it("release-verify exit 0 (gercek kosu; tum zorunlu kontroller gecti)", () => {
+  it("release-verify evidence manifest yoksa fail-closed non-zero doner", () => {
     const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
     const result = spawnSync(process.execPath, [join(repoRoot, "scripts", "release-verify.mjs")], { encoding: "utf8", timeout: 60000 });
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("DOGRULAMA BASARILI");
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.status).not.toBe(0);
+    expect(output).toContain("NO_GO");
+    expect(output).toContain("EVIDENCE_MANIFEST_EKSIK");
   });
 
   it("N60: catalog pilot pause kaydi; LIVE_MODEL ertelenmis; yerel kanit ayri", () => {

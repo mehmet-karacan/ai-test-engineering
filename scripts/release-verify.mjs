@@ -93,9 +93,6 @@ const warnings = [];
 function addReason(code, detail) {
   reasons.push({ code, detail });
 }
-function addWarning(detail) {
-  warnings.push(detail);
-}
 
 function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -217,7 +214,6 @@ function computeSourceIdentity() {
     const result = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", windowsHide: true, timeout: 3000 });
     dirty = result.status === 0 && typeof result.stdout === "string" && result.stdout.trim().length > 0;
   } catch {
-    dirty = false;
   }
   return { commit, dirty, tree_digest: treeDigest, file_count: treeEntries.length, lockfile_sha256: lockfileSha256, build_input_digest: buildInputDigest, dist_artifacts: distArtifacts };
 }
@@ -669,7 +665,6 @@ function main() {
   checkDistNotStale();
   const universe = mandatoryObligationUniverse(catalog);
 
-  const structuralReasons = [...reasons];
   let evidence = null;
 
   if (mode === "full") {

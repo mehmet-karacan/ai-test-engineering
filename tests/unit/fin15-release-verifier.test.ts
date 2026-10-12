@@ -27,15 +27,15 @@ describe("FIN15: release verifier kurallari (23.4)", () => {
     expect(content).toContain("checkMandatoryFiles");
     expect(content).toContain("checkCatalogIntegrity");
     expect(content).toContain("checkCorpusIntegrity");
-    expect(content).toContain("checkNoSecretsInStagedTree");
+    expect(content).toContain("checkNoSecretsInReleaseInventory");
     expect(content).toContain("SOURCE_TREE_BOS");
   });
 
-  it("zorunlu kabulde non-zero exit: process.exit(1) yolu var", () => {
+  it("zorunlu kabulde non-zero exit: exitCode fail-closed hesaplanir", () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const content = require("node:fs").readFileSync(join(process.cwd(), "scripts", "release-verify.mjs"), "utf8");
-    expect(content).toContain("process.exit(1)");
-    expect(content).toContain("process.exit(0)");
+    expect(content).toContain("const exitCode = reasons.length === 0 ? 0 : 1");
+    expect(content).toContain("process.exit(exitCode)");
     expect(content).toContain("ZORUNLU_DOSYA_EKSIK");
   });
 });

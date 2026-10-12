@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P05-B, P06-A, P06-B1 ve P06-B2 tamamlandi; P07-A ve P07-B cekirdegi uygulanip P07 runtime/P08-P10 suruyor
-- Durum etiketi: `005_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P05-B, P06-A, P06-B1, P06-B2 ve P09 yerel regresyonu tamamlandi; P07 runtime/P08/P10 dis kanitleri suruyor
+- Durum etiketi: `005_P08_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
@@ -42,6 +42,7 @@
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p07b-report06-evidence.md; 60/60 odak + 1/1 gercek MavenRunner evidence + typecheck/build; Docker customer dispatcher BLOCKED |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry ve readiness ayrimi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p08-install-runtime.md; 24/24 + temiz Windows install/verify PASS; lifecycle backup/restore/upgrade kaniti eksik |
+| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p09-regression.md; 574/584 (10 skip), lint 0 error, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
 | P07-P10 | Report06 renderer/ham kanit export, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P07-A sonrasi devam ediyor |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
@@ -95,6 +96,6 @@
 
 ## Sonraki somut is
 
-- Sonraki somut is: P08 lifecycle backup/restore/upgrade/uninstall kaniti; ardindan P09 full gate/reconciliation, Docker capability saglanan ortamda P07-B customer dispatcher kabul kaniti ve P10 handoff
+- Sonraki somut is: P08 lifecycle backup/restore/upgrade/uninstall kaniti; Docker capability saglanan ortamda P07-B customer dispatcher kabul kaniti ve P10 handoff
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir
