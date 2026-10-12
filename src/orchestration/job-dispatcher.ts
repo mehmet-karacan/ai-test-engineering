@@ -16,7 +16,7 @@ import { CheckpointStore, resumeBudgetFromManifest, type AcceptedBlob } from "./
 import { RecoveryManager } from "./recovery-manager.js";
 import { SourceSnapshot, computeSourceIdentity, type SourceIdentity, type SnapshotManifest } from "../discovery/source-snapshot.js";
 import type { JobContract } from "../domain/job-contract.js";
-import { CandidateLoop, readCoverageAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult } from "./candidate-loop.js";
+import { CandidateLoop, readCoverageAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult, type CandidateGenerationFeedback } from "./candidate-loop.js";
 import { runBaseline } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
@@ -449,11 +449,7 @@ export class JobDispatcher {
               last_trusted_run_id: null,
               active_phase: "verification",
               next_action: "candidate_accepted",
-              remaining_budget: {
-                max_candidate_iterations: Math.max(0, goal.budget.max_candidate_iterations - info.iteration),
-                max_repairs_per_candidate: goal.budget.max_repairs_per_candidate,
-                no_progress_window: goal.budget.no_progress_window,
-              },
+              remaining_budget: { ...info.remaining_budget },
               requested_model: goal.model_profile ?? null,
               resolved_model: goal.model_profile ?? null,
               worker_session_ref: null,
@@ -495,11 +491,11 @@ export class JobDispatcher {
                 decision_reason: info.reason,
                 coverage_before_bps: info.coverage_before_bps,
                 coverage_after_bps: info.coverage_after_bps,
-                error_fingerprint: null,
+                error_fingerprint: info.error_fingerprint ?? null,
               });
             }
           },
-          generate_candidate: async () => {
+          generate_candidate: async (feedback) => {
             assertLease();
             const latest = jobs.getJob(job.id);
             if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
@@ -508,7 +504,7 @@ export class JobDispatcher {
             if (!this.workerEnabled) {
               return null;
             }
-            return this.generateCandidateFromWorker(projectRoot, resolved.fqn, resolved.module, job.id, goal.model_profile);
+            return this.generateCandidateFromWorker(projectRoot, resolved.fqn, resolved.module, job.id, goal.model_profile, feedback, jobDeadlineAt);
           },
           generation_failure_reason: () => this.workerEnabled ? null : "WORKER_DISABLED",
         };
@@ -873,7 +869,7 @@ export class JobDispatcher {
    * kalan iterasyon/butce best checkpoint manifest'inden yuklenir (config sifirlamaz);
    * SOURCE_CHANGED durumunda kontrollu rebaseline; dispatch'i bastan tekrar cagirmaz.
    */
-  async resumeDispatch(job: JobRow, projectRootHint?: string): Promise<DispatchResult> {
+  async resumeDispatch(job: JobRow, projectRootHint?: string, requestedModel?: string | null): Promise<DispatchResult> {
     const storage = this.services.storage;
     const jobs = this.services.jobs;
     if (!storage || !jobs) {
@@ -935,7 +931,8 @@ export class JobDispatcher {
       no_progress_window: configBudgets.no_progress_window,
     };
     let startIteration = 1;
-    let goalModelProfile: string | null = null;
+    const contractModelProfile = this.readJobContractModelProfile(storage, job);
+    let goalModelProfile: string | null = contractModelProfile;
     if (plan.action === "resume" && plan.checkpoint_id && plan.checkpoint_manifest) {
       const rb = resumeBudgetFromManifest(plan.checkpoint_manifest, configBudgets);
       budget = {
@@ -944,7 +941,10 @@ export class JobDispatcher {
         no_progress_window: rb.no_progress_window,
       };
       startIteration = rb.start_iteration;
-      goalModelProfile = plan.checkpoint_manifest.requested_model;
+      if (contractModelProfile !== null && plan.checkpoint_manifest.requested_model !== null && contractModelProfile !== plan.checkpoint_manifest.requested_model) {
+        throw new AppError("POLICY_VIOLATION", "Resume checkpoint modeli immutable contract ile uyusmuyor", { reason_code: "CONTRACT_CONFLICT" });
+      }
+      goalModelProfile = plan.checkpoint_manifest.requested_model ?? contractModelProfile;
       jobs.appendEvent({ job_id: job.id, event_type: "resume_checkpoint_verified", phase: job.phase, origin: "resumeDispatch" });
       // Accepted set mutable klasordeki durumdan degil, immutable content-addressed
       // blob'lardan geri yuklenir; klasor karismasi resume'yu bozamaz.
@@ -953,7 +953,23 @@ export class JobDispatcher {
         checkpoints.restoreAcceptedFiles(job.id, plan.checkpoint_manifest.accepted_changes, acceptedDir);
       }
     } else {
+      const recorded = storage.db
+        .prepare<[string], { max_iteration: number | null }>("SELECT MAX(iteration_ordinal) AS max_iteration FROM candidate_iterations WHERE job_id = ?")
+        .get(job.id);
+      const consumedIterations = recorded?.max_iteration ?? 0;
+      if (consumedIterations > 0) {
+        budget.max_candidate_iterations = Math.max(0, configBudgets.max_candidate_iterations - consumedIterations);
+        startIteration = consumedIterations + 1;
+      }
       jobs.appendEvent({ job_id: job.id, event_type: "resume_fresh_start", phase: job.phase, origin: "resumeDispatch" });
+    }
+
+    if (requestedModel !== undefined && requestedModel !== null && requestedModel !== goalModelProfile) {
+      throw new AppError("POLICY_VIOLATION", "Resume model_profile immutable contract ile degistirilemez", {
+        reason_code: "CONTRACT_CONFLICT",
+        requested_model: requestedModel,
+        contract_model: goalModelProfile,
+      });
     }
 
     // P05/PR06: resume ayni frozen concrete hedef listesini kullanir (PP15/PP23).
@@ -1008,6 +1024,51 @@ export class JobDispatcher {
     return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
   }
 
+  /** P05-B/PP24: resume modeli manifest yoksa da kalici job contract'tan geri yuklenir. */
+  private readJobContractModelProfile(
+    storage: NonNullable<Services["storage"]>,
+    job: JobRow,
+  ): string | null {
+    const artifact = storage.db
+      .prepare<[string], { relative_store_path: string }>(
+        "SELECT relative_store_path FROM artifacts WHERE job_id = ? AND kind = 'job_contract' AND status = 'READY' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(job.id);
+    if (!artifact) {
+      return null;
+    }
+    const root = resolve(this.workspaceRoot);
+    const path = resolve(root, artifact.relative_store_path);
+    if (path !== root && !path.startsWith(`${root}${process.platform === "win32" ? "\\\\" : "/"}`)) {
+      throw new AppError("STORAGE_ERROR", "Job contract artifact yolu storage kok disinda", { reason_code: "CONTRACT_PATH_ESCAPE" });
+    }
+    if (!existsSync(path)) {
+      throw new AppError("STORAGE_ERROR", "Job contract artifact dosyasi bulunamadi", { reason_code: "CONTRACT_ARTIFACT_MISSING" });
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    } catch (error) {
+      throw new AppError("STORAGE_ERROR", `Job contract artifact JSON bozuk: ${String(error)}`, { reason_code: "CONTRACT_ARTIFACT_INVALID" });
+    }
+    if (!parsed || typeof parsed !== "object") {
+      throw new AppError("STORAGE_ERROR", "Job contract artifact nesne degil", { reason_code: "CONTRACT_ARTIFACT_INVALID" });
+    }
+    const profile = (parsed as { model_profile?: unknown }).model_profile;
+    if (profile === null || profile === undefined) {
+      return null;
+    }
+    if (!profile || typeof profile !== "object") {
+      throw new AppError("STORAGE_ERROR", "Job contract model_profile bozuk", { reason_code: "CONTRACT_MODEL_INVALID" });
+    }
+    const providerId = (profile as { provider_id?: unknown }).provider_id;
+    const modelId = (profile as { model_id?: unknown }).model_id;
+    if (typeof providerId !== "string" || providerId.length === 0 || typeof modelId !== "string" || modelId.length === 0) {
+      throw new AppError("STORAGE_ERROR", "Job contract model_profile alani gecersiz", { reason_code: "CONTRACT_MODEL_INVALID" });
+    }
+    return `${providerId}/${modelId}`;
+  }
+
   /**
    * W05/F11/N37: cancel/pause - owned kaynaklari sonlandirir (yalniz urunun kendi process'leri).
    * Owned worker server'lar stop edilir; MavenRunner kendi running map'ini zaten yonetir;
@@ -1052,7 +1113,15 @@ export class JobDispatcher {
     ownedWorkerServers.set(jobId, manager);
   }
 
-  private async generateCandidateFromWorker(projectRoot: string, targetFqn: string, module: PomModule, jobId: string, requestedModel: string | null = null): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
+  private async generateCandidateFromWorker(
+    projectRoot: string,
+    targetFqn: string,
+    module: PomModule,
+    jobId: string,
+    requestedModel: string | null = null,
+    feedback?: CandidateGenerationFeedback,
+    deadlineAt?: number,
+  ): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
     // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
     const portOffset = Number.parseInt(createHash("sha256").update(jobId, "utf8").digest("hex").slice(0, 6), 16) % 2000;
     const serverManager = defaultWorkerServerManager(projectRoot, { config_instance_key: jobId, port: 14096 + portOffset });
@@ -1118,6 +1187,12 @@ export class JobDispatcher {
       uncoveredAreas.push(`BRANCH: ${coverage.branch.covered}/${coverage.branch.covered + coverage.branch.missed}`);
     }
 
+    const feedbackEvidence = feedback
+      ? [
+          ...feedback.failed_tests.slice(0, 10),
+          ...feedback.quality_findings.slice(0, 10).map((finding) => `${finding.rule_id}: ${finding.evidence}`),
+        ].join(" | ")
+      : "";
     const promptContext: WorkerPromptContext = {
       role: "test_designer",
       class_name: targetFqn.split(".").pop() ?? targetFqn,
@@ -1125,6 +1200,13 @@ export class JobDispatcher {
       dependencies_signatures: signatures,
       existing_tests_summary: existingTests.length > 0 ? existingTests : ["bilinmiyor"],
       uncovered_areas: uncoveredAreas.length > 0 ? uncoveredAreas : [`${targetFqn}: kapsanmamis alanlar (bilinmiyor)`],
+      ...(feedback ? {
+        previous_attempts: [{
+          scenario: `repair_${feedback.repair_ordinal}_iteration_${feedback.repair_of_iteration}`,
+          result: feedback.previous_failure,
+          ...(feedbackEvidence.length > 0 ? { error: feedbackEvidence } : {}),
+        }],
+      } : {}),
       class_body: classBody.length > 0 ? classBody : "",
       policy_rules: [...DEFAULT_POLICY_RULES],
     };
@@ -1153,7 +1235,7 @@ export class JobDispatcher {
         duration_ms: null,
         input_tokens: null,
         output_tokens: null,
-        repair_for_attempt: null,
+        repair_for_attempt: feedback?.repair_ordinal ?? null,
         error_class: "IN_PROGRESS",
       });
     }
@@ -1181,12 +1263,15 @@ export class JobDispatcher {
     };
 
     try {
+      const workerTimeout = deadlineAt === undefined
+        ? 300000
+        : Math.max(1, Math.min(300000, deadlineAt - Date.now()));
       const response = await promptForJsonResult(client, {
         session_id: session.session_id,
         prompt,
         model: { providerID: profile.provider_id, modelID: profile.model_id },
         tools: flags,
-        timeout_ms: 300000,
+        timeout_ms: workerTimeout,
       });
       promptResult = response.result;
 

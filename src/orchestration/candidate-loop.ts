@@ -20,6 +20,7 @@ export interface IterationBudget {
 
 export interface CandidateDecision {
   iteration: number;
+  repair_for_attempt?: number | null;
   decision: "adopted" | "rejected" | "needs_review";
   reason: string;
   coverage_before_bps: number | null;
@@ -27,6 +28,19 @@ export interface CandidateDecision {
   quality_findings: QualityFinding[];
   regression_failures: string[];
   run_exit_code: number | null;
+}
+
+/** P05-B/PP26: onceki aday denemesinden yalniz sinirli arac olgulari tasinir. */
+export interface CandidateGenerationFeedback {
+  attempt_kind: "initial" | "repair";
+  repair_ordinal: number;
+  repair_of_iteration: number;
+  previous_failure: string;
+  failed_tests: string[];
+  quality_findings: QualityFinding[];
+  run_exit_code: number | null;
+  coverage_after_bps: number | null;
+  remaining_deadline_ms: number | null;
 }
 
 export interface IterationLoopResult {
@@ -38,6 +52,12 @@ export interface IterationLoopResult {
   outcome: "TARGET_REACHED" | "TARGET_ALREADY_MET" | "TARGET_NOT_MET_PLATEAU" | "TARGET_NOT_MET_BUDGET" | "TARGET_NOT_MET_BLOCKED" | "IN_PROGRESS";
   /** Son guvenilir accepted setin calistigi workspace; final replay icin provenance. */
   trusted_workspace: string | null;
+  /** P05-B: bu loop icinde kullanilan bounded repair denemeleri. */
+  repairs_used: number;
+  /** P05-B: son checkpoint'e kadar biriken no-progress sayaci. */
+  no_progress_count: number;
+  /** P05-B: repair'ler dahil toplam candidate attempt sayisi. */
+  attempts_used: number;
 }
 
 export interface CoverageLookup {
@@ -215,7 +235,7 @@ export interface IterateOptions {
   line_target_bps: number;
   branch_target_bps: number;
   budget: IterationBudget;
-  generate_candidate: () => Promise<CandidateChangeSet | null>;
+  generate_candidate: (feedback?: CandidateGenerationFeedback) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
   /** PR06/PP26: tum aday ve repair denemeleri icin job'a ait mutlak deadline. */
@@ -225,11 +245,26 @@ export interface IterateOptions {
   /** W02/F08: aday workspace'lerin kurulacagi kok (opsiyonel; varsayilan staging_root/workspaces) */
   workspace_root?: string;
   /** D05/F04: kabul kararindan sonra cagirilir (checkpoint/blob baglantisi) */
-  on_accepted?: (info: { iteration: number; files: Array<{ path: string; sha256: string; action: "create" | "delete" }>; line_bps: number; branch_bps: number | null }) => void;
+  on_accepted?: (info: {
+    iteration: number;
+    files: Array<{ path: string; sha256: string; action: "create" | "delete" }>;
+    line_bps: number;
+    branch_bps: number | null;
+    remaining_budget: IterationBudget;
+  }) => void;
   /** Worker kapali/izolasyon hazir degil gibi plateau olmayan typed blocker. */
   generation_failure_reason?: () => string | null;
   /** FIN06/12.1: her aday kararindan sonra cagirilir (DB candidate_iterations kaydi) */
-  on_decision?: (info: { iteration: number; decision: "adopted" | "rejected"; reason: string; changeset_hash: string | null; coverage_before_bps: number | null; coverage_after_bps: number | null }) => void;
+  on_decision?: (info: {
+    iteration: number;
+    repair_for_attempt?: number | null;
+    decision: "adopted" | "rejected";
+    reason: string;
+    changeset_hash: string | null;
+    coverage_before_bps: number | null;
+    coverage_after_bps: number | null;
+    error_fingerprint?: string | null;
+  }) => void;
 }
 
 export class CandidateLoop {
@@ -337,7 +372,38 @@ export class CandidateLoop {
     let budgetExhausted = false;
     let plateau = false;
     let outcome: IterationLoopResult["outcome"] = "IN_PROGRESS";
+    let repairFeedback: CandidateGenerationFeedback | undefined;
+    let repairCount = 0;
+    let repairsUsed = 0;
     const deadlineExceeded = (): boolean => options.deadline_at !== undefined && Date.now() >= options.deadline_at;
+    const iterationLimit = startIteration > 1
+      ? startIteration + options.budget.max_candidate_iterations - 1
+      : options.budget.max_candidate_iterations;
+    const scheduleRetry = (feedback: Omit<CandidateGenerationFeedback, "attempt_kind" | "repair_ordinal" | "repair_of_iteration" | "remaining_deadline_ms">): "repair" | "next" | "stop" => {
+      noProgressCount++;
+      if (noProgressCount >= options.budget.no_progress_window) {
+        plateau = true;
+        outcome = "TARGET_NOT_MET_PLATEAU";
+        repairFeedback = undefined;
+        return "stop";
+      }
+      if (repairCount < options.budget.max_repairs_per_candidate) {
+        repairCount++;
+        repairsUsed++;
+        repairFeedback = {
+          ...feedback,
+          attempt_kind: "repair",
+          repair_ordinal: repairCount,
+          repair_of_iteration: iteration,
+          remaining_deadline_ms: options.deadline_at === undefined ? null : Math.max(0, options.deadline_at - Date.now()),
+        };
+        return "repair";
+      }
+      repairCount = 0;
+      repairFeedback = undefined;
+      iteration++;
+      return "next";
+    };
 
     const baselineCoverage = readCoverageAfterRun(options.project_root, options.target_fqn);
     const baselineBps = basisPointsFrom(baselineCoverage?.line);
@@ -377,16 +443,20 @@ export class CandidateLoop {
         plateau: false,
         outcome: "TARGET_ALREADY_MET",
         trusted_workspace: options.project_root,
+        repairs_used: 0,
+        no_progress_count: 0,
+        attempts_used: 0,
       };
     }
 
-    while (iteration <= options.budget.max_candidate_iterations) {
+    while (iteration <= iterationLimit) {
       if (deadlineExceeded()) {
         budgetExhausted = true;
         outcome = "TARGET_NOT_MET_BUDGET";
         break;
       }
-      const candidate = await options.generate_candidate();
+      const currentFeedback = repairFeedback;
+      const candidate = await options.generate_candidate(currentFeedback);
       if (candidate === null) {
         const generationFailure = options.generation_failure_reason?.() ?? null;
         if (generationFailure) {
@@ -403,9 +473,10 @@ export class CandidateLoop {
       const applyResult = applier.apply(candidate);
 
       if (applyResult.failed.length > 0) {
-        options.on_decision?.({ iteration, decision: "rejected", reason: `Patch uygulama basarisiz: ${applyResult.failed[0]!.reason}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
+        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Patch uygulama basarisiz: ${applyResult.failed[0]!.reason}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
         iterations.push({
           iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
           reason: `Patch uygulama basarisiz: ${applyResult.failed[0]!.reason}`,
           coverage_before_bps: bestCoverageBps,
@@ -414,7 +485,16 @@ export class CandidateLoop {
           regression_failures: [],
           run_exit_code: null,
         });
-        iteration++;
+        const retry = scheduleRetry({
+          previous_failure: `Patch uygulama basarisiz: ${applyResult.failed[0]!.reason}`,
+          failed_tests: [],
+          quality_findings: [],
+          run_exit_code: null,
+          coverage_after_bps: null,
+        });
+        if (retry === "stop") {
+          break;
+        }
         continue;
       }
 
@@ -442,9 +522,10 @@ export class CandidateLoop {
       }
 
       if (qualityFailed) {
-        options.on_decision?.({ iteration, decision: "rejected", reason: "Kalite kapisi basarisiz", changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
+        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: "Kalite kapisi basarisiz", changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
         iterations.push({
           iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
           reason: "Kalite kapisi basarisiz",
           coverage_before_bps: bestCoverageBps,
@@ -453,7 +534,16 @@ export class CandidateLoop {
           regression_failures: [],
           run_exit_code: null,
         });
-        iteration++;
+        const retry = scheduleRetry({
+          previous_failure: "Kalite kapisi basarisiz",
+          failed_tests: [],
+          quality_findings: qualityFindings,
+          run_exit_code: null,
+          coverage_after_bps: null,
+        });
+        if (retry === "stop") {
+          break;
+        }
         continue;
       }
 
@@ -494,9 +584,10 @@ export class CandidateLoop {
       afterBranchBps = basisPointsFrom(afterCoverage?.branch);
 
       if (regressionFailures.length > 0) {
-        options.on_decision?.({ iteration, decision: "rejected", reason: `Regresyon: ${regressionFailures.join(", ")}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Regresyon: ${regressionFailures.join(", ")}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
           iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
           reason: `Regresyon: ${regressionFailures.join(", ")}`,
           coverage_before_bps: bestCoverageBps,
@@ -505,14 +596,24 @@ export class CandidateLoop {
           regression_failures: regressionFailures,
           run_exit_code: run.exit_code,
         });
-        iteration++;
+        const retry = scheduleRetry({
+          previous_failure: `Regresyon: ${regressionFailures.join(", ")}`,
+          failed_tests: regressionFailures,
+          quality_findings: [],
+          run_exit_code: run.exit_code,
+          coverage_after_bps: afterBps,
+        });
+        if (retry === "stop") {
+          break;
+        }
         continue;
       }
 
       if (run.exit_code !== 0) {
-        options.on_decision?.({ iteration, decision: "rejected", reason: `Maven run basarisiz (exit ${run.exit_code})`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Maven run basarisiz (exit ${run.exit_code})`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
           iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
           reason: `Maven run basarisiz (exit ${run.exit_code})`,
           coverage_before_bps: bestCoverageBps,
@@ -521,7 +622,16 @@ export class CandidateLoop {
           regression_failures: [],
           run_exit_code: run.exit_code,
         });
-        iteration++;
+        const retry = scheduleRetry({
+          previous_failure: `Maven run basarisiz (exit ${run.exit_code})`,
+          failed_tests: [],
+          quality_findings: [],
+          run_exit_code: run.exit_code,
+          coverage_after_bps: afterBps,
+        });
+        if (retry === "stop") {
+          break;
+        }
         continue;
       }
 
@@ -534,13 +644,13 @@ export class CandidateLoop {
         options.branch_target_bps > 0 && !(afterCoverage?.branch !== undefined && afterCoverage.branch.covered + afterCoverage.branch.missed === 0 && bestBranchBps === null),
       );
       if (!gainEvaluation.accepted) {
-        noProgressCount++;
-        const reason = noProgressCount >= options.budget.no_progress_window
+        const reason = noProgressCount + 1 >= options.budget.no_progress_window
           ? `Plateau: ilerleme yok (${gainEvaluation.reason})`
           : `Anlamsiz kazanc yok (${gainEvaluation.reason})`;
-        options.on_decision?.({ iteration, decision: "rejected", reason, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
           iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
           reason,
           coverage_before_bps: bestCoverageBps,
@@ -549,17 +659,23 @@ export class CandidateLoop {
           regression_failures: [],
           run_exit_code: run.exit_code,
         });
-        if (noProgressCount >= options.budget.no_progress_window) {
-          plateau = true;
-          outcome = "TARGET_NOT_MET_PLATEAU";
+        const retry = scheduleRetry({
+          previous_failure: reason,
+          failed_tests: [],
+          quality_findings: [],
+          run_exit_code: run.exit_code,
+          coverage_after_bps: afterBps,
+        });
+        if (retry === "stop") {
           break;
         }
-        iteration++;
         continue;
       }
 
       const previousBestCoverageBps = bestCoverageBps;
       noProgressCount = 0;
+      repairCount = 0;
+      repairFeedback = undefined;
       bestCoverageBps = afterBps;
       bestBranchBps = afterBranchBps;
       branchNonApplicable = afterCoverage?.branch !== undefined
@@ -603,6 +719,7 @@ export class CandidateLoop {
 
         iterations.push({
           iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "adopted",
           reason: `Coverage kazanci: LINE ${bestCoverageBps} bps, BRANCH ${bestBranchBps ?? "N/A"} bps`,
           coverage_before_bps: previousBestCoverageBps,
@@ -620,11 +737,21 @@ export class CandidateLoop {
                 const content = c.action === "delete" ? Buffer.alloc(0) : existsSync(source) ? readFileSync(source) : Buffer.alloc(0);
                 return { path: c.path, sha256: sha256Data(content), action: c.action === "delete" ? "delete" as const : "create" as const };
               });
-          options.on_accepted({ iteration, files: acceptedFiles, line_bps: afterBps ?? 0, branch_bps: afterBranchBps });
+          options.on_accepted({
+            iteration,
+            files: acceptedFiles,
+            line_bps: afterBps ?? 0,
+            branch_bps: afterBranchBps,
+            remaining_budget: {
+              max_candidate_iterations: Math.max(0, iterationLimit - iteration),
+              max_repairs_per_candidate: options.budget.max_repairs_per_candidate,
+              no_progress_window: options.budget.no_progress_window,
+            },
+          });
         }
         // P03/PR03: adopted karar kaydi yalniz checkpoint publish basarisindan SONRA
         // kalici olur; publish basarisinda (at) yuklenmis aday DB'de adopted kalmaz.
-        options.on_decision?.({ iteration, decision: "adopted", reason: adoptedReason, changeset_hash: candidateHash, coverage_before_bps: previousBestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "adopted", reason: adoptedReason, changeset_hash: candidateHash, coverage_before_bps: previousBestCoverageBps, coverage_after_bps: afterBps });
         if (acceptedBackupDir) {
           rmSync(acceptedBackupDir, { recursive: true, force: true });
         }
@@ -651,7 +778,7 @@ export class CandidateLoop {
       iteration++;
     }
 
-    if (iteration > options.budget.max_candidate_iterations && outcome === "IN_PROGRESS") {
+    if (iteration > iterationLimit && outcome === "IN_PROGRESS") {
       budgetExhausted = true;
       outcome = "TARGET_NOT_MET_BUDGET";
     }
@@ -664,6 +791,9 @@ export class CandidateLoop {
       plateau,
       outcome,
       trusted_workspace: trustedWorkspace,
+      repairs_used: repairsUsed,
+      no_progress_count: noProgressCount,
+      attempts_used: iterations.length,
     };
   }
 

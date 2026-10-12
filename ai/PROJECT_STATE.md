@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P04 tamamlandi; P05-A uygulandi, P05-B-P10 sirada
-- Durum etiketi: `005_P05A_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P04 ve P05-A tamamlandi; P05-B cekirdegi uygulandi, kalan P05-B-P10 sirada
+- Durum etiketi: `005_P05B_CORE_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
@@ -35,7 +35,7 @@
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md; P04 11/11 + security/contract 90 passed/10 skipped(Docker NOT_RUN); Docker capability/egress tam kaniti NOT_RUN |
 | P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md; odak suite 57/57 + typecheck |
-| P05-B | Repair feedback/butcesi, resume provenance, mode ve toplam target butcesi | TODO | aktif gorev PR06; P05-A sonrasi kalan is |
+| P05-B | Repair feedback/butcesi ve resume model provenance cekirdegi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p05b-repair-contract.md; 55/55 odak test + typecheck; targetlar arasi toplam butce/mode tam kapanmadi |
 | P06-P10 | Frozen baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
@@ -89,6 +89,6 @@
 
 ## Sonraki somut is
 
-- P05-B: repair feedback ve bounded repair, accepted checkpoint'ten baseline/coverage, resume model kontrati ve toplam target butcesi; P05-A checkpoint'ini referans al
+- P05-B kalan: accepted checkpoint'ten trusted baseline/coverage, targetlar arasi toplam butce, generation error typed blocker ve resume uc-test kaniti; P05-B core checkpoint'ini referans al
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

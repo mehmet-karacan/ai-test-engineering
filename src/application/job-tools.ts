@@ -14,6 +14,7 @@ import { LeaseManager } from "../orchestration/lease-manager.js";
 import { CheckpointStore } from "../orchestration/checkpoint-store.js";
 import { defaultApplyConfig } from "../reporting/test-apply.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
+import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 
 export interface TestResumeResult {
   job_id: string;
@@ -26,6 +27,9 @@ export interface TestResumeResult {
 
 export async function handleTestResume(input: unknown, services: Services): Promise<TestResumeResult> {
   const parsed = TestResumeInputSchema.parse(input);
+  if (parsed.model_profile) {
+    parseExactModelSpec(parsed.model_profile);
+  }
   const { storage, jobs } = requireStorage(services);
   let job: JobRow;
 
@@ -72,8 +76,19 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     workspaceRoot: services.config.storage.root,
   });
   // GoalContract job kayitlarindan yeniden kurulur (resume parametresi gerekmez):
-  void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined).catch((error: unknown) => {
+  void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined, parsed.model_profile ?? null).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] resume job ${job.id} hata: ${String(error)}\n`);
+    if (error instanceof AppError && error.details?.["reason_code"] === "CONTRACT_CONFLICT") {
+      try {
+        const latest = jobs.getJob(job.id);
+        if (latest.lifecycle === "RUNNING") {
+          jobs.updateOutcome(job.id, "POLICY_VIOLATION", latest.row_version);
+          jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
+        }
+      } catch (stateError) {
+        process.stderr.write(`[aitest-dispatch] resume job ${job.id} contract conflict state update hatasi: ${String(stateError)}\n`);
+      }
+    }
   });
 
   return { job_id: job.id, lifecycle: "RUNNING", phase: job.phase, resumed: true, message: "Is ayni job'dan devam ediyor (dispatcher baslatildi)" };

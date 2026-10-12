@@ -3,7 +3,7 @@
  * Bu testler model kalitesini veya canli Docker kabulunu iddia etmez.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppError } from "../../src/domain/errors.js";
@@ -18,6 +18,11 @@ import { Storage } from "../../src/storage/storage.js";
 import { buildJobContract } from "../../src/domain/job-contract.js";
 import { parseExactModelSpec } from "../../src/workers/opencode/profile-reader.js";
 import { requestDigest } from "../../src/application/services.js";
+import { CandidateLoop, type IterateOptions } from "../../src/orchestration/candidate-loop.js";
+import { MavenRunner, type RunResult } from "../../src/runners/maven-runner.js";
+import type { CandidateChangeSet } from "../../src/workers/opencode/model-schemas.js";
+
+const FIXTURES = join(process.cwd(), "tests", "fixtures");
 
 function concrete(overrides?: Partial<ConcreteTarget>): ConcreteTarget {
   return {
@@ -114,6 +119,78 @@ describe("P05: frozen concrete hedef listesi", () => {
       parent_contract_digest: null,
       revision: 1,
     })).toThrow(/Concrete hedef listesi bos/);
+  });
+});
+
+describe("P05-B: bounded repair feedback", () => {
+  it("ilk run hatasindan sonra feedback'li tek repair dener ve repair limitini asmaz", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p05-repair-"));
+    const projectRoot = join(dir, "project");
+    const stagingRoot = join(dir, "staging");
+    try {
+      cpSync(join(FIXTURES, "ac27-project"), projectRoot, { recursive: true });
+      mkdirSync(join(projectRoot, "target", "site", "jacoco"), { recursive: true });
+      mkdirSync(stagingRoot, { recursive: true });
+      const writeCoverage = (workspace: string, covered: number, missed: number): void => {
+        const path = join(workspace, "target", "site", "jacoco", "jacoco.xml");
+        mkdirSync(join(path, ".."), { recursive: true });
+        writeFileSync(path, `<report name="repair"><package name="com/example/calc"><class name="com/example/calc/CalcService" sourcefilename="CalcService.java"><counter type="LINE" missed="${missed}" covered="${covered}"/></class></package></report>`, "utf8");
+      };
+      writeCoverage(projectRoot, 0, 10);
+
+      let runnerCalls = 0;
+      const fakeRunner = {
+        run: async (options: { working_dir: string; goals: string[]; timeout_ms: number; log_dir: string }): Promise<RunResult> => {
+          runnerCalls++;
+          writeCoverage(options.working_dir, runnerCalls > 1 ? 10 : 0, runnerCalls > 1 ? 0 : 10);
+          return {
+            exit_code: 0,
+            duration_ms: 1,
+            stdout_log_path: join(options.log_dir, "stdout.log"),
+            stderr_log_path: join(options.log_dir, "stderr.log"),
+            command: ["fake-maven"],
+            timed_out: false,
+          };
+        },
+      } as unknown as MavenRunner;
+
+      const feedbacks: Array<NonNullable<Parameters<NonNullable<IterateOptions["generate_candidate"]>>[0]>> = [];
+      const candidate: CandidateChangeSet = {
+        schema_version: 1,
+        changes: [{
+          path: "src/test/java/com/example/calc/CalcServiceTest.java",
+          action: "create",
+          new_content: "package com.example.calc;\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.assertEquals;\npublic class CalcServiceTest {\n  @Test\n  void repair_scenario() {\n    assertEquals(5, new CalcService().add(2, 3));\n  }\n}",
+          scenario_ids: ["repair-scenario"],
+        }],
+      };
+      const result = await new CandidateLoop(fakeRunner).iterate({
+        project_root: projectRoot,
+        target_fqn: "com.example.calc.CalcService",
+        target_module_path: "",
+        line_target_bps: 9000,
+        branch_target_bps: 0,
+        budget: { max_candidate_iterations: 1, max_repairs_per_candidate: 1, no_progress_window: 3 },
+        staging_root: stagingRoot,
+        workspace_root: join(dir, "workspaces"),
+        generate_candidate: async (feedback) => {
+          if (feedback) {
+            feedbacks.push(feedback);
+          }
+          return candidate;
+        },
+      });
+
+      expect(feedbacks).toHaveLength(1);
+      expect(feedbacks[0]!.attempt_kind).toBe("repair");
+      expect(feedbacks[0]!.repair_ordinal).toBe(1);
+      expect(feedbacks[0]!.previous_failure).toContain("kazanc yok");
+      expect(result.repairs_used).toBe(1);
+      expect(result.attempts_used).toBe(2);
+      expect(result.outcome).toBe("TARGET_REACHED");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
   });
 });
 

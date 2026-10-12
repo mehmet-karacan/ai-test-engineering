@@ -10,6 +10,7 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kism
 - P03: immutable contract/source/accepted blob, checkpoint CAS ve resume LOCAL_VERIFIED; P03/komsu suite 93/93; gercek hard-kill/Docker/live kaniti NOT_RUN/BLOCKED.
 - P04: izolasyon/mirror politikasi LOCAL_VERIFIED; P04 11/11 + security/contract 90 passed/10 skipped; PP16 probe'suz customer job kapatildi, PP18 fail-closed probe, PP19 secret scan + job cache izolasyonu; gercek Docker capability/egress kaniti NOT_RUN/BLOCKED.
 - P05-A: frozen concrete resolver, source-set kimligi, package/module expansion limiti, exact model propagation ve total job deadline runtime loop'una baglandi; odak suite 57/57 + typecheck LOCAL_VERIFIED. P05-B repair feedback, persistent repair budget, resume provenance ve mode kapsami tamamlanmadi.
+- P05-B core: compiler/test/coverage failure olgulari bounded repair feedback'ine, repair limiti ve worker timeout deadline'ine baglandi; resume modeli immutable contract artifact'tan geri yukleniyor, mismatch fail-closed; 55/55 odak test + typecheck. Targetlar arasi toplam butce, generation error typed blocker ve tam resume uc-test kaniti henuz tamamlanmadi.
 - Full product acceptance: **NOT_VERIFIED**; live pilot/platform kaniti uydurulmaz.
 
 ## Tarihsel 004 kaydi (2026-10-11)

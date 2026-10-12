@@ -337,6 +337,14 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     }
   }
 
+  // P05-B/PP23: dispatcher'a selector'suz frozen concrete liste verilemeyen
+  // POM-less veya kesintiye ugramis discovery akisinda job olusturma yok.
+  if (!resolvedTargets || !frozen || !bySelectorGroups) {
+    throw new AppError("BLOCKED_TARGET_RESOLUTION", "Maven hedefleri frozen concrete listeye donusturulemedi", {
+      reason_code: "FROZEN_TARGETS_MISSING",
+    });
+  }
+
   const digest = requestDigest({
     root: canonicalRoot,
     targets: parsed.targets,
