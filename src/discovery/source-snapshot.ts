@@ -184,17 +184,29 @@ function classify(relativePath: string): FileClassification {
   if (parts.includes("src") && parts.includes("java")) {
     return "production_source";
   }
-  if (normalized.endsWith("pom.xml") || normalized.endsWith("build.gradle") || normalized.endsWith("settings.gradle") || normalized.endsWith(".kts")) {
+  if (parts[0] === ".mvn" || normalized === "mvnw" || normalized === "mvnw.cmd" ||
+    normalized.endsWith("pom.xml") || normalized.endsWith("build.gradle") || normalized.endsWith("settings.gradle") || normalized.endsWith(".kts")) {
     return "build_config";
   }
   return "resource";
 }
 
-function isWithinRoot(root: string, candidate: string): boolean {
-  // D08/F10: normal cwd'de startsWith("") nedeniyle false donen acik duzeltildi;
-  // sadece relative containment kontrol edilir.
-  const rel = relative(root, candidate);
-  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+function assertNoLinks(base: string, candidate: string): void {
+  const rel = relative(base, candidate);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    throw new AppError("POLICY_VIOLATION", `Snapshot yolu kok disina cikiyor: ${candidate}`);
+  }
+  let current = base;
+  for (const part of ["", ...rel.split(sep).filter(Boolean)]) {
+    current = part ? join(current, part) : current;
+    try {
+      if (lstatSync(current).isSymbolicLink()) {
+        throw new AppError("POLICY_VIOLATION", `Snapshot yolu baglanti iceriyor: ${current}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
 }
 
 export class SourceSnapshot {
@@ -216,25 +228,19 @@ export class SourceSnapshot {
     const entries: string[] = [];
     const lstat = lstatSync(base);
     if (lstat.isSymbolicLink()) {
-      const target = resolve(base);
-      if (!isWithinRoot(this.root, target)) {
-        return entries;
-      }
+      throw new AppError("POLICY_VIOLATION", `Snapshot yolu baglanti iceriyor: ${base}`);
     }
     if (!lstat.isDirectory()) {
       return [base];
     }
     for (const name of readdirSync(base)) {
+      if (name === ".git" || name === "node_modules" || name === "target" || name === "build") {
+        continue;
+      }
       const full = join(base, name);
       const l = lstatSync(full);
       if (l.isSymbolicLink()) {
-        const target = resolve(full);
-        if (!isWithinRoot(this.root, target)) {
-          continue;
-        }
-      }
-      if (name === ".git" || name === "node_modules" || name === "target" || name === "build" || name === ".mvn") {
-        continue;
+        throw new AppError("POLICY_VIOLATION", `Snapshot yolu baglanti iceriyor: ${full}`);
       }
       if (l.isDirectory()) {
         entries.push(...this.walk(full, depth + 1));
@@ -296,12 +302,11 @@ export class SourceSnapshot {
     mkdirSync(absTarget, { recursive: true });
     for (const entry of manifest.entries) {
       const targetPath = resolve(absTarget, entry.relative_path.replace(/\//g, sep));
-      const relCheck = relative(absTarget, targetPath);
-      if (relCheck.startsWith("..")) {
-        throw new AppError("POLICY_VIOLATION", `Snapshot kopya hedefi kok disina cikiyor: ${entry.relative_path}`);
-      }
+      const sourcePath = resolve(this.root, entry.relative_path.replace(/\//g, sep));
+      assertNoLinks(this.root, sourcePath);
+      assertNoLinks(absTarget, targetPath);
       mkdirSync(join(targetPath, ".."), { recursive: true });
-      copyFileSync(resolve(this.root, entry.relative_path.replace(/\//g, sep)), targetPath);
+      copyFileSync(sourcePath, targetPath);
       const copiedHash = sha256File(targetPath);
       if (copiedHash !== entry.sha256) {
         throw new AppError("STORAGE_ERROR", `Snapshot kopya hash uyusmazligi: ${entry.relative_path}`);
