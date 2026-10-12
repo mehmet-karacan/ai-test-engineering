@@ -39,6 +39,43 @@ describe("S03 metadata inventory phase A", () => {
       expect(readdirSync(target)).not.toContain(".git");
     } finally { rmSync(sandbox, { recursive: true, force: true }); }
   });
+
+  it("rejects a linked build input instead of silently omitting it", () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-build-link-"));
+    try {
+      const root = join(sandbox, "root");
+      const external = join(sandbox, "external");
+      mkdirSync(root);
+      mkdirSync(external);
+      writeFileSync(join(root, "pom.xml"), "<project/>");
+      writeFileSync(join(external, "maven.config"), "-B");
+      symlinkSync(external, join(root, ".mvn"), process.platform === "win32" ? "junction" : "dir");
+      expect(() => new SourceSnapshot(root).buildManifest()).toThrow();
+    } finally { rmSync(sandbox, { recursive: true, force: true }); }
+  });
+
+  it("rejects a source or destination junction introduced after the manifest", () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-copy-link-"));
+    try {
+      const root = join(sandbox, "root");
+      const external = join(sandbox, "external");
+      mkdirSync(join(root, ".mvn"), { recursive: true });
+      mkdirSync(external);
+      writeFileSync(join(root, ".mvn", "maven.config"), "-B");
+      writeFileSync(join(external, "maven.config"), "-B");
+      const snapshot = new SourceSnapshot(root);
+      const manifest = snapshot.buildManifest();
+      const target = join(sandbox, "copy");
+      mkdirSync(target);
+      symlinkSync(external, join(target, ".mvn"), process.platform === "win32" ? "junction" : "dir");
+      expect(() => snapshot.copyTo(target, manifest)).toThrow();
+      expect(readdirSync(external)).toEqual(["maven.config"]);
+      rmSync(join(target, ".mvn"));
+      rmSync(join(root, ".mvn"), { recursive: true });
+      symlinkSync(external, join(root, ".mvn"), process.platform === "win32" ? "junction" : "dir");
+      expect(() => snapshot.copyTo(join(sandbox, "copy2"), manifest)).toThrow();
+    } finally { rmSync(sandbox, { recursive: true, force: true }); }
+  });
   it("lists hidden, build, binary and large entries without following a junction", async () => {
     const sandbox = mkdtempSync(join(tmpdir(), "wn-inventory-"));
     try {

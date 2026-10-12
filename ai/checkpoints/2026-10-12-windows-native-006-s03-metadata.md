@@ -22,3 +22,10 @@
 - Gercek Windows fixture'i `.mvn` wrapper config, `mvnw.cmd`, Java kaynak, eski `target` ve `.git` ile manifest/copy/digest sonucunu sinar. Ilk test `.mvn` eksikligiyle RED, duzeltme sonrasi ilgili 3 dosya/55 test PASS.
 - `npm.cmd run typecheck` ve `npm.cmd run build` exit 0. `npm.cmd run lint` exit 0; 89 mevcut warning, 0 error. `git diff --check` exit 0.
 - Kalan: S04 kontratina bagli kalici generation/cursor, incremental parser reuse, application query, bounded model context ve tam WN25-WN31. S03 halen PARTIAL/NO_GO; G1-G3 izni yok.
+
+## Phase C - snapshot junction denetimi
+
+- Kod incelemesinde `SourceSnapshot.walk` icindeki `resolve()` cagrisinin junction hedefini izlemedigi goruldu. Dahil edilmesi gereken `.mvn` junction girdisi manifestten sessizce dusuyordu. `copyTo` da hedef altindaki junction'a yazabiliyordu.
+- Yeni fixture'lar bu iki durumu RED olarak dogruladi. Snapshot'a dahil edilen symlink/junction girdileri ve kopya oncesinde kaynak/hedef yol segmentlerindeki baglantilar simdi `POLICY_VIOLATION` ile reddedilir; eski cikti dizinleri halen atlanir.
+- `npm.cmd exec -- vitest run tests/integration/wn-inventory.test.ts tests/unit/discovery.test.ts tests/unit/p03-checkpoint-identity.test.ts`: 3 dosya/57 PASS. `typecheck`, `build`, `lint`, `git diff --check`: exit 0. Lint 89 mevcut warning, 0 error.
+- Sinir: check ile `copyFileSync` arasindaki eszamanli reparse degisimi icin OS duzeyinde no-follow/open handle garantisi henuz yok. Tam S03 ve WN25-WN31 dogrulanmis sayilmaz; S04 bagimliligi suruyor.
