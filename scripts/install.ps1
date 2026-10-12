@@ -45,8 +45,8 @@ try {
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
-    $null = & npm.cmd install --no-fund --no-audit 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "npm install basarisiz (exit $LASTEXITCODE)" }
+    $null = & npm.cmd ci --no-fund --no-audit 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "npm ci basarisiz (exit $LASTEXITCODE)" }
     $null = & npm.cmd run build 2>&1
     if ($LASTEXITCODE -ne 0) { throw "npm run build basarisiz (exit $LASTEXITCODE)" }
   } finally {

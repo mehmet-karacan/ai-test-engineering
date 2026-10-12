@@ -10,13 +10,12 @@ import { Storage } from "../storage/storage.js";
 import { JobRepository } from "../storage/job-repository.js";
 import { ArtifactStore } from "../storage/artifact-store.js";
 import { resolveProfile } from "./profile-schemas.js";
+import { resolveDbPath } from "../configuration/runtime-paths.js";
 
 async function main(): Promise<void> {
   const configPath = process.env["AITEST_CONFIG"];
   const services = createServices(configPath);
-  const dbPath = process.env["AITEST_DB_PATH"] && process.env["AITEST_DB_PATH"].length > 0
-    ? process.env["AITEST_DB_PATH"]
-    : `${services.config.storage.root}\\state.db`;
+  const dbPath = resolveDbPath(services.config.storage.root);
   const storage = new Storage({ dbPath });
   storage.migrate();
   services.storage = storage;

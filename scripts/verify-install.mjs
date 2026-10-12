@@ -2,26 +2,13 @@
  * Node.js kurulum dogrulama: prerequisite + dist + runtime + config + smoke.
  * cmd.exe uzerinden: node scripts/verify-install.mjs
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 
-function resolveAppRoot() {
-  if (process.platform === "win32") {
-    const localAppData = process.env["LOCALAPPDATA"];
-    if (localAppData) return join(localAppData, "ai-test-engineering");
-  } else {
-    const xdg = process.env["XDG_DATA_HOME"];
-    if (xdg) return join(xdg, "ai-test-engineering");
-    const home = process.env["HOME"];
-    if (home) return join(home, ".local", "share", "ai-test-engineering");
-  }
-  return null;
-}
-
-function main() {
+async function main() {
   let ok = true;
   console.log("[verify] prerequisite");
   console.log(`  OK: node ${process.version}`);
@@ -36,7 +23,44 @@ function main() {
   }
 
   console.log("[verify] runtime dizinleri");
-  const appRoot = resolveAppRoot();
+  let appRoot = null;
+  let configPath = null;
+  let dbPath = null;
+  let openCodeConfigPath = null;
+  if (existsSync(join(repoRoot, "dist", "configuration", "runtime-paths.js"))) {
+    const paths = await import("../dist/configuration/runtime-paths.js");
+    appRoot = paths.resolveRuntimeRoot();
+    configPath = paths.resolveConfigPath();
+    openCodeConfigPath = paths.resolveOpenCodeConfigPath();
+    let configuredRoot = appRoot;
+    if (existsSync(configPath)) {
+      const { loadConfig } = await import("../dist/configuration/config-loader.js");
+      configuredRoot = loadConfig(configPath).storage.root;
+    }
+    dbPath = paths.resolveDbPath(configuredRoot);
+  }
+
+  console.log("[verify] kayitli OpenCode entry");
+  if (openCodeConfigPath && existsSync(openCodeConfigPath)) {
+    try {
+      const entryConfig = JSON.parse(readFileSync(openCodeConfigPath, "utf8"));
+      const entry = entryConfig?.mcp?.["ai-test-engineering"];
+      const environment = entry?.environment;
+      const entryOk = entry?.type === "local"
+        && Array.isArray(entry?.command)
+        && entry.command.includes(join(repoRoot, "dist", "mcp", "stdio-entry.js"))
+        && environment?.AITEST_CONFIG === configPath
+        && environment?.AITEST_DB_PATH === dbPath;
+      if (entryOk) console.log("  OK: gercek kayitli entry config/DB ile eslesiyor");
+      else { console.log("  EKSIK: kayitli entry config/DB ile eslesmiyor"); ok = false; }
+    } catch (error) {
+      console.log(`  BASARISIZ: OpenCode config parse edilemedi: ${error instanceof Error ? error.message : String(error)}`);
+      ok = false;
+    }
+  } else {
+    console.log("  EKSIK: kayitli OpenCode entry yok");
+    ok = false;
+  }
   if (appRoot && existsSync(appRoot)) {
     console.log(`  OK: ${appRoot}`);
   } else {
@@ -59,6 +83,7 @@ function main() {
     windowsHide: true,
     encoding: "utf8",
     timeout: 60000,
+    env: { ...process.env, ...(configPath ? { AITEST_CONFIG: configPath } : {}), ...(dbPath ? { AITEST_DB_PATH: dbPath } : {}) },
   });
   if (smoke.status === 0) {
     console.log(`  OK: ${smoke.stdout.trim().split("\n").pop()}`);
@@ -75,4 +100,7 @@ function main() {
   return 1;
 }
 
-process.exit(main());
+main().then((code) => process.exit(code)).catch((error) => {
+  console.error(`DOGRULAMA BASARISIZ: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+});

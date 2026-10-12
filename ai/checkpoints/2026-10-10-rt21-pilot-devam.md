@@ -10,7 +10,7 @@
 - Hedef proje: `C:\innova\projeler\sky-microservis\sky_backend` (Spring Boot 3.0.13, Java 21, junit5+mockito spring-boot-starter-test, surefire **skipTests=true**, jacoco YOK, mvnw wrapper var, surefire 3.0.0-M5)
 - Hedef sinif: `SKY.report.services.quartzService.HakedisHesaplaJobService` (tekil cozumlu; execute()/executeAllActiveGoals()/executeOneGoal; SPCaller + HedefTipiBirimTipiRepository mock'lanabilir)
 - Yetkili modeller: `litellm/GLM-5.3-Flash-IT` + `litellm/Qwen3.8-27B-IT` (C:\Users\mkaracan\.config\opencode\opencode.json; LITELLM_API_KEY tanimli, aihub-api.turktelekom.com.tr)
-- Kurum Nexus mirror: `http://10.10.10.45/nexus/repository/maven-public/` (~/.m2/settings.xml credential'siz)
+- Onayli private mirror: kullanici config'inden saglanir; repo icinde endpoint tutulmaz.
 
 ## Yapilan duzeltmeler (push edildi)
 

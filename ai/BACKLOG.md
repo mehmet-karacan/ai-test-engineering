@@ -38,7 +38,8 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity ve module report listesi | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity + p06b-module-reports; odak suite + typecheck |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | production-005-p07a-facts-export; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p07b-report06-evidence.md; 60/60 odak + 1/1 gercek MavenRunner evidence + typecheck/build; Docker customer dispatcher BLOCKED |
-| P07-P10 | Report06 runtime kabul, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P07-B runtime sonrasi devam ediyor |
+| P08 | Kurulum/config/runtime resolver, OpenCode entry ve readiness ayrimi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p08-install-runtime.md; 24/24 + temiz Windows install/verify PASS; lifecycle backup/restore/upgrade kaniti eksik |
+| P07-P10 | Report06 runtime kabul, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P08 lifecycle sonrasi devam ediyor |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 

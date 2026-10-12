@@ -30,7 +30,7 @@ describe("KRITIK BULGU 1: baseline provisioning'li DockerMavenRunner yolunu kull
       budgets: { max_candidate_iterations: 20, max_repairs_per_candidate: 2, no_progress_window: 3, total_job_minutes: 120 },
       worker_profiles: [],
       allowed_project_roots: [] as string[],
-      dependency_provisioning: { enabled: true, allowed_mirrors: ["http://10.10.10.45/nexus/repository/maven-public/"], timeout_ms: 900000 },
+      dependency_provisioning: { enabled: true, allowed_mirrors: ["https://mirror.invalid/nexus/repository/maven-public/"], timeout_ms: 900000 },
     };
   }
 
@@ -56,7 +56,7 @@ describe("KRITIK BULGU 1: baseline provisioning'li DockerMavenRunner yolunu kull
       const loopRunner = new DockerMavenRunner(
         {
           target_mounts: [{ host: join(resolve(projectDir), "target"), container: "/work/target" }],
-          provisioning: { enabled: true, allowed_mirrors: ["http://10.10.10.45/nexus/repository/maven-public/"], timeout_ms: 900000 },
+          provisioning: { enabled: true, allowed_mirrors: ["https://mirror.invalid/nexus/repository/maven-public/"], timeout_ms: 900000 },
         },
         docker,
       );
@@ -80,7 +80,7 @@ describe("KRITIK BULGU 1: baseline provisioning'li DockerMavenRunner yolunu kull
       const runner = new DockerMavenRunner({
         target_mounts: [{ host: join(dir, "target"), container: "/work/target" }],
         maven_settings: { host_path: join(dir, "settings.xml"), container_path: "/settings/settings.xml" },
-        provisioning: { enabled: true, allowed_mirrors: ["http://10.10.10.45/nexus/repository/maven-public/"], timeout_ms: 900000 },
+        provisioning: { enabled: true, allowed_mirrors: ["https://mirror.invalid/nexus/repository/maven-public/"], timeout_ms: 900000 },
       });
       expect(runner.kind).toBe("docker");
       expect(runner.writableTargetMounts).toHaveLength(1);

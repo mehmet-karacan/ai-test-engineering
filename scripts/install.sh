@@ -5,7 +5,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [ -n "${XDG_DATA_HOME:-}" ]; then
+if [[ "${OSTYPE:-}" == darwin* ]]; then
+  APP_ROOT="${HOME}/Library/Application Support/ai-test-engineering"
+elif [ -n "${XDG_DATA_HOME:-}" ]; then
   APP_ROOT="${XDG_DATA_HOME}/ai-test-engineering"
 else
   APP_ROOT="${HOME}/.local/share/ai-test-engineering"
@@ -33,7 +35,7 @@ echo "  OK: node $(node --version)"
 
 step "Bolum 2: urun yukleme"
 cd "$REPO_ROOT"
-npm install --no-fund --no-audit >/dev/null
+npm ci --no-fund --no-audit >/dev/null
 npm run build >/dev/null
 echo "  OK: bagimliliklar kurulu, dist uretildi"
 
@@ -60,7 +62,8 @@ else
 fi
 
 step "Bolum 5: OpenCode MCP baglantisi (merge, ezme yok)"
-OPENCODE_DIR="${HOME}/.config/opencode"
+OPENCODE_CONFIG_ROOT="${XDG_CONFIG_HOME:-${HOME}/.config}"
+OPENCODE_DIR="${OPENCODE_CONFIG_ROOT}/opencode"
 OPENCODE_CONFIG="$OPENCODE_DIR/opencode.json"
 mkdir -p "$OPENCODE_DIR"
 
@@ -70,7 +73,7 @@ if [ -f "$OPENCODE_CONFIG" ]; then
   cp "$OPENCODE_CONFIG" "$BACKUP"
   echo "  OK: mevcut config yedeklendi ($BACKUP)"
   if command -v jq >/dev/null 2>&1; then
-    jq --arg entry "$ENTRY_JS" '.mcp["ai-test-engineering"] = {"type":"local","command":["node",$entry]}' "$OPENCODE_CONFIG" > "$OPENCODE_CONFIG.tmp" && mv "$OPENCODE_CONFIG.tmp" "$OPENCODE_CONFIG"
+    jq --arg entry "$ENTRY_JS" --arg config "$CONFIG_PATH" --arg db "$APP_ROOT/state.db" '.mcp["ai-test-engineering"] = {"type":"local","command":["node",$entry],"environment":{"AITEST_CONFIG":$config,"AITEST_DB_PATH":$db}}' "$OPENCODE_CONFIG" > "$OPENCODE_CONFIG.tmp" && mv "$OPENCODE_CONFIG.tmp" "$OPENCODE_CONFIG"
     echo "  OK: OpenCode MCP baglantisi eklendi ($OPENCODE_CONFIG)"
   else
     echo "  UYARI: jq yok; elle ekleyin: mcp.ai-test-engineering = { type: local, command: [\"node\", \"$ENTRY_JS\"] }"
@@ -79,7 +82,7 @@ else
   cat > "$OPENCODE_CONFIG" <<EOF
 {
   "mcp": {
-    "ai-test-engineering": { "type": "local", "command": ["node", "$ENTRY_JS"] }
+    "ai-test-engineering": { "type": "local", "command": ["node", "$ENTRY_JS"], "environment": { "AITEST_CONFIG": "$CONFIG_PATH", "AITEST_DB_PATH": "$APP_ROOT/state.db" } }
   }
 }
 EOF

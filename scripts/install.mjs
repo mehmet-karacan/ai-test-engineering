@@ -3,7 +3,7 @@
  * cmd.exe uzerinden: node scripts/install.mjs
  * Temiz clone'da (dist yokken) calisir: config-merge bootstrap'tan ONCE import edilmez.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -11,30 +11,7 @@ import { spawnSync } from "node:child_process";
 // K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
 const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), "..");
-const appRoot = resolveAppRoot();
-
-function resolveAppRoot() {
-  if (process.platform === "win32") {
-    const localAppData = process.env["LOCALAPPDATA"];
-    if (localAppData && localAppData.length > 0) {
-      return join(localAppData, "ai-test-engineering");
-    }
-    const userProfile = process.env["USERPROFILE"];
-    if (userProfile && userProfile.length > 0) {
-      return join(userProfile, "AppData", "Local", "ai-test-engineering");
-    }
-  } else {
-    const xdg = process.env["XDG_DATA_HOME"];
-    if (xdg && xdg.length > 0) {
-      return join(xdg, "ai-test-engineering");
-    }
-    const home = process.env["HOME"];
-    if (home && home.length > 0) {
-      return join(home, ".local", "share", "ai-test-engineering");
-    }
-  }
-  throw new Error("Kullanici veri dizini cozumlenemedi");
-}
+let appRoot;
 
 function step(message) {
   console.log(`[kurulum] ${message}`);
@@ -61,9 +38,12 @@ export async function mainInstall() {
   }
   step(`  OK: node ${nodeVersion}`);
 
-  step("Bolum 2: urun yukleme (npm install + build)");
-  runNpm(["install", "--no-fund", "--no-audit"], repoRoot);
+  step("Bolum 2: urun yukleme (npm ci + build)");
+  runNpm(["ci", "--no-fund", "--no-audit"], repoRoot);
   runNpm(["run", "build"], repoRoot);
+  const { resolveRuntimeRoot, resolveConfigPath } = await import("../dist/configuration/runtime-paths.js");
+  appRoot = resolveRuntimeRoot();
+  const configPath = resolveConfigPath();
   step("  OK: bagimliliklar kurulu, dist uretildi");
 
   step("Bolum 3: runtime dizinleri");
@@ -73,15 +53,16 @@ export async function mainInstall() {
   step(`  OK: ${appRoot}`);
 
   step("Bolum 4: config dosyasi (yoksa olustur)");
-  const configPath = join(appRoot, "config", "config.json");
   if (!existsSync(configPath)) {
     const config = {
       schema_version: 1,
       storage: { root: appRoot },
       coverage_defaults: { metrics: ["LINE", "BRANCH"] },
       budgets: { max_candidate_iterations: 20, max_repairs_per_candidate: 2, no_progress_window: 3, total_job_minutes: 120 },
+      discovery: { max_concrete_targets: 500 },
       worker_profiles: [],
       allowed_project_roots: [],
+      dependency_provisioning: { enabled: false, allowed_mirrors: [], timeout_ms: 900000 },
     };
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
@@ -89,12 +70,22 @@ export async function mainInstall() {
   } else {
     step("  OK: mevcut config korundu");
   }
+  const { loadConfig } = await import("../dist/configuration/config-loader.js");
+  const { resolveDbPath, resolveOpenCodeConfigPath } = await import("../dist/configuration/runtime-paths.js");
+  const effectiveConfig = loadConfig(configPath);
+  const dbPath = resolveDbPath(effectiveConfig.storage.root);
 
   step("Bolum 5: OpenCode MCP baglantisi (minimal merge, ezme yok)");
-  const home = process.env["USERPROFILE"] ?? process.env["HOME"];
-  const opencodeConfigPath = join(home ?? "", ".config", "opencode", "opencode.json");
+  const opencodeConfigPath = resolveOpenCodeConfigPath();
   const entryJs = join(repoRoot, "dist", "mcp", "stdio-entry.js");
-  const serverEntry = { type: "local", command: ["node", entryJs] };
+  const serverEnvironment = { AITEST_CONFIG: configPath, AITEST_DB_PATH: dbPath };
+  if (process.env["AITEST_WORKER_ENABLED"] !== undefined) serverEnvironment.AITEST_WORKER_ENABLED = process.env["AITEST_WORKER_ENABLED"];
+  if (process.env["AITEST_PROFILE"] !== undefined) serverEnvironment.AITEST_PROFILE = process.env["AITEST_PROFILE"];
+  const serverEntry = {
+    type: "local",
+    command: ["node", entryJs],
+    environment: serverEnvironment,
+  };
   const backupDir = join(appRoot, "backups");
 
   if (!existsSync(opencodeConfigPath)) {
@@ -124,13 +115,23 @@ export async function mainInstall() {
     windowsHide: true,
     encoding: "utf8",
     timeout: 60000,
-    env: { ...process.env, AITEST_DB_PATH: join(appRoot, "state.db") },
+    env: { ...process.env, AITEST_CONFIG: configPath, AITEST_DB_PATH: dbPath },
   });
   if (smoke.status !== 0) {
-    console.error(`  BLOCKED: MCP handshake smoke basarisiz: ${smoke.stderr || smoke.stdout}`);
+    console.error(`  BLOCKED: MCP handshake smoke basarisiz: ${smoke.error?.message || smoke.stderr || smoke.stdout || "exit bilinmiyor"}`);
     return 1;
   }
   step(`  OK: ${smoke.stdout.trim().split("\n").pop()}`);
+
+  const persistedConfig = JSON.parse(readFileSync(configPath, "utf8"));
+  const workerReady = process.env["AITEST_WORKER_ENABLED"] === "1"
+    && Array.isArray(persistedConfig.worker_profiles)
+    && persistedConfig.worker_profiles.length > 0;
+  if (workerReady) {
+    step("  READY: MCP handshake + worker profile hazirlik ayari mevcut");
+  } else {
+    step("  NOT_READY: MCP handshake basarili; test uretimi icin AITEST_WORKER_ENABLED=1 ve worker_profiles gerekir");
+  }
 
   console.log("");
   console.log("KURULUM TAMAMLANDI.");

@@ -6,6 +6,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { AppConfigSchema, defaultStorageRoot, type AppConfig } from "./config-schema.js";
 import { AppError } from "../domain/errors.js";
+import { resolveConfigPath } from "./runtime-paths.js";
 
 export function loadConfig(configPath?: string): AppConfig {
   const effectivePath = configPath ?? defaultConfigPath();
@@ -42,17 +43,18 @@ export function defaultConfig(): AppConfig {
       total_job_minutes: 120,
     },
     discovery: { max_concrete_targets: 500 },
-    // 8.3: kurum ici Nexus mirror; hazirlama asamasi yalniz bu adrese gider:
+    // Bagimlilik hazirlama varsayilan olarak kapali; onayli mirror kullanici
+    // tarafindan private config'e acikca yazilmalidir.
     dependency_provisioning: {
-      enabled: true,
-      allowed_mirrors: ["http://10.10.10.45/nexus/repository/maven-public/"],
+      enabled: false,
+      allowed_mirrors: [],
       timeout_ms: 900000,
     },
   });
 }
 
 export function defaultConfigPath(): string {
-  return `${defaultStorageRoot()}\\config\\config.json`;
+  return resolveConfigPath();
 }
 
 export function saveConfig(config: AppConfig, configPath: string): void {

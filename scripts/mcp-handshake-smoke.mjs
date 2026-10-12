@@ -12,18 +12,22 @@ const repoRoot = resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A
 function main() {
   const dir = mkdtempSync(join(tmpdir(), "aitest-smoke-"));
   const artifactRoot = join(dir, "artifacts");
-  const dbPath = join(dir, "state.db");
-  const configPath = join(dir, "config.json");
+  const dbPath = process.env["AITEST_DB_PATH"] && process.env["AITEST_DB_PATH"].length > 0 ? process.env["AITEST_DB_PATH"] : join(dir, "state.db");
+  const configPath = process.env["AITEST_CONFIG"] && process.env["AITEST_CONFIG"].length > 0 ? process.env["AITEST_CONFIG"] : join(dir, "config.json");
   mkdirSync(artifactRoot, { recursive: true });
 
-  writeFileSync(configPath, JSON.stringify({
-    schema_version: 1,
-    storage: { root: artifactRoot },
-    coverage_defaults: { metrics: ["LINE", "BRANCH"] },
-    budgets: { max_candidate_iterations: 20, max_repairs_per_candidate: 2, no_progress_window: 3, total_job_minutes: 120 },
-    worker_profiles: [],
-    allowed_project_roots: [],
-  }, null, 2));
+  if (!process.env["AITEST_CONFIG"]) {
+    writeFileSync(configPath, JSON.stringify({
+      schema_version: 1,
+      storage: { root: artifactRoot },
+      coverage_defaults: { metrics: ["LINE", "BRANCH"] },
+      budgets: { max_candidate_iterations: 20, max_repairs_per_candidate: 2, no_progress_window: 3, total_job_minutes: 120 },
+      discovery: { max_concrete_targets: 500 },
+      worker_profiles: [],
+      allowed_project_roots: [],
+      dependency_provisioning: { enabled: false, allowed_mirrors: [], timeout_ms: 900000 },
+    }, null, 2));
+  }
 
   const projectDir = join(dir, "sample-project");
   mkdirSync(projectDir, { recursive: true });

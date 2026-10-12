@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { TestStartInputSchema, CoverageGoalSchema, percentToBasisPoints } from "../../src/domain/tool-schemas.js";
 import { AppConfigSchema, defaultStorageRoot } from "../../src/configuration/config-schema.js";
-import { loadConfig, defaultConfig, saveConfig } from "../../src/configuration/config-loader.js";
+import { loadConfig, defaultConfig, defaultConfigPath, saveConfig } from "../../src/configuration/config-loader.js";
+import { resolveConfigPath, resolveDbPath, resolveRuntimeRoot } from "../../src/configuration/runtime-paths.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,6 +43,8 @@ describe("config", () => {
     expect(config.coverage_defaults.metrics).toEqual(["LINE", "BRANCH"]);
     expect(config.budgets.max_candidate_iterations).toBe(20);
     expect(config.budgets.total_job_minutes).toBe(120);
+    expect(config.dependency_provisioning.enabled).toBe(false);
+    expect(config.dependency_provisioning.allowed_mirrors).toEqual([]);
   });
 
   it("yazilan config yeniden yuklenmeli", () => {
@@ -73,6 +76,14 @@ describe("config", () => {
     const root = defaultStorageRoot();
     expect(root.length).toBeGreaterThan(0);
     expect(root).not.toContain("undefined");
+  });
+
+  it("config ve DB path resolver ayni runtime kokunu kullanmali", () => {
+    const environment = { LOCALAPPDATA: "C:/Users/tester/AppData/Local", AITEST_DB_PATH: "C:/runtime/state.db" };
+    const root = resolveRuntimeRoot(environment, "win32");
+    expect(resolveConfigPath(environment, "win32")).toBe(join(root, "config", "config.json"));
+    expect(resolveDbPath(root, environment)).toBe("C:/runtime/state.db");
+    expect(defaultConfigPath()).toContain("config");
   });
 
   it("AppConfig worker profili dogrulamali", () => {

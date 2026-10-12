@@ -3,6 +3,7 @@
  * Secret degerleri config'de tasimaz; secret_reference_names ile referanslanir.
  */
 import { z } from "zod";
+import { resolveRuntimeRoot } from "./runtime-paths.js";
 
 export const StorageConfigSchema = z.object({
   root: z.string().min(1).max(1024),
@@ -59,30 +60,5 @@ export const AppConfigSchema = z.object({
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
 export function defaultStorageRoot(): string {
-  const platform = process.platform;
-  if (platform === "win32") {
-    const appData = process.env["LOCALAPPDATA"];
-    if (appData && appData.length > 0) {
-      return `${appData}\\ai-test-engineering`;
-    }
-    const userProfile = process.env["USERPROFILE"];
-    if (userProfile && userProfile.length > 0) {
-      return `${userProfile}\\AppData\\Local\\ai-test-engineering`;
-    }
-  } else if (platform === "darwin") {
-    const home = process.env["HOME"];
-    if (home && home.length > 0) {
-      return `${home}/Library/Application Support/ai-test-engineering`;
-    }
-  } else {
-    const xdgData = process.env["XDG_DATA_HOME"];
-    if (xdgData && xdgData.length > 0) {
-      return `${xdgData}/ai-test-engineering`;
-    }
-    const home = process.env["HOME"];
-    if (home && home.length > 0) {
-      return `${home}/.local/share/ai-test-engineering`;
-    }
-  }
-  throw new Error("Kullaniciya ozel veri dizini cozumlenemedi");
+  return resolveRuntimeRoot();
 }

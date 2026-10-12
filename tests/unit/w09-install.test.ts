@@ -31,6 +31,10 @@ describe("W09/N61: PS1'siz temiz kurulum", () => {
     expect(existsSync(join(repoRoot, "scripts", "mcp-handshake-smoke.mjs"))).toBe(true);
     // .ps1 scriptleri zorunlu degil; .mjs girisleri mevcut (korunur):
     expect(existsSync(join(repoRoot, "scripts", "install.ps1"))).toBe(true);
+    const verifier = readFileSync(join(repoRoot, "scripts", "verify-install.mjs"), "utf8");
+    expect(verifier).toContain("runtime-paths.js");
+    expect(verifier).toContain("AITEST_CONFIG");
+    expect(verifier).toContain("AITEST_DB_PATH");
   });
 
   it("temiz copy bootstrap: dist yokken install.mjs statik import hatasi vermez", () => {
@@ -61,6 +65,9 @@ describe("W09/N61: PS1'siz temiz kurulum", () => {
     expect(content).toContain("backup_dir");
     // kullanici config'i yedeksiz ezme YOK:
     expect(content).toContain("mevcut config korundu");
+    expect(content).toContain('runNpm(["ci", "--no-fund", "--no-audit"]');
+    expect(content).toContain("AITEST_CONFIG");
+    expect(content).toContain("AITEST_DB_PATH");
   });
 });
 
