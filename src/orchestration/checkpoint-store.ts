@@ -447,6 +447,37 @@ export class CheckpointStore {
     return { valid: true, manifest };
   }
 
+  /** P07-B: dogrulanmis checkpoint manifest'ini export icin byte olarak okur. */
+  readCheckpointManifest(checkpointId: string): { job_id: string; manifest: CheckpointManifest; bytes: Buffer; sha256: string } | null {
+    const row = this.db
+      .prepare<[string], { manifest_sha256: string; job_id: string }>(
+        "SELECT a.sha256 AS manifest_sha256, c.job_id FROM checkpoints c JOIN artifacts a ON a.id = c.manifest_artifact_id WHERE c.id = ?",
+      )
+      .get(checkpointId);
+    if (!row) {
+      return null;
+    }
+    const path = this.blobPath(row.manifest_sha256);
+    if (!existsSync(path)) {
+      return null;
+    }
+    const bytes = readFileSync(path);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    if (sha256 !== row.manifest_sha256) {
+      return null;
+    }
+    let manifest: CheckpointManifest;
+    try {
+      manifest = JSON.parse(bytes.toString("utf8")) as CheckpointManifest;
+    } catch {
+      return null;
+    }
+    if (manifest.schema_version !== 1 || manifest.job_id !== row.job_id) {
+      return null;
+    }
+    return { job_id: row.job_id, manifest, bytes, sha256 };
+  }
+
   /**
    * P03: content-addressed accepted blob'lardan calisma alani'na geri yukler.
    * Eksik/bozuk blob hata verir; partial durum sessizce bos set kabul edilmez.

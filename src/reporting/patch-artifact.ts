@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 
 export interface PatchFileEntry {
   path: string;
-  action: "create" | "modify";
+  action: "create" | "modify" | "delete";
   before_sha256: string | null;
   after_sha256: string;
   after_bytes: number;
@@ -35,20 +35,33 @@ export function sha256Hex(data: Buffer | string): string {
  * Tum resulting bytes'tan unified diff uretir (tanimli format; a/b prefix).
  * Encoding/EOL bilgisi korunur; binary icerik metin olarak donusturulmeZ.
  */
-export function buildUnifiedDiff(entries: Array<{ path: string; before: Buffer | string | null; after: Buffer | string }>): string {
+export function buildUnifiedDiff(entries: Array<{ path: string; before: Buffer | string | null; after: Buffer | string | null }>): string {
   const parts: string[] = [];
-  for (const entry of entries) {
-    const beforeText = entry.before === null ? "" : typeof entry.before === "string" ? entry.before : entry.before.toString("utf8");
-    const afterText = typeof entry.after === "string" ? entry.after : entry.after.toString("utf8");
-    const beforeLines = entry.before === null ? [] : beforeText.split(/\r?\n/);
-    const afterLines = afterText.split(/\r?\n/);
+  for (const entry of [...entries].sort((a, b) => a.path.localeCompare(b.path))) {
+    const beforeBuffer = entry.before === null ? null : typeof entry.before === "string" ? Buffer.from(entry.before, "utf8") : entry.before;
+    const afterBuffer = entry.after === null ? null : typeof entry.after === "string" ? Buffer.from(entry.after, "utf8") : entry.after;
+    const binary = [beforeBuffer, afterBuffer].some((value) => value !== null && value.includes(0));
     parts.push(`--- a/${entry.path}`);
     parts.push(`+++ b/${entry.path}`);
-    parts.push(`@@ -0,0 +1,${afterLines.length} @@`);
-    for (const line of afterLines) {
-      parts.push(`+${line}`);
+    if (binary) {
+      parts.push(`Binary files a/${entry.path} and b/${entry.path} differ`);
+      continue;
     }
-    void beforeLines;
+    const beforeText = entry.before === null ? "" : typeof entry.before === "string" ? entry.before : entry.before.toString("utf8");
+    const afterText = entry.after === null ? "" : typeof entry.after === "string" ? entry.after : entry.after.toString("utf8");
+    const beforeLines = entry.before === null ? [] : beforeText.split(/\r?\n/);
+    const afterLines = afterText.split(/\r?\n/);
+    if (entry.after === null) {
+      parts.push(`@@ -1,${beforeLines.length} +0,0 @@`);
+      for (const line of beforeLines) {
+        parts.push(`-${line}`);
+      }
+    } else {
+      parts.push(`@@ -0,0 +1,${afterLines.length} @@`);
+      for (const line of afterLines) {
+        parts.push(`+${line}`);
+      }
+    }
   }
   return parts.join("\n") + "\n";
 }
@@ -60,10 +73,10 @@ export function buildUnifiedDiff(entries: Array<{ path: string; before: Buffer |
 export function buildPatchArtifact(input: {
   job_id: string;
   checkpoint_id: string | null;
-  files: Array<{ path: string; action: "create" | "modify"; before: Buffer | string | null; after: Buffer | string }>;
+  files: Array<{ path: string; action: "create" | "modify" | "delete"; before: Buffer | string | null; after: Buffer | string | null }>;
 }): PatchArtifact {
   const fileEntries: PatchFileEntry[] = input.files.map((f) => {
-    const afterBuffer = typeof f.after === "string" ? Buffer.from(f.after, "utf8") : f.after;
+    const afterBuffer = f.after === null ? Buffer.alloc(0) : typeof f.after === "string" ? Buffer.from(f.after, "utf8") : f.after;
     return {
       path: f.path,
       action: f.action,

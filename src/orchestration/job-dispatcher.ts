@@ -30,6 +30,7 @@ import { parseExactModelSpec, readWorkerProfileFromOpencodeConfig } from "../wor
 import { CandidateChangeSetSchema } from "../workers/opencode/model-schemas.js";
 import { ReportExporter } from "../reporting/report-generator.js";
 import { projectAcceptedChanges, projectRunSummary } from "../reporting/report-projection.js";
+import { collectAcceptedChangeEvidence, collectFinalReplayEvidence, type EvidenceFile, type MissingEvidence } from "../reporting/evidence-collector.js";
 import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
 import { buildFrozenTargetList, rebuildFrozenTargetDigest, type ConcreteTarget } from "../discovery/target-resolver.js";
 
@@ -778,11 +779,90 @@ export class JobDispatcher {
       const acceptedChanges = checkpointVerification?.valid && checkpointVerification.manifest ? checkpointVerification.manifest.accepted_changes : [];
       const changeProjection = projectAcceptedChanges(projectRoot, acceptedChanges);
       const runSummary = projectRunSummary(finalReports);
+      // P07-B: baseline/progress/final ayni DB provenance zincirinden projekte edilir.
+      // Eksik stage kaydi null/NOT_RUN olarak kalir; 0 ile doldurulmaz.
+      const provenanceRows = inventory.listTestRunProvenance(job.id);
+      const stageRows = (["baseline", "candidate", "final_replay"] as const).map((stage) => {
+        const rows = provenanceRows.filter((row) => row.stage === stage);
+        if (rows.length === 0) {
+          return {
+            name: stage === "candidate" ? "progress" as const : stage === "final_replay" ? "final" as const : "baseline" as const,
+            status: "NOT_RUN" as const,
+            run_id: null,
+            run_summary: null,
+          };
+        }
+        const total = rows.reduce((sum, row) => sum + row.total_tests, 0);
+        const failed = rows.reduce((sum, row) => sum + row.failures + row.errors, 0);
+        const skipped = rows.reduce((sum, row) => sum + row.skipped, 0);
+        return {
+          name: stage === "candidate" ? "progress" as const : stage === "final_replay" ? "final" as const : "baseline" as const,
+          status: "KNOWN" as const,
+          run_id: rows[rows.length - 1]!.id,
+          run_summary: { total, passed: Math.max(0, total - failed - skipped), failed, skipped },
+        };
+      });
+      const finalStage = stageRows.find((stage) => stage.name === "final");
+      if (finalStage) {
+        finalStage.run_id = finalReplayRunId;
+        finalStage.run_summary = runSummary;
+        finalStage.status = "KNOWN";
+      }
+
+      // P07-B: final replay workspace'ten ham/binary kanitlari topla. Collector
+      // eksikleri rapora kaydeder; exporter bunlari READY/COMPLETED'e ceviremez.
+      const replayEvidence = collectFinalReplayEvidence({
+        workspace: finalReplay.workspace,
+        module_paths: [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))],
+        run_id: finalReplayRunId,
+        job_id: job.id,
+        home_dir: homedir(),
+      });
+      const acceptedEvidence = collectAcceptedChangeEvidence({
+        project_root: projectRoot,
+        accepted_dir: acceptedDir,
+        job_id: job.id,
+        checkpoint_id: bestCheckpointId,
+        changes: acceptedChanges,
+        home_dir: homedir(),
+      });
+      const evidenceFiles: EvidenceFile[] = [...replayEvidence.files, ...acceptedEvidence.files];
+      const evidenceMissing: MissingEvidence[] = [...replayEvidence.missing, ...acceptedEvidence.missing];
+      if (bestCheckpointId !== null) {
+        const checkpointArtifact = checkpointTrusted ? checkpoints.readCheckpointManifest(bestCheckpointId) : null;
+        if (checkpointArtifact) {
+          evidenceFiles.push({
+            relative_path: "evidence/checkpoint/manifest.json",
+            kind: "checkpoint_manifest",
+            stage: "checkpoint",
+            run_id: null,
+            content: checkpointArtifact.bytes,
+            redacted: false,
+            required: true,
+          });
+        } else {
+          evidenceMissing.push({
+            relative_path: "evidence/checkpoint/manifest.json",
+            kind: "checkpoint_manifest",
+            reason: "CHECKPOINT_MANIFEST_MISSING_OR_INVALID",
+            required: true,
+          });
+        }
+      }
+      const extraEvidence: Record<string, string | Buffer> = {};
+      for (const file of evidenceFiles) {
+        extraEvidence[file.relative_path] = file.content;
+      }
+      const reportEvidence = [
+        ...evidenceFiles.map((file) => ({ relative_path: file.relative_path, kind: file.kind, stage: file.stage, run_id: file.run_id, redacted: file.redacted, required: file.required })),
+        ...evidenceMissing.map((missing) => ({ relative_path: missing.relative_path, kind: missing.kind, stage: missing.kind === "checkpoint_manifest" ? "checkpoint" as const : "final" as const, run_id: null, redacted: false, required: missing.required })),
+      ];
+      const reportOutcome = evidenceMissing.length > 0 ? "FINAL_VERIFICATION_FAILED" : finalOutcome;
       const workerModels = storage.db
         .prepare<[string], { role: string; provider_id: string; model_id: string }>("SELECT DISTINCT role, provider_id, model_id FROM worker_attempts WHERE job_id = ? ORDER BY role, provider_id, model_id")
         .all(job.id)
         .map((model) => ({ role: model.role, provider: model.provider_id, model: model.model_id }));
-      const testOnlyStatus = !replaySucceeded || !checkpointTrusted
+      const testOnlyStatus = !replaySucceeded || !checkpointTrusted || evidenceMissing.length > 0
         ? "NOT_RUN" as const
         : changeProjection.production_changed_files > 0
           ? "FAILED" as const
@@ -793,6 +873,7 @@ export class JobDispatcher {
         ...(!replayEvidenceComplete ? [{ gap_key: "COVERAGE_EVIDENCE_UNAVAILABLE", blocker: "INVALID_COVERAGE_EVIDENCE", attempted: ["final_replay"] }] : []),
         ...(!checkpointTrusted ? [{ gap_key: "ACCEPTED_CHECKPOINT_INVALID", blocker: "CHECKPOINT_INVALID", attempted: ["checkpoint_verify"] }] : []),
         ...(changeProjection.production_changed_files > 0 ? [{ gap_key: "PRODUCTION_CHANGES_PRESENT", blocker: "TEST_ONLY_POLICY", attempted: ["accepted_checkpoint"] }] : []),
+        ...evidenceMissing.map((missing) => ({ gap_key: `EVIDENCE_MISSING:${missing.kind}`, blocker: missing.reason, attempted: ["final_replay", "report_export"] })),
       ];
       const reportData = {
         schema_version: 1 as const,
@@ -800,7 +881,7 @@ export class JobDispatcher {
         project_root: projectRoot.replace(/\\/g, "/"),
         head_commit: sourceIdentity.head_commit,
         snapshot_id: snapshotId,
-        outcome: finalOutcome,
+        outcome: reportOutcome,
         verification_scope: "AFFECTED_SCOPE",
         apply_state: "READY_FOR_REVIEW",
         targets: resolvedTargets.map((rt) => {
@@ -823,16 +904,20 @@ export class JobDispatcher {
         tests_modified: changeProjection.tests_modified,
         run_summary: runSummary,
         gates: [
-          { name: "test_only_policy", status: testOnlyStatus, detail: testOnlyStatus === "PASSED" ? "production degisikligi 0; final replay dogrulandi" : testOnlyStatus === "FAILED" ? "production degisikligi var" : "final replay dogrulanmadi" },
+          { name: "test_only_policy", status: testOnlyStatus, detail: testOnlyStatus === "PASSED" ? "production degisikligi 0; final replay ve evidence dogrulandi" : testOnlyStatus === "FAILED" ? "production degisikligi var" : "final replay veya evidence dogrulanmadi" },
           { name: "final_replay", status: replaySucceeded ? "PASSED" as const : "FAILED" as const, detail: replaySucceeded ? "final replay dogrulandi" : "final replay kosullari saglanmadi" },
         ],
         gaps: reportGaps,
         models: workerModels,
         production_changed_files: changeProjection.production_changed_files,
         generated_at: Date.now(),
+        final_run_id: finalReplayRunId,
+        checkpoint_id: bestCheckpointId,
+        stages: stageRows,
+        evidence: reportEvidence,
       };
       const exporter = new ReportExporter(reportDir);
-      const exportResult = exporter.export(reportData);
+      const exportResult = exporter.export(reportData, extraEvidence);
       if (!exportResult.verification_passed) {
         throw new AppError("REPORT_EXPORT_FAILED", "Rapor export dogrulamasi basarisiz", {
           missing_files: exportResult.missing_files,
@@ -840,8 +925,8 @@ export class JobDispatcher {
         });
       }
       phases.push(`report_${exportResult.verification_passed ? "ok" : "inconsistent"}`);
-      jobs.updateOutcome(job.id, finalOutcome, jobs.getJob(job.id).row_version);
-      jobs.updateLifecycle(job.id, finalOutcome === "FINAL_VERIFICATION_FAILED" ? "FAILED" : "COMPLETED", jobs.getJob(job.id).row_version);
+      jobs.updateOutcome(job.id, reportOutcome, jobs.getJob(job.id).row_version);
+      jobs.updateLifecycle(job.id, reportOutcome === "FINAL_VERIFICATION_FAILED" ? "FAILED" : "COMPLETED", jobs.getJob(job.id).row_version);
       phases.push("completed");
       jobs.appendEvent({ job_id: job.id, event_type: "verification_completed", phase: "verification", origin: "JobDispatcher" });
 
@@ -852,7 +937,7 @@ export class JobDispatcher {
         leases.release(job.id, ownerId);
       }
 
-      return { job_id: job.id, phases_completed: phases, final_outcome: finalOutcome, best_coverage: bestCoverage, error: null };
+      return { job_id: job.id, phases_completed: phases, final_outcome: reportOutcome, best_coverage: bestCoverage, error: null };
     } catch (error) {
       const message = error instanceof AppError ? `${error.code}: ${error.message}` : String(error);
       process.stderr.write(`[aitest-dispatch] job ${job.id} FAILED (${phases.join(",")}): ${message}\n`);

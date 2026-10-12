@@ -10,6 +10,7 @@ import { join, resolve, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import { sanitizeNarrativeFields } from "./report-data-contract.js";
+import { buildReport06 } from "./report06-renderer.js";
 
 export interface ReportTarget {
   target_id: string;
@@ -26,6 +27,37 @@ export interface ReportIteration {
   reason: string;
   coverage_before_bps: number | null;
   coverage_after_bps: number | null;
+}
+
+export type ReportStageName = "baseline" | "progress" | "final";
+
+export interface ReportStage {
+  name: ReportStageName;
+  status: "KNOWN" | "NOT_RUN" | "UNAVAILABLE" | "INVALID";
+  run_id: string | null;
+  run_summary: { total: number; passed: number; failed: number; skipped: number } | null;
+}
+
+export type ReportEvidenceKind =
+  | "jacoco_xml"
+  | "jacoco_asset"
+  | "surefire_xml"
+  | "failsafe_xml"
+  | "run_log"
+  | "checkpoint_manifest"
+  | "patch"
+  | "accepted_source"
+  | "extra";
+
+export interface ReportEvidence {
+  relative_path: string;
+  kind: ReportEvidenceKind;
+  stage?: ReportStageName | "checkpoint";
+  run_id?: string | null;
+  sha256?: string | null;
+  bytes?: number | null;
+  redacted?: boolean;
+  required?: boolean;
 }
 
 export interface ReportData {
@@ -47,6 +79,12 @@ export interface ReportData {
   models: Array<{ role: string; provider: string; model: string | null }>;
   production_changed_files: number;
   generated_at: number;
+  /** P07-B: final replay ve checkpoint kanitlari; yalniz kayitli artifact'ler listelenir. */
+  evidence?: ReportEvidence[];
+  /** P07-B: baseline/progress/final ayni facts-only raporda ayrik tutulur. */
+  stages?: ReportStage[];
+  final_run_id?: string | null;
+  checkpoint_id?: string | null;
 }
 
 export function escapeHtml(text: string): string {
@@ -191,6 +229,21 @@ export interface ExportResult {
   hash_mismatch: string[];
 }
 
+const REPORT_ARTIFACT_KINDS = new Set<string>([
+  "report_html",
+  "report_json",
+  "summary_text",
+  "jacoco_xml",
+  "jacoco_asset",
+  "surefire_xml",
+  "failsafe_xml",
+  "run_log",
+  "checkpoint_manifest",
+  "patch",
+  "accepted_source",
+  "extra",
+]);
+
 /**
  * W06/F15: canonical path containment - manifest dosya adi kok disina cikamaz;
  * traversal/symlink yolu reddedilir.
@@ -230,36 +283,80 @@ export class ReportExporter {
 
   export(data: ReportData, extraFiles?: Record<string, string | Buffer>): ExportResult {
     const files: ExportResult["files"] = [];
+    // Yeni export baslamadan once eski yayin marker'i gecersizlesir; herhangi
+    // bir ara hata eski raporu yeni rapor gibi gostermemelidir.
+    rmSync(join(this.reportRoot, "PUBLISHED"), { force: true });
+    // Exporter, HTML/JSON/manifest'in ayni normalize edilmis facts snapshot'ini
+    // kullanmasini saglar; caller'in reportData nesnesi yerinde degistirilmez.
+    const reportData = structuredClone(data) as ReportData;
+    const evidenceDefinitions = new Map((reportData.evidence ?? []).map((entry) => [entry.relative_path, entry]));
+    const extraEntries: ReportEvidence[] = [];
+    for (const [name, content] of Object.entries(extraFiles ?? {})) {
+      if (["report.json", "index.html", "summary.txt", "manifest.json", "PUBLISHED"].includes(name) || files.some((file) => file.name === name)) {
+        throw new AppError("POLICY_VIOLATION", `Rapor extra dosyasi ayrilmis yolu ezemez: ${name}`, { reason_code: "REPORT_OVERWRITE" });
+      }
+      const definition = evidenceDefinitions.get(name);
+      const bytes = Buffer.isBuffer(content) ? content.byteLength : Buffer.byteLength(content, "utf8");
+      extraEntries.push({
+        relative_path: name,
+        kind: definition?.kind ?? "extra",
+        ...(definition?.stage !== undefined ? { stage: definition.stage } : {}),
+        ...(definition?.run_id !== undefined ? { run_id: definition.run_id } : {}),
+        sha256: createHash("sha256").update(content).digest("hex"),
+        bytes,
+        ...(definition?.redacted !== undefined ? { redacted: definition.redacted } : {}),
+        ...(definition?.required !== undefined ? { required: definition.required } : {}),
+      });
+    }
+    const missingDefinitions = (reportData.evidence ?? [])
+      .filter((entry) => entry.required === true && !extraEntries.some((file) => file.relative_path === entry.relative_path))
+      .map((entry) => ({ ...entry, sha256: null, bytes: null }));
+    reportData.evidence = [...extraEntries, ...missingDefinitions].sort((a, b) => a.relative_path.localeCompare(b.relative_path));
     // W06/F13/N02: facts-only sanitization - model narrative alanlari report JSON'a giremez;
     // kirpilan yollar kayitli olur (sessiz kirpma yok).
-    const sanitized = sanitizeNarrativeFields(data);
+    const sanitized = sanitizeNarrativeFields(reportData);
     if (!sanitized.clean) {
       process.stderr.write(`[aitest-report] narrative alanlari kirpildi: ${sanitized.removed_paths.join(", ")}\n`);
     }
-    const reportJson = JSON.stringify(data, null, 2);
+    const reportJson = JSON.stringify(reportData, null, 2);
     this.write("report.json", reportJson, files);
-    this.write("index.html", buildReport(data), files);
-    this.write("summary.txt", buildSummary(data), files);
+    this.write("index.html", buildReport06(reportData), files);
+    this.write("summary.txt", buildSummary(reportData), files);
 
     const manifest: Record<string, unknown> = {
-      schema_version: 1,
+      schema_version: 2,
       generated_at: Date.now(),
-      artifacts: files.map((f) => ({ relative_path: f.name, sha256: f.sha256, bytes: f.bytes, kind: f.name === "index.html" ? "report_html" : f.name === "report.json" ? "report_json" : "summary_text", sensitivity: "sensitive" })),
+      job_id: reportData.job_id,
+      head_commit: reportData.head_commit,
+      snapshot_id: reportData.snapshot_id,
+      checkpoint_id: reportData.checkpoint_id ?? null,
+      run_ids: [...new Set((reportData.evidence ?? []).map((entry) => entry.run_id).filter((runId): runId is string => typeof runId === "string"))].sort(),
+      artifacts: files.map((f) => ({ relative_path: f.name, sha256: f.sha256, bytes: f.bytes, kind: f.name === "index.html" ? "report_html" : f.name === "report.json" ? "report_json" : "summary_text", sensitivity: "sensitive", run_id: null })),
     };
     for (const [name, content] of Object.entries(extraFiles ?? {})) {
-      if (["report.json", "index.html", "summary.txt", "manifest.json"].includes(name) || files.some((file) => file.name === name)) {
-        throw new AppError("POLICY_VIOLATION", `Rapor extra dosyasi ayrilmis yolu ezemez: ${name}`, { reason_code: "REPORT_OVERWRITE" });
-      }
       this.write(name, content, files);
-      (manifest["artifacts"] as Array<Record<string, unknown>>).push({ relative_path: name, sha256: createHash("sha256").update(content).digest("hex"), bytes: Buffer.byteLength(content, "utf8"), kind: "extra", sensitivity: "sensitive" });
+      const evidence = extraEntries.find((entry) => entry.relative_path === name);
+      (manifest["artifacts"] as Array<Record<string, unknown>>).push({
+        relative_path: name,
+        sha256: evidence?.sha256 ?? createHash("sha256").update(content).digest("hex"),
+        bytes: evidence?.bytes ?? (Buffer.isBuffer(content) ? content.byteLength : Buffer.byteLength(content, "utf8")),
+        kind: evidence?.kind ?? "extra",
+        sensitivity: "sensitive",
+        run_id: evidence?.run_id ?? null,
+        stage: evidence?.stage ?? null,
+        redacted: evidence?.redacted ?? false,
+      });
     }
 
     const manifestJson = JSON.stringify(manifest, null, 2);
     this.write("manifest.json", manifestJson, files);
 
-    const verification = this.verifyExport();
+    const verification = this.verifyExport(undefined, false);
     // W06/F15: verification_passed arttik missing VE hash_mismatch'e bakiyor:
     const verificationPassed = verification.missing.length === 0 && verification.hash_mismatch.length === 0;
+    if (verificationPassed) {
+      this.write("PUBLISHED", `job_id=${reportData.job_id}\nmanifest=manifest.json\n`, files);
+    }
     return {
       report_dir: this.reportRoot,
       files,
@@ -290,7 +387,7 @@ export class ReportExporter {
    * W06/F15/N45: parametresiz verify canonical manifest'i yukler ve dogrular;
    * bos listeyi dogrulamak yerine manifest artifacts'ini okur (corrupt manifest fail-closed).
    */
-  verifyExport(expected?: ExportResult["files"]): { missing: string[]; hash_mismatch: string[] } {
+  verifyExport(expected?: ExportResult["files"], requirePublished = true): { missing: string[]; hash_mismatch: string[] } {
     let files = expected;
     if (!files || files.length === 0) {
       // canonical manifest'ten yukle:
@@ -314,10 +411,55 @@ export class ReportExporter {
       }
       const names = new Set<string>();
       const structuralErrors: string[] = [];
+      const manifestJobId = typeof manifest["job_id"] === "string" ? manifest["job_id"] : null;
+      const manifestSchema = typeof manifest["schema_version"] === "number" ? manifest["schema_version"] : null;
+      if (manifestSchema !== 2) {
+        structuralErrors.push("manifest.json (schema_version uyumsuz)");
+      }
+      let reportJson: Record<string, unknown> | null = null;
+      const reportJsonPath = containedReportPath(this.reportRoot, "report.json");
+      if (existsSync(reportJsonPath)) {
+        try {
+          reportJson = JSON.parse(readFileSync(reportJsonPath, "utf8")) as Record<string, unknown>;
+        } catch {
+          structuralErrors.push("report.json (corrupt)");
+        }
+      }
+      if (!reportJson) {
+        structuralErrors.push("report.json (identity okunamadi)");
+      } else {
+        if (manifestJobId === null || manifestJobId !== reportJson["job_id"]) {
+          structuralErrors.push("manifest.json (job_id uyusmazligi)");
+        }
+        for (const key of ["head_commit", "snapshot_id", "checkpoint_id"] as const) {
+          if ((manifest[key] ?? null) !== (reportJson[key] ?? null)) {
+            structuralErrors.push(`manifest.json (${key} uyusmazligi)`);
+          }
+        }
+        const manifestRunIds = Array.isArray(manifest["run_ids"]) ? [...new Set(manifest["run_ids"].filter((value): value is string => typeof value === "string"))].sort() : [];
+        const reportRunIds = Array.isArray(reportJson["evidence"])
+          ? [...new Set((reportJson["evidence"] as Array<Record<string, unknown>>).map((entry) => entry["run_id"]).filter((value): value is string => typeof value === "string"))].sort()
+          : [];
+        if (JSON.stringify(manifestRunIds) !== JSON.stringify(reportRunIds)) {
+          structuralErrors.push("manifest.json (run_ids uyusmazligi)");
+        }
+      }
+      const evidenceByPath = new Map<string, Record<string, unknown>>();
+      if (reportJson && Array.isArray(reportJson["evidence"])) {
+        for (const evidence of reportJson["evidence"] as Array<Record<string, unknown>>) {
+          const path = typeof evidence["relative_path"] === "string" ? evidence["relative_path"] : "";
+          if (path.length === 0 || evidenceByPath.has(path)) {
+            structuralErrors.push(`report.json (evidence duplicate/empty: ${path || "unknown"})`);
+          } else {
+            evidenceByPath.set(path, evidence);
+          }
+        }
+      }
       files = (artifacts as Array<Record<string, unknown>>).map((a) => {
         const name = typeof a["relative_path"] === "string" ? a["relative_path"] : "";
         const sha256 = typeof a["sha256"] === "string" ? a["sha256"] : "";
         const bytes = typeof a["bytes"] === "number" ? a["bytes"] : -1;
+        const kind = typeof a["kind"] === "string" ? a["kind"] : "";
         if (name.length === 0) {
           structuralErrors.push("manifest.json (bos relative_path)");
         } else if (names.has(name)) {
@@ -328,14 +470,42 @@ export class ReportExporter {
         if (name === "manifest.json") {
           structuralErrors.push("manifest.json (reserved path)");
         }
+        if (!REPORT_ARTIFACT_KINDS.has(kind)) {
+          structuralErrors.push(`manifest.json (invalid kind: ${name || "unknown"})`);
+        }
         if (!/^[a-f0-9]{64}$/.test(sha256) || !Number.isInteger(bytes) || bytes < 0) {
           structuralErrors.push(`manifest.json (invalid metadata: ${name || "unknown"})`);
+        }
+        const evidence = evidenceByPath.get(name);
+        if (evidence) {
+          if (evidence["sha256"] !== sha256 || evidence["bytes"] !== bytes) {
+            structuralErrors.push(`manifest.json (evidence metadata uyumsuz: ${name})`);
+          }
+          if (typeof evidence["kind"] === "string" && evidence["kind"] !== kind) {
+            structuralErrors.push(`manifest.json (evidence kind uyumsuz: ${name})`);
+          }
+          if ((evidence["run_id"] ?? null) !== (a["run_id"] ?? null)) {
+            structuralErrors.push(`manifest.json (evidence run_id uyumsuz: ${name})`);
+          }
         }
         return { name, sha256, bytes };
       });
       for (const required of ["report.json", "index.html", "summary.txt"]) {
         if (!names.has(required)) {
           structuralErrors.push(`manifest.json (zorunlu artifact eksik: ${required})`);
+        }
+      }
+      if (structuralErrors.length > 0) {
+        return { missing: structuralErrors, hash_mismatch: [] };
+      }
+      for (const [path, evidence] of evidenceByPath) {
+        const required = evidence["required"] === true;
+        const artifact = (artifacts as Array<Record<string, unknown>>).find((entry) => entry["relative_path"] === path);
+        if (required && !artifact) {
+          structuralErrors.push(`evidence eksik: ${path}`);
+        }
+        if (required && (evidence["sha256"] === null || evidence["bytes"] === null)) {
+          structuralErrors.push(`evidence eksik: ${path}`);
         }
       }
       if (structuralErrors.length > 0) {
@@ -361,6 +531,11 @@ export class ReportExporter {
       if (hash !== file.sha256 || content.byteLength !== file.bytes) {
         hashMismatch.push(file.name);
       }
+    }
+    // A report is authoritative only after its canonical manifest has been
+    // checked and a publication marker has been atomically written.
+    if (requirePublished && !existsSync(join(this.reportRoot, "PUBLISHED"))) {
+      missing.push("PUBLISHED");
     }
     return { missing, hash_mismatch: hashMismatch };
   }

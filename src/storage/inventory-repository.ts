@@ -83,9 +83,9 @@ export class InventoryRepository {
     return id;
   }
 
-  listTestRunProvenance(jobId: string): Array<{ id: string; stage: string; attempt_ordinal: number | null; iteration_ordinal: number | null; command_digest: string; exit_code: number; timed_out: number; total_tests: number; failures: number; errors: number; skipped: number; test_inventory_json: string; coverage_report_path: string }> {
-    return this.db.prepare<[string], { id: string; stage: string; attempt_ordinal: number | null; iteration_ordinal: number | null; command_digest: string; exit_code: number; timed_out: number; total_tests: number; failures: number; errors: number; skipped: number; test_inventory_json: string; coverage_report_path: string }>(
-      "SELECT id, stage, attempt_ordinal, iteration_ordinal, command_digest, exit_code, timed_out, total_tests, failures, errors, skipped, test_inventory_json, coverage_report_path FROM test_run_provenance WHERE job_id = ? ORDER BY created_at",
+  listTestRunProvenance(jobId: string): Array<{ id: string; stage: string; attempt_ordinal: number | null; iteration_ordinal: number | null; command_digest: string; command_json: string; execution_root: string; stdout_log_path: string; stderr_log_path: string; exit_code: number; timed_out: number; total_tests: number; failures: number; errors: number; skipped: number; test_inventory_json: string; coverage_report_path: string; coverage_report_paths_json: string; started_at: number; finished_at: number }> {
+    return this.db.prepare<[string], { id: string; stage: string; attempt_ordinal: number | null; iteration_ordinal: number | null; command_digest: string; command_json: string; execution_root: string; stdout_log_path: string; stderr_log_path: string; exit_code: number; timed_out: number; total_tests: number; failures: number; errors: number; skipped: number; test_inventory_json: string; coverage_report_path: string; coverage_report_paths_json: string; started_at: number; finished_at: number }>(
+      "SELECT id, stage, attempt_ordinal, iteration_ordinal, command_digest, command_json, execution_root, stdout_log_path, stderr_log_path, exit_code, timed_out, total_tests, failures, errors, skipped, test_inventory_json, coverage_report_path, coverage_report_paths_json, started_at, finished_at FROM test_run_provenance WHERE job_id = ? ORDER BY created_at",
     ).all(jobId);
   }
 
