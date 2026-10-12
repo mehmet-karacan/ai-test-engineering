@@ -2,10 +2,10 @@
 
 ## Son durum
 
-- HEAD ve `origin/main`: `bee3fcb` (`gorev: p08 backup blob dogrulamasini fail-closed yap`).
+- HEAD: `30318b8` (`gorev: p07 report_path PUBLISHED dogrulamasiyla kapat`); GLM commit'i `2eb2b1a` olarak cherry-pick edildi. Push sonrasi HEAD/origin esitlenecek.
 - Branch: `main`; tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
-- Tam regresyon: 66 test dosyasi, 592/592 PASS.
-- Typecheck/build: PASS. Lint: 0 error, 90 warning.
+- Tam regresyon: 67 test dosyasi, 598/598 PASS.
+- Typecheck/build: PASS. Lint: 0 error, 89 warning.
 - Full release verifier: exit 1, `NO_GO`; tek neden `EVIDENCE_MANIFEST_EKSIK`. Manifest olmadan 274 zorunlu obligation'in hicbiri dogrulanmis sayilmadi.
 - Canli kurum modeli/pilotu hala `PAUSED_BY_USER`; bu kosuda baslatilmadi.
 
@@ -16,8 +16,10 @@
 - P06 frozen source workspace ve exact raw coverage counter.
 - P07-B binary accepted evidence: bilinen binary uzantilari NUL byte'a bagli olmadan byte-exact korunuyor; 6/6 focused test.
 - P07-B export verifier: `PUBLISHED` atomik marker'i reserved path olarak fail-closed; ilgili iki dosya 16/16 PASS.
+- P07-B report authority: `report_path`, ancak `PUBLISHED` ve tam `verifyExport` basariliysa donuyor; yeni odak 5/5, ilgili P07 suite toplam 23/23 PASS.
 - P08 backup restore, install manifest ve owned uninstall sozlesmesi.
 - P08 backup readiness: READY blob eksik, artifact root disi veya hash/byte uyumsuzsa backup reddediliyor ve yarim snapshot temizleniyor; lifecycle 7/7 PASS.
+- P08/PP42: handshake, verify-install ve uninstall scriptlerinde Windows/Unicode path icin `fileURLToPath` tabanli repoRoot; W09 odak 8/8 PASS.
 
 ## Acik maddeler ve gercek engeller
 
@@ -28,4 +30,4 @@
 
 ## Sonraki en hizli guvenli adim
 
-Docker capability saglanan izole ortamda P07-B customer dispatcher acceptance kosusunu calistir; sonra gercek Windows upgrade/rollback kanitini ayri runtime store'da kaydet. Evidence manifesti olmadan full gate'i GO'ya cevirmeyin.
+Docker capability saglanan izole ortamda P07-B customer dispatcher acceptance kosusunu calistir; sonra gercek Windows upgrade/rollback kanitini ayri runtime store'da kaydet. Evidence manifesti olmadan full gate'i GO'ya cevirmeyin. Sonraki push bu handoff ve checkpoint guncellemesini de icerecek.
