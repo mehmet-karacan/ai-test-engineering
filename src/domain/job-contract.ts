@@ -9,8 +9,28 @@ export interface ContractTarget {
   selector: string;
   kind: "class" | "package" | "module";
   resolved_fqn: string | null;
+  /** P05/PR06: concrete hedef kimligi - snapshot'a bagli, donusmez. */
+  module_path?: string | null;
+  source_set?: "main" | "test" | "unknown" | null;
+  relative_path?: string | null;
+  snapshot_id?: string | null;
+  /** P05/PR06: package/module expansion icin tum frozen concrete hedefler. */
+  concrete_targets?: ConcreteTargetRef[];
   line_target_bps: number;
   branch_target_bps: number;
+}
+
+/**
+ * P05/PR06: frozen concrete hedef bileseni - contract ve goal ayni kimligi tasir.
+ * `resolved_fqn: null` contract'lar P05 onceki eski kayitlardir; resume bu kayitlari
+ * fail-closed olarak REDDeder (sessiz yeniden cozum yok).
+ */
+export interface ConcreteTargetRef {
+  fqn: string;
+  module_path: string;
+  source_set: "main" | "test" | "unknown";
+  relative_path: string;
+  snapshot_id: string;
 }
 
 export interface JobContractInput {
@@ -88,6 +108,29 @@ export function buildJobContract(input: JobContractInput, createdAt?: number): J
     }
     if (target.branch_target_bps < 0 || target.branch_target_bps > 10000) {
       throw new Error(`Gecersiz branch_target_bps: ${target.branch_target_bps}`);
+    }
+    // P05/PR06: concrete alanlar ya TAMAMEN dolu ya TAMAMEN bos olmali;
+    // dolu iken resolved_fqn concrete fqn ile birebir eslemeli (karisik null kabul edilmez).
+    const concrete = [target.module_path, target.source_set, target.relative_path, target.snapshot_id];
+    const anyConcrete = concrete.some((v) => v !== null && v !== undefined);
+    if (anyConcrete) {
+      const allConcrete = concrete.every((v) => v !== null && v !== undefined);
+      if (!allConcrete) {
+        throw new Error(`Concrete hedef eksik alan iceriyor (selector=${target.selector}); tam set gerekli`);
+      }
+      if (target.resolved_fqn === null) {
+        throw new Error(`Concrete hedefin resolved_fqn null olamaz (selector=${target.selector})`);
+      }
+    }
+    if (target.concrete_targets !== undefined) {
+      if (target.concrete_targets.length === 0) {
+        throw new Error(`Concrete hedef listesi bos olamaz (selector=${target.selector})`);
+      }
+      for (const concrete of target.concrete_targets) {
+        if (concrete.source_set === "unknown" || concrete.snapshot_id.length === 0 || concrete.fqn.length === 0 || concrete.relative_path.length === 0) {
+          throw new Error(`Concrete hedef kimligi eksik/gecersiz (selector=${target.selector})`);
+        }
+      }
     }
   }
   return {

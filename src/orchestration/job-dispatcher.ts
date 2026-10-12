@@ -30,6 +30,7 @@ import { readWorkerProfileFromOpencodeConfig } from "../workers/opencode/profile
 import { CandidateChangeSetSchema } from "../workers/opencode/model-schemas.js";
 import { ReportExporter } from "../reporting/report-generator.js";
 import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
+import { buildFrozenTargetList, rebuildFrozenTargetDigest, type ConcreteTarget } from "../discovery/target-resolver.js";
 
 export type RunnerKind = "docker" | "host_dev_only";
 
@@ -37,13 +38,26 @@ export interface GoalContract {
   job_id: string;
   /** K02/B02: hedef proje kokunden gelmeli; storage root degil */
   project_root: string;
-  targets: Array<{ selector: string; kind: string; line_target_bps: number; branch_target_bps: number }>;
+  /**
+   * P05/PR06: hedefler frozen concrete listeden gelir (tek resolver).
+   * `concrete_targets` bos iken (eski/legacy goal) dispatch fail-closed RED;
+   * selector yeniden sinif gibi aratilmaz.
+   */
+  targets: Array<{
+    selector: string;
+    kind: string;
+    concrete_targets: ConcreteTarget[];
+    line_target_bps: number;
+    branch_target_bps: number;
+  }>;
   /** K02/B02: butce kullanici talebi/proje politikasindan; sabit 20/2/3 yok sayilamaz */
   budget: { max_candidate_iterations: number; max_repairs_per_candidate: number; no_progress_window: number };
   runner_kind: RunnerKind;
   model_profile: string | null;
   /** Resume'da son accepted iteration sonrasi baslangic ordinal'i. */
   start_iteration?: number;
+  /** P05/PR06: frozen concrete hedef liste digest'i (servis/dispatcher tutarliligi). */
+  concrete_targets_digest?: string | null;
 }
 
 export interface DispatchResult {
@@ -80,8 +94,18 @@ export class JobDispatcher {
     this.workspaceRoot = options.workspaceRoot;
   }
 
-  buildGoalContract(job: JobRow, targets: Array<{ selector: string; kind: string; line_target_bps: number; branch_target_bps: number }>, projectRoot: string): GoalContract {
-    // K02/B02: butce kullanici talebi/proje politikasindan (config.budgets); sabit 20/2/3 yok sayilmaz.
+  buildGoalContract(
+    job: JobRow,
+    targets: Array<{
+      selector: string;
+      kind: string;
+      concrete_targets: ConcreteTarget[];
+      line_target_bps: number;
+      branch_target_bps: number;
+    }>,
+    projectRoot: string,
+  ): GoalContract {
+    // K02/B02: butce kullanici talebi/proje politikasindan (config.budgets); sabit 20/2/3 yok sayilamaz.
     const budgets = this.services.config.budgets;
     return {
       job_id: job.id,
@@ -94,6 +118,7 @@ export class JobDispatcher {
       },
       runner_kind: this.runnerKind,
       model_profile: null,
+      concrete_targets_digest: null,
     };
   }
 
@@ -240,21 +265,87 @@ export class JobDispatcher {
       // P03/PP11: source identity KAYITLI ve DOLU olmali - HEAD (git rev-parse),
       // sirali canonical path+byte source digest ve build config digest.
       // Yalniz digest (null) kaydi "ayni kaynak" sayilamaz.
+      // P05/PR06: source identity KAYITLI ve DOLU olmali - HEAD (git rev-parse),
+      // sirali canonical path+byte source digest ve build config digest.
       const sourceManifest = new SourceSnapshot(projectRoot).buildManifest();
       const sourceIdentity = computeSourceIdentity(projectRoot, sourceManifest);
-      const sourceManifestArtifactId = this.persistSourceManifest(storage, job, sourceManifest);
-      this.persistJobContract(storage, job, goal, sourceIdentity);
-      const snapshotId = inventory.writeSnapshot(
-        job.location_id,
-        sourceIdentity.head_commit,
-        sourceIdentity.dirty_digest,
-        sourceIdentity.source_digest,
-        sourceIdentity.build_digest,
-        "statik-tarama-1",
-        sourceManifestArtifactId,
-      );
+      // P05/PR06: frozen concrete hedefler start'ta yazilan snapshot'a baglidir;
+      // ayni snapshot yeniden kullanilir (resume'da ayni kimlik korunur). Guncel
+      // identity recorded identity ile birebir eslesmezse fail-closed (SOURCE_CHANGED).
+      const jobRowForSnapshot = jobs.getJob(job.id);
+      let snapshotId: string;
+      if (jobRowForSnapshot.source_snapshot_id) {
+        snapshotId = jobRowForSnapshot.source_snapshot_id;
+        const recorded = storage.db
+          .prepare<[string], { head_commit: string | null; dirty_digest: string | null; source_digest: string | null; build_digest: string | null }>(
+            "SELECT head_commit, dirty_digest, source_digest, build_digest FROM source_identities WHERE snapshot_id = ?",
+          )
+          .get(snapshotId);
+        if (
+          !recorded ||
+          recorded.head_commit !== sourceIdentity.head_commit ||
+          recorded.dirty_digest !== sourceIdentity.dirty_digest ||
+          recorded.source_digest !== sourceIdentity.source_digest ||
+          recorded.build_digest !== sourceIdentity.build_digest
+        ) {
+          throw new AppError("SOURCE_CHANGED", "Kaynak identity frozen snapshot ile uyusmuyor; sessiz devam yok", {
+            reason_code: "SOURCE_CHANGED",
+          });
+        }
+        const sourceManifestArtifactId = this.persistSourceManifest(storage, job, sourceManifest);
+        storage.db.prepare("UPDATE project_snapshots SET source_manifest_artifact_id = ? WHERE id = ?")
+          .run(sourceManifestArtifactId, snapshotId);
+      } else {
+        snapshotId = inventory.writeSnapshot(
+          job.location_id,
+          sourceIdentity.head_commit,
+          sourceIdentity.dirty_digest,
+          sourceIdentity.source_digest,
+          sourceIdentity.build_digest,
+          "statik-tarama-1",
+          this.persistSourceManifest(storage, job, sourceManifest),
+        );
+        storage.db.prepare("UPDATE test_jobs SET source_snapshot_id = ? WHERE id = ?").run(snapshotId, job.id);
+      }
       this.persistSourceIdentity(storage, snapshotId, sourceIdentity);
-      storage.db.prepare("UPDATE test_jobs SET source_snapshot_id = ? WHERE id = ?").run(snapshotId, job.id);
+
+      // P05/PR06: TEK resolver - dispatcher goal'deki frozen concrete hedef listesini
+      // KULLANIR; selector'u yeniden sinif gibi aratMAZ. Listeden yeniden kurulan frozen
+      // digest, servis tarafinda uretilen digest ile birebir eslemeli (PP23).
+      const allConcrete: ConcreteTarget[] = [];
+      for (const target of goal.targets) {
+        if (!target.concrete_targets || target.concrete_targets.length === 0) {
+          throw new AppError("BLOCKED_TARGET_RESOLUTION", `Hedef icin concrete target kaydi yok (selector=${target.selector}); sessiz yeniden cozum yok`, {
+            reason_code: "CONCRETE_TARGET_MISSING",
+          });
+        }
+        for (const c of target.concrete_targets) {
+          if (c.snapshot_id !== snapshotId) {
+            throw new AppError("BLOCKED_TARGET_RESOLUTION", `Frozen hedef snapshot kimligi uyusmuyor (fqn=${c.fqn}; beklenen=${snapshotId})`, {
+              reason_code: "SNAPSHOT_MISMATCH",
+            });
+          }
+          allConcrete.push(c);
+        }
+      }
+      const uniqueConcrete = [...new Map(allConcrete.map((c) => [
+        `${c.fqn}|${c.module_path}|${c.source_set}|${c.relative_path}|${c.snapshot_id}`,
+        c,
+      ])).values()];
+      const goalFrozen = buildFrozenTargetList(uniqueConcrete, snapshotId, goal.targets.length, this.services.config.discovery.max_concrete_targets);
+      const computedDigest = rebuildFrozenTargetDigest(allConcrete);
+      if (goal.concrete_targets_digest && goal.concrete_targets_digest !== computedDigest) {
+        throw new AppError("BLOCKED_TARGET_RESOLUTION", "Frozen concrete hedef digest'i servis/dispatcher arasi uyusmuyor", {
+          reason_code: "CONCRETE_DIGEST_MISMATCH",
+        });
+      }
+      this.persistJobContract(storage, job, goal, sourceIdentity);
+      // P05/PR06: frozen concrete hedef listesi job'a kalici yazilir; resume bu
+      // kayitlardan ayni listeyi geri kurar (PP15/PP23).
+      this.persistJobTargetConcretes(storage, job.id, goal.targets, goalFrozen.digest);
+
+      // Envanter: concrete hedeflerin module/package/simbolleri bu snapshot'a yazilir
+      // (resume ve sonraki sorgular icin kalicilik).
       const discovery = discoverModules(projectRoot);
       for (const module of discovery.modules) {
         const moduleId = inventory.writeModule(snapshotId, module);
@@ -268,37 +359,29 @@ export class JobDispatcher {
         }
       }
 
-      const resolvedTargets: Array<{ selector: string; fqn: string; module: PomModule }> = [];
+      // Frozen concrete hedefler icin source-set dogrulamasi: kayitli source_set
+      // "test" ise hedef test kaynak sinifidir (source-set tabanli; "Test" suffix'i
+      // kanit degil - LoadTest gibi main siniflari yanlis elenmez).
+      const resolvedTargets: Array<{ selector: string; fqn: string; module: PomModule; source_set: "main" | "test" | "unknown"; relative_path: string }> = [];
       for (const target of goal.targets) {
-        // W03/F05: package hedefi boundary-aware, module hedefi source-set-aware cosulur;
-        // dispatcher frozen concrete hedef listesini kullanir.
-        const matches = target.kind === "package"
-          ? inventory.resolvePackageBoundary(snapshotId, target.selector)
-          : inventory.resolveTarget(snapshotId, target.selector);
-        if (matches.length === 0) {
-          throw new AppError("INVALID_PARAMETERS", `Hedef sinif bulunamadi: ${target.selector}`);
-        }
-        if (matches.length > 1 && target.kind !== "package") {
-          throw new AppError("INVALID_PARAMETERS", "Hedef tek anlama cozumlenemedi", { reason_code: "AMBIGUOUS_TARGET", candidates: matches });
-        }
-        // Package selector tek bir simple match degil, boundary icindeki tum
-        // production sembollerine frozen concrete target listesi olarak acilir.
-        for (const match of target.kind === "package" ? matches : [matches[0]!]) {
-          const module = discoverModules(projectRoot).modules.find((m) => m.module_relative_path === match.module_relative_path);
+        for (const c of target.concrete_targets) {
+          const module = discovery.modules.find((m) => m.module_relative_path === c.module_path);
           if (!module) {
-            throw new AppError("INVALID_PARAMETERS", `Modul bulunamadi: ${match.module_relative_path}`);
+            throw new AppError("BLOCKED_TARGET_RESOLUTION", `Concrete hedefin modulu bulunamadi: ${c.module_path} (fqn=${c.fqn})`, {
+              reason_code: "MODULE_NOT_FOUND",
+            });
           }
-          resolvedTargets.push({ selector: target.selector, fqn: match.fqn, module });
+          if (c.source_set === "test") {
+            continue;
+          }
+          resolvedTargets.push({ selector: target.selector, fqn: c.fqn, module, source_set: c.source_set, relative_path: c.relative_path });
         }
       }
-      // FIN04/7.4 + W03/F05: test kaynak siniflari production hedef listesine giremez;
-      // dosya adiendsWith("Test") sezgisi YALNIS: LoadTest gibi production siniflarini eler.
-      // Dogru yol: hedef dosyanin source-set'i (test_root altinda mi) ile filtre:
-      const productionTargets = resolvedTargets.filter((rt) => !this.isTestSourceTarget(projectRoot, rt));
-      if (productionTargets.length === 0) {
-        throw new AppError("INVALID_PARAMETERS", "Tum hedefler test kaynak sinifi; production hedef listesi bos", { reason_code: "TEST_SOURCE_TARGETS" });
+      if (resolvedTargets.length === 0) {
+        throw new AppError("BLOCKED_TARGET_RESOLUTION", "Tum hedefler test kaynak sinifi; production hedef listesi bos", {
+          reason_code: "TEST_SOURCE_TARGETS",
+        });
       }
-      resolvedTargets.splice(0, resolvedTargets.length, ...productionTargets);
       phases.push("analysis_ok");
 
       jobs.updatePhase(job.id, "generation", jobs.getJob(job.id).row_version);
@@ -329,6 +412,7 @@ export class JobDispatcher {
           staging_root: stagingRoot,
           workspace_root: join(this.workspaceRoot, "jobs", job.id, "candidates", resolved.fqn.replace(/[^A-Za-z0-9_.-]/g, "_")),
           timeout_ms_per_run: 600000,
+          deadline_at: jobDeadlineAt,
         // K04/B04: birikimli accepted set + checkpoint callback'i runtime'a bagli:
         // W04/F09/N29: on_accepted artik GERCEK accepted checkpoint yayinlar (yalniz event/log degil):
         // accepted manifest blob'u + DB checkpoint satiri + best_checkpoint pointer'i publish edilir.
@@ -424,7 +508,7 @@ export class JobDispatcher {
             if (!this.workerEnabled) {
               return null;
             }
-            return this.generateCandidateFromWorker(projectRoot, resolved.fqn, resolved.module, job.id);
+            return this.generateCandidateFromWorker(projectRoot, resolved.fqn, resolved.module, job.id, goal.model_profile);
           },
           generation_failure_reason: () => this.workerEnabled ? null : "WORKER_DISABLED",
         };
@@ -610,7 +694,9 @@ export class JobDispatcher {
               ? "BLOCKED_ISOLATION"
               : errorCode === "BLOCKED_DEPENDENCIES"
                 ? "BLOCKED_DEPENDENCIES"
-                : "BLOCKED_ENVIRONMENT";
+                : errorCode === "BLOCKED_TARGET_RESOLUTION"
+                  ? "BLOCKED_TARGET_RESOLUTION"
+                  : "BLOCKED_ENVIRONMENT";
           jobs.updateOutcome(job.id, outcome, jobs.getJob(job.id).row_version);
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
         }
@@ -671,6 +757,30 @@ export class JobDispatcher {
   }
 
   /**
+   * P05/PR06: frozen concrete hedef listesi job'a kalici yazilir (her concrete
+   * hedef bir satir). Resume bu kayitlardan ayni listeyi geri kurar; selector
+   * yeniden sinif gibi cozulmez (PP15/PP23).
+   */
+  private persistJobTargetConcretes(
+    storage: NonNullable<Services["storage"]>,
+    jobId: string,
+    targets: Array<{ selector: string; kind: string; concrete_targets: ConcreteTarget[] }>,
+    concreteDigest: string,
+  ): void {
+    const db = storage.db;
+    db.prepare("DELETE FROM job_target_concretes WHERE job_id = ?").run(jobId);
+    const insert = db.prepare(
+      "INSERT INTO job_target_concretes (job_id, selector, target_kind, fqn, module_path, source_set, relative_path, snapshot_id, concrete_digest, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    const now = Date.now();
+    for (const target of targets) {
+      for (const c of target.concrete_targets) {
+        insert.run(jobId, target.selector, target.kind, c.fqn, c.module_path, c.source_set, c.relative_path, c.snapshot_id, concreteDigest, now);
+      }
+    }
+  }
+
+  /**
    * P03/PR03: kaynak manifestinin tam icerigi de immutable artifact olarak saklanir;
    * source snapshot satiri contract blob ile karistirilmaz.
    */
@@ -712,25 +822,6 @@ export class JobDispatcher {
     db.prepare("DELETE FROM source_identities WHERE snapshot_id = ?").run(snapshotId);
     db.prepare("INSERT INTO source_identities (snapshot_id, head_commit, dirty_digest, source_digest, build_digest, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .run(snapshotId, identity.head_commit, identity.dirty_digest, identity.source_digest, identity.build_digest, Date.now());
-  }
-
-  /**
-   * W03/F05/N21: hedef dosya test source-set'inde mi (test_root altinda mi)?
-   * Dosya adiendsWith("Test") sezgisi yerine gercek kaynak konumu ile ayrisim:
-   * LoadTest gibi production siniflari test source-set'inde DEGILSE production hedef kalir.
-   */
-  private isTestSourceTarget(projectRoot: string, resolved: { fqn: string; module: PomModule }): boolean {
-    const relativeClassPath = `${resolved.fqn.replace(/\./g, "/")}.java`;
-    const testCandidate = join(resolve(projectRoot), resolved.module.module_relative_path, resolved.module.test_root, ...relativeClassPath.split("/"));
-    const mainCandidate = join(resolve(projectRoot), resolved.module.module_relative_path, resolved.module.source_root, ...relativeClassPath.split("/"));
-    if (existsSync(testCandidate)) {
-      return true;
-    }
-    if (existsSync(mainCandidate)) {
-      return false;
-    }
-    // dosya bulunamadiysa: relative_path envanterinden kontrol; yoksa manifest yoksa test sayilmez
-    return false;
   }
 
   /**
@@ -865,12 +956,46 @@ export class JobDispatcher {
       jobs.appendEvent({ job_id: job.id, event_type: "resume_fresh_start", phase: job.phase, origin: "resumeDispatch" });
     }
 
+    // P05/PR06: resume ayni frozen concrete hedef listesini kullanir (PP15/PP23).
+    // Liste job_target_concretes'ten geri kurulur; yoksa (P05 onceki legacy job)
+    // fail-closed RED - selector yeniden sinif gibi cozulmez.
+    const concreteRows = storage.db
+      .prepare<
+        [string],
+        { selector: string; target_kind: string; fqn: string; module_path: string; source_set: string; relative_path: string; snapshot_id: string; concrete_digest: string }
+      >(
+        "SELECT selector, target_kind, fqn, module_path, source_set, relative_path, snapshot_id, concrete_digest FROM job_target_concretes WHERE job_id = ?",
+      )
+      .all(job.id);
+    if (concreteRows.length === 0) {
+      leases.release(job.id, recoveryOwnerId);
+      throw new AppError("BLOCKED_TARGET_RESOLUTION", "Job icin frozen concrete hedef kaydi yok (legacy); resume sessiz yeniden cozumlemez", {
+        reason_code: "LEGACY_GOAL_NO_CONCRETE",
+      });
+    }
+    const digestBySelector = new Map<string, string>();
+    for (const row of concreteRows) {
+      digestBySelector.set(row.selector, row.concrete_digest);
+    }
+    const concreteBySelector = new Map<string, ConcreteTarget[]>();
+    for (const row of concreteRows) {
+      const list = concreteBySelector.get(row.selector) ?? [];
+      list.push({
+        fqn: row.fqn,
+        module_path: row.module_path,
+        source_set: row.source_set === "test" ? "test" : row.source_set === "main" ? "main" : "unknown",
+        relative_path: row.relative_path,
+        snapshot_id: row.snapshot_id,
+      });
+      concreteBySelector.set(row.selector, list);
+    }
     const goal: GoalContract = {
       job_id: job.id,
       project_root: projectRoot,
       targets: targetRows.map((t) => ({
         selector: t.selector,
         kind: t.target_kind,
+        concrete_targets: concreteBySelector.get(t.selector) ?? [],
         line_target_bps: t.line_target_bps,
         branch_target_bps: t.branch_target_bps ?? 0,
       })),
@@ -878,6 +1003,7 @@ export class JobDispatcher {
       runner_kind: this.runnerKind,
       model_profile: goalModelProfile,
       start_iteration: startIteration,
+      concrete_targets_digest: [...digestBySelector.values()][0] ?? null,
     };
     return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
   }
@@ -926,14 +1052,14 @@ export class JobDispatcher {
     ownedWorkerServers.set(jobId, manager);
   }
 
-  private async generateCandidateFromWorker(projectRoot: string, targetFqn: string, module: PomModule, jobId: string): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
+  private async generateCandidateFromWorker(projectRoot: string, targetFqn: string, module: PomModule, jobId: string, requestedModel: string | null = null): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
     // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
     const portOffset = Number.parseInt(createHash("sha256").update(jobId, "utf8").digest("hex").slice(0, 6), 16) % 2000;
     const serverManager = defaultWorkerServerManager(projectRoot, { config_instance_key: jobId, port: 14096 + portOffset });
     // W05/F11/N37: owned server cancel/pause icin kayit altina alinir
     this.registerOwnedWorkerServer(jobId, serverManager);
     const client = await serverManager.ensureRunning();
-    const profile = readWorkerProfileFromOpencodeConfig();
+    const profile = readWorkerProfileFromOpencodeConfig(undefined, requestedModel ?? undefined);
     const session = await client.createSession();
     // FIN03/14.2 + FIN05/6.3: worker attempt kaydi DB'ye yazilir; her request job/attempt/session
     // ile korele edilir; baska session'dan eski cevap kabul edilemez.
@@ -1018,7 +1144,7 @@ export class JobDispatcher {
         role: "test_designer",
         provider_id: profile.provider_id,
         model_id: profile.model_id,
-        profile_digest: null,
+        profile_digest: createHash("sha256").update(JSON.stringify({ provider_id: profile.provider_id, model_id: profile.model_id, base_url: profile.base_url }), "utf8").digest("hex"),
         session_id: session.session_id,
         message_id: null,
         status: "error",

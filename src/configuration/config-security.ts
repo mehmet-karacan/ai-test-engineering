@@ -53,6 +53,7 @@ export function buildSecretFreeConfigSnapshot(config: {
   schema_version: number;
   budgets: Record<string, unknown>;
   coverage_defaults: Record<string, unknown>;
+  discovery?: Record<string, unknown>;
   worker_profiles: Array<Record<string, unknown>>;
   allowed_project_roots: string[];
   storage: { root: string };
@@ -61,6 +62,7 @@ export function buildSecretFreeConfigSnapshot(config: {
     schema_version: config.schema_version,
     budgets: { ...config.budgets },
     coverage_defaults: { ...config.coverage_defaults },
+    discovery: { ...(config.discovery ?? {}) },
     worker_profiles: config.worker_profiles.map((p) => ({
       profile_name: p["profile_name"],
       provider_id: p["provider_id"],

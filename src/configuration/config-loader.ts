@@ -41,6 +41,7 @@ export function defaultConfig(): AppConfig {
       no_progress_window: 3,
       total_job_minutes: 120,
     },
+    discovery: { max_concrete_targets: 500 },
     // 8.3: kurum ici Nexus mirror; hazirlama asamasi yalniz bu adrese gider:
     dependency_provisioning: {
       enabled: true,

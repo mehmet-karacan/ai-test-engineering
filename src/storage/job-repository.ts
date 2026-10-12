@@ -38,6 +38,7 @@ export interface JobRow {
 export interface CreateJobInput {
   locationId: string;
   requestDigest: string;
+  sourceSnapshotId?: string;
   policyDigest?: string;
   profileDigest?: string;
   phase?: Phase;
@@ -69,11 +70,12 @@ export class JobRepository {
       .prepare(
         `INSERT INTO test_jobs (id, location_id, source_snapshot_id, best_checkpoint_id, policy_digest, profile_digest,
          lifecycle, phase, outcome, verification_level, apply_state, request_digest, created_at, updated_at, row_version)
-         VALUES (?, ?, NULL, NULL, ?, ?, 'QUEUED', ?, NULL, 'UNVERIFIED', 'NOT_REQUESTED', ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, NULL, ?, ?, 'QUEUED', ?, NULL, 'UNVERIFIED', 'NOT_REQUESTED', ?, ?, ?, 0)`,
       )
       .run(
         id,
         input.locationId,
+        input.sourceSnapshotId ?? null,
         input.policyDigest ?? null,
         input.profileDigest ?? null,
         input.phase ?? "discovery",

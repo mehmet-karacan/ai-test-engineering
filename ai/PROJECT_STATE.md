@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P04 tamamlandi; P05-P10 sirada
-- Durum etiketi: `005_P04_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P04 tamamlandi; P05-A uygulandi, P05-B-P10 sirada
+- Durum etiketi: `005_P05A_LOCAL_VERIFIED` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
@@ -34,7 +34,9 @@
 | P02 | Lease, TTL, fencing, heartbeat ve CAS | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-lease.md; 37/37 odak suite; Docker runtime BLOCKED |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md; P04 11/11 + security/contract 90 passed/10 skipped(Docker NOT_RUN); Docker capability/egress tam kaniti NOT_RUN |
-| P05-P10 | Baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
+| P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md; odak suite 57/57 + typecheck |
+| P05-B | Repair feedback/butcesi, resume provenance, mode ve toplam target butcesi | TODO | aktif gorev PR06; P05-A sonrasi kalan is |
+| P06-P10 | Frozen baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
 
@@ -56,7 +58,7 @@
 - F17: release-verify referans hash kontrolu + 214 kimlik ledger (N58-N59)
 - F18: lint 0 error + tam suite kanitlari (N57)
 
-## Test kaniti (2026-10-11, son HEAD 1925b12 calisma agaci)
+## Test kaniti (tarihsel baseline; son P05-A kaniti checkpoint'tedir)
 
 - TypeScript: 56 dosya, **473/473 PASSED** (unit + integration + contract + security + benchmark; son tam kosu)
 - lint: **0 errors** (son kosuda 88 warning); typecheck: TEMIZ; build: TEMIZ
@@ -87,6 +89,6 @@
 
 ## Sonraki somut is
 
-- P05: tek resolver, model/mode, persistent butce ve repair (PR06); kullanici onayli commit/push ayri
+- P05-B: repair feedback ve bounded repair, accepted checkpoint'ten baseline/coverage, resume model kontrati ve toplam target butcesi; P05-A checkpoint'ini referans al
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

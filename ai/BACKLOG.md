@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P04 local olarak dogrulandi; P05-P10 suruyor.
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P04 ve P05-A local olarak dogrulandi; P05-B-P10 suruyor.
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 
 ## 004 uygulama paketleri (W00-W11)
@@ -31,7 +31,9 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P02 | Lease sahipligi, TTL/fencing, heartbeat, owned process ve checkpoint CAS | LOCAL_VERIFIED | production-005-p02-lease; 37/37 odak suite; Docker runtime BLOCKED |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | production-005-p03-checkpoint; P03/komsu suite 93/93 |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri | LOCAL_VERIFIED | production-005-p04-isolation; P04 11/11 + security/contract 90 passed/10 skipped (Docker NOT_RUN) |
-| P05-P10 | Kalan readiness, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md |
+| P05-A | Frozen concrete resolver, source-set, exact model ve deadline baglantisi | LOCAL_VERIFIED | production-005-p05a-target-resolver; 57/57 + typecheck |
+| P05-B | Repair feedback, persistent repair/target budget, resume provenance ve mode | TODO | AKTIF_GOREV.md PR06 |
+| P06-P10 | Kalan readiness, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 

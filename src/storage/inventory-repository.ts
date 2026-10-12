@@ -175,13 +175,141 @@ export class InventoryRepository {
     return this.db
       .prepare<[string, string], { fqn: string }>(
         `SELECT cs.fqn FROM code_symbols cs
-         JOIN java_packages jp ON cs.package_id = jp.id
-         JOIN modules m ON jp.module_id = m.id
-         WHERE m.snapshot_id = ? AND m.relative_path = ? AND cs.kind IN ('class', 'interface', 'enum', 'record')
-         ORDER BY cs.fqn`,
+          JOIN java_packages jp ON cs.package_id = jp.id
+          JOIN modules m ON jp.module_id = m.id
+          WHERE m.snapshot_id = ? AND m.relative_path = ? AND cs.kind IN ('class', 'interface', 'enum', 'record')
+          ORDER BY cs.fqn`,
       )
       .all(snapshotId, moduleRelativePath)
       .map((row) => row.fqn);
+  }
+
+  /**
+   * P05/PR06: TEK typed frozen resolver.
+   * class/package/module selectorleri snapshot kimligina bagli concrete
+   * {fqn, module_path, source_set, relative_path, snapshot_id} listesine cozer.
+   *
+   * - class: exact FQCN once; simple name tekil eslesirse kabul; coklu eslesme
+   *   AMBIGUOUS_TARGET olarak dondurulur (sessiz secim yok).
+   * - package: exact package boundary (nokta siniri); alt paket degil (subpackages
+   *   parametresi explicit ise dahil).
+   * - module: modul relative path'i exact; sinif adina GORE arama yok (module
+   *   selector yeniden sinif gibi aratilmez).
+   * - source_set: java_packages.source_set (envanter yaziminda module source/test
+   *   root'una gore belirler); dosya adi "Test" suffix'i kanit degil.
+   */
+  resolveFrozenTargets(
+    snapshotId: string,
+    inputs: Array<{ selector: string; kind: "class" | "package" | "module"; subpackages?: boolean }>,
+  ): {
+    targets: Array<{ fqn: string; module_path: string; source_set: "main" | "test" | "unknown"; relative_path: string; symbol_id: string }>;
+    bySelector: Array<{ selector: string; kind: "class" | "package" | "module"; concrete: Array<{ fqn: string; module_path: string; source_set: "main" | "test" | "unknown"; relative_path: string; symbol_id: string }> }>;
+    ambiguous: Array<{ selector: string; candidates: string[] }>;
+    not_found: string[];
+  } {
+    const targets: Array<{ fqn: string; module_path: string; source_set: "main" | "test" | "unknown"; relative_path: string; symbol_id: string }> = [];
+    const bySelector: Array<{ selector: string; kind: "class" | "package" | "module"; concrete: Array<{ fqn: string; module_path: string; source_set: "main" | "test" | "unknown"; relative_path: string; symbol_id: string }> }> = [];
+    const ambiguous: Array<{ selector: string; candidates: string[] }> = [];
+    const not_found: string[] = [];
+    const seenTarget = new Set<string>();
+
+    const sourceSetOf = (value: string): "main" | "test" | "unknown" =>
+      value === "test" ? "test" : value === "main" ? "main" : "unknown";
+
+    const addMatch = (input: { selector: string; kind: "class" | "package" | "module" }, m: { symbol_id: string; fqn: string; module_path: string; source_set: string; relative_path: string }): void => {
+      const concrete = {
+        fqn: m.fqn,
+        module_path: m.module_path,
+        source_set: sourceSetOf(m.source_set),
+        relative_path: m.relative_path,
+        symbol_id: m.symbol_id,
+      };
+      const group = bySelector.find((g) => g.selector === input.selector && g.kind === input.kind);
+      if (group) {
+        group.concrete.push(concrete);
+      } else {
+        bySelector.push({ selector: input.selector, kind: input.kind, concrete: [concrete] });
+      }
+      const key = `${m.fqn}|${m.module_path}|${concrete.source_set}|${m.relative_path}`;
+      if (!seenTarget.has(key)) {
+        seenTarget.add(key);
+        targets.push({ fqn: m.fqn, module_path: m.module_path, source_set: concrete.source_set, relative_path: m.relative_path, symbol_id: m.symbol_id });
+      }
+    };
+
+    const symbolRow = `SELECT cs.id AS symbol_id, cs.fqn, m.relative_path AS module_path, jp.source_set, cs.relative_path
+      FROM code_symbols cs
+      JOIN java_packages jp ON cs.package_id = jp.id
+      JOIN modules m ON jp.module_id = m.id
+      WHERE m.snapshot_id = ?`;
+
+    for (const input of inputs) {
+      if (input.kind === "class") {
+        const esc = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
+        // Nested binary ad: `Outer$Inner` selector'u source FQCN `p.Outer.Inner`
+        // ile exact eslesir ($ -> . normalize).
+        const effectiveSelector = input.selector.includes("$") ? input.selector.replace(/\$/g, ".") : input.selector;
+        // FQCN (nokta icerir) birebir; simple name yalniz SON TEK eslesir
+        // (`%.Name`): suffix oyunu yok, `OtherPaymentService` `PaymentService`
+        // selector'una eslemez. Noktali FQCN icin LIKE kullanilMAZ.
+        const condition = effectiveSelector.includes(".")
+          ? `(cs.fqn = ?)`
+          : `(cs.fqn = ? OR cs.fqn LIKE ? ESCAPE '\\')`;
+        const params: unknown[] = effectiveSelector.includes(".") ? [effectiveSelector] : [effectiveSelector, `%.${esc(effectiveSelector)}`];
+        const rows = this.db
+          .prepare<[string, ...unknown[]], { symbol_id: string; fqn: string; module_path: string; source_set: string; relative_path: string }>(
+            `${symbolRow} AND ${condition} ORDER BY cs.fqn`,
+          )
+          .all(snapshotId, ...params);
+        if (rows.length === 0) {
+          not_found.push(input.selector);
+          continue;
+        }
+        if (rows.length > 1) {
+          ambiguous.push({ selector: input.selector, candidates: rows.map((m) => `${m.module_path}: ${m.fqn} (${m.source_set})`) });
+          continue;
+        }
+        addMatch(input, rows[0]!);
+        continue;
+      }
+      if (input.kind === "package") {
+        const base = input.selector.endsWith(".") ? input.selector.slice(0, -1) : input.selector;
+        const esc = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
+        // Package boundary: nokta siniri korunur; `packAB` prefix cakismasi sizmaz.
+        // exact: paket adi birebir; subpackages: paket + alt paketler (explicit policy).
+        const condition = input.subpackages
+          ? `(jp.qualified_name = ? OR jp.qualified_name LIKE ? ESCAPE '\\')`
+          : `(jp.qualified_name = ?)`;
+        const params: unknown[] = input.subpackages ? [base, `${esc(base)}.%`] : [base];
+        const rows = this.db
+          .prepare<[string, ...unknown[]], { symbol_id: string; fqn: string; module_path: string; source_set: string; relative_path: string }>(
+            `${symbolRow} AND ${condition} ORDER BY cs.fqn`,
+          )
+          .all(snapshotId, ...params);
+        if (rows.length === 0) {
+          not_found.push(input.selector);
+          continue;
+        }
+        for (const m of rows) {
+          addMatch(input, m);
+        }
+        continue;
+      }
+      // module: relative path exact; sinif adina gore arama yok
+      const rows = this.db
+        .prepare<[string, string], { symbol_id: string; fqn: string; module_path: string; source_set: string; relative_path: string }>(
+          `${symbolRow} AND m.relative_path = ? ORDER BY cs.fqn`,
+        )
+        .all(snapshotId, input.selector);
+      if (rows.length === 0) {
+        not_found.push(input.selector);
+        continue;
+      }
+      for (const m of rows) {
+        addMatch(input, m);
+      }
+    }
+    return { targets, bySelector, ambiguous, not_found };
   }
 
   /**

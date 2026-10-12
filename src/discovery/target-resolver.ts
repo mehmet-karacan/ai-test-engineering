@@ -6,7 +6,115 @@
  * - Test kaynak siniflari production target listesine GIREMEZ.
  * - Nested binary ad `$` ile source FQCN farki korunur.
  */
+import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
+
+/**
+ * P05/PR06: concrete hedef kimligi - snapshot'a bagli donusmez (frozen) tip.
+ * handleTestStart, job_targets, GoalContract, runtime ve resume BIRLIKTE bu tipte
+ * calisir; selector yeniden cozulmez, class/package/module sinifi ayrisimi
+ * source-set tabanlidir (dosya adi "Test" suffix'i YALNIZca kanit degil).
+ */
+export interface ConcreteTarget {
+  fqn: string;
+  module_path: string;
+  source_set: "main" | "test" | "unknown";
+  relative_path: string;
+  snapshot_id: string;
+}
+
+export interface FrozenTargetList {
+  /** Deterministik digest: concrete hedeflerin sirlanmis JSON hash'i. */
+  digest: string;
+  targets: ConcreteTarget[];
+  selector_count: number;
+  target_count: number;
+  max_concrete_targets: number;
+}
+
+export function sha256Hex(data: string): string {
+  return createHash("sha256").update(data, "utf8").digest("hex");
+}
+
+/**
+ * Frozen concrete target listesi kurar ve fail-closed kontrol yapar.
+ * - Bos liste (hedef yok) RED.
+ * - Duplicate (fqn + module_path + source_set + relative_path + snapshot_id) RED.
+ * - Expansion limiti (max_concrete_targets) asilirsa RED.
+ * - source_set "unknown" (belirsiz source-set) RED.
+ * Siralama deterministik: digest her kosumda ayni sonuca ulasir.
+ */
+export function buildFrozenTargetList(
+  targets: ConcreteTarget[],
+  snapshotId: string,
+  selectorCount: number,
+  maxConcreteTargets: number,
+): FrozenTargetList {
+  if (targets.length === 0) {
+    throw new AppError("BLOCKED_TARGET_RESOLUTION", "Frozen hedef listesi bos; hedef cozumleme sembol uretemedi", {
+      reason_code: "NO_TARGETS",
+    });
+  }
+  for (const target of targets) {
+    if (target.snapshot_id !== snapshotId) {
+      throw new AppError("BLOCKED_TARGET_RESOLUTION", `Hedef snapshot kimligi uymuyor: ${target.fqn}`, {
+        reason_code: "SNAPSHOT_MISMATCH",
+      });
+    }
+    if (target.source_set === "unknown") {
+      throw new AppError("BLOCKED_TARGET_RESOLUTION", `Belirsiz source-set hedefi kabul edilmez: ${target.fqn}`, {
+        reason_code: "AMBIGUOUS_SOURCE_SET",
+      });
+    }
+  }
+  const seen = new Set<string>();
+  for (const target of targets) {
+    const key = `${target.fqn}|${target.module_path}|${target.source_set}|${target.relative_path}|${target.snapshot_id}`;
+    if (seen.has(key)) {
+      throw new AppError("BLOCKED_TARGET_RESOLUTION", `Mukerrer concrete hedef: ${target.fqn}`, {
+        reason_code: "DUPLICATE_TARGET",
+      });
+    }
+    seen.add(key);
+  }
+  if (targets.length > maxConcreteTargets) {
+    throw new AppError(
+      "BLOCKED_TARGET_RESOLUTION",
+      `Expansion limiti asildi: ${targets.length} concrete hedef > ${maxConcreteTargets} (max_concrete_targets)`,
+      { reason_code: "EXPANSION_LIMIT_EXCEEDED" },
+    );
+  }
+  const ordered = [...targets].sort((a, b) =>
+    `${a.fqn}|${a.module_path}`.localeCompare(`${b.fqn}|${b.module_path}`),
+  );
+  return {
+    digest: sha256Hex(JSON.stringify(ordered.map((t) => [t.fqn, t.module_path, t.source_set, t.relative_path, t.snapshot_id]))),
+    targets: ordered,
+    selector_count: selectorCount,
+    target_count: ordered.length,
+    max_concrete_targets: maxConcreteTargets,
+  };
+}
+
+/**
+ * P05/PR06: concrete hedeflerden (selector baglantisiz) frozen digest yeniden uretir.
+ * Dispatcher, goal'daki concrete listeyi (duplicate'lari birakarak) bu yolla siralar
+ * ve servis tarafindaki concrete_targets_digest ile birebir karsilastirir. Ayni
+ * concrete'in birden fazla selector'a uymasi digest'i bozamaz (set semantigi).
+ */
+export function rebuildFrozenTargetDigest(concretes: ConcreteTarget[]): string {
+  const unique = new Map<string, ConcreteTarget>();
+  for (const c of concretes) {
+    const key = `${c.fqn}|${c.module_path}|${c.source_set}|${c.relative_path}|${c.snapshot_id}`;
+    if (!unique.has(key)) {
+      unique.set(key, c);
+    }
+  }
+  const ordered = [...unique.values()].sort((a, b) =>
+    `${a.fqn}|${a.module_path}`.localeCompare(`${b.fqn}|${b.module_path}`),
+  );
+  return sha256Hex(JSON.stringify(ordered.map((t) => [t.fqn, t.module_path, t.source_set, t.relative_path, t.snapshot_id])));
+}
 
 export interface ResolvableSymbol {
   symbol_id: string;

@@ -18,11 +18,13 @@ import type { AppConfig } from "../configuration/config-schema.js";
 import { SourceSnapshot, computeSourceIdentity } from "../discovery/source-snapshot.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
+import { buildFrozenTargetList, type ConcreteTarget } from "../discovery/target-resolver.js";
 import { InventoryQueryService } from "./inventory-query.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { readCoverageAfterRun, basisPointsFrom } from "../orchestration/candidate-loop.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
+import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
 
 export const PARSER_VERSION = "statik-tarama-1";
@@ -181,17 +183,36 @@ export async function handleProjectInspect(input: unknown, services: Services): 
   };
 }
 
+/**
+ * P05/PR06: test_start cevabindaki concrete hedef ozeti.
+ * Baslangicta kullaniciya donen hedef listesi, runtime/resume/rapor
+ * ile birebir ayni frozen listedir (PP23).
+ */
+export interface ResolvedTargetView {
+  selector: string;
+  kind: string;
+  matches: number;
+  fqns: string[];
+  module_path: string | null;
+  source_set: string | null;
+  relative_path: string | null;
+  snapshot_id: string;
+  concrete_digest: string;
+  symbol_id: string | null;
+}
+
 export interface TestStartResult {
   job_id: string;
   lifecycle: string;
   phase: string;
   created: boolean;
-  resolved_targets?: Array<{ selector: string; matches: number; fqns: string[] }>;
+  resolved_targets?: ResolvedTargetView[];
   ambiguous?: Array<{ selector: string; candidates: string[] }>;
 }
 
 export async function handleTestStart(input: unknown, services: Services): Promise<TestStartResult> {
   const parsed = TestStartInputSchema.parse(input);
+  const requestedModel = parsed.model_profile ? parseExactModelSpec(parsed.model_profile) : null;
   const canonicalRoot = canonicalProjectRoot(parsed.project_root);
   assertAllowedRoot(services.config, canonicalRoot);
   const { storage, jobs } = requireServices(services);
@@ -209,8 +230,9 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   const startManifest = new SourceSnapshot(canonicalRoot).buildManifest();
   const startIdentity = computeSourceIdentity(canonicalRoot, startManifest);
   const snapshotId = inventory.writeSnapshot(location.id, startIdentity.head_commit, startIdentity.dirty_digest, startIdentity.source_digest, startIdentity.build_digest, PARSER_VERSION);
-  let resolvedTargets: Array<{ selector: string; matches: number; fqns: string[] }> | undefined;
-  let ambiguous: Array<{ selector: string; candidates: string[] }> | undefined;
+  let resolvedTargets: ResolvedTargetView[] | undefined;
+  let frozen: import("../discovery/target-resolver.js").FrozenTargetList | undefined;
+  let bySelectorGroups: Array<{ selector: string; kind: "class" | "package" | "module"; concrete: Array<{ fqn: string; module_path: string; source_set: "main" | "test" | "unknown"; relative_path: string; symbol_id: string }> }> | undefined;
 
   if (existsSync(resolve(canonicalRoot, "pom.xml"))) {
     try {
@@ -248,68 +270,71 @@ export async function handleTestStart(input: unknown, services: Services): Promi
         }
       }
 
-      const ambiguousList: Array<{ selector: string; candidates: string[] }> = [];
-      const resolvedList: Array<{ selector: string; matches: number; fqns: string[] }> = [];
-      for (const target of parsed.targets) {
-        if (target.kind === "package") {
-          // K06/B09 + W03/F05: package hedefi boundary-aware cosulur (nokta siniri korunur;
-          // packAB prefix cakismasi sizmaz); somut class listesine acilir:
-          const pkgClasses = inventory.resolvePackageBoundary(snapshotId, target.selector);
-          if (pkgClasses.length === 0) {
-            throw new AppError("INVALID_PARAMETERS", `Paket hedefi icinde sinif bulunamadi: ${target.selector}`);
-          }
-          resolvedList.push({ selector: target.selector, matches: pkgClasses.length, fqns: pkgClasses.map((m) => m.fqn) });
-          continue;
-        }
-        if (target.kind === "module") {
-          // K06/B09: module hedefi o moduldeki tum siniflara acilir:
-          const moduleClasses = inventory.listModuleClasses(snapshotId, target.selector);
-          if (moduleClasses.length === 0) {
-            throw new AppError("INVALID_PARAMETERS", `Modul hedefi icinde sinif bulunamadi: ${target.selector}`);
-          }
-          resolvedList.push({ selector: target.selector, matches: moduleClasses.length, fqns: moduleClasses });
-          continue;
-        }
-        if (target.kind !== "class") {
-          continue;
-        }
-        const matches = inventory.resolveTarget(snapshotId, target.selector);
-        if (matches.length === 0) {
-          throw new AppError("INVALID_PARAMETERS", `Hedef sinif bulunamadi: ${target.selector}`);
-        }
-        if (matches.length > 1) {
-          const byModule = new Map<string, string[]>();
-          for (const match of matches) {
-            const list = byModule.get(match.module_relative_path) ?? [];
-            list.push(match.fqn);
-            byModule.set(match.module_relative_path, list);
-          }
-          if (byModule.size > 1) {
-            ambiguousList.push({ selector: target.selector, candidates: matches.map((m) => `${m.module_relative_path}: ${m.fqn}`) });
-            continue;
-          }
-        }
-        resolvedList.push({ selector: target.selector, matches: matches.length, fqns: matches.map((m) => m.fqn) });
+      // P05/PR06: TEK typed resolver - class/package/module ayni donusmez
+      // (frozen) concrete listeden cozulur; module yeniden sinif gibi aratilmaz;
+      // test/production ayrisimi source-set tabanlidir (Test suffix'i kanit degil).
+      const resolution = inventory.resolveFrozenTargets(snapshotId, parsed.targets.map((t) => ({ selector: t.selector, kind: t.kind })));
+      if (resolution.not_found.length > 0) {
+        throw new AppError("BLOCKED_TARGET_RESOLUTION", `Hedef cozumlenemedi: ${resolution.not_found.join(", ")}`, {
+          reason_code: "TARGET_NOT_FOUND",
+          not_found: resolution.not_found,
+        });
       }
-      if (ambiguousList.length > 0) {
-        ambiguous = ambiguousList;
+      if (resolution.ambiguous.length > 0) {
+        throw new AppError("BLOCKED_TARGET_RESOLUTION", "Hedef tek anlama cozumlenemedi; aday listesi dondu", {
+          reason_code: "AMBIGUOUS_TARGET",
+          ambiguous: resolution.ambiguous,
+        });
       }
-      resolvedTargets = resolvedList;
+      // P05/PR06: TEK resolver - class/package/module ayni donusmez (frozen)
+      // concrete listeden cozulur. Baslangicta kullaniciya donen hedef listesi
+      // runtime/resume/rapor ile ayni listedir (PP23); module yeniden sinif
+      // gibi aratilmaz; test/production ayrisimi source-set tabanlidir.
+      const toConcrete = (c: { fqn: string; module_path: string; source_set: "main" | "test" | "unknown"; relative_path: string }): ConcreteTarget => ({
+        fqn: c.fqn,
+        module_path: c.module_path,
+        source_set: c.source_set,
+        relative_path: c.relative_path,
+        snapshot_id: snapshotId,
+      });
+      const frozenList = buildFrozenTargetList(
+        resolution.targets.map(toConcrete),
+        snapshotId,
+        parsed.targets.length,
+        services.config.discovery.max_concrete_targets,
+      );
+      frozen = frozenList;
+      bySelectorGroups = resolution.bySelector;
+      // Selector -> concrete baglantisi resolver'in bySelector grublamasindan gelir;
+      // baslangic/contract/goal ayni concrete seti kullanir.
+      const selectorGroups = resolution.bySelector.filter((g) => g.selector !== undefined);
+      const groupFor = (t: { selector: string; kind: string }) => selectorGroups.find((g) => g.selector === t.selector && g.kind === t.kind)?.concrete ?? [];
+      resolvedTargets = parsed.targets.map((t) => {
+        const concreteMatches = groupFor(t).map(toConcrete);
+        return {
+          selector: t.selector,
+          kind: t.kind,
+          matches: concreteMatches.length,
+          fqns: concreteMatches.map((c) => c.fqn),
+          module_path: concreteMatches.length === 1 ? concreteMatches[0]!.module_path : null,
+          source_set: concreteMatches.length === 1 ? concreteMatches[0]!.source_set : null,
+          relative_path: concreteMatches.length === 1 ? concreteMatches[0]!.relative_path : null,
+          snapshot_id: snapshotId,
+          concrete_digest: frozenList.digest,
+          symbol_id: concreteMatches.length === 1 ? groupFor(t)[0]!.symbol_id ?? null : null,
+        };
+      });
     } catch (error) {
       if (!(error instanceof AppError)) {
         throw error;
       }
-      if (error.code === "INVALID_PARAMETERS") {
+      // P05/PR06: hedef cozumleme blocker'lar (not found/ambiguous/expansion/
+      // source-set) fail-closed; yutulamaz. POM keşif hatasi disinda INVALID_PARAMETERS
+      // da propagate olur (onceki davranis korunur).
+      if (error.code === "BLOCKED_TARGET_RESOLUTION" || error.code === "INVALID_PARAMETERS") {
         throw error;
       }
     }
-  }
-
-  if (ambiguous && ambiguous.length > 0) {
-    throw new AppError("INVALID_PARAMETERS", "Hedef tek anlama cozumlenemedi; aday listesi dondu", {
-      reason_code: "AMBIGUOUS_TARGET",
-      ambiguous,
-    });
   }
 
   const digest = requestDigest({
@@ -317,6 +342,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     targets: parsed.targets,
     coverage: parsed.coverage,
     mode: parsed.mode,
+    model_profile: parsed.model_profile,
     idempotency: parsed.idempotency_key,
   });
 
@@ -341,6 +367,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   const job = jobs.createJob({
     locationId: location.id,
     requestDigest: digest,
+    sourceSnapshotId: snapshotId,
     phase: "discovery",
   });
 
@@ -351,20 +378,57 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     origin: "handleTestStart",
   });
 
-  // K02/B05: job_targets'a hedefleri kalici kaydet (resume GoalContract kaynagi)
+  // K02/B05 + P05/PR06: job_targets'a hedefleri frozen concrete kimlikle kalici kaydet
+  // (resume GoalContract kaynagi). Tek eslesen hedefte concrete alanlar dolu;
+  // package/module expansion'da concrete alanlar selector satirinda null kalir ve
+  // frozen liste concrete_digest ile sabitlenir (resolver yeniden sinif aratmaz).
   const insertTarget = storage.db.prepare(
-    "INSERT INTO job_targets (id, job_id, symbol_id, module_id, selector, target_kind, resolved_scope_digest, line_target_bps, branch_target_bps, created_at) VALUES (?, ?, NULL, NULL, ?, ?, NULL, ?, ?, ?)",
+    "INSERT INTO job_targets (id, job_id, symbol_id, module_id, selector, target_kind, resolved_scope_digest, line_target_bps, branch_target_bps, resolved_fqn, module_path, source_set, relative_path, snapshot_id, concrete_digest, created_at) VALUES (?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
   for (const t of parsed.targets) {
+    const view = resolvedTargets?.find((r) => r.selector === t.selector && r.kind === t.kind);
+    const singleFqn = view && view.matches === 1 ? view.fqns[0] ?? null : null;
     insertTarget.run(
       randomUUID(),
       job.id,
+      view?.symbol_id ?? null,
       t.selector,
       t.kind,
       percentToBasisPoints(parsed.coverage.percent),
       parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : null,
+      singleFqn,
+      view?.module_path ?? null,
+      view?.source_set ?? null,
+      view?.relative_path ?? null,
+      view?.snapshot_id ?? null,
+      view?.concrete_digest ?? null,
       Date.now(),
     );
+  }
+  // P05/PR06: package/module expansion'in tum concrete listesi selector bagiyla
+  // kalici tutulur; resume selector'u yeniden cozumlemez. Ayni concrete iki
+  // selector'a ait olabilir, bu nedenle tablo anahtarinda selector bulunur.
+  if (bySelectorGroups && frozen) {
+    const insertConcrete = storage.db.prepare(
+      "INSERT INTO job_target_concretes (job_id, selector, target_kind, fqn, module_path, source_set, relative_path, snapshot_id, concrete_digest, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    const now = Date.now();
+    for (const group of bySelectorGroups) {
+      for (const concrete of group.concrete) {
+        insertConcrete.run(
+          job.id,
+          group.selector,
+          group.kind,
+          concrete.fqn,
+          concrete.module_path,
+          concrete.source_set,
+          concrete.relative_path,
+          snapshotId,
+          frozen.digest,
+          now,
+        );
+      }
+    }
   }
 
   // D02/F01: dispatcher'a gecici dispatch - job'a ait asamalar gercekten yurutulur.
@@ -378,13 +442,39 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
     workspaceRoot: services.config.storage.root,
   });
+  // P05/PR06: goal hedefleri frozen concrete listeden gelir; dispatcher bu listeyi
+  // yeniden cozmek icin selector aramasi yapmaz (tek resolver).
+  const lineBps = percentToBasisPoints(parsed.coverage.percent);
+  const branchBps = parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : 0;
+  const concreteForSelector = (t: { selector: string; kind: string }): ConcreteTarget[] => {
+    if (!bySelectorGroups || !snapshotId) {
+      return [];
+    }
+    const group = bySelectorGroups.find((g) => g.selector === t.selector && g.kind === t.kind);
+    return (group?.concrete ?? []).map((c) => ({
+      fqn: c.fqn,
+      module_path: c.module_path,
+      source_set: c.source_set,
+      relative_path: c.relative_path,
+      snapshot_id: snapshotId,
+    }));
+  };
   const goalTargets = parsed.targets.map((t) => ({
     selector: t.selector,
     kind: t.kind,
-    line_target_bps: percentToBasisPoints(parsed.coverage.percent),
-    branch_target_bps: parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : 0,
+    concrete_targets: concreteForSelector(t),
+    line_target_bps: lineBps,
+    branch_target_bps: branchBps,
   }));
   const goal = dispatcher.buildGoalContract(job, goalTargets, canonicalRoot);
+  // P05/PR06: kullanicinin istedigi provider/model GoalContract'a birebir tasinir.
+  // Worker bu kimligi prompt cagrisi sirasinda tekrar dogrular; sessiz default yoktur.
+  goal.model_profile = parsed.model_profile ?? null;
+  // P05/PR06: frozen concrete hedef liste digest'i goal'a sabitlenir;
+  // dispatcher dispatch'te ayni digest'i yeniden uretip dogrular (PP23).
+  if (frozen) {
+    goal.concrete_targets_digest = frozen.digest;
+  }
 
   // FIN01/K02/9.1: Immutable execution contract; is baslamadan sabitlenir.
   // Secretsiz config snapshot'i job'a baglanir; sonradan global config degisince calisan job'un
@@ -398,15 +488,32 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     request_digest: digest,
     idempotency_key: parsed.idempotency_key ?? null,
     source_snapshot_digest: snapshotId,
-    resolved_targets: goalTargets.map((t) => ({
-      selector: t.selector,
-      kind: t.kind as "class" | "package" | "module",
-      resolved_fqn: null,
-      line_target_bps: t.line_target_bps,
-      branch_target_bps: t.branch_target_bps,
-    })),
+    // P05/PR06: contract concrete hedef bilgisiyle kurulur. Class hedefinde
+    // tek concrete; package/module expansion'da concrete alanlar selector
+    // seviyesinde null kalir (frozen liste concrete_digest ile job_targets'ta).
+    resolved_targets: goalTargets.map((t) => {
+      const single = t.concrete_targets.length === 1 ? t.concrete_targets[0]! : null;
+      return {
+        selector: t.selector,
+        kind: t.kind as "class" | "package" | "module",
+        resolved_fqn: single ? single.fqn : null,
+        module_path: single ? single.module_path : null,
+        source_set: single ? single.source_set : null,
+        relative_path: single ? single.relative_path : null,
+        snapshot_id: single ? single.snapshot_id : null,
+        concrete_targets: t.concrete_targets.map((c) => ({
+          fqn: c.fqn,
+          module_path: c.module_path,
+          source_set: c.source_set,
+          relative_path: c.relative_path,
+          snapshot_id: c.snapshot_id,
+        })),
+        line_target_bps: t.line_target_bps,
+        branch_target_bps: t.branch_target_bps,
+      };
+    }),
     runner_kind: runnerKind,
-    model_profile: parsed.model_profile ? { provider_id: parsed.model_profile.split("/")[0] ?? "", model_id: parsed.model_profile.split("/").slice(1).join("/") } : null,
+    model_profile: requestedModel,
     policy_digest: configSnapshot.digest,
     config_digest: configSnapshot.digest,
     config_schema_version: services.config.schema_version,

@@ -327,18 +327,52 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
    UNIQUE (checkpoint_id, blob_path)
  );
 
- CREATE INDEX IF NOT EXISTS idx_checkpoint_blobs_artifact ON checkpoint_blobs(artifact_id);
+  CREATE INDEX IF NOT EXISTS idx_checkpoint_blobs_artifact ON checkpoint_blobs(artifact_id);
 
- CREATE TABLE IF NOT EXISTS source_identities (
-   snapshot_id TEXT PRIMARY KEY REFERENCES project_snapshots(id),
-   head_commit TEXT,
-   dirty_digest TEXT,
-   source_digest TEXT NOT NULL,
-   build_digest TEXT NOT NULL,
-   created_at INTEGER NOT NULL
- );
- `,
-   },
+  CREATE TABLE IF NOT EXISTS source_identities (
+    snapshot_id TEXT PRIMARY KEY REFERENCES project_snapshots(id),
+    head_commit TEXT,
+    dirty_digest TEXT,
+    source_digest TEXT NOT NULL,
+    build_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  `,
+    },
+    {
+      version: 4,
+      name: "job-targets-concrete-frozen",
+      sql: `
+  -- P05/PR06: job_targets artik frozen concrete hedef kimligini tasir.
+  -- resolved_fqn/module_path/source_set/relative_path/snapshot_id concrete hedefi
+  -- tek kayit olarak sabitler; concrete_digest frozen liste digest'idir.
+  ALTER TABLE job_targets ADD COLUMN resolved_fqn TEXT;
+  ALTER TABLE job_targets ADD COLUMN module_path TEXT;
+  ALTER TABLE job_targets ADD COLUMN source_set TEXT CHECK (source_set IS NULL OR source_set IN ('main', 'test', 'unknown'));
+  ALTER TABLE job_targets ADD COLUMN relative_path TEXT;
+  ALTER TABLE job_targets ADD COLUMN snapshot_id TEXT;
+  ALTER TABLE job_targets ADD COLUMN concrete_digest TEXT;
+
+  -- P05/PR06: job'un TAM frozen concrete hedef listesi (her concrete hedef bir satir).
+  -- Package/module expansion'da job_targets selector satiri concrete alanlari tasimaz;
+  -- resume/dispatch bu tablodan ayni frozen listeyi geri kurar (PP23).
+  CREATE TABLE IF NOT EXISTS job_target_concretes (
+    job_id TEXT NOT NULL REFERENCES test_jobs(id),
+    selector TEXT NOT NULL,
+    target_kind TEXT NOT NULL,
+    fqn TEXT NOT NULL,
+    module_path TEXT NOT NULL,
+    source_set TEXT NOT NULL CHECK (source_set IN ('main', 'test', 'unknown')),
+    relative_path TEXT NOT NULL,
+    snapshot_id TEXT NOT NULL,
+    concrete_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (job_id, selector, fqn, module_path, relative_path)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_job_target_concretes_job ON job_target_concretes(job_id);
+  `,
+    },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

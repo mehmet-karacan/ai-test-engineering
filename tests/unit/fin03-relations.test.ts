@@ -80,8 +80,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     };
   }
 
-  it("schema v3: coverage_snapshots + worker_attempts + candidate_iterations + benchmark_trials + checkpoint_blobs var", () => {
-    expect(storage.schemaVersion()).toBe(3);
+  it("schema v4: coverage_snapshots + worker_attempts + candidate_iterations + benchmark_trials + checkpoint_blobs + job_target_concretes var", () => {
+    expect(storage.schemaVersion()).toBe(4);
     const tables = storage.db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
@@ -91,6 +91,16 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     expect(tables).toContain("candidate_iterations");
     expect(tables).toContain("benchmark_trials");
     expect(tables).toContain("checkpoint_blobs");
+    // P05/PR06: frozen concrete hedef listesi tablosu
+    expect(tables).toContain("job_target_concretes");
+    // P05/PR06: job_targets concrete sutunlari
+    const targetCols = storage.db
+      .prepare<[], { name: string }>("PRAGMA table_info(job_targets)")
+      .all()
+      .map((r) => r.name);
+    for (const col of ["resolved_fqn", "module_path", "source_set", "relative_path", "snapshot_id", "concrete_digest"]) {
+      expect(targetCols).toContain(col);
+    }
   });
 
   /** P03: manifest accepted_changes'i iceren publish icin immutable accepted blob. */
@@ -291,7 +301,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("migration idempotent: migrate tekrar cagrildiginda hata yok", () => {
     expect(() => storage.migrate()).not.toThrow();
-    expect(storage.schemaVersion()).toBe(3);
+    expect(storage.schemaVersion()).toBe(4);
   });
 
   it("future schema fail-closed: bilinmeyen yuksek version yazmayi durdurur", () => {

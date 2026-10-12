@@ -28,6 +28,20 @@ interface OpenCodeConfig {
   small_model?: string;
 }
 
+/** Provider/model kimligini tahmin etmeden, kullanici girdisindeki bicimi koruyarak ayirir. */
+export function parseExactModelSpec(modelSpec: string): { provider_id: string; model_id: string } {
+  const slashIndex = modelSpec.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === modelSpec.length - 1) {
+    throw new AppError("INVALID_PARAMETERS", `Model formati provider/model olmali: ${modelSpec}`);
+  }
+  const providerId = modelSpec.slice(0, slashIndex);
+  const modelId = modelSpec.slice(slashIndex + 1);
+  if (providerId.trim() !== providerId || modelId.trim() !== modelId || providerId.includes(" ") || modelId.includes(" ")) {
+    throw new AppError("INVALID_PARAMETERS", `Model kimligi birebir ve bosluksuz olmali: ${modelSpec}`);
+  }
+  return { provider_id: providerId, model_id: modelId };
+}
+
 function parseEnvReference(value: string | undefined): string | null {
   if (!value) {
     return null;
@@ -60,12 +74,7 @@ export function readWorkerProfileFromOpencodeConfig(configPath?: string, request
     throw new AppError("INVALID_PARAMETERS", "Model secimi yok (config.model ve requestedModel eksik)");
   }
 
-  const slashIndex = modelSpec.indexOf("/");
-  if (slashIndex <= 0) {
-    throw new AppError("INVALID_PARAMETERS", `Model formati provider/model olmali: ${modelSpec}`);
-  }
-  const providerId = modelSpec.slice(0, slashIndex);
-  const modelId = modelSpec.slice(slashIndex + 1);
+  const { provider_id: providerId, model_id: modelId } = parseExactModelSpec(modelSpec);
 
   const provider = config.provider?.[providerId];
   if (!provider) {

@@ -35,6 +35,14 @@ export const AppConfigSchema = z.object({
   storage: StorageConfigSchema,
   coverage_defaults: CoverageDefaultsSchema,
   budgets: BudgetDefaultsSchema,
+  /**
+   * P05/PR06: frozen concrete hedef listesi icin maximum sembol sayisi.
+   * Package/module expansion'i somut hedef sayisina gore sinirlar; asilinsa
+   * typed BLOCKED_TARGET_RESOLUTION (EXPANSION_LIMIT_EXCEEDED) fail-closed.
+   */
+  discovery: z.object({
+    max_concrete_targets: z.number().int().min(1).max(10000).default(500),
+  }).default({ max_concrete_targets: 500 }),
   worker_profiles: z.array(WorkerProfileSchema).max(16).default([]),
   default_worker_profile: z.string().max(128).optional(),
   allowed_project_roots: z.array(z.string().min(1).max(1024)).max(64).default([]),

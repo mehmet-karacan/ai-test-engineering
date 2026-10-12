@@ -218,6 +218,8 @@ export interface IterateOptions {
   generate_candidate: () => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
+  /** PR06/PP26: tum aday ve repair denemeleri icin job'a ait mutlak deadline. */
+  deadline_at?: number;
   /** D05/F04: kabul edilen aday dosyalari birikimli accepted snapshot'a yazilir (opsiyonel) */
   accepted_snapshot_dir?: string;
   /** W02/F08: aday workspace'lerin kurulacagi kok (opsiyonel; varsayilan staging_root/workspaces) */
@@ -335,6 +337,7 @@ export class CandidateLoop {
     let budgetExhausted = false;
     let plateau = false;
     let outcome: IterationLoopResult["outcome"] = "IN_PROGRESS";
+    const deadlineExceeded = (): boolean => options.deadline_at !== undefined && Date.now() >= options.deadline_at;
 
     const baselineCoverage = readCoverageAfterRun(options.project_root, options.target_fqn);
     const baselineBps = basisPointsFrom(baselineCoverage?.line);
@@ -378,6 +381,11 @@ export class CandidateLoop {
     }
 
     while (iteration <= options.budget.max_candidate_iterations) {
+      if (deadlineExceeded()) {
+        budgetExhausted = true;
+        outcome = "TARGET_NOT_MET_BUDGET";
+        break;
+      }
       const candidate = await options.generate_candidate();
       if (candidate === null) {
         const generationFailure = options.generation_failure_reason?.() ?? null;
@@ -464,12 +472,19 @@ export class CandidateLoop {
       );
       let afterBps: number | null = null;
       let afterBranchBps: number | null = null;
+      const remainingDeadline = options.deadline_at === undefined ? null : Math.max(1, options.deadline_at - Date.now());
       const run: RunResult = await this.runner.run({
         working_dir: candidateWorkspace,
         goals,
-        timeout_ms: options.timeout_ms_per_run ?? 600000,
+        timeout_ms: Math.min(options.timeout_ms_per_run ?? 600000, remainingDeadline ?? Number.MAX_SAFE_INTEGER),
         log_dir: join(candidateWorkspace, "target", `aitest-iter-${iteration}-logs`),
       });
+
+      if (deadlineExceeded()) {
+        budgetExhausted = true;
+        outcome = "TARGET_NOT_MET_BUDGET";
+        break;
+      }
 
       const suites = parseSurefireReports(candidateWorkspace, options.target_module_path);
       const regressionFailures = suites.flatMap((s) => s.failed_test_names);
