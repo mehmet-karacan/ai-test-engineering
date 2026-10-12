@@ -4,6 +4,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var"
 
 Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P06 ve P07-A local olarak dogrulandi; P07-B/P08/P09/P10 kapanis paketi suruyor. Ana kalan paket sayisi: 4.
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
+P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFIED; checkpoint `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.
 
 ## 004 uygulama paketleri (W00-W11)
 
@@ -28,8 +29,8 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | --- | --- | --- | --- |
 | P00 | Sozlesme devri, arsiv/hash ve baseline | VERIFIED | production-005-p00-baseline |
 | P01 | Fail-closed release gate ve evidence manifest dogrulamasi | LOCAL_VERIFIED | production-005-p01-gate; 25/25 |
-| P02 | Lease sahipligi, TTL/fencing, heartbeat, erken donus cleanup, owned process ve checkpoint CAS | LOCAL_VERIFIED | production-005-p02-dispatch-cleanup + pr02-pr03-audit + p02p03-runtime-glm; odak 63/63 (iki oturumda yeniden dogrulandi); PP08 Docker stop + network-none probe; iki owner/hard-kill runtime NOT_RUN |
-| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | production-005-p03-checkpoint + pr02-pr03-audit + p02p03-runtime-glm; odak 63/63 (iki oturumda yeniden dogrulandi) |
+| P02 | Lease sahipligi, TTL/fencing, heartbeat, erken donus cleanup, owned process ve checkpoint CAS | RUNTIME_VERIFIED | production-005-p02-dispatch-cleanup + pr02-pr03-audit + p02p03-runtime-glm + p02p03-remaining-runtime-kanit; odak 63/63; **PP07 iki gercek child process PASS (LEASE_HELD ret + TTL ustu LEASE_LOST + monoton token 1->2, log sha 1e1fba2e); PP08 owned container docker stop/inspect EXITCODE=137 + cancel gec sonuc korumasi PASS; PP09 Linux taskkill-yok/exit3/stop-inspect PASS** |
+| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | RUNTIME_VERIFIED (live MCP resume akisi NOT_RUN) | production-005-p03-checkpoint + pr02-pr03-audit + p02p03-runtime-glm + p02p03-remaining-runtime-kanit; odak 63/63; **PP14 hard-kill 3/3 PASS (taskkill /F sonrasi onceki trusted state + WAL recovery + tmp READY sizmasi yok)** |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri ve egress fail-closed | LOCAL_VERIFIED | production-005-p04-isolation + pr04-pr06-audit; Docker isolation/capability 11/11, P04 runtime 13/13; allowlist enforcement yoksa typed blocker |
 | P05-A | Frozen concrete resolver, source-set, exact model ve deadline baglantisi | LOCAL_VERIFIED | production-005-p05a-target-resolver + pr04-pr06-audit; 57/57 + runtime target 13/13 + typecheck |
 | P05-B | Repair feedback/bounded repair, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | production-005-p05b-resume + pr04-pr06-audit; 46/46 + runtime resume/target 13/13 + typecheck |

@@ -2,7 +2,8 @@
 
 ## Son durum
 
-- GLM runtime denetimi (2026-10-12, branch `codex/glm-prod005-runtime`, HEAD `4140d9ba`): P02/P03 odak 7 dosya **63/63 PASS** yeniden dogrulandi; build exit 0; Docker 29.8.2 **linux/amd64** dogrulandi. PP08: probe container `docker stop` sonrasi `STATUS=exited, EXITCODE=137` (gercek stop/inspect kaniti). PP09: Linux container'da `uname -s=Linux` + `node -e process.exit(3)` -> exit 3 yakalandi; host spawn ENOENT event'i gozlendi. Yeni uygulanabilir kod/harness acigi yok; kod degisikligi yapilmadi. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-runtime-glm.md`. Kalan: iki-process TTL harness, tam Linux spawn-failure harness, gercek hard-kill live kaniti NOT_RUN.
+- Kalan P02/P03 runtime kanitlari (2026-10-12, branch `codex/glm-prod005-remaining`, taban `ffdf8dfb`, GLM): **PP07/PP08/PP09/PP14 RUNTIME_VERIFIED**. PP07 iki gercek Node child process ayni job/WAL DB: B `LEASE_HELD` ret (exit 2), A TTL ustu renew `LEASE_LOST` (exit 2), B monoton token 1->2 devralma (exit 0); iki kosu PASS, log SHA-256 `1e1fba2e11ada359089203eede9232db75ba5d0a77cb7709640955fdeced393c`. PP08 gercek docker stop/inspect: probe container `STATUS=exited EXITCODE=137` + cancel sonrasi gec sonuc korumasi (fin07 5/5). PP09 Linux container: `taskkill` yok (TASKKILL_NOT_FOUND), `uname -s=Linux`, exit 3 yakalandi, stop/inspect exited/137. PP14 taskkill /F hard-kill sonrasi onceki trusted state + WAL recovery + tmp READY sizmasi yok: 3/3 PASS. Odak 63/63, typecheck/build/lint PASS (0 error/90 warning). Urun kodu degisikligi YOK. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.
+- GLM runtime denetimi (2026-10-12, branch `codex/glm-prod005-runtime`, HEAD `4140d9ba`): P02/P03 odak 7 dosya **63/63 PASS** yeniden dogrulandi; build exit 0; Docker 29.8.2 **linux/amd64** dogrulandi. PP08: probe container `docker stop` sonrasi `STATUS=exited, EXITCODE=137` (gercek stop/inspect kaniti). PP09: Linux container'da `uname -s=Linux` + `node -e process.exit(3)` -> exit 3 yakalandi; host spawn ENOENT event'i gozlendi. Yeni uygulanabilir kod/harness acigi yok; kod degisikligi yapilmadi. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-runtime-glm.md`.
 - Ikinci GLM oturumu (2026-10-12, HEAD `5c07c7c` checkpoint commit'i uzerinde): odak 63/63 PASS yeniden dogrulandi (33.03 sn); Docker Server 29.8.2; PP08 `--network none` probe `iso-ok`, owned-container stop probe `Exited (137)` (probe `docker rm` ile temizlendi). Yeni kod/harness acigi yok; ikinci oturum kaydi ayni checkpoint dosyasina eklendi.
 
 - Coordinator branch: `main`; GLM model commit'i `71a9660` (main cherry-pick `e269340`), Qwen model commit'i `5df8a87` (main cherry-pick `6144e4e`) olarak entegre edildi. Push sonrasi HEAD/origin/main eslesmesi `fa2149f` ile dogrulandi.
@@ -16,7 +17,8 @@
 ## Tamamlanan son paketler
 
 - P02 dispatch early-return cleanup: heartbeat/lease ortak `finally` ile kapaniyor.
-- P02/P03 GLM audit (2026-10-12): PP04-PP15 kaynak kod + test olarak yeniden denetlendi, **yeni yerel uygulanabilir kod/test acigi yok**. Odak 7 dosya 63/63 PASS. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02-p03-glm-audit.md`. Kalan PR02/PR03 kaniti yalniz runtime: Docker container stop, iki OS process TTL/owner kaybi, gercek hard-kill, Linux spawn-failure -> NOT_RUN.
+- P02/P03 kalan runtime kanitlari (2026-10-12, GLM, `codex/glm-prod005-remaining`): **PP07 iki-process TTL/owner kaybi PASS, PP08 owned container stop + gec sonuc korumasi PASS, PP09 Linux spawn/exit + taskkill ayrimi PASS, PP14 taskkill hard-kill crash noktalari 3/3 PASS**. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.
+- P02/P03 GLM audit (2026-10-12): PP04-PP15 kaynak kod + test olarak yeniden denetlendi, **yeni yerel uygulanabilir kod/test acigi yok**. Odak 7 dosya 63/63 PASS. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02-p03-glm-audit.md`.
 - P04 egress enforcement yoksa typed fail-closed blocker.
 - P06 frozen source workspace ve exact raw coverage counter.
 - P07-B binary accepted evidence: bilinen binary uzantilari NUL byte'a bagli olmadan byte-exact korunuyor; 6/6 focused test.
@@ -25,7 +27,7 @@
 - P08 backup restore, install manifest ve owned uninstall sozlesmesi.
 - P08 backup readiness: READY blob eksik, artifact root disi veya hash/byte uyumsuzsa backup reddediliyor ve yarim snapshot temizleniyor; lifecycle 7/7 PASS.
 - P08/PP42: handshake, verify-install ve uninstall scriptlerinde Windows/Unicode path icin `fileURLToPath` tabanli repoRoot; W09 odak 8/8 PASS.
-- PR02/03 audit: lease/checkpoint/resume odak 63/63 PASS; yeni yerel kod acigi yok, iki owner/hard-kill runtime kaniti NOT_RUN.
+- PR02/03 audit: lease/checkpoint/resume odak 63/63 PASS; yeni yerel kod acigi yok; kalan runtime kanitlari PP07/PP08/PP09/PP14 olarak alindi (RUNTIME_VERIFIED).
 - PR04/06 audit: Docker isolation/capability 11/11, P04 runtime 13/13, Maven/effective-scope/baseline 29/29, P05 resume/target 13/13; yeni yerel kod acigi yok. Allowlist egress enforcement yoksa typed blocker korunuyor.
 - P07-B/P08 entegre odak: 18 dosya 159/159 PASS; tam print/offline/DOM/link + allowlist egress kaniti ve gercek platform e2e ayri kaldi.
 - P08 lifecycle/install: `fin11-lifecycle-ops` + `w09-install` 15/15 PASS; gercek upgrade/rollback ve Linux/macOS platform kosusu ayri kaldi.
@@ -36,6 +38,8 @@
 - P07-B normal customer dispatcher temel RG41/RG42 lifecycle kabul kosusu Docker ile 2/2 PASS; tam Report06 print/offline/DOM/link ve allowlist egress kaniti henuz kosulmadi.
 - P08 gercek Windows CMD install/uninstall/upgrade rollback ve desteklenen Linux/macOS platform kaniti: NOT_RUN.
 - P06 effective Maven profile/skip/ignoreFailures ve multi-module runtime kaniti: local kod kapilari var, tam runtime kaniti eksik.
+- PP09 tam Linux spawn-failure event harness kosusu (host win32): Docker komut seviyesi kanit alindi; tam event harness NOT_RUN.
+- PP17 tam allowlist egress enforcement: BLOCKED (typed blocker fail-closed).
 - P10 final handoff/release karari: full gate NO_GO oldugu icin teknik handoff suruyor; production GO verilmedi.
 
 ## Sonraki en hizli guvenli adim
