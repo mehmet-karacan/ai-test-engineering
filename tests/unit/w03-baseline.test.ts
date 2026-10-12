@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { runBaseline, parseSurefireReports, detectSkipConfig, buildPlan } from "../../src/orchestration/build-plan.js";
-import { MavenRunner } from "../../src/runners/maven-runner.js";
+import { MavenRunner, type RunResult } from "../../src/runners/maven-runner.js";
 import { InventoryRepository } from "../../src/storage/inventory-repository.js";
 import { Storage } from "../../src/storage/storage.js";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, cpSync, existsSync, readFileSync } from "node:fs";
@@ -48,6 +48,46 @@ describe("W03/F06: baseline ayrisimlari", () => {
       }
     }
   }, 120000);
+
+  it("P06 frozen baseline workspace'te calisir; orijinal stale target korunur", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p06-frozen-source-"));
+    const store = mkdtempSync(join(tmpdir(), "aitest-p06-frozen-store-"));
+    try {
+      writeFileSync(join(dir, "pom.xml"), `<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>frozen</artifactId><version>1</version>
+  <dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies>
+</project>`);
+      mkdirSync(join(dir, "target", "site", "jacoco"), { recursive: true });
+      const stale = "stale-original-jacoco";
+      writeFileSync(join(dir, "target", "site", "jacoco", "jacoco.xml"), stale, "utf8");
+      let executionRoot = "";
+      const fakeRunner = {
+        run: async (options: { working_dir: string; goals: string[]; timeout_ms: number; log_dir: string }): Promise<RunResult> => {
+          executionRoot = options.working_dir;
+          mkdirSync(join(options.working_dir, "target", "surefire-reports"), { recursive: true });
+          writeFileSync(join(options.working_dir, "target", "surefire-reports", "TEST-Frozen.xml"), `<testsuite name="Frozen" tests="1" failures="0" errors="0" skipped="0"><testcase name="ok" classname="Frozen"/></testsuite>`, "utf8");
+          mkdirSync(join(options.working_dir, "target", "site", "jacoco"), { recursive: true });
+          writeFileSync(join(options.working_dir, "target", "site", "jacoco", "jacoco.xml"), `<report name="frozen"><package name="p"><class name="p.Frozen" sourcefilename="Frozen.java"><counter type="LINE" missed="1" covered="9"/></class></package></report>`, "utf8");
+          return { exit_code: 0, duration_ms: 1, stdout_log_path: join(options.log_dir, "stdout.log"), stderr_log_path: join(options.log_dir, "stderr.log"), command: ["fake-maven", ...options.goals], timed_out: false };
+        },
+      } as unknown as MavenRunner;
+
+      const baseline = await runBaseline(dir, fakeRunner, 60000, { workspace_root: join(store, "baseline"), collect_coverage: true });
+      expect(baseline.status).toBe("PASSED");
+      expect(baseline.execution_root).toBe(executionRoot);
+      expect(baseline.execution_root).not.toBe(dir);
+      expect(readFileSync(join(dir, "target", "site", "jacoco", "jacoco.xml"), "utf8")).toBe(stale);
+      expect(existsSync(join(baseline.execution_root, "target", "site", "jacoco", "jacoco.xml"))).toBe(true);
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        rmSync(store, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      } catch {
+        // temp
+      }
+    }
+  }, 60000);
 
   it("XML failure + process exit0: PASSED OLAMAZ; FAILED donmeli (sentetik suite fixture)", () => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-w03-failxml-"));

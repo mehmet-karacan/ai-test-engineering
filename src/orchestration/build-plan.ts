@@ -1,7 +1,7 @@
 /**
  * BuildPlan + baseline akisi: gercek toolchain, baseline test kosusu, BASELINE_FAILED/UNSTABLE ayrimi.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { XMLParser } from "fast-xml-parser";
 import { AppError } from "../domain/errors.js";
@@ -59,6 +59,34 @@ export interface BaselineResult {
   malformed_reports: string[];
   /** W03/F06: skip politika izleri (surefire skipTests/maven.test.skip) */
   skip_config_detected: string[];
+  /** P06/PP20: baseline'in gercek calistigi frozen workspace. */
+  execution_root: string;
+}
+
+export interface BaselineOptions {
+  /** P06/PP20: orijinal checkout yerine urun storage altinda frozen workspace. */
+  workspace_root?: string;
+  /** P06/PP27: baseline run'inda JaCoCo report hedefini de calistir. */
+  collect_coverage?: boolean;
+}
+
+/** P06/PP20: customer checkout'u degistirmeden frozen baseline workspace uretir. */
+export function createFrozenWorkspace(projectRoot: string, workspaceRoot: string): string {
+  const source = resolve(projectRoot);
+  const destination = resolve(workspaceRoot);
+  if (source === destination) {
+    throw new AppError("POLICY_VIOLATION", "Frozen workspace customer checkout ile ayni olamaz", { reason_code: "FROZEN_WORKSPACE_COLLISION" });
+  }
+  rmSync(destination, { recursive: true, force: true });
+  mkdirSync(join(destination, ".."), { recursive: true });
+  cpSync(source, destination, {
+    recursive: true,
+    filter: (entry) => {
+      const name = entry.split(/[\\/]/).pop() ?? "";
+      return name !== ".git" && name !== "node_modules" && name !== "target";
+    },
+  });
+  return destination;
 }
 
 const surefireParser = new XMLParser({
@@ -138,10 +166,11 @@ export function detectSkipConfig(projectRoot: string): string[] {
   return detected;
 }
 
-export async function runBaseline(projectRoot: string, runner: MavenRunner, timeoutMs = 600000): Promise<BaselineResult> {
-  const plan = buildPlan(projectRoot, []);
+export async function runBaseline(projectRoot: string, runner: MavenRunner, timeoutMs = 600000, options: BaselineOptions = {}): Promise<BaselineResult> {
+  const executionRoot = options.workspace_root ? createFrozenWorkspace(projectRoot, options.workspace_root) : resolve(projectRoot);
+  const plan = buildPlan(executionRoot, []);
   const malformedReports: string[] = [];
-  const skipConfig = detectSkipConfig(projectRoot);
+  const skipConfig = detectSkipConfig(executionRoot);
 
   // W03/F06: framework yok -> GERCEK run YAPILMAZ; run:null + reason; sentetik exit0 kaydi YOK
   if (plan.test_framework === "none") {
@@ -156,20 +185,21 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
       reason_code: "NO_TEST_FRAMEWORK",
       malformed_reports: [],
       skip_config_detected: skipConfig,
+      execution_root: executionRoot,
     };
   }
 
   const runOptions: MavenRunOptions = {
-    working_dir: projectRoot,
-    goals: plan.maven_goals_test,
+    working_dir: executionRoot,
+    goals: options.collect_coverage ? plan.maven_goals_coverage : plan.maven_goals_test,
     timeout_ms: timeoutMs,
-    log_dir: join(resolve(projectRoot), "target", "aitest-baseline-logs"),
+    log_dir: join(executionRoot, "target", "aitest-baseline-logs"),
   };
   const run = await runner.run(runOptions);
 
   const suites: SurefireSuite[] = [];
   for (const module of plan.modules) {
-    suites.push(...parseSurefireReports(projectRoot, module.module_relative_path, malformedReports));
+    suites.push(...parseSurefireReports(executionRoot, module.module_relative_path, malformedReports));
   }
   const totalTests = suites.reduce((acc, s) => acc + s.tests, 0);
   const failures = suites.reduce((acc, s) => acc + s.failures, 0);
@@ -205,6 +235,7 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
     reason_code: reasonCode,
     malformed_reports: malformedReports,
     skip_config_detected: skipConfig,
+    execution_root: executionRoot,
   };
 }
 

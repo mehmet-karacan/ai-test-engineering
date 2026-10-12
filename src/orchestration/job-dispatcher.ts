@@ -222,18 +222,21 @@ export class JobDispatcher {
       assertLease();
       jobs.updatePhase(job.id, "baseline", jobs.getJob(job.id).row_version);
       phases.push("baseline");
+      const baselineWorkspace = join(this.workspaceRoot, "jobs", job.id, "baseline");
+      let baselineExecutionRoot: string | null = null;
 
       // baseline: mevcut testler gercekten calisir (guvenli runner contract'indan)
       if (this.runnerKind === "host_dev_only" && hostRunner) {
-        const baseline = await runBaseline(projectRoot, hostRunner, 600000);
-        if (baseline.status === "FAILED") {
+        const baseline = await runBaseline(projectRoot, hostRunner, 600000, { workspace_root: baselineWorkspace, collect_coverage: true });
+        baselineExecutionRoot = baseline.execution_root;
+        if (baseline.status !== "PASSED") {
           const latest = jobs.getJob(job.id);
           if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
             throw new AppError("POLICY_VIOLATION", "Baseline iptal/pause sonrasinda tamamlandi", { reason_code: latest.lifecycle });
           }
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
-          return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Baseline basarisiz: ${baseline.failed_tests.join(", ")}` };
+          return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Baseline ${baseline.status}: ${baseline.failed_tests.join(", ") || baseline.reason_code || "kanit yok"}` };
         }
       } else if (dockerRunner) {
         // KRITIK BULGU duzeltmesi: baseline da DockerMavenRunner uzerinden calisir (provisioning + izinli mirror).
@@ -241,18 +244,22 @@ export class JobDispatcher {
         // parent POM cozulemiyordu (Network is unreachable) ve BASELINE_FAILED uretiliyordu.
         // Simdi baseline, loopRunner ile ayni DockerMavenRunner yolunu kullanir: cache bos ise provisioning
         // asamasi izinli mirror'a gider; execution run'i yine network:none ile sandbox'lanir.
-        const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot, job.id, dockerImage);
+        const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, baselineWorkspace, job.id, dockerImage);
         ownedRunners.set(job.id, baselineRunner);
-        const baseline = await runBaseline(projectRoot, baselineRunner, 600000);
-        if (baseline.status === "FAILED") {
+        const baseline = await runBaseline(projectRoot, baselineRunner, 600000, { workspace_root: baselineWorkspace, collect_coverage: true });
+        baselineExecutionRoot = baseline.execution_root;
+        if (baseline.status !== "PASSED") {
           const latest = jobs.getJob(job.id);
           if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
             throw new AppError("POLICY_VIOLATION", "Docker baseline iptal/pause sonrasinda tamamlandi", { reason_code: latest.lifecycle });
           }
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
-          return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Docker baseline basarisiz: ${baseline.failed_tests.join(", ")}` };
+          return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Docker baseline ${baseline.status}: ${baseline.failed_tests.join(", ") || baseline.reason_code || "kanit yok"}` };
         }
+      }
+      if (!baselineExecutionRoot) {
+        throw new AppError("BLOCKED_ISOLATION", "Frozen baseline execution workspace olusturulamadi", { reason_code: "BASELINE_WORKSPACE_MISSING" });
       }
       phases.push("baseline_ok");
 
@@ -407,6 +414,7 @@ export class JobDispatcher {
           break;
         }
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
+        const frozenBaselineCoverage = readCoverageAfterRun(baselineExecutionRoot, resolved.fqn);
         const iterateOptions: IterateOptions = {
           project_root: projectRoot,
           target_fqn: resolved.fqn,
@@ -415,6 +423,7 @@ export class JobDispatcher {
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
           attempt_budget: remainingAttemptBudget,
+          ...(frozenBaselineCoverage ? { baseline_coverage: frozenBaselineCoverage } : {}),
           staging_root: stagingRoot,
           workspace_root: join(this.workspaceRoot, "jobs", job.id, "candidates", resolved.fqn.replace(/[^A-Za-z0-9_.-]/g, "_")),
           timeout_ms_per_run: 600000,

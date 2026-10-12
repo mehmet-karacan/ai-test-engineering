@@ -11,6 +11,7 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kism
 - P04: izolasyon/mirror politikasi LOCAL_VERIFIED; P04 11/11 + security/contract 90 passed/10 skipped; PP16 probe'suz customer job kapatildi, PP18 fail-closed probe, PP19 secret scan + job cache izolasyonu; gercek Docker capability/egress kaniti NOT_RUN/BLOCKED.
 - P05-A: frozen concrete resolver, source-set kimligi, package/module expansion limiti, exact model propagation ve total job deadline runtime loop'una baglandi; odak suite 57/57 + typecheck LOCAL_VERIFIED. P05-B repair feedback, persistent repair budget, resume provenance ve mode kapsami tamamlanmadi.
 - P05-B core: compiler/test/coverage failure olgulari bounded repair feedback'ine, repair limiti, shared target maliyet havuzu ve worker timeout deadline'ine baglandi; generation exception bounded feedback/error fingerprint'e gidiyor; resume modeli immutable contract artifact'tan geri yukleniyor, mismatch fail-closed; 57/57 odak test + typecheck. Tam resume uc-test kaniti ve mode kapsami henuz tamamlanmadi.
+- P06-A: baseline customer checkout'tan frozen workspace'e kopyalanip orada calistiriliyor; stale original target/JaCoCo artefakti korunuyor; dispatcher frozen baseline coverage'i aday dongusune bagliyor. W03 10/10, P05/accepted/Maven 16/16 + typecheck LOCAL_VERIFIED. Effective Maven/per-module JaCoCo/final replay kaniti henuz yok.
 - Full product acceptance: **NOT_VERIFIED**; live pilot/platform kaniti uydurulmaz.
 
 ## Tarihsel 004 kaydi (2026-10-11)

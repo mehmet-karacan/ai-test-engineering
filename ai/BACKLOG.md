@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P04 ve P05-A local olarak dogrulandi; P05-B-P10 suruyor.
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P04, P05-A ve P06-A local olarak dogrulandi; P05-B-P10 suruyor.
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 
 ## 004 uygulama paketleri (W00-W11)
@@ -33,7 +33,8 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri | LOCAL_VERIFIED | production-005-p04-isolation; P04 11/11 + security/contract 90 passed/10 skipped (Docker NOT_RUN) |
 | P05-A | Frozen concrete resolver, source-set, exact model ve deadline baglantisi | LOCAL_VERIFIED | production-005-p05a-target-resolver; 57/57 + typecheck |
 | P05-B | Repair feedback/bounded repair, shared target budget ve resume model provenance cekirdegi | IN_PROGRESS | production-005-p05b-shared-budget; 57/57 + typecheck; tam resume uc-test kaniti/mode tam kapanmadi |
-| P06-P10 | Kalan readiness, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md |
+| P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | production-005-p06a-frozen-baseline; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
+| P06-P10 | Kalan readiness, effective Maven/JaCoCo, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P06-A disindaki isler devam ediyor |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 

@@ -237,6 +237,8 @@ export interface IterateOptions {
   budget: IterationBudget;
   /** P05-B/PP26: job icindeki tum hedefler icin ortak aday/repair maliyet havuzu. */
   attempt_budget?: number;
+  /** P06/PP21: dispatcher tarafindan frozen baseline run'ina baglanan raw counter. */
+  baseline_coverage?: { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined };
   generate_candidate: (feedback?: CandidateGenerationFeedback) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
@@ -410,7 +412,7 @@ export class CandidateLoop {
       return "next";
     };
 
-    const baselineCoverage = readCoverageAfterRun(options.project_root, options.target_fqn);
+    const baselineCoverage = options.baseline_coverage ?? readCoverageAfterRun(options.project_root, options.target_fqn);
     const baselineBps = basisPointsFrom(baselineCoverage?.line);
     bestCoverageBps = baselineBps;
     bestBranchBps = basisPointsFrom(baselineCoverage?.branch);
