@@ -184,7 +184,8 @@ function classify(relativePath: string): FileClassification {
   if (parts.includes("src") && parts.includes("java")) {
     return "production_source";
   }
-  if (normalized.endsWith("pom.xml") || normalized.endsWith("build.gradle") || normalized.endsWith("settings.gradle") || normalized.endsWith(".kts")) {
+  if (parts[0] === ".mvn" || normalized === "mvnw" || normalized === "mvnw.cmd" ||
+    normalized.endsWith("pom.xml") || normalized.endsWith("build.gradle") || normalized.endsWith("settings.gradle") || normalized.endsWith(".kts")) {
     return "build_config";
   }
   return "resource";
@@ -233,7 +234,7 @@ export class SourceSnapshot {
           continue;
         }
       }
-      if (name === ".git" || name === "node_modules" || name === "target" || name === "build" || name === ".mvn") {
+      if (name === ".git" || name === "node_modules" || name === "target" || name === "build") {
         continue;
       }
       if (l.isDirectory()) {

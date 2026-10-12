@@ -14,3 +14,11 @@
 
 - Cursor sayfalari yeniden kokten yurur; kalici generation/cursor store ve incremental scan yok. Metadata/context/build snapshot digest'leri ayrilmadi, source snapshot ve application query baglanmadi. WN25-WN31 ve S03 VERIFIED degildir.
 - OpenCode Qwen kesif oturumu izin-deneme fixture'lari icin Temp altinda dort `wnprobe*` klasoru birakti; oturum durduruldu. Explicit deny ACL'leri kaldirildi, dordu okunabilir. Otomatik onay denetimi klasorleri silme komutlarini reddetti; klasorler Temp'te kaldi. Bu fixture'lar repoya alinmadi.
+
+## Phase B - bagimsiz build snapshot girdileri
+
+- S04 veri kontrati henüz dogrulanmadigi icin kalici generation/cursor state, schema, services ve query entegrasyonu bu dalda uygulanmadi. Ilk prototip commit edilmeden geri alindi.
+- `SourceSnapshot` artik `.mvn` agacini ve kokteki `mvnw`/`mvnw.cmd` girdilerini build snapshot'a alir; bunlari `build_config` siniflandirir. Eski `.git`, `target`, `build` ve `node_modules` dislama kurali korunur. `.mvn/maven.config` degisimi build digest'i degistirir.
+- Gercek Windows fixture'i `.mvn` wrapper config, `mvnw.cmd`, Java kaynak, eski `target` ve `.git` ile manifest/copy/digest sonucunu sinar. Ilk test `.mvn` eksikligiyle RED, duzeltme sonrasi ilgili 3 dosya/55 test PASS.
+- `npm.cmd run typecheck` ve `npm.cmd run build` exit 0. `npm.cmd run lint` exit 0; 89 mevcut warning, 0 error. `git diff --check` exit 0.
+- Kalan: S04 kontratina bagli kalici generation/cursor, incremental parser reuse, application query, bounded model context ve tam WN25-WN31. S03 halen PARTIAL/NO_GO; G1-G3 izni yok.

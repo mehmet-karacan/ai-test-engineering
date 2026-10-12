@@ -3,8 +3,42 @@ import { closeSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, readdirSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanFileInventory } from "../../src/discovery/file-inventory.js";
+import { SourceSnapshot, buildDigestFromManifest } from "../../src/discovery/source-snapshot.js";
 
 describe("S03 metadata inventory phase A", () => {
+  it("keeps Maven wrapper inputs in a separate build snapshot and excludes old outputs", () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-build-snapshot-"));
+    try {
+      const root = join(sandbox, "root");
+      for (const path of [".mvn", ".mvn/wrapper", ".git", "target", "build", "src/main/java"]) {
+        mkdirSync(join(root, path), { recursive: true });
+      }
+      writeFileSync(join(root, "pom.xml"), "<project/>");
+      writeFileSync(join(root, ".mvn", "maven.config"), "-B");
+      writeFileSync(join(root, ".mvn", "wrapper", "maven-wrapper.properties"), "distributionUrl=example");
+      writeFileSync(join(root, "mvnw.cmd"), "@echo off");
+      writeFileSync(join(root, "src", "main", "java", "A.java"), "class A {}");
+      writeFileSync(join(root, "target", "old.class"), "old");
+      writeFileSync(join(root, ".git", "config"), "private");
+      const snapshot = new SourceSnapshot(root);
+      const first = snapshot.buildManifest();
+      const paths = first.entries.map((entry) => entry.relative_path);
+      expect(paths).toContain(".mvn/maven.config");
+      expect(paths).toContain(".mvn/wrapper/maven-wrapper.properties");
+      expect(paths).toContain("mvnw.cmd");
+      expect(paths).not.toContain("target/old.class");
+      expect(paths).not.toContain(".git/config");
+      expect(first.entries.find((entry) => entry.relative_path === ".mvn/maven.config")?.classification).toBe("build_config");
+      const firstBuildDigest = buildDigestFromManifest(first);
+      writeFileSync(join(root, ".mvn", "maven.config"), "-B -q");
+      expect(buildDigestFromManifest(snapshot.buildManifest())).not.toBe(firstBuildDigest);
+      const target = join(sandbox, "copy");
+      snapshot.copyTo(target, snapshot.buildManifest());
+      expect(readdirSync(join(target, ".mvn"))).toContain("maven.config");
+      expect(readdirSync(target)).not.toContain("target");
+      expect(readdirSync(target)).not.toContain(".git");
+    } finally { rmSync(sandbox, { recursive: true, force: true }); }
+  });
   it("lists hidden, build, binary and large entries without following a junction", async () => {
     const sandbox = mkdtempSync(join(tmpdir(), "wn-inventory-"));
     try {
