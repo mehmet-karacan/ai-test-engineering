@@ -5,7 +5,7 @@
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
 - Asama: P00-P05-B, P06-A, P06-B1, P06-B2, P06 frozen/counter, P08 lifecycle restore, P04 egress fail-closed, P09 ve P02 dispatch cleanup tamamlandi; P07/P08/P10 dis kanitleri suruyor
 - Durum etiketi: `005_P08_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
-- Son guncelleme: 2026-10-12
+- Son guncelleme: 2026-10-12 (P02/P03 GLM izole audit: yeni yerel kod acigi yok; odak 63/63)
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
 ## 004 paketleri durumu (W00-W11)
@@ -31,8 +31,8 @@
 | --- | --- | --- | --- |
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
-| P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md + pr02-pr03-audit; odak 63/63 PASS; iki owner/hard-kill runtime kaniti NOT_RUN |
-| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit; P03/komsu odak 63/63 PASS; tam live/hard-kill NOT_RUN |
+| P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md + pr02-pr03-audit + p02-p03-glm-audit; odak 63/63 PASS (yeni HEAD yeniden dogrulandi); iki owner/hard-kill runtime kaniti NOT_RUN |
+| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit + p02-p03-glm-audit; P03/komsu odak 63/63 PASS (HEAD c2c8cb97); tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri ve egress fail-closed | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md + pr04-pr06-audit; Docker isolation/capability 11/11, P04 runtime 13/13, egress allowlist enforcement yoksa typed blocker |
 | P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md + pr04-pr06-audit; odak suite 57/57 + runtime target 13/13 + typecheck |
 | P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md + pr04-pr06-audit; 46/46 resume/storage + 2/2 handler + runtime 13/13 + typecheck |

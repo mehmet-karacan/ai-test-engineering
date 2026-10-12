@@ -3,8 +3,9 @@
 ## Son durum
 
 - HEAD ve `origin/main`: push sonrasi `git rev-parse --short HEAD` ve `git rev-parse --short origin/main` ile ayni olarak dogrulandi. Entegre GLM/Qwen commit'leri `6ef54af` ve `95136f0` olarak main'e alindi.
-- Branch: `main`; tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
-- Tam regresyon: 67 test dosyasi, 598/598 PASS.
+- Branch: `codex/glm-prod005-p02-p03` (detached HEAD `c2c8cb9`'den acildi); tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
+- P02/P03 (PR02/PR03) GLM izole audit: PR02/PR03 yerel (kod + test) hattinda yeni uygulanabilir kod acigi yok; PP04-PP15 mevcut kaynaklarla fail-closed dogrulandi. Odak 63/63 PASS, typecheck/build PASS, lint 0 error.
+- Tam regresyon: 67 test dosyasi, 598/598 PASS (tarihsel P09 kaydi; bu kosuda tam suite kullanici karariyla durduruldu, 8 fail PR02/PR03 disi ortam-bagli kosularda).
 - Typecheck/build: PASS. Lint: 0 error, 89 warning.
 - Full release verifier: exit 1, `NO_GO`; tek neden `EVIDENCE_MANIFEST_EKSIK`. Manifest olmadan 274 zorunlu obligation'in hicbiri dogrulanmis sayilmadi.
 - Canli kurum modeli/pilotu hala `PAUSED_BY_USER`; bu kosuda baslatilmadi.
@@ -12,6 +13,7 @@
 ## Tamamlanan son paketler
 
 - P02 dispatch early-return cleanup: heartbeat/lease ortak `finally` ile kapaniyor.
+- P02/P03 GLM izole audit (2026-10-12, branch `codex/glm-prod005-p02-p03`, HEAD `c2c8cb9`): PP04-PP15 kaynak kod + test olarak yeniden denetlendi, **yeni yerel uygulanabilir kod/test acigi yok**, kod degisikligi yapilmadi. Odak 7 dosya 63/63 PASS, typecheck/build PASS, lint 0 error/89 warning. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02-p03-glm-audit.md`. Kalan PR02/PR03 kaniti yalniz runtime: Docker container stop, iki OS process TTL/owner kaybi, gercek hard-kill, Linux spawn-failure -> NOT_RUN.
 - P04 egress enforcement yoksa typed fail-closed blocker.
 - P06 frozen source workspace ve exact raw coverage counter.
 - P07-B binary accepted evidence: bilinen binary uzantilari NUL byte'a bagli olmadan byte-exact korunuyor; 6/6 focused test.
