@@ -6,7 +6,7 @@
  * - Owned uninstall: yalniz beklenen hash'teki girdiler; user modified korunur.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync, linkSync } from "node:fs";
 import { join, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
@@ -343,6 +343,8 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
   mkdirSync(targetArtifactRoot, { recursive: true });
   const tempDb = `${targetDbPath}.restore-${randomUUID()}`;
   copyFileSync(join(backupDir, "state.db"), tempDb);
+  const publishedNew: string[] = [];
+  let dbPublished = false;
   try {
     // Tum blob kopyalari ve olasi IO hatalari DB yayini oncesinde tamamlanir.
     for (const item of plan) {
@@ -352,13 +354,10 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     }
     for (const item of plan) {
       if (item.skip) continue;
-      if (existsSync(item.destination)) {
-        // Preflight ile yayin arasinda olusan bir hedef sessizce ezilmez.
-        throw new AppError("STORAGE_ERROR", "Restore hedef blobu yayin sirasinda olustu", {
-          reason_code: "RESTORE_BLOB_RACE", destination: item.destination,
-        });
-      }
-      renameSync(item.stage, item.destination);
+      // Stage ve hedef ayni dizindedir. Hard link atomik olarak yeni isim
+      // olusturur; yarista ortaya cikan mevcut dosyayi rename gibi ezmez.
+      linkSync(item.stage, item.destination);
+      publishedNew.push(item.destination);
     }
     // Eski DB ve WAL/SHM, yeni DB yayini basarisiz olursa geri konmak uzere
     // ayni volume'de tutulur. Crash-safe recovery journal sonraki asamadir.
@@ -374,13 +373,21 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
         preserved.push({ original, saved });
       }
       renameSync(tempDb, targetDbPath);
+      dbPublished = true;
     } catch (error) {
       for (const item of [...preserved].reverse()) {
         if (existsSync(item.saved)) renameSync(item.saved, item.original);
       }
       throw error;
     }
-    for (const item of preserved) rmSync(item.saved, { force: true });
+    // Eski generation, journal/retention karari olmadan otomatik silinmez.
+  } catch (error) {
+    if (!dbPublished) {
+      for (const path of publishedNew.reverse()) {
+        if (existsSync(path)) rmSync(path, { force: true });
+      }
+    }
+    throw error;
   } finally {
     for (const item of plan) {
       if (existsSync(item.stage)) rmSync(item.stage, { force: true });

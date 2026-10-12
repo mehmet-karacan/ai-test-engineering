@@ -1,46 +1,40 @@
 /**
  * S01 kirmizi test (WN restore atomikligi): restoreBackup, blob kopyama asamasinda
- * EEXIST ile karsilastiginda (hedefte ayni relative_path'te FARKLI baytli mevcut
+ * cakismayla karsilastiginda (hedefte ayni relative_path'te FARKLI baytli mevcut
  * destination blob), onceki aktif state.db ve blob icerikleri byte-ayni kalmali.
  *
  * Yontem: gercek Windows better-sqlite3 fixture'i + gercek createBackup ile
- * uretilmis tam backup. EEXIST, COPYFILE_EXCL semantigiyle simule edilir:
- * node:fs copyFileSync mock'u yalniz "hedef mevcut ve baytlar farkli" durumunda
- * EEXIST firlatir; aksi halde gercek fs'e delege eder. Cunku gercek fs'de plain
- * copyFileSync hedefi sessizce ezer ve EEXIST hic olusmaz; duzeltme ile restore'un
- * bu durumda onceki durumu bozmadan durmasi hedeflenir.
+ * uretilmis tam backup. Farkli baytli hedef preflight'ta reddedilir. Ayrica
+ * staging kopyasi, blob yayini ve DB yayini hata noktalarina fault enjekte edilir.
  */
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { createBackup, restoreBackup, sha256Data } from "../../src/storage/lifecycle-ops.js";
 
 type BlobEntry = { relative_path: string; sha256: string; bytes: number };
-const faults = vi.hoisted(() => ({ stageCopy: false, dbPublish: false }));
+const faults = vi.hoisted(() => ({ stageCopy: false, dbPublish: false, secondBlobPublish: false, linkCount: 0 }));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  const { createHash } = await import("node:crypto");
-  const hashOf = (data: Buffer): string => createHash("sha256").update(data).digest("hex");
   const copyFileSync: typeof actual.copyFileSync = (src, dest, mode) => {
     if (faults.stageCopy && String(dest).includes(".restore-") && String(src).includes("blobs")) {
       const error: NodeJS.ErrnoException = new Error("ENOSPC: staged blob copy failed");
       error.code = "ENOSPC";
       throw error;
     }
-    // COPYFILE_EXCL benzeri EEXIST: hedef mevcut ve baytlar farkliysa yazmadan dur.
-    if (actual.existsSync(dest) && hashOf(actual.readFileSync(dest)) !== hashOf(actual.readFileSync(src))) {
-      const error: NodeJS.ErrnoException = new Error(
-        `EEXIST: file already exists, copyfile '${String(src)}' -> '${String(dest)}'`,
-      );
-      error.code = "EEXIST";
-      error.syscall = "copyfile";
+    return actual.copyFileSync(src, dest, mode);
+  };
+  const linkSync: typeof actual.linkSync = (existingPath, newPath) => {
+    if (faults.secondBlobPublish && ++faults.linkCount === 2) {
+      const error: NodeJS.ErrnoException = new Error("EACCES: second blob publish failed");
+      error.code = "EACCES";
       throw error;
     }
-    return actual.copyFileSync(src, dest, mode);
+    return actual.linkSync(existingPath, newPath);
   };
   const renameSync: typeof actual.renameSync = (oldPath, newPath) => {
     if (faults.dbPublish && String(oldPath).includes(".restore-") && !String(oldPath).includes(".restore-old-") && String(newPath).endsWith("state.db")) {
@@ -50,7 +44,7 @@ vi.mock("node:fs", async (importOriginal) => {
     }
     return actual.renameSync(oldPath, newPath);
   };
-  return { ...actual, copyFileSync, renameSync };
+  return { ...actual, copyFileSync, renameSync, linkSync };
 });
 
 const SCHEMA = `
@@ -124,11 +118,8 @@ describe("WN restore atomikligi", () => {
         thrown = error;
       }
       assert.ok(thrown, "restoreBackup farkli baytli mevcut hedef blob'da EEXIST ile durmali");
-      const errorCode = (thrown as { code?: unknown }).code;
-      assert.ok(
-        errorCode === "EEXIST" || errorCode === "STORAGE_ERROR",
-        `restoreBackup EEXIST benzeri kod beklerken alindi: ${String(errorCode)}`,
-      );
+      assert.equal((thrown as { code?: unknown }).code, "STORAGE_ERROR");
+      assert.equal((thrown as { details?: { reason_code?: unknown } }).details?.reason_code, "RESTORE_BLOB_EXISTS_MISMATCH");
 
       // Atomiklik iddiasi: onceki aktif state.db byte-ayni kalmali.
       assert.equal(
@@ -215,6 +206,45 @@ describe("WN restore atomikligi", () => {
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline, "publish failure must preserve old DB bytes");
     } finally {
       faults.dbPublish = false;
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("second blob publish failure removes the first new blob and preserves old DB", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-link-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      sourceDb.prepare("INSERT INTO test_jobs VALUES ('backup-job', 'COMPLETED')").run();
+      const blobs = [makeBlob(sourceArtifacts, "new payload one"), makeBlob(sourceArtifacts, "new payload two")];
+      for (const [index, blob] of blobs.entries()) {
+        sourceDb.prepare("INSERT INTO artifacts VALUES (?, 'backup-job', ?, ?, ?, 'READY')")
+          .run(`backup-art-${index}`, blob.relative_path, blob.sha256, blob.bytes);
+      }
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      const targetArtifacts = join(root, "runtime", "artifacts");
+      mkdirSync(dirname(targetDbPath), { recursive: true });
+      const active = new Database(targetDbPath);
+      active.exec(SCHEMA);
+      active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
+      active.close();
+      const baseline = sha256Data(readFileSync(targetDbPath));
+      faults.secondBlobPublish = true;
+      faults.linkCount = 0;
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /EACCES/);
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
+      for (const blob of blobs) assert.equal(existsSync(join(targetArtifacts, blob.relative_path)), false);
+    } finally {
+      faults.secondBlobPublish = false;
+      faults.linkCount = 0;
       sourceDb?.close();
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
