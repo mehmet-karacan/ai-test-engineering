@@ -84,6 +84,20 @@ describe("W04/F10/N26: tek evaluator kazanc karari", () => {
     expect(gain.accepted).toBe(false);
     expect(gain.reason).toContain("BRANCH olcumu yok");
   });
+
+  it("floored bps esit olsa bile raw counter oranindaki gercek kazanci kabul eder", () => {
+    const gain = evaluateCandidateGain(
+      { line: 3333, branch: null },
+      { line: 3333, branch: null },
+      false,
+      {
+        best: { line: { covered: 3333, missed: 6667 }, branch: undefined },
+        after: { line: { covered: 1, missed: 2 }, branch: undefined },
+      },
+    );
+    expect(gain.accepted).toBe(true);
+    expect(gain.line_improved).toBe(true);
+  });
 });
 
 describe("W04/F10/N27-N28: coverage metrik ayrisimi (tek evaluator)", () => {

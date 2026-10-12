@@ -476,6 +476,7 @@ export class JobDispatcher {
         );
         const iterateOptions: IterateOptions = {
           project_root: projectRoot,
+          frozen_source_root: baselineExecutionRoot,
           target_fqn: resolved.fqn,
           target_module_path: resolved.module.module_relative_path,
           target_test_root: resolved.module.test_root,
@@ -626,6 +627,7 @@ export class JobDispatcher {
       // gelir. Kullanici checkout'undaki eski/stale target XML'i kullanilmaz.
       const finalReplay = await loop.replayAcceptedSet({
         project_root: projectRoot,
+        frozen_source_root: baselineExecutionRoot,
         target_fqns: resolvedTargets.map((rt) => rt.fqn),
         target_module_paths: resolvedTargets.map((rt) => rt.module.module_relative_path),
         target_relative_paths: resolvedTargets.map((rt) => rt.relative_path),

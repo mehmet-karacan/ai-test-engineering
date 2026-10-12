@@ -3,7 +3,7 @@
  * Bu testler model kalitesini veya canli Docker kabulunu iddia etmez.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppError } from "../../src/domain/errors.js";
@@ -205,6 +205,82 @@ describe("P05-B: bounded repair feedback", () => {
       expect(result.repairs_used).toBe(1);
       expect(result.attempts_used).toBe(2);
       expect(result.outcome).toBe("TARGET_REACHED");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("candidate workspace canli checkout yerine frozen source'tan kurulur", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p06-frozen-candidate-"));
+    const projectRoot = join(dir, "project");
+    const frozenRoot = join(dir, "frozen");
+    const stagingRoot = join(dir, "staging");
+    try {
+      cpSync(join(FIXTURES, "ac27-project"), projectRoot, { recursive: true });
+      cpSync(projectRoot, frozenRoot, { recursive: true });
+      writeFileSync(join(projectRoot, "live-only.txt"), "must-not-enter-candidate", "utf8");
+      mkdirSync(stagingRoot, { recursive: true });
+      const fakeRunner = {
+        run: async (options: { working_dir: string; log_dir: string }): Promise<RunResult> => {
+          expect(existsSync(join(options.working_dir, "live-only.txt"))).toBe(false);
+          return {
+            exit_code: 0,
+            duration_ms: 1,
+            stdout_log_path: join(options.log_dir, "stdout.log"),
+            stderr_log_path: join(options.log_dir, "stderr.log"),
+            command: ["fake-maven"],
+            timed_out: false,
+          };
+        },
+      } as unknown as MavenRunner;
+      const candidate: CandidateChangeSet = {
+        schema_version: 1,
+        changes: [{ path: "src/test/java/com/example/calc/FrozenTest.java", action: "create", new_content: "class FrozenTest {}", scenario_ids: ["frozen"] }],
+      };
+      const result = await new CandidateLoop(fakeRunner).iterate({
+        project_root: projectRoot,
+        frozen_source_root: frozenRoot,
+        target_fqn: "com.example.calc.CalcService",
+        target_module_path: "",
+        line_target_bps: 10000,
+        branch_target_bps: 0,
+        budget: { max_candidate_iterations: 1, max_repairs_per_candidate: 0, no_progress_window: 1 },
+        baseline_coverage: { line: { covered: 0, missed: 10 }, branch: undefined },
+        staging_root: stagingRoot,
+        workspace_root: join(dir, "workspaces"),
+        generate_candidate: async () => candidate,
+      });
+      expect(result.outcome).toBe("TARGET_NOT_MET_PLATEAU");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("final replay de frozen source'tan ayrik workspace kurar", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p06-frozen-final-"));
+    const projectRoot = join(dir, "project");
+    const frozenRoot = join(dir, "frozen");
+    try {
+      cpSync(join(FIXTURES, "ac27-project"), projectRoot, { recursive: true });
+      cpSync(projectRoot, frozenRoot, { recursive: true });
+      writeFileSync(join(projectRoot, "live-only.txt"), "must-not-enter-final", "utf8");
+      const fakeRunner = {
+        run: async (options: { working_dir: string; log_dir: string }): Promise<RunResult> => {
+          expect(existsSync(join(options.working_dir, "live-only.txt"))).toBe(false);
+          return { exit_code: 0, duration_ms: 1, stdout_log_path: join(options.log_dir, "stdout.log"), stderr_log_path: join(options.log_dir, "stderr.log"), command: ["fake-maven"], timed_out: false };
+        },
+      } as unknown as MavenRunner;
+      const result = await new CandidateLoop(fakeRunner).replayAcceptedSet({
+        project_root: projectRoot,
+        frozen_source_root: frozenRoot,
+        target_fqns: ["com.example.calc.CalcService"],
+        target_module_paths: [""],
+        target_relative_paths: ["src/main/java/com/example/calc/CalcService.java"],
+        accepted_snapshot_dir: join(dir, "accepted"),
+        staging_root: join(dir, "staging"),
+        workspace_root: join(dir, "final"),
+      });
+      expect(result.workspace).not.toBe(projectRoot);
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }

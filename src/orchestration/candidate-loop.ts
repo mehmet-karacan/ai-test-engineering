@@ -163,15 +163,40 @@ export interface GainEvaluation {
   branch_regressed: boolean;
 }
 
+type RawCounter = { covered: number; missed: number };
+
+function compareCounterValues(before: RawCounter | undefined, after: RawCounter | undefined): -1 | 0 | 1 | null {
+  if (!after) {
+    return null;
+  }
+  const afterTotal = after.covered + after.missed;
+  if (afterTotal <= 0) {
+    return null;
+  }
+  if (!before) {
+    return 1;
+  }
+  const beforeTotal = before.covered + before.missed;
+  if (beforeTotal <= 0) {
+    return 1;
+  }
+  const left = after.covered * beforeTotal;
+  const right = before.covered * afterTotal;
+  return left === right ? 0 : left > right ? 1 : -1;
+}
+
 export function evaluateCandidateGain(
   best: { line: number | null; branch: number | null },
   after: { line: number | null; branch: number | null },
   branchApplicable: boolean,
+  exact?: { best: { line: RawCounter | undefined; branch: RawCounter | undefined }; after: { line: RawCounter | undefined; branch: RawCounter | undefined } },
 ): GainEvaluation {
-  const lineImproved = after.line !== null && (best.line === null || after.line > best.line);
-  const lineRegressed = after.line !== null && best.line !== null && after.line < best.line;
-  const branchImproved = after.branch !== null && (best.branch === null || after.branch > best.branch);
-  const branchRegressed = after.branch !== null && best.branch !== null && after.branch < best.branch;
+  const lineComparison = exact ? compareCounterValues(exact.best.line, exact.after.line) : after.line === null ? null : best.line === null ? 1 : after.line > best.line ? 1 : after.line < best.line ? -1 : 0;
+  const branchComparison = exact ? compareCounterValues(exact.best.branch, exact.after.branch) : after.branch === null ? null : best.branch === null ? 1 : after.branch > best.branch ? 1 : after.branch < best.branch ? -1 : 0;
+  const lineImproved = lineComparison === 1;
+  const lineRegressed = lineComparison === -1;
+  const branchImproved = branchComparison === 1;
+  const branchRegressed = branchComparison === -1;
 
   if (after.line === null) {
     return { accepted: false, reason: "LINE olcumu yok", line_improved: lineImproved, branch_improved: branchImproved, line_regressed: lineRegressed, branch_regressed: branchRegressed };
@@ -289,6 +314,8 @@ function sha256Data(data: Buffer | string): string {
 
 export interface IterateOptions {
   project_root: string;
+  /** P06/PP20: baseline calismasinda dondurulan kaynak workspace'i. */
+  frozen_source_root?: string;
   target_fqn: string;
   target_module_path: string;
   line_target_bps: number;
@@ -485,10 +512,13 @@ export class CandidateLoop {
       return "next";
     };
 
-    const baselineCoverage = options.baseline_coverage ?? readCoverageAfterRun(options.project_root, options.target_fqn, options.target_module_path);
+    const frozenSourceRoot = options.frozen_source_root ?? options.project_root;
+    const baselineCoverage = options.baseline_coverage ?? readCoverageAfterRun(frozenSourceRoot, options.target_fqn, options.target_module_path);
     const baselineBps = basisPointsFrom(baselineCoverage?.line);
     bestCoverageBps = baselineBps;
     bestBranchBps = basisPointsFrom(baselineCoverage?.branch);
+    let bestLineCounter = baselineCoverage?.line;
+    let bestBranchCounter = baselineCoverage?.branch;
     let branchNonApplicable = baselineCoverage?.branch !== undefined
       && baselineCoverage.branch.covered + baselineCoverage.branch.missed === 0;
 
@@ -496,25 +526,27 @@ export class CandidateLoop {
      * Tek hedef-karar yolunu degerlendirir (D05/F03): tum done/early-exit/candidate-null/plateau/result
      * yollari ayni fonksiyonu kullanir; LINE ve BRANCH esiklerini birlikte kontrol eder.
      */
-    const evaluateGoalMet = (lineBps: number | null, branchBps: number | null, branchIsNonApplicable = branchNonApplicable): boolean => {
-      if (lineBps === null) {
+    const evaluateGoalMet = (lineCounter: RawCounter | undefined, branchCounter: RawCounter | undefined, branchIsNonApplicable = branchNonApplicable): boolean => {
+      const lineTotal = lineCounter ? lineCounter.covered + lineCounter.missed : 0;
+      if (!lineCounter || lineTotal <= 0) {
         return false;
       }
-      const lineMet = lineBps >= options.line_target_bps;
+      const lineMet = lineCounter.covered * 10000 >= options.line_target_bps * lineTotal;
       const branchApplicable = options.branch_target_bps > 0;
       if (!branchApplicable) {
         return lineMet;
       }
-      if (branchBps === null && branchIsNonApplicable) {
+      if (!branchCounter && branchIsNonApplicable) {
         return lineMet;
       }
-      if (branchBps === null) {
+      const branchTotal = branchCounter ? branchCounter.covered + branchCounter.missed : 0;
+      if (!branchCounter || branchTotal <= 0) {
         return false;
       }
-      return lineMet && branchBps >= options.branch_target_bps;
+      return lineMet && branchCounter.covered * 10000 >= options.branch_target_bps * branchTotal;
     };
 
-    if (evaluateGoalMet(bestCoverageBps, bestBranchBps)) {
+    if (evaluateGoalMet(bestLineCounter, bestBranchCounter)) {
       return {
         best_coverage_bps: bestCoverageBps,
         best_branch_coverage_bps: bestBranchBps,
@@ -522,7 +554,7 @@ export class CandidateLoop {
         budget_exhausted: false,
         plateau: false,
         outcome: "TARGET_ALREADY_MET",
-        trusted_workspace: options.project_root,
+        trusted_workspace: frozenSourceRoot,
         repairs_used: 0,
         no_progress_count: 0,
         attempts_used: 0,
@@ -590,7 +622,7 @@ export class CandidateLoop {
       }
       const candidateHash = sha256Data(JSON.stringify(candidate));
 
-      const applier = new PatchApplier(options.project_root, [{ module_relative_path: options.target_module_path, test_root: options.target_test_root ?? "src/test/java" }], options.staging_root);
+      const applier = new PatchApplier(frozenSourceRoot, [{ module_relative_path: options.target_module_path, test_root: options.target_test_root ?? "src/test/java" }], options.staging_root);
       const applyResult = applier.apply(candidate);
 
       if (applyResult.failed.length > 0) {
@@ -670,14 +702,14 @@ export class CandidateLoop {
         continue;
       }
 
-      const plan = buildPlan(options.project_root, [options.target_module_path]);
+      const plan = buildPlan(frozenSourceRoot, [options.target_module_path]);
       assertCoverageConfigured(plan, [options.target_module_path]);
       const goals = plan.maven_goals_coverage;
 
       // W02/F08: aday ORIJINAL checkout'a yazilmaz; ayri candidate workspace kurulur ve
       // run/olcum bu workspace uzerinden yapilir. Orijinal checkout hic degismez.
       const candidateWorkspace = this.buildCandidateWorkspace(
-        options.project_root,
+        frozenSourceRoot,
         candidate.changes,
         options.workspace_root ?? join(options.staging_root, "workspaces"),
         iteration,
@@ -781,6 +813,7 @@ export class CandidateLoop {
         { line: bestCoverageBps, branch: bestBranchBps },
         { line: afterBps, branch: afterBranchBps },
         options.branch_target_bps > 0 && !(afterCoverage?.branch !== undefined && afterCoverage.branch.covered + afterCoverage.branch.missed === 0 && bestBranchBps === null),
+        { best: { line: bestLineCounter, branch: bestBranchCounter }, after: { line: afterCoverage?.line, branch: afterCoverage?.branch } },
       );
       if (!gainEvaluation.accepted) {
         const reason = noProgressCount + 1 >= options.budget.no_progress_window
@@ -818,6 +851,8 @@ export class CandidateLoop {
       repairFeedback = undefined;
       bestCoverageBps = afterBps;
       bestBranchBps = afterBranchBps;
+      bestLineCounter = afterCoverage?.line;
+      bestBranchCounter = afterCoverage?.branch;
       branchNonApplicable = afterCoverage?.branch !== undefined
         && afterCoverage.branch.covered + afterCoverage.branch.missed === 0
         && bestBranchBps === null;
@@ -914,7 +949,7 @@ export class CandidateLoop {
         throw error;
       }
 
-      if (evaluateGoalMet(bestCoverageBps, bestBranchBps)) {
+      if (evaluateGoalMet(bestLineCounter, bestBranchCounter)) {
         outcome = "TARGET_REACHED";
         break;
       }
@@ -944,6 +979,7 @@ export class CandidateLoop {
    * reddedilmis son aday XML'ine veya kullanici checkout'una baglanmaz. */
   async replayAcceptedSet(options: {
     project_root: string;
+    frozen_source_root?: string;
     target_fqns: string[];
     target_module_paths: string[];
     target_relative_paths: string[];
@@ -952,8 +988,9 @@ export class CandidateLoop {
     workspace_root: string;
     timeout_ms?: number;
   }): Promise<{ workspace: string; run: RunResult; coverage: Map<string, ReturnType<CoverageLookup>>; test_inventory: SurefireSuite[]; started_at: number; finished_at: number }> {
-    const workspace = this.buildCandidateWorkspace(options.project_root, [], options.workspace_root, 0, options.staging_root, options.accepted_snapshot_dir);
-    const plan = buildPlan(options.project_root, [...new Set(options.target_module_paths)]);
+    const frozenSourceRoot = options.frozen_source_root ?? options.project_root;
+    const workspace = this.buildCandidateWorkspace(frozenSourceRoot, [], options.workspace_root, 0, options.staging_root, options.accepted_snapshot_dir);
+    const plan = buildPlan(frozenSourceRoot, [...new Set(options.target_module_paths)]);
     assertCoverageConfigured(plan, [...new Set(options.target_module_paths)]);
     const runStartedAt = Date.now();
     const run = await this.runner.run({

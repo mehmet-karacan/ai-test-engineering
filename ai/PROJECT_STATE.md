@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P05-B, P06-A, P06-B1, P06-B2, P09 ve P02 dispatch cleanup tamamlandi; P06/P07/P08/P10 dis kanitleri suruyor
+- Asama: P00-P05-B, P06-A, P06-B1, P06-B2, P06 frozen/counter, P09 ve P02 dispatch cleanup tamamlandi; P07/P08/P10 dis kanitleri suruyor
 - Durum etiketi: `005_P08_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
@@ -38,7 +38,7 @@
 | P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md; 46/46 resume/storage + 2/2 handler zinciri + typecheck |
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06a-frozen-baseline.md; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
-| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity ve module report listesi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity + p06b-module-reports; odak suite + typecheck |
+| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity ve module report listesi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity + p06b-module-reports; frozen/counter ek kaniti p06-frozen-counter; odak suite + typecheck |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p07b-report06-evidence.md; 60/60 odak + 1/1 gercek MavenRunner evidence + typecheck/build; Docker customer dispatcher BLOCKED |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry ve readiness ayrimi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p08-install-runtime.md; 24/24 + temiz Windows install/verify PASS; lifecycle backup/restore/upgrade kaniti eksik |
