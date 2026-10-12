@@ -17,7 +17,7 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kism
 - P07-A facts/export cekirdegi LOCAL_VERIFIED: accepted checkpoint ve final replay'den gercek test degisikligi/run summary/model projection'i; DB tabanli status/result coverage; export verification tamamlanmadan COMPLETED yok; binary/bytes/hash/bozuk manifest negative kapilari.
 - P07-B renderer/evidence cekirdegi IN_PROGRESS: Report06 normal exporter'a bagli, reference hash korunuyor, final replay raw/binary evidence ve checkpoint/patch zinciri manifest identity ile dogrulaniyor; 60/60 odak test + NUL'suz binary accepted kaniti 6/6 + gercek MavenRunner evidence 1/1, typecheck/build PASS. Customer dispatcher runtime/print/offline/DOM/link kosusu Docker capability yoklugu nedeniyle BLOCKED.
 - P08 kurulum/runtime cekirdegi IN_PROGRESS: ortak path resolver, npm ci, gercek kayitli OpenCode entry config/DB binding, smoke ve worker readiness ayrimi local/temiz Windows fixture ile dogrulandi; lifecycle backup/restore/upgrade/uninstall ve Linux/macOS gercek platform kaniti henuz NOT_RUN.
-- P09 yerel regresyon/reconciliation LOCAL_VERIFIED: 66 test dosyasi, 589 PASS, 0 FAIL; lint 0 error, typecheck/build PASS. Full release gate `NO_GO` ve exit 1; `ai/acceptance/evidence-manifest.json` eksik oldugu icin tam kabul iddiasi yapilmadi.
+- P09 yerel regresyon/reconciliation LOCAL_VERIFIED: 66 test dosyasi, 590 PASS, 0 FAIL; lint 0 error, typecheck/build PASS. Full release gate `NO_GO` ve exit 1; `ai/acceptance/evidence-manifest.json` eksik oldugu icin tam kabul iddiasi yapilmadi.
 - Full product acceptance: **NOT_VERIFIED**; live pilot/platform kaniti uydurulmaz.
 
 ## Tarihsel 004 kaydi (2026-10-11)

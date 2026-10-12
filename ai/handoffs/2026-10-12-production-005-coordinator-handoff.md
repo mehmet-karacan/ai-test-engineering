@@ -2,9 +2,9 @@
 
 ## Son durum
 
-- HEAD ve `origin/main`: `14bf5a0` (`gorev: p07b binary evidence turunu koru`).
+- HEAD ve `origin/main`: `17cab9c` (`gorev: p06 maven strict execution kapisini ekle`).
 - Branch: `main`; tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
-- Tam regresyon: 66 test dosyasi, 589/589 PASS.
+- Tam regresyon: 66 test dosyasi, 590/590 PASS.
 - Typecheck/build: PASS. Lint: 0 error, 90 warning.
 - Full release verifier: exit 1, `NO_GO`; tek neden `EVIDENCE_MANIFEST_EKSIK`. Manifest olmadan 274 zorunlu obligation'in hicbiri dogrulanmis sayilmadi.
 - Canli kurum modeli/pilotu hala `PAUSED_BY_USER`; bu kosuda baslatilmadi.

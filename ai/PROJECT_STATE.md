@@ -42,7 +42,7 @@
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p07b-report06-evidence.md + p07b-binary-evidence; accepted NUL'suz binary 6/6 + 1/1 gercek MavenRunner evidence + typecheck/lint/build; Docker customer dispatcher BLOCKED |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry ve readiness ayrimi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p08-install-runtime.md + p08-lifecycle-restore; 24/24 install + 6/6 lifecycle + 7/7 manifest/uninstall contract; gercek Windows e2e/upgrade rollback eksik |
-| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p09-regression.md + P08/P04/P07B sonrasi tam kosu; 66 dosya, 589/589 PASS, lint 0 error, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
+| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p09-regression.md + P08/P04/P06/P07B sonrasi tam kosu; 66 dosya, 590/590 PASS, lint 0 error, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
 | P07-P10 | Report06 renderer/ham kanit export, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P07-A sonrasi devam ediyor |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
