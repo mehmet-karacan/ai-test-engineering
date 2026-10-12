@@ -6,6 +6,22 @@ import { appendRestorePhase, assertRestoreReadyBeforeOpen, journalPathForDb, rea
 import { Storage } from "../../src/storage/storage.js";
 
 describe("S01 restore journal fail-closed", () => {
+  it("rejects a changed planned blob set within one restore generation", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-blob-identity-"));
+    try {
+      const db = join(root, "state.db");
+      const artifactRoot = join(root, "artifacts");
+      const base = { generation: "generation-blob-identity", targetDbPath: db, artifactRoot,
+        stagedDbPath: join(root, "state.db.stage"), preservedDbPath: join(root, "state.db.old"),
+        publishedBlobs: [{ path: join(artifactRoot, "blobs", "first"), sha256: "a".repeat(64) }] };
+      const path = journalPathForDb(db);
+      appendRestorePhase(path, { ...base, phase: "PREPARED" });
+      expect(() => appendRestorePhase(path, { ...base, phase: "BLOBS_READY",
+        publishedBlobs: [{ path: join(artifactRoot, "blobs", "second"), sha256: "b".repeat(64) }] })).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      expect(readRestoreJournal(path)?.phase).toBe("PREPARED");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("requires ordered, checksummed transitions and blocks unfinished startup", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-journal-"));
     try {

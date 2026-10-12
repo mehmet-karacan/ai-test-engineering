@@ -53,7 +53,11 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
   }
   return next.generation === previous.generation && next.targetDbPath === previous.targetDbPath &&
     next.artifactRoot === previous.artifactRoot && next.stagedDbPath === previous.stagedDbPath &&
-    next.preservedDbPath === previous.preservedDbPath && NEXT[previous.phase].includes(next.phase);
+    next.preservedDbPath === previous.preservedDbPath &&
+    next.publishedBlobs.length === previous.publishedBlobs.length &&
+    next.publishedBlobs.every((blob, index) => blob.path === previous.publishedBlobs[index]?.path &&
+      blob.sha256 === previous.publishedBlobs[index]?.sha256) &&
+    NEXT[previous.phase].includes(next.phase);
 }
 
 export function journalPathForDb(dbPath: string): string {
