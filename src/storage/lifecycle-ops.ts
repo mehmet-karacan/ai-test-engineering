@@ -7,7 +7,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync } from "node:fs";
-import { join, relative, resolve, sep as pathSep } from "node:path";
+import { join, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
@@ -67,7 +67,11 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
       const relativeBlob = row.relative_store_path.replace(/\//g, pathSep);
       const blobPath = resolve(artifactRootPath, relativeBlob);
       const blobRelative = relative(artifactRootPath, blobPath);
-      if (blobRelative.startsWith(`..${pathSep}`) || blobRelative === ".." || !existsSync(blobPath)) {
+      // PP39/PP42: relative() ortak kok bulamazsa (capraz surucu) mutlak yol dondurur;
+      // ".." ile baslamaz. Escape kontrolu isAbsolute ekiyle kok disi her durumu yakalar.
+      const escapedOrMissing =
+        isAbsolute(blobRelative) || blobRelative.startsWith(`..${pathSep}`) || blobRelative === ".." || !existsSync(blobPath);
+      if (escapedOrMissing) {
         throw new AppError("STORAGE_ERROR", `Backup blob eksik veya artifact kokunun disinda: ${row.relative_store_path}`, {
           reason_code: "BACKUP_BLOB_MISSING",
           relative_path: row.relative_store_path,
@@ -153,7 +157,10 @@ export function verifyBackup(backupDir: string): RestoreVerification {
     const relativeBlob = blob.relative_path.replace(/\//g, pathSep);
     const copiedPath = resolve(join(backupDir, "blobs"), relativeBlob);
     const blobRoot = resolve(join(backupDir, "blobs"));
-    const escaped = relative(blobRoot, copiedPath).startsWith(`..${pathSep}`) || relative(blobRoot, copiedPath) === "..";
+    const relFromRoot = relative(blobRoot, copiedPath);
+    // PP39/PP42: capraz surucu/mutlak hedefte relative() tam mutlak yol dondurur;
+    // isAbsolute eki olmadan escape kontrolu kacisir (PP44 backup zinciri acigi).
+    const escaped = isAbsolute(relFromRoot) || relFromRoot.startsWith(`..${pathSep}`) || relFromRoot === "..";
     if (escaped) {
       missingBlobs.push(blob.relative_path);
       continue;
@@ -204,7 +211,8 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
       const source = resolve(backupBlobRoot, rel);
       const destination = resolve(targetRoot, rel);
       const destinationRel = relative(targetRoot, destination);
-      if (destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {
+      // PP39/PP42: capraz surucu hedefte relative() mutlak yol dondurur; isAbsolute eki zorunlu.
+      if (isAbsolute(destinationRel) || destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {
         throw new AppError("POLICY_VIOLATION", "Backup blob yolu artifact kokunu asiyor", { reason_code: "PATH_ESCAPE" });
       }
       mkdirSync(resolve(destination, ".."), { recursive: true });
