@@ -174,19 +174,23 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
     }
     const update = db.prepare<[string, string]>("UPDATE artifacts SET status = 'DELETED' WHERE id = ? AND status = ?");
     const swept: GcSweepResult["swept"] = [];
-    for (const [index, candidate] of dryRun.candidates.entries()) {
+    for (const candidate of dryRun.candidates) {
       if (update.run(candidate.artifact_id, candidate.snapshot!.status).changes !== 1) {
         throw new AppError("POLICY_VIOLATION", "GC artifact status changed", {
           reason_code: "GC_STALE_DRY_RUN", artifact_id: candidate.artifact_id,
         });
       }
-      const blobPath = paths[index]!;
-      if (existsSync(blobPath)) rmSync(blobPath, { force: true });
       swept.push({ artifact_id: candidate.artifact_id, relative_store_path: candidate.relative_store_path });
     }
     return { swept, skipped_pinned: fresh.pinned_count, artifact_root: artifactRoot };
   });
-  return sweep.immediate();
+  // Commit all DELETED markers before unlinking any blob. A later unlink error
+  // leaves an orphan, rather than rolling a missing blob back to READY.
+  const result = sweep.immediate();
+  for (const blobPath of paths) {
+    if (existsSync(blobPath)) rmSync(blobPath, { force: true });
+  }
+  return result;
   } finally {
     release();
   }

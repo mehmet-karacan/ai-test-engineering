@@ -3,7 +3,7 @@
  * - Tek ortak diagnostic servisi: kontrol seviyeleri ayri; hata raporu reason_code + tek somut aksiyon (17.1).
  * - GC iki asamali: dry-run -> onayli sweep; aktif/pinned ref silinmez (14.4/PRO26).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -16,6 +16,20 @@ import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { ArtifactStore } from "../../src/storage/artifact-store.js";
 import { CheckpointStore } from "../../src/orchestration/checkpoint-store.js";
 import { LeaseManager } from "../../src/orchestration/lease-manager.js";
+
+const gcDeleteFault = vi.hoisted(() => ({ secondDelete: false, count: 0 }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const rmSync: typeof actual.rmSync = (path, options) => {
+    if (gcDeleteFault.secondDelete && String(path).includes("blobs") && ++gcDeleteFault.count === 2) {
+      const error: NodeJS.ErrnoException = new Error("EACCES: second GC delete failed");
+      error.code = "EACCES";
+      throw error;
+    }
+    return actual.rmSync(path, options);
+  };
+  return { ...actual, rmSync };
+});
 
 function healthyInput(): DiagnosticInput {
   return {
@@ -223,6 +237,24 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
     expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
     expect(existsSync(artifact.path)).toBe(true);
     expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("second GC delete failure never leaves the first missing blob marked READY", () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-gc-second-delete" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const first = insertArtifact(job.id, "temp", "gc-first", -2 * 24 * 60 * 60 * 1000);
+    const second = insertArtifact(job.id, "temp", "gc-second", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates).toHaveLength(2);
+    gcDeleteFault.count = 0;
+    gcDeleteFault.secondDelete = true;
+    try {
+      expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow(/EACCES/);
+    } finally { gcDeleteFault.secondDelete = false; }
+    expect(existsSync(first.path)).toBe(false);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(first.id)?.status).toBe("DELETED");
+    expect(existsSync(second.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(second.id)?.status).toBe("DELETED");
   });
 
   it("checkpoint manifest artifact'i her zaman pin (GC silinmez)", () => {
