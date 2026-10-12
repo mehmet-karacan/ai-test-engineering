@@ -190,4 +190,29 @@ describe("P07-B final replay collector", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("NUL icermeyen binary accepted kaniti byte-exact korur", () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-p07b-accepted-binary-"));
+    try {
+      const project = join(root, "project");
+      const accepted = join(root, "accepted");
+      mkdirSync(project, { recursive: true });
+      mkdirSync(accepted, { recursive: true });
+      const binary = Buffer.from([1, 2, 3, 127, 128, 255]);
+      writeFileSync(join(accepted, "coverage.bin"), binary);
+      const collected = collectAcceptedChangeEvidence({
+        project_root: project,
+        accepted_dir: accepted,
+        job_id: "job-p07b-001",
+        checkpoint_id: "checkpoint-001",
+        changes: [{ path: "coverage.bin", sha256: sha(binary), action: "create" }],
+      });
+      const entry = collected.files.find((file) => file.relative_path === "evidence/accepted/coverage.bin");
+      expect(collected.missing).toEqual([]);
+      expect(entry?.content).toEqual(binary);
+      expect(entry?.redacted).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

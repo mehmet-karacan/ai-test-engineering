@@ -40,7 +40,7 @@
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity ve module report listesi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity + p06b-module-reports; frozen/counter ek kaniti p06-frozen-counter; odak suite + typecheck |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
-| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p07b-report06-evidence.md; 60/60 odak + 1/1 gercek MavenRunner evidence + typecheck/build; Docker customer dispatcher BLOCKED |
+| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p07b-report06-evidence.md + p07b-binary-evidence; accepted NUL'suz binary 6/6 + 1/1 gercek MavenRunner evidence + typecheck/lint/build; Docker customer dispatcher BLOCKED |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry ve readiness ayrimi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p08-install-runtime.md + p08-lifecycle-restore; 24/24 install + 6/6 lifecycle + 7/7 manifest/uninstall contract; gercek Windows e2e/upgrade rollback eksik |
 | P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p09-regression.md + P08/P04 sonrasi tam kosu; 66 dosya, 588/588 PASS, lint 0 error, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
 | P07-P10 | Report06 renderer/ham kanit export, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P07-A sonrasi devam ediyor |
@@ -96,6 +96,6 @@
 
 ## Sonraki somut is
 
-- Sonraki somut is: P08 lifecycle backup/restore/upgrade/uninstall kaniti; Docker capability saglanan ortamda P07-B customer dispatcher kabul kaniti ve P10 handoff
+- Sonraki somut is: Docker capability saglanan ortamda P07-B customer dispatcher kabul kaniti; P08 gercek Windows upgrade rollback; P10 handoff/release karari
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

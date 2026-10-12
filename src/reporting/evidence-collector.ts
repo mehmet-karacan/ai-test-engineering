@@ -127,10 +127,22 @@ function textEvidence(content: Buffer, homeDir: string | undefined): Buffer {
   return Buffer.from(value, "utf8");
 }
 
-function redactSource(content: Buffer, homeDir: string | undefined): { content: Buffer; redacted: boolean } {
-  // Java/source files are text; binary accepted assets stay byte-exact and are
-  // never passed through UTF-8 conversion.
-  if (content.includes(0)) {
+const BINARY_EVIDENCE_EXTENSIONS = new Set([
+  ".7z", ".bin", ".class", ".dylib", ".dll", ".exec", ".exe", ".gif", ".gz", ".ico",
+  ".jar", ".jpeg", ".jpg", ".pdf", ".pdb", ".png", ".so", ".tar", ".war", ".webp", ".zip",
+]);
+
+function isBinaryEvidencePath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
+  const fileName = normalized.slice(normalized.lastIndexOf("/") + 1);
+  const extension = fileName.slice(fileName.lastIndexOf("."));
+  return BINARY_EVIDENCE_EXTENSIONS.has(extension);
+}
+
+function redactSource(content: Buffer, homeDir: string | undefined, relativePath: string): { content: Buffer; redacted: boolean } {
+  // Known binary evidence is byte-exact even when it happens not to contain a
+  // NUL byte. Keep the NUL fallback for extensionless/unknown binary payloads.
+  if (isBinaryEvidencePath(relativePath) || content.includes(0)) {
     return { content, redacted: false };
   }
   return { content: textEvidence(content, homeDir), redacted: true };
@@ -258,7 +270,8 @@ export function collectAcceptedChangeEvidence(input: AcceptedChangeEvidenceInput
       continue;
     }
     patchInputs.push({ path, action, before, after });
-    const redactedAfter = after === null ? null : redactSource(after, input.home_dir).content;
+    const redactedAfter = after === null ? null : redactSource(after, input.home_dir, path).content;
+    const binaryAfter = after !== null && isBinaryEvidencePath(path);
     if (redactedAfter !== null) {
       result.files.push({
         relative_path: `evidence/accepted/${path}`,
@@ -266,7 +279,7 @@ export function collectAcceptedChangeEvidence(input: AcceptedChangeEvidenceInput
         stage: "final",
         run_id: null,
         content: redactedAfter,
-        redacted: after !== null && !after.includes(0),
+        redacted: after !== null && !binaryAfter && !after.includes(0),
         required: true,
       });
     }
