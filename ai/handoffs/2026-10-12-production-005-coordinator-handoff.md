@@ -2,6 +2,8 @@
 
 ## Son durum
 
+- Yeni coordinator entegrasyonu (2026-10-12): Qwen P01/P09/P10 verifier/ledger follow-up `2f7b53c` pushlandi ve main'e `a1b43c3` olarak alindi; GLM P08 Windows stale SQLite WAL/SHM restore fix `f0a6d8b` pushlandi ve main'e `9bb5556` olarak alindi. Ana dalda typecheck/build PASS, Windows hedef suite 8 dosya/36 test PASS, lint 0 error/89 warning, local verifier exit 0, full verifier exit 1 NO_GO.
+- GLM P08 bulgusu: hard-kill sonrasi hedef DB yaninda kalan `-wal/-shm` dosyalari restore edilen trusted DB'ye eski satir oynatabiliyordu. `restoreBackup` rename oncesi yan dosyalari temizliyor; gercek reproducer fix oncesi orphan replay, fix sonrasi temiz restore kanitlandi. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p08-restore-stale-wal-fix.md`.
 - Son coordinator entegrasyonu: GLM P08 PP44 checkpoint commit `bb84e2f` pushlandi ve main'e `1b64a0c` olarak alindi; Qwen P09/P10 reconciliation checkpoint commit `ab53861` pushlandi ve main'e `fdeef28` olarak alindi. Ana dal bu kanitlarla guncellendi; kullaniciya ait untracked Java dosyasi stage edilmedi.
 - PP44 artik NOT_RUN degil: gercek old v4 binary (`0822c3d`) ile current v7 binary arasinda migration, trusted job/artifact korunumu, quiesce, backup/kayip/restore ve standalone MCP entry smoke kanitli. Kalan acik maddeler: P07-B egress enforcement (BLOCKED_KAYITLI) ve P10 evidence manifest/release karari (full gate NO_GO). macOS kullanici karariyla kapsam disidir; acik maddelerden calindi (detay: `ai/checkpoints/2026-10-12-production-005-p10-scope-audit.md`).
 - Full gate durumu degismedi ve durustce NO_GO: Qwen reconciliation 74 dosya 639 PASS/5 FAIL, local gate PASS, full gate exit 1; `evidence-manifest.json` yok, 274/274 obligation missing, live/platform kaniti yok.
