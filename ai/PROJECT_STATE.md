@@ -3,8 +3,9 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P06 ve P07-A yerel olarak dogrulandi; P02/P03 audit, P07/P08 test kapsami, P09 release verifier provenance ve P10 kapanis kanitlari main'e alindi; P07-B/P08 runtime blocker'lari ve P10 canli/platform eksikleri suruyor
-- Durum etiketi: `005_P07B_P08_P10_BLOCKED` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P08 Windows kapsaminda dogrulandi; P02/P03 audit, P07/P08 test kapsami, P09 release verifier provenance ve P10 kapanis kanitlari main'e alindi; P07-B egress blocker'i ve P10 kanit eksikleri suruyor
+- Durum etiketi: `005_P07B_P10_BLOCKED` (tam urun kabul: NOT_VERIFIED)
+- Kapsam karari (kullanici, 2026-10-12): macOS bu gorevde kapsam disidir; macOS kaniti kalan is veya release blocker olarak sayilmaz. Windows standard akis korunur.
 - Son guncelleme: 2026-10-12 (Qwen P00 baseline + P08 gercek eski v4 binary: tam suite 74 dosya 640 PASS/4 FAIL (2 AC67 ortam, 1 p01 tam-suite flake -> izole 40/40 PASS, 1 browser print flake); eski binary 0822c3d gercek npm ci/build exit 0 + OLD_SCHEMA_VERSION=4; v4->v7 PP44 e2e NOT_RUN; kod degisikligi YOK)
 - Son guncelleme: 2026-10-12 (GLM PP44 gercek eski v4 binary -> yeni v7 binary upgrade, quiesce, trusted job/artifact korunumu, online backup/kayip/restore ve standalone MCP entry smoke PASS; checkpoint `production-005-p08-pp44-realbin-e2e`; commit `bb84e2f`, main cherry-pick `1b64a0c`)
 - Son guncelleme: 2026-10-12 (Qwen P09/P10 reconciliation: full suite 74 dosya 639 PASS/5 FAIL, P01 iki timeout testi tekil kosuda PASS; local gate PASS, full gate NO_GO, 274 obligation manifest yok; checkpoint `production-005-p10-p09-reconciliation`; commit `ab53861`, main cherry-pick `fdeef28`)
@@ -49,7 +50,7 @@
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven/JaCoCo runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS (COMPLETED/export BLOCKED_KAYITLI) | PP17 uygulanabilirlik auditi: egress enforcement depoda/hostta yok, mevcut typed fail-closed blocker gercek Docker wire testinde 1/1 PASS; yeni network altyapisi yazilmadi (p07b-audit-egress-decision). COMPLETED/export kosusu BLOCKED (host-disi enforcement gerekir) |
-| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | PP44 gercek eski v4 binary (0822c3d) -> yeni v7 binary migration, trusted job/artifact, quiesce, backup/kayip/restore ve standalone MCP entry smoke PASS (p08-pp44-realbin-e2e); macOS henuz NOT_RUN |
+| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | RUNTIME_VERIFIED (Windows kapsaminda) | PP41/PP42/PP43/PP44 Windows ve desteklenen path kanitlari PASS; cross-drive path escape duzeltmesi `p08-cross-drive-path-fix` ile 8 dosya/47 test PASS; macOS kullanici karariyla kapsam disi |
 | P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | production-005-coordinator-next + qwen-next + coordinator-final2; P01 40/40, ana dal odak 8 dosya 71/71 PASS, lint 0 error/89 warning, typecheck/build PASS; local gate PASS, full gate NO_GO (`EVIDENCE_MANIFEST_EKSIK`, 274 obligation) |
 | P10 | Teknik devir ve yayin karari | IN_PROGRESS | Qwen manifest sema karari: partial NOT_RUN/BLOCKED kaydi verifier tarafindan desteklenmiyor; gercek live/platform kaniti olmadan manifest uydurulmadi; 274/274 missing, full gate NO_GO |
 
@@ -114,7 +115,7 @@
 
 ## Sonraki somut is
 
-- Kalan ana kapanis paketi: **3** (`P07-B`, `P08`, `P10`). P09 yerel olarak kapali; release/evidence reconciliation P10 kapanisinin alt kaniti olarak izleniyor.
-- Sonraki somut is: P07-B COMPLETED + Report06 export runtime kosusu **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi); Docker egress enforcement (network policy/proxy) kullanici onayiyla saglaninca kosulur. P08 surum-atlayi upgrade + kayip/restore artik PP44 realbin e2e ile kanitli; kalan macOS makine kaniti (+ istege bagli downgrade yolu); P10 gercek evidence manifest + platform/live kanitlari ve handoff/release karari.
+- Kalan ana kapanis paketi: **2** (`P07-B`, `P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P09 yerel olarak kapali; release/evidence reconciliation P10 kapanisinin alt kanitidir.
+- Sonraki somut is: P07-B COMPLETED + Report06 export runtime kosusu **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi); Docker egress enforcement (network policy/proxy) kullanici onayiyla saglaninca kosulur. P10 gercek evidence manifest + live kanitlari ve handoff/release karari.
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

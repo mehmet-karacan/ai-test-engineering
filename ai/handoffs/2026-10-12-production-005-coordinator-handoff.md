@@ -6,6 +6,7 @@
 - PP44 artik NOT_RUN degil: gercek old v4 binary (`0822c3d`) ile current v7 binary arasinda migration, trusted job/artifact korunumu, quiesce, backup/kayip/restore ve standalone MCP entry smoke kanitli. MacOS ve P07-B egress enforcement hala acik.
 - Full gate durumu degismedi ve durustce NO_GO: Qwen reconciliation 74 dosya 639 PASS/5 FAIL, local gate PASS, full gate exit 1; `evidence-manifest.json` yok, 274/274 obligation missing, live/platform kaniti yok.
 - Son iki dar audit: GLM `08ec13b` / main `f05a8c6` P07-B egress enforcement'in mevcut repo/host ile uygulanamaz oldugunu ve typed blocker'in 1/1 gercek Docker kosusunu kaydetti; Qwen `89e3eec` / main `8b400e7` verifier'in partial NOT_RUN/BLOCKED manifest kabul etmedigini kanitladi. Yeni altyapi veya sahte manifest yazilmadi.
+- Yeni coordinator entegrasyonu: Qwen `b73e979` / main `12fcd12` ledger uzlastirmasini pushladi; GLM `79c1961` / main `021a505` Windows cross-drive path escape duzeltmesini ve 8 dosya/47 PASS odak kanitini pushladi. MacOS kullanici karariyla bu gorev kapsamindan cikarildi.
 
 - Coordinator final2 (2026-10-12): GLM P07-B blocked kaniti `49e3ca3`, Qwen P08 eski v4 binary kaniti `8f1091f` pushlandi ve main'e alindi. Ana dal odak suite 8 dosya 71/71 PASS; typecheck/build/lint PASS; local release verifier PASS, full verifier NO_GO (`EVIDENCE_MANIFEST_EKSIK`, 274 obligation). Checkpoint: `ai/checkpoints/2026-10-12-production-005-coordinator-final2.md`.
 - P07-B blocked belgeleme (2026-10-12, branch `codex/glm-prod005-p07b-next2`, taban main `10f3f4f`, GLM): egress enforcement mekanizmasi (Docker network policy/proxy adapter) **depoda ve hostta YOK**; hizlandirma karari ile yeni altyapi YAZILMADI. P07-B gercek customer dispatcher COMPLETED + Report06 export runtime kosusu **BLOCKED_KAYITLI**; `BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE` fail-closed blocker korunuyor. Odak: wire blocker + nonzero facts **2/2 PASS** gercek kosu (29.68 sn; Docker 29.8.2 preflight gecildi, skip yok), typecheck/build/lint PASS (0 error/89 warning). Urun kodu degisikligi YOK. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p07b-next2-blocked.md`.
@@ -17,7 +18,7 @@
   - P08 final2 store (`C:\Users\mkaracan\AppData\Local\Temp\opencode\p08-chain-final2`): verify **exit 0**, chain (v4->v7 migration + trusted veri korunumu + quiesce gate + online backup/restore/rollback) **`CHAIN_ALL_OK=true` exit 0**, uninstall **exit 0** (OpenCode kaydi kaldirildi, runtime DB/blob/config korundu, dist kaldirildi), build **exit 0**. Eski p08-chain processleri yok.
   - Odak: 4 dosya **22/22 PASS** (p07b-dispatch-egress + fin11-lifecycle-ops + p08-upgrade-restore + p04-isolation-policy); typecheck/build/lint **0 error** (lint 90 warning, hepsi mevcut).
   - Checkpoint: `ai/checkpoints/2026-10-12-production-005-p07b-p08-remaining.md`.
-  - Kalan: P07-B customer dispatcher COMPLETED/export (egress enforcement mekanizmasi yok -> typed blocker); P08 gercek binary surum-atlayi upgrade/rollback e2e + macOS; P10 evidence manifest/release karari.
+  - Kalan: P07-B customer dispatcher COMPLETED/export (egress enforcement mekanizmasi yok -> typed blocker); P10 evidence manifest/release karari. P08 Windows kaniti guncel kapsamda tamamdir; macOS bu gorev kapsaminda degildir.
 - GLM runtime denetimi (2026-10-12, branch `codex/glm-prod005-runtime`, HEAD `4140d9ba`): P02/P03 odak 7 dosya **63/63 PASS** yeniden dogrulandi; build exit 0; Docker 29.8.2 **linux/amd64** dogrulandi. PP08: probe container `docker stop` sonrasi `STATUS=exited, EXITCODE=137` (gercek stop/inspect kaniti). PP09: Linux container'da `uname -s=Linux` + `node -e process.exit(3)` -> exit 3 yakalandi; host spawn ENOENT event'i gozlendi. Yeni uygulanabilir kod/harness acigi yok; kod degisikligi yapilmadi. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-runtime-glm.md`. Kalan: iki-process TTL harness, tam Linux spawn-failure harness, gercek hard-kill live kaniti NOT_RUN.
 - Ikinci GLM oturumu (2026-10-12, HEAD `5c07c7c` checkpoint commit'i uzerinde): odak 63/63 PASS yeniden dogrulandi (33.03 sn); Docker Server 29.8.2; PP08 `--network none` probe `iso-ok`, owned-container stop probe `Exited (137)` (probe `docker rm` ile temizlendi). Yeni kod/harness acigi yok; ikinci oturum kaydi ayni checkpoint dosyasina eklendi.
 
@@ -45,13 +46,13 @@
 - PR02/03 audit: lease/checkpoint/resume odak 63/63 PASS; yeni yerel kod acigi yok; kalan runtime kanitlari PP07/PP08/PP09/PP14 olarak alindi (RUNTIME_VERIFIED).
 - PR04/06 audit: Docker isolation/capability 11/11, P04 runtime 13/13, Maven/effective-scope/baseline 29/29, P05 resume/target 13/13; yeni yerel kod acigi yok. Allowlist egress enforcement yoksa typed blocker korunuyor.
 - P07-B/P08 entegre odak: 18 dosya 159/159 PASS; tam print/offline/DOM/link + allowlist egress kaniti ve gercek platform e2e ayri kaldi.
-- P08 lifecycle/install: `fin11-lifecycle-ops` + `w09-install` 15/15 PASS; gercek upgrade/rollback ve Linux/macOS platform kosusu ayri kaldi.
+- P08 lifecycle/install: `fin11-lifecycle-ops` + `w09-install` 15/15 PASS; Windows upgrade/restore kaniti tamamdir; macOS bu gorev kapsaminda degildir.
 
 ## Acik maddeler ve gercek engeller
 
-- Kalan ana kapanis paketi sayisi: **3** (`P07-B`, `P08`, `P10`). P09 yerel olarak kapali; evidence reconciliation P10 kapanisinin alt kanitidir.
+- Kalan ana kapanis paketi sayisi: **2** (`P07-B`, `P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P09 yerel olarak kapali; evidence reconciliation P10 kapanisinin alt kanitidir.
 - P07-B gercek customer dispatcher COMPLETED + Report06 export runtime kosusu: **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi; typed blocker fail-closed korunuyor).
-- P08: gercek Windows CMD install/verify/uninstall (PP41) ve gercek iki-binary v4->v7 upgrade + kayip/restore (PP44) artik RUNTIME_VERIFIED (`p08-pp44-realbin-e2e`); kalan: macOS makine kaniti ve downgrade (geri surum) e2e NOT_RUN.
+- P08: gercek Windows CMD install/verify/uninstall (PP41), v4->v7 upgrade + kayip/restore (PP44) ve cross-drive path escape duzeltmesi artik RUNTIME_VERIFIED; macOS kullanici karariyla kapsam disi, downgrade bu kapsamda zorunlu degil.
 - P06 effective Maven profile/skip/ignoreFailures ve multi-module runtime kaniti: local kod kapilari var, tam runtime kaniti eksik.
 - PP09 artik RUNTIME_VERIFIED (`p02p03-remaining-runtime-kanit`: Linux taskkill yok + exit 3 yakalanmasi + stop/inspect 137 + log butcesi kod/test); bu madde kapanmistir.
 - PP17 tam allowlist egress enforcement: BLOCKED (typed blocker fail-closed).
@@ -59,4 +60,4 @@
 
 ## Sonraki en hizli guvenli adim
 
-Docker egress enforcement (network policy/proxy) altyapisi kullanici onayiyla saglanirsa P07-B customer dispatcher/egress kabul kosusunu ve PP17 negative/positive container kanitini calistir; sonra gercek Windows/Linux/macOS platform kanitini ayri runtime store'da kaydet. Evidence manifesti olmadan full gate'i GO'ya cevirmeyin. Bu handoff, P07-B blocked karari ve yeniden dogrulama kaniti ile guncellenmistir.
+Docker egress enforcement (network policy/proxy) altyapisi kullanici onayiyla saglanirsa P07-B customer dispatcher/egress kabul kosusunu ve PP17 negative/positive container kanitini calistir; Windows kanitlarini ayri runtime store'da kaydet. MacOS bu gorevde kapsam disidir. Evidence manifesti olmadan full gate'i GO'ya cevirmeyin. Bu handoff, P07-B blocked karari, Windows path duzeltmesi ve yeniden dogrulama kaniti ile guncellenmistir.

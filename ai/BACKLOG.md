@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P06 ve P07-A local olarak dogrulandi; P09 verifier/reconciliation local olarak kapali, P07-B/P08/P10 kapanis paketi suruyor. Ana kalan paket sayisi: 3 (P09 kapanis kaniti korunuyor).
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P08 Windows kapsaminda dogrulandi; P09 verifier/reconciliation local olarak kapali, P07-B/P10 kapanis paketi suruyor. Ana kalan paket sayisi: 2 (P09 kapanis kaniti korunuyor; macOS kapsam disi).
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFIED; checkpoint `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.
 Son coordinator kapanis kanitlari: GLM P08 PP44 checkpoint `ai/checkpoints/2026-10-12-production-005-p08-pp44-realbin-e2e.md`; Qwen P09/P10 reconciliation checkpoint `ai/checkpoints/2026-10-12-production-005-p10-p09-reconciliation.md`.
@@ -41,7 +41,7 @@ Yeni blocker/sema kanitlari: GLM P07-B `ai/checkpoints/2026-10-12-production-005
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | production-005-p07a-facts-export; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS (COMPLETED/export BLOCKED_KAYITLI) | GLM audit: egress enforcement mevcut Docker/host mekanizmasi ile uygulanamaz; typed fail-closed wire test 1/1 PASS; host-disi network policy/proxy gerekir |
-| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | PP44 gercek eski v4 binary -> v7 binary migration, quiesce, trusted job/artifact, backup/kayip/restore ve standalone MCP entry smoke PASS (GLM checkpoint); macOS NOT_RUN |
+| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | RUNTIME_VERIFIED (Windows kapsaminda) | PP41/PP42/PP43/PP44 kanitlari PASS; cross-drive path escape duzeltmesi `p08-cross-drive-path-fix` ile 8 dosya/47 test PASS; macOS kullanici karariyla kapsam disi |
 | P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | production-005-coordinator-next + qwen-next + coordinator-final2; P01 40/40, ana dal odak 8 dosya 71/71 PASS, lint 0 error/89 warning, typecheck/build PASS; local PASS, full NO_GO (`EVIDENCE_MANIFEST_EKSIK`, 274 obligation) |
 | P10 | Teknik devir ve yayin karari | IN_PROGRESS | Qwen sema auditi: partial NOT_RUN/BLOCKED manifest desteklenmiyor; gercek PASS kaniti olmadan manifest uydurulmadi; full NO_GO, 274/274 missing |
 
