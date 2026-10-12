@@ -70,3 +70,10 @@
 - Async callback baska canli owner'dan `LEASE_HELD` alirsa onun RUNNING isini FAILED yapmaz; canli owner'i koruyan fixture resume 9/9 PASS. Bu kontrol yeni genel async hata outcome davranisinin eszamanli owner'a zarar vermemesini dogrular.
 - Son S02 odak 6 dosya/37 PASS; typecheck/build/lint exit 0 (lint 89 mevcut uyari). S02 NO_GO degismedi.
 - Canli RG41/RG42 izole tekrar 2/2 FAIL (`start_ok=false`, `status_ok=false`); bu kabul testleri blocker assertion'ina cevrilmedi.
+
+## 2026-10-13 canli owner ve pre-acquire hata yarisi
+
+- Bagimsiz S03 review, async resume hata callback'inin yalniz `LEASE_HELD` reason-code'unu korudugunu; ikinci istegin native preflight'i lease acquire oncesi `TOOLCHAIN_IDENTITY_CHANGED` verirse canli owner'in RUNNING isini FAILED yapabilecegini buldu. Ayrica handler ikinci istekte lease almadan RUNNING/event yaziyordu.
+- Kirmizi fixture: canli owner varken ikinci `handleTestResume` hata yerine RUNNING donduruyordu. Yeni akista handler native preflight sonrasi unique owner/fencing lease'ini RUNNING/event oncesi acquire eder; lifecycle/event ayni DB transaction'inda yazilir. Canli owner varsa `LEASE_HELD` senkron doner, lifecycle row_version ve kabul event'i degismez. Dispatcher ayni owner ID ile recovery/dispatch'e devam eder.
+- Async hata callback'i DB transaction icinde owner ID ve fencing token'i tekrar okur. `FAILED` sonucu yalniz token bu invocation'a aitse yazar; token devredilmisse yeni owner'in RUNNING state'i korunur. Handlerin aldigi lease, dispatcher pre-acquire identity hatasi verse bile callback finally'de release edilir. Testte direct pre-acquire drift canli owner'a dokunmadi ve sentetik fencing takeover sonrasi RUNNING/owner korundu. Resume odak 11/11 PASS. Process ownership customer gate halen kapali; S02 NO_GO.
+- Son odak 6 dosya/39 PASS; typecheck/build/lint exit 0 (lint 89 mevcut uyari). RG41/RG42 canli 2/2 FAIL (`start_ok=false`, `status_ok=false`), S02 NO_GO korunuyor.

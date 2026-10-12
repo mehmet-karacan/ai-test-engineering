@@ -1178,7 +1178,7 @@ export class JobDispatcher {
    * kalan iterasyon/butce best checkpoint manifest'inden yuklenir (config sifirlamaz);
    * SOURCE_CHANGED durumunda kontrollu rebaseline; dispatch'i bastan tekrar cagirmaz.
    */
-  async resumeDispatch(job: JobRow, projectRootHint?: string, requestedModel?: string | null): Promise<DispatchResult> {
+  async resumeDispatch(job: JobRow, projectRootHint?: string, requestedModel?: string | null, ownerIdOverride?: string): Promise<DispatchResult> {
     const storage = this.services.storage;
     const jobs = this.services.jobs;
     if (!storage || !jobs) {
@@ -1225,7 +1225,7 @@ export class JobDispatcher {
     const snapshot = new SourceSnapshot(projectRoot);
     const snapshotManifest = snapshot.buildManifest();
     const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
-    const recoveryOwnerId = `resume-${process.pid}-${job.id}-${randomUUID()}`;
+    const recoveryOwnerId = ownerIdOverride ?? `resume-${process.pid}-${job.id}-${randomUUID()}`;
     try {
     const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity });
     if (this.runnerKind === "windows_native" && plan.checkpoint_manifest) {

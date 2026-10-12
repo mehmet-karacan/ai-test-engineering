@@ -255,16 +255,54 @@ describe("P05-B resume zinciri", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(prepared.services.jobs!.getJob(prepared.jobId)).toMatchObject({ lifecycle: "FAILED", outcome: "BLOCKED_ISOLATION" });
+    expect(new LeaseManager(prepared.services.storage!.db).get(prepared.jobId).expires_at).toBeLessThan(Date.now());
   });
 
   it("baska canli lease sahibinin RUNNING isini reddedilen resume bozmaz", async () => {
     const prepared = await prepareJob();
     cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const before = prepared.services.jobs!.updateLifecycle(prepared.jobId, "RUNNING", prepared.services.jobs!.getJob(prepared.jobId).row_version);
     new LeaseManager(prepared.services.storage!.db).acquire(prepared.jobId, "other-live-owner", 300000);
-    const result = await handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services);
-    expect(result.lifecycle).toBe("RUNNING");
-    for (let i = 0; i < 40; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const eventCount = prepared.services.storage!.db.prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM job_events WHERE job_id = ? AND event_type = 'test_resume_accepted'").get(prepared.jobId)!.count;
+    await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
+      .rejects.toMatchObject({ details: { reason_code: "LEASE_HELD" } });
+    expect(prepared.services.jobs!.getJob(prepared.jobId)).toMatchObject({ lifecycle: "RUNNING", outcome: null, row_version: before.row_version });
+    expect(prepared.services.storage!.db.prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM job_events WHERE job_id = ? AND event_type = 'test_resume_accepted'").get(prepared.jobId)!.count).toBe(eventCount);
+    expect(new LeaseManager(prepared.services.storage!.db).get(prepared.jobId).owner_id).toBe("other-live-owner");
+  });
+
+  it("canli owner varken direct resume pre-acquire identity hatasi state bozmaz", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const before = prepared.services.jobs!.updateLifecycle(prepared.jobId, "RUNNING", prepared.services.jobs!.getJob(prepared.jobId).row_version);
+    new LeaseManager(prepared.services.storage!.db).acquire(prepared.jobId, "other-live-owner", 300000);
+    vi.spyOn(NativeToolchainRecordStore.prototype, "verify").mockRejectedValue(new AppError("BLOCKED_ISOLATION", "changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" }));
+    const dispatcher = new JobDispatcher({ services: prepared.services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: prepared.artifactRoot });
+    await expect(dispatcher.resumeDispatch(prepared.services.jobs!.getJob(prepared.jobId), prepared.projectDir, MODEL))
+      .rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
+    expect(prepared.services.jobs!.getJob(prepared.jobId)).toMatchObject({ lifecycle: "RUNNING", outcome: null, row_version: before.row_version });
+    expect(new LeaseManager(prepared.services.storage!.db).get(prepared.jobId).owner_id).toBe("other-live-owner");
+  });
+
+  it("async identity hatasi sonrasi lease fence devredildiyse yeni owner'in RUNNING state'i korunur", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const realVerify = NativeToolchainRecordStore.prototype.verify;
+    let checks = 0;
+    vi.spyOn(NativeToolchainRecordStore.prototype, "verify").mockImplementation(function (jobId, options, verifier) {
+      checks++;
+      if (checks === 1) return realVerify.call(this, jobId, options, verifier);
+      prepared.services.storage!.db.prepare("UPDATE job_leases SET owner_id = 'other-live-owner', fencing_token = fencing_token + 1, expires_at = ? WHERE job_id = ?")
+        .run(Date.now() + 300000, prepared.jobId);
+      return Promise.reject(new AppError("BLOCKED_ISOLATION", "changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" }));
+    });
+    await handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services);
+    for (let i = 0; i < 40 && checks < 2; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(checks).toBe(2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(prepared.services.jobs!.getJob(prepared.jobId)).toMatchObject({ lifecycle: "RUNNING", outcome: null });
     expect(new LeaseManager(prepared.services.storage!.db).get(prepared.jobId).owner_id).toBe("other-live-owner");
   });

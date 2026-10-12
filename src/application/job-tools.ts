@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "./services.js";
@@ -90,27 +91,42 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     await record.verify(job.id, options, verifyNativeToolchain);
   }
 
-  // K05/B05: resume gercek dispatcher devami - ayni job'dan kaldigi asamadan devam.
-  jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
-  jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });
+  // Acquire a unique fenced owner before publishing RUNNING. A competing
+  // resume must not mutate the state/event stream of the active owner.
+  const leaseOwnerId = `resume-${process.pid}-${job.id}-${randomUUID()}`;
+  const leaseManager = new LeaseManager(storage.db);
+  const lease = leaseManager.acquire(job.id, leaseOwnerId, 300000, `resume-${process.pid}`).lease;
+  try {
+    storage.db.transaction(() => {
+      jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
+      jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });
+    })();
+  } catch (error) {
+    leaseManager.release(job.id, leaseOwnerId);
+    throw error;
+  }
 
   // dispatch'i ayni job'dan tekrar baslat (kaldigi asamadan; source/checkpoint dogrulamasi dispatcher'da):
   // GoalContract job kayitlarindan yeniden kurulur (resume parametresi gerekmez):
-  void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined, parsed.model_profile ?? null).catch((error: unknown) => {
+  void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined, parsed.model_profile ?? null, leaseOwnerId).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] resume job ${job.id} hata: ${String(error)}\n`);
     try {
-      const latest = jobs.getJob(job.id);
-      // A rejected contender must not fail the job owned by another live lease.
-      const leaseHeld = error instanceof AppError && error.details?.["reason_code"] === "LEASE_HELD";
-      if (latest.lifecycle === "RUNNING" && !leaseHeld) {
+      storage.db.transaction(() => {
+        const owner = storage.db.prepare<[string], { owner_id: string; fencing_token: number }>(
+          "SELECT owner_id, fencing_token FROM job_leases WHERE job_id = ?",
+        ).get(job.id);
+        const latest = jobs.getJob(job.id);
+        if (owner?.owner_id !== leaseOwnerId || owner.fencing_token !== lease.fencing_token || latest.lifecycle !== "RUNNING") return;
         const outcome = error instanceof AppError && error.code === "POLICY_VIOLATION" ? "POLICY_VIOLATION"
           : error instanceof AppError && error.code === "BLOCKED_ISOLATION" ? "BLOCKED_ISOLATION"
           : "BLOCKED_ENVIRONMENT";
         jobs.updateOutcome(job.id, outcome, latest.row_version);
         jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
-      }
+      })();
     } catch (stateError) {
       process.stderr.write(`[aitest-dispatch] resume job ${job.id} state update hatasi: ${String(stateError)}\n`);
+    } finally {
+      leaseManager.release(job.id, leaseOwnerId);
     }
   });
 
