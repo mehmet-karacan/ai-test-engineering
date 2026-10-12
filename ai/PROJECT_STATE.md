@@ -115,6 +115,6 @@
 ## Sonraki somut is
 
 - Kalan ana kapanis paketi: **3** (`P07-B`, `P08`, `P10`). P09 yerel olarak kapali; release/evidence reconciliation P10 kapanisinin alt kaniti olarak izleniyor.
-- Sonraki somut is: P07-B COMPLETED + Report06 export runtime kosusu **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi); Docker egress enforcement (network policy/proxy) kullanici onayiyla saglaninca kosulur. P08 gercek binary surum-atlayi upgrade/rollback e2e + macOS; P10 gercek evidence manifest + platform/live kanitlari ve handoff/release karari.
+- Sonraki somut is: P07-B COMPLETED + Report06 export runtime kosusu **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi); Docker egress enforcement (network policy/proxy) kullanici onayiyla saglaninca kosulur. P08 surum-atlayi upgrade + kayip/restore artik PP44 realbin e2e ile kanitli; kalan macOS makine kaniti (+ istege bagli downgrade yolu); P10 gercek evidence manifest + platform/live kanitlari ve handoff/release karari.
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir
