@@ -3,10 +3,13 @@
  * cmd.exe uzerinden: node scripts/verify-install.mjs
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-const repoRoot = resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+// K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
+const thisFile = fileURLToPath(import.meta.url);
+const repoRoot = resolve(dirname(thisFile), "..");
 
 async function main() {
   let ok = true;
