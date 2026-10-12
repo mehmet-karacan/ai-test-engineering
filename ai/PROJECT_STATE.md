@@ -5,7 +5,7 @@
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
 - Asama: P00-P06 ve P07-A yerel olarak dogrulandi; P02/P03 audit, P07/P08 test kapsami ve P09 tam regresyonu main'e alindi; P07-B/P08/P09/P10 kapanis kanitleri suruyor
 - Durum etiketi: `005_P08_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
-- Son guncelleme: 2026-10-12 (GLM/Qwen auditleri main'e alindi; full suite 70 dosya, 620/620 PASS)
+- Son guncelleme: 2026-10-12 (GLM P02/P03-P04 runtime denetimi: odak 63/63 PASS, Docker Linux PP08/PP09 komut kaniti alindi; ayrinti ai/checkpoints/2026-10-12-production-005-p02p03-runtime-glm.md)
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
 ## 004 paketleri durumu (W00-W11)
@@ -31,8 +31,8 @@
 | --- | --- | --- | --- |
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
-| P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md + pr02-pr03-audit + p02-p03-glm-audit; odak 63/63 PASS (yeni HEAD yeniden dogrulandi); iki owner/hard-kill runtime kaniti NOT_RUN |
-| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit + p02-p03-glm-audit; P03/komsu odak 63/63 PASS (main entegre); tam live/hard-kill NOT_RUN |
+| P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md + pr02-pr03-audit + p02-p03-glm-audit + p02p03-runtime-glm; odak 63/63 PASS (HEAD 4140d9b yeniden dogrulandi); PP08 owned container stop Docker stop/inspect kaniti alindi; iki process/hard-kill NOT_RUN |
+| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit + p02-p03-glm-audit + p02p03-runtime-glm; odak 63/63 PASS (HEAD 4140d9b); tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri ve egress fail-closed | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md + pr04-pr06-audit; Docker isolation/capability 11/11, P04 runtime 13/13, egress allowlist enforcement yoksa typed blocker |
 | P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md + pr04-pr06-audit; odak suite 57/57 + runtime target 13/13 + typecheck |
 | P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md + pr04-pr06-audit; 46/46 resume/storage + 2/2 handler + runtime 13/13 + typecheck |
@@ -87,9 +87,9 @@
 - Bu gorevde canli model/provider denemesi YAPILMADI; tum kanitlar yerel fixture/izole Maven
 - Pilot teshis kaydi: ai/checkpoints/2026-10-11-rt21-pilot-kapanis.md (tarihsel; korunur)
 
-## Ortam (2026-10-11)
+## Ortam (2026-10-12 yeniden dogrulandi)
 
-- Node.js v24.14.1, vitest 4.1.11, Git 2.55.0, JDK 21/25, Maven 3.9.16, Docker 29.8.2 (linux containers)
+- Node.js v24.14.1, vitest 4.1.11, Git 2.55.0, Docker 29.8.2 (linux/amd64, WSL2 Linux 6.18 kernel); `docker version` Server.Os=linux
 - PowerShell execution policy engelli; npm.cmd/opencode.cmd kullaniliyor
 
 ## Canli kabul durumu (degismedi)
