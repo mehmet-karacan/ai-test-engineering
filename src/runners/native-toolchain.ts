@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, delimiter } from "node:path";
 import { AppError } from "../domain/errors.js";
+import { WindowsProcessSupervisor } from "./windows-process-supervisor.js";
 
 const UNSAFE_CMD = /[%!^|<>"\r\n\0]/u;
 const SAFE_PROPERTY_KEY = /^[A-Za-z][A-Za-z0-9_.-]*$/u;
@@ -33,6 +34,34 @@ export interface NativeToolchainPlan {
   source: "explicit" | "installed" | "wrapper";
   cwd: string;
   identity: string;
+}
+
+export interface NativeVersionEvidence {
+  mavenVersion: string;
+  javaVersion: string;
+  outputDigest: string;
+  effectiveIdentity: string;
+}
+
+/** Probe the selected executable. The raw -v output stays local to this call. */
+export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv): Promise<NativeVersionEvidence> {
+  const run = await new WindowsProcessSupervisor().run({
+    executable: plan.executable, cwd: plan.cwd, argv: ["-v"], timeoutMs: 10000,
+    maxLogBytes: 64 * 1024, env,
+  });
+  if (run.status !== "success" || run.stdoutTruncatedBytes > 0 || run.stderrTruncatedBytes > 0) {
+    throw new AppError("BLOCKED_ISOLATION", "Maven version probe failed or truncated", { reason_code: "MAVEN_VERSION_UNVERIFIED" });
+  }
+  const mavenVersion = /^Apache Maven\s+(\S+)/imu.exec(run.stdout)?.[1];
+  const javaVersion = /^Java version:\s+([^,\s]+)/imu.exec(run.stdout)?.[1];
+  if (!mavenVersion || !javaVersion) {
+    throw new AppError("BLOCKED_ISOLATION", "Maven or Java version missing from probe", { reason_code: "MAVEN_VERSION_UNVERIFIED" });
+  }
+  const outputDigest = createHash("sha256").update(run.stdout).update(run.stderr).digest("hex");
+  return {
+    mavenVersion, javaVersion, outputDigest,
+    effectiveIdentity: createHash("sha256").update(JSON.stringify({ base: plan.identity, outputDigest })).digest("hex"),
+  };
 }
 
 function validCmdValue(value: string, label: string): void {

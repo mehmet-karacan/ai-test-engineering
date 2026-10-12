@@ -15,10 +15,11 @@
 - `MavenRunner` dogrudan native resolver/supervisor kullanir; varsayilan installed Maven, acik executable ve yalniz acik wrapper tercihi desteklenir. `-pl ... -am` modul kapsami ve onayli settings/toolchains yollarini tipli argv ile aktarir. Gercek Windows fixture'inda PATH Maven, mevcut wrapper'a tercih edildi. Yeni entegrasyon testi once RED (wrapper/exit 1), sonra 2/2 PASS; 4 ilgili eski test dosyasi 59/59 PASS. Bu yalniz runner katmanidir; normal dispatcher henuz Docker'dan cevrilmedi.
 - Genis unit/contract/benchmark tekrarinda 61 dosyanin 60'i gecti, 605/606 test PASS; ilk `p01-release-gate` child full verifier sonucunda `mode` undefined oldu. Ayni dosya izole tekrar 40/40 PASS. Bu aralikli cocuk surec sorunu S00'da da gorulmustu; kok neden kanitlanmadi ve basarili tekrar ilk hatayi silmez. Sonraki tekrarda stderr/stdout/status gorunsun diye assertion tanisi genisletildi.
 - Qwen ikinci salt okunur review, timeout/cancel/spawn error sonucunun normal run olarak donmesini ve explicit bos settings yolunun sessizce varsayilana kaymasini buldu. Her ikisi gercek Windows fixture'inda once RED goruldu; artik `MavenRunner.run` bu durumlarda `AppError` firlatir, bos yol reddedilir. Odak 3 dosya/13 PASS, typecheck exit 0. Qwen'in inherited JVM env'in identity'de yok iddiasi dogrulanmadi: `effectiveEnvironment()` birlestirilmis env'i hem resolver'a hem spawn'a verir; gercek version kaniti ise halen eksik.
+- `probeNativeMavenVersion` secilen `.cmd` dosyasini `-v` ile olcer; Maven/Java surumlerini ve bounded ham cikti hash'ini base kimlige baglar. Sentetik Windows fixture'inda once RED, sonra odak 3 dosya/14 PASS. Bu probe henuz normal job planinda zorunlu degil; WN15 tamamlanmis sayilmaz.
 
 ## Acik is
 
-- Maven `-v` ve etkin Java surum kanitini okuyup gizli degerleri acmadan plan digest'ine bagla. Varsayilan/ozel settings, toolchains, profile ve `.mvn` konfigurasyon byte hash'leri simdiden kimliktedir.
+- Maven `-v` probe sonucunu normal job planinda zorunlu yap; etkin Java ve test toolchain surumunu ayrica kanitla. Varsayilan/ozel settings, toolchains, profile ve `.mvn` konfigurasyon byte hash'leri simdiden kimliktedir.
 - Process kill sonrasi tree kapanisini/PID sahipligini kanitla; hard-kill/restart orphan ve late-result fence testleri ekle.
 - Factory, dispatcher, services/config/entrypoint normal yola baglanacak. Eski runner config/job acik migration gerektirmeli.
 - Native fixture entegrasyonu ve WN14-WN24 tamamlanmadan S02 LOCAL_VERIFIED/VERIFIED degildir. G1 GPU Maven/model, G2 apply, G3 yayin icin ayri onay gerekir.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NativeToolchainResolver, buildNativeMavenArgv } from "../../src/runners/native-toolchain.js";
+import { NativeToolchainResolver, buildNativeMavenArgv, probeNativeMavenVersion } from "../../src/runners/native-toolchain.js";
 
 describe("S02 native Maven command contract", () => {
   it("uses installed Maven by default and honors Windows Path casing", () => {
@@ -71,6 +71,20 @@ describe("S02 native Maven command contract", () => {
       expect(JSON.stringify(fourth)).not.toContain("SECRET_SENTINEL");
       expect(buildNativeMavenArgv({ goals: ["test"], settingsPath: settings, toolchainsPath: toolchains }))
         .toEqual(["test", "-s", settings, "-t", toolchains, "-B", "-ntp"]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it.skipIf(process.platform !== "win32")("probes actual Maven and Java versions through selected command", async () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-versions-"));
+    try {
+      const mvn = join(root, "mvn.cmd");
+      writeFileSync(mvn, "@echo off\r\necho Apache Maven 3.9.16\r\necho Java version: 25.0.3, vendor: Fixture\r\n");
+      const plan = NativeToolchainResolver.resolve({ cwd: root, env: process.env, executable: mvn });
+      const versions = await probeNativeMavenVersion(plan, process.env);
+      expect(versions.mavenVersion).toBe("3.9.16");
+      expect(versions.javaVersion).toBe("25.0.3");
+      expect(versions.effectiveIdentity).not.toBe(plan.identity);
+      expect(versions.outputDigest).toMatch(/^[a-f0-9]{64}$/);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
