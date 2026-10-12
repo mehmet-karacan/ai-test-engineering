@@ -20,6 +20,15 @@
 - PP09 (Linux spawn/exit yakalama): `docker run --rm node:24-slim sh -c "uname -s; node -e 'process.exit(3)'"` -> stdout **Linux**, host `$LASTEXITCODE=3`; Linux container'da exit code dogru yakalandi. Ayni oturumda `spawn('missing-binary-xyz')` -> `SPAWN_ERROR: ENOENT` event'i ve `docker run sleep 30` + SIGTERM -> exit=null yakalama da gozlendi (host Node child_process davranisi).
 - Docker daemon OS tipi: `linux/amd64 29.8.2` (`docker version` + `docker info --format OSType=linux`).
 
+## Ikinci oturum yeniden dogrulamasi (2026-10-12, ayni gun)
+
+- Branch `codex/glm-prod005-runtime` mevcut ve aktif (HEAD `5c07c7c` onceki checkpoint commit'i; onceki HEAD `4140d9ba` uzerinde); calisma agaci temiz.
+- Odak P02/P03 suite yeniden kosuldu: **7 dosya, 63/63 PASS** (33.03 sn, vitest 4.1.11).
+- Docker daemon yeniden dogrulandi: Server 29.8.2.
+- PP08 izolasyon probe: `docker run --rm --network none alpine:3.19` -> stdout `iso-ok` (network izolasyonu fail-closed davranisi gozlendi).
+- PP09 owned-container stop: `docker run -d --name glm-probe-p09 alpine:3.19 sh -c "sleep 30"` + `docker stop` -> stop exit 0, sonraki durum **Exited (137)**; probe container `docker rm` ile kaldirildi.
+- Yeni kod/harness acigi bulunmadi; kod degisikligi yapilmadi. Onceki oturum kanitlari (ustte) yerinde.
+
 ## Bulgu bazinda durum (PP07-PP14; yeni HEAD)
 
 | ID | Durum | Kanit |
@@ -45,4 +54,4 @@
 ## Devam noktasi
 
 - Siradaki somut is: P07-B/P08/P10 aktif paketleri (platform e2e + evidence manifest); PR02/PR03 icin kalan tek kanit iki-process/hard-kill runtime harness'idir.
-- Bu checkpoint commit sonrasi `origin/codex/glm-prod005-runtime` dalina push edilir.
+- Ikinci oturum: bu checkpoint commit sonrasi `origin/codex/glm-prod005-runtime` dalina push edilir (dal origin'de henuz yok).
