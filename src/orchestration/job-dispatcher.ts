@@ -4,7 +4,7 @@
  * MCP handler yalniz use-case'e yonlendirir; event loop'u bloke etmez.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../domain/errors.js";
@@ -243,6 +243,7 @@ export class JobDispatcher {
       const baselineWorkspace = join(this.workspaceRoot, "jobs", job.id, "baseline");
       let baselineExecutionRoot: string | null = null;
       let baselineEvidence: BaselineResult | null = null;
+      let baselineRunId: string | null = null;
 
       // baseline: mevcut testler gercekten calisir (guvenli runner contract'indan)
       if (this.runnerKind === "host_dev_only" && hostRunner) {
@@ -411,7 +412,7 @@ export class JobDispatcher {
         });
       }
       if (baselineEvidence?.run && baselineEvidence.run_started_at !== null && baselineEvidence.run_finished_at !== null) {
-        inventory.writeTestRunProvenance({
+        baselineRunId = inventory.writeTestRunProvenance({
           job_id: job.id,
           stage: "baseline",
           attempt_ordinal: null,
@@ -446,6 +447,7 @@ export class JobDispatcher {
       const loop = new CandidateLoop(loopRunner, { accepted_set_dir: acceptedDir, staging_root: stagingRoot });
       const loopResults = new Map<string, IterationLoopResult>();
       let remainingAttemptBudget = Math.max(0, goal.attempt_budget ?? goal.budget.max_candidate_iterations);
+      let lastCandidateRunId: string | null = null;
 
       for (const resolved of resolvedTargets) {
         assertLease();
@@ -454,7 +456,17 @@ export class JobDispatcher {
           break;
         }
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
-        const frozenBaselineCoverage = readCoverageAfterRun(baselineExecutionRoot, resolved.fqn, resolved.module.module_relative_path);
+        const frozenBaselineCoverage = readCoverageAfterRun(
+          baselineExecutionRoot,
+          resolved.fqn,
+          resolved.module.module_relative_path,
+          {
+            ...(baselineEvidence?.run_started_at !== null && baselineEvidence?.run_started_at !== undefined
+              ? { minimum_mtime_ms: baselineEvidence.run_started_at - 1000, require_session_info: true }
+              : {}),
+            expected_source_filename: basename(resolved.relative_path),
+          },
+        );
         const iterateOptions: IterateOptions = {
           project_root: projectRoot,
           target_fqn: resolved.fqn,
@@ -473,7 +485,7 @@ export class JobDispatcher {
           deadline_at: jobDeadlineAt,
           on_run: (info) => {
             assertLease();
-            inventory.writeTestRunProvenance({
+            const candidateRunId = inventory.writeTestRunProvenance({
               job_id: job.id,
               stage: "candidate",
               attempt_ordinal: info.attempt_ordinal,
@@ -490,6 +502,10 @@ export class JobDispatcher {
               started_at: info.started_at,
               finished_at: info.finished_at,
             });
+            // on_accepted ayni callback zincirinde hemen sonra calisir; son
+            // kosunun id'si gecici olarak tutulur, yalniz accepted olursa
+            // manifest'e trusted run olarak yazilir.
+            lastCandidateRunId = candidateRunId;
           },
         // K04/B04: birikimli accepted set + checkpoint callback'i runtime'a bagli:
         // W04/F09/N29: on_accepted artik GERCEK accepted checkpoint yayinlar (yalniz event/log degil):
@@ -523,8 +539,8 @@ export class JobDispatcher {
               toolchain: { node: process.version },
               accepted_changes: info.files.map((f) => ({ path: f.path, sha256: f.sha256, action: f.action })),
               parent_checkpoint_id: checkpoints.bestCheckpoint(job.id),
-              baseline_run_id: null,
-              last_trusted_run_id: null,
+              baseline_run_id: baselineRunId,
+              last_trusted_run_id: lastCandidateRunId,
               active_phase: "verification",
               next_action: "candidate_accepted",
               remaining_budget: { ...info.remaining_budget },
@@ -610,7 +626,7 @@ export class JobDispatcher {
         workspace_root: join(this.workspaceRoot, "jobs", job.id, "final"),
         timeout_ms: 600000,
       });
-      inventory.writeTestRunProvenance({
+      const finalReplayRunId = inventory.writeTestRunProvenance({
         job_id: job.id,
         stage: "final_replay",
         attempt_ordinal: null,
@@ -649,7 +665,7 @@ export class JobDispatcher {
           inventory.writeCoverageSnapshot({
             job_id: job.id,
             target_symbol_id: null,
-            run_id: null,
+            run_id: finalReplayRunId,
             fqn: resolved.fqn,
             source_sha256: null,
             binary_class_id: null,
