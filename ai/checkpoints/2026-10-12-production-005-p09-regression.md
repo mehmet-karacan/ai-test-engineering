@@ -14,11 +14,11 @@
 
 ## Kanit
 
-- `npm.cmd test`: 65/65 test dosyasi, 574 PASS, 10 SKIP, 0 FAIL.
-- `npm.cmd run lint`: 0 error; 92 mevcut warning.
+- `npm.cmd test`: 66/66 test dosyasi, 589 PASS, 0 FAIL.
+- `npm.cmd run lint`: 0 error; 90 mevcut warning.
 - `npm.cmd run typecheck`: PASS.
 - `npm.cmd run build`: PASS.
-- `node scripts/release-verify.mjs`: beklenen exit 1; `decision=NO_GO`, `EVIDENCE_MANIFEST_EKSIK`, 274 obligation kaniti yok. Full gate evidence manifestosu olmadan gecmiyor.
+- `node scripts/release-verify.mjs` (HEAD `14bf5a0`): beklenen exit 1; `decision=NO_GO`, tek neden `EVIDENCE_MANIFEST_EKSIK`, evidence manifestosu olmadan 274 obligation'in tamami eksik sayiliyor. Kaynak `dirty=true` yalniz korunmus kullanici Java coverage dosyasindan geliyor.
 
 ## Kalan ve sinirlar
 
