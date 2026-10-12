@@ -15,9 +15,12 @@ import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { createBackup, restoreBackup, sha256Data } from "../../src/storage/lifecycle-ops.js";
 import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
+import { ArtifactStore } from "../../src/storage/artifact-store.js";
+import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 
 type BlobEntry = { relative_path: string; sha256: string; bytes: number };
-const faults = vi.hoisted(() => ({ stageCopy: false, dbPublish: false, secondBlobPublish: false, linkCount: 0 }));
+const faults = vi.hoisted(() => ({ stageCopy: false, dbPublish: false, secondBlobPublish: false, linkCount: 0,
+  afterFirstLink: null as null | (() => void) }));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -35,7 +38,9 @@ vi.mock("node:fs", async (importOriginal) => {
       error.code = "EACCES";
       throw error;
     }
-    return actual.linkSync(existingPath, newPath);
+    const result = actual.linkSync(existingPath, newPath);
+    if (faults.secondBlobPublish && faults.linkCount === 1) faults.afterFirstLink?.();
+    return result;
   };
   const renameSync: typeof actual.renameSync = (oldPath, newPath) => {
     if (faults.dbPublish && String(oldPath).includes(".restore-") && !String(oldPath).includes(".restore-old-") && String(newPath).endsWith("state.db")) {
@@ -69,6 +74,37 @@ function makeBlob(artifactsRoot: string, text: string): BlobEntry {
 }
 
 describe("WN restore atomikligi", () => {
+  it("DB owner lock blocks restore before journal or active DB changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-db-owner-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const saved = await createBackup(sourceDb, sourceDbPath, join(root, "source", "artifacts"), join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      mkdirSync(dirname(targetDbPath), { recursive: true });
+      const active = new Database(targetDbPath);
+      active.exec(SCHEMA);
+      active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
+      active.close();
+      const baseline = sha256Data(readFileSync(targetDbPath));
+      const releaseDb = acquireRestoreDbLock(targetDbPath);
+      try {
+        assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "other-artifacts")),
+          (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "MAINTENANCE_BUSY_OR_STALE");
+        assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
+        assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+      } finally { releaseDb(); }
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("restoreBackup EEXIST'te onceki aktif state.db ve blob'lari byte-ayni birakir", async () => {
     const sourceRoot = mkdtempSync(join(tmpdir(), "aitest-wn-restore-src-"));
     const runtimeRoot = mkdtempSync(join(tmpdir(), "aitest-wn-restore-run-"));
@@ -248,6 +284,55 @@ describe("WN restore atomikligi", () => {
     } finally {
       faults.secondBlobPublish = false;
       faults.linkCount = 0;
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rollback cannot delete a blob newly referenced by a concurrent normal publish", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-publish-race-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      sourceDb.prepare("INSERT INTO test_jobs VALUES ('backup-job', 'COMPLETED')").run();
+      const sourceStore = new ArtifactStore({ root: sourceArtifacts });
+      const firstRecord = sourceStore.publish("report", "shared payload");
+      const first: BlobEntry = { relative_path: firstRecord.relativeStorePath, sha256: firstRecord.sha256, bytes: Buffer.byteLength("shared payload") };
+      const second = makeBlob(sourceArtifacts, "second payload");
+      for (const [index, blob] of [first, second].entries()) {
+        sourceDb.prepare("INSERT INTO artifacts VALUES (?, 'backup-job', ?, ?, ?, 'READY')")
+          .run(`backup-art-${index}`, blob.relative_path, blob.sha256, blob.bytes);
+      }
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      const targetArtifacts = join(root, "runtime", "artifacts");
+      const runtimeStore = new ArtifactStore({ root: targetArtifacts });
+      let publishSucceeded = false;
+      let publishError: unknown;
+      faults.secondBlobPublish = true;
+      faults.linkCount = 0;
+      faults.afterFirstLink = () => {
+        try { runtimeStore.publish("report", "shared payload"); publishSucceeded = true; }
+        catch (error) { publishError = error; }
+      };
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /EACCES/);
+      const firstPath = join(targetArtifacts, first.relative_path);
+      if (publishSucceeded) {
+        assert.equal(existsSync(firstPath), true, "normal publisher's referenced blob must survive restore rollback");
+      } else {
+        assert.equal((publishError as { details?: { reason_code?: unknown } })?.details?.reason_code,
+          "MAINTENANCE_BUSY_OR_STALE", "publisher must be blocked by restore ownership");
+      }
+    } finally {
+      faults.secondBlobPublish = false;
+      faults.linkCount = 0;
+      faults.afterFirstLink = null;
       sourceDb?.close();
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }

@@ -11,7 +11,7 @@ import { join, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
-import { acquireMaintenanceLock } from "./maintenance-lock.js";
+import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, journalPathForDb, type RestorePhase } from "./restore-journal.js";
 
 export interface BackupResult {
@@ -318,6 +318,8 @@ function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: 
 export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
   targetDbPath = resolve(targetDbPath);
   targetArtifactRoot = resolve(targetArtifactRoot);
+  const releaseDb = acquireRestoreDbLock(targetDbPath);
+  try {
   assertRestoreReadyBeforeOpen(targetDbPath);
   const release = acquireMaintenanceLock(targetArtifactRoot, "restore");
   try {
@@ -472,6 +474,9 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
   return { backup_id: manifest.backup_id, db_path: targetDbPath, artifact_root: targetArtifactRoot, verification };
   } finally {
     release();
+  }
+  } finally {
+    releaseDb();
   }
 }
 

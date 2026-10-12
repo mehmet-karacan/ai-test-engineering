@@ -1,10 +1,10 @@
 /** Cross-process exclusion for backup, restore and GC sweep. A stale lock fails closed. */
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
 
-export type MaintenanceOperation = "backup" | "restore" | "gc";
+export type MaintenanceOperation = "backup" | "restore" | "gc" | "publish" | "delete";
 
 export function acquireMaintenanceLock(artifactRoot: string, operation: MaintenanceOperation): () => void {
   const root = resolve(artifactRoot);
@@ -12,7 +12,17 @@ export function acquireMaintenanceLock(artifactRoot: string, operation: Maintena
     throw new AppError("POLICY_VIOLATION", "Maintenance root is a reparse point");
   }
   mkdirSync(root, { recursive: true });
-  const path = join(root, ".aitest-maintenance.lock");
+  return acquireExclusiveLock(join(root, ".aitest-maintenance.lock"), operation);
+}
+
+/** A restore owns its DB path even when callers supply different artifact roots. */
+export function acquireRestoreDbLock(dbPath: string): () => void {
+  const path = `${resolve(dbPath)}.restore.lock`;
+  mkdirSync(dirname(path), { recursive: true });
+  return acquireExclusiveLock(path, "restore");
+}
+
+function acquireExclusiveLock(path: string, operation: MaintenanceOperation): () => void {
   const token = randomUUID();
   const content = JSON.stringify({ token, operation, pid: process.pid, created_at: Date.now() });
   let fd: number;

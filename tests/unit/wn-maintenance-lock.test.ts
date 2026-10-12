@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { acquireMaintenanceLock } from "../../src/storage/maintenance-lock.js";
+import { acquireMaintenanceLock, acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 import { gcSweep } from "../../src/storage/retention-gc.js";
 
 describe("S01 backup/restore/GC maintenance lock", () => {
@@ -23,5 +23,24 @@ describe("S01 backup/restore/GC maintenance lock", () => {
       const releaseAgain = acquireMaintenanceLock(root, "gc");
       releaseAgain();
     } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("serializes restore ownership by DB path even with different artifact roots", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-restore-db-lock-"));
+    try {
+      const dbPath = join(root, "state.db");
+      const releaseDb = acquireRestoreDbLock(dbPath);
+      const releaseFirstRoot = acquireMaintenanceLock(join(root, "artifacts-a"), "restore");
+      const releaseSecondRoot = acquireMaintenanceLock(join(root, "artifacts-b"), "restore");
+      try {
+        expect(() => acquireRestoreDbLock(dbPath)).toThrow();
+      } finally {
+        releaseSecondRoot();
+        releaseFirstRoot();
+        releaseDb();
+      }
+      const releaseAgain = acquireRestoreDbLock(dbPath);
+      releaseAgain();
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
