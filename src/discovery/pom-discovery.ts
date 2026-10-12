@@ -75,6 +75,15 @@ function hasDependency(pom: PomRaw, artifactId: string): boolean {
   return deps.some((dep) => text(dep["artifactId"] as string | { "#text": string } | undefined) === artifactId);
 }
 
+function projectRelativeModuleRoot(moduleRelativePath: string, configuredRoot: string): string {
+  const normalized = configuredRoot.replace(/[\\/]/g, "/");
+  const modulePrefix = moduleRelativePath.replace(/[\\/]/g, "/");
+  if (modulePrefix.length === 0 || normalized === modulePrefix || normalized.startsWith(modulePrefix + "/")) {
+    return normalized;
+  }
+  return [modulePrefix, normalized].filter((part) => part.length > 0).join("/");
+}
+
 export function parsePom(pomPath: string, reactorRoot: string): PomModule {
   const absPath = resolve(pomPath);
   if (!existsSync(absPath)) {
@@ -105,8 +114,8 @@ export function parsePom(pomPath: string, reactorRoot: string): PomModule {
     version: text(project.version) ?? (project.parent ? text(project.parent.version) : null),
     packaging: text(project.packaging) ?? "jar",
     parent_artifact_id: project.parent ? text(project.parent.artifactId) : null,
-    source_root: text(project.build?.sourceDirectory?.[0] as string | { "#text": string } | undefined) ?? join(moduleRelativePath, "src/main/java").replace(/\\/g, "/"),
-    test_root: text(project.build?.testSourceDirectory?.[0] as string | { "#text": string } | undefined) ?? join(moduleRelativePath, "src/test/java").replace(/\\/g, "/"),
+    source_root: projectRelativeModuleRoot(moduleRelativePath, text(project.build?.sourceDirectory?.[0] as string | { "#text": string } | undefined) ?? "src/main/java"),
+    test_root: projectRelativeModuleRoot(moduleRelativePath, text(project.build?.testSourceDirectory?.[0] as string | { "#text": string } | undefined) ?? "src/test/java"),
     jacoco_configured: jacocoConfigured,
     surefire_configured: surefireConfigured,
     junit4_present: hasDependency(raw, "junit"),

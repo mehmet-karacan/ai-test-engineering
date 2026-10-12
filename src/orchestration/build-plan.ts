@@ -105,8 +105,8 @@ export interface SurefireSuite {
   failed_test_names: string[];
 }
 
-export function parseSurefireReports(projectRoot: string, moduleRelativePath: string, malformedOut?: string[]): SurefireSuite[] {
-  const reportDir = join(resolve(projectRoot), moduleRelativePath, "target", "surefire-reports");
+function parseTestReportDirectory(projectRoot: string, moduleRelativePath: string, reportDirectory: "surefire-reports" | "failsafe-reports", malformedOut?: string[]): SurefireSuite[] {
+  const reportDir = join(resolve(projectRoot), moduleRelativePath, "target", reportDirectory);
   if (!existsSync(reportDir)) {
     return [];
   }
@@ -142,6 +142,42 @@ export function parseSurefireReports(projectRoot: string, moduleRelativePath: st
     }
   }
   return suites;
+}
+
+export function parseSurefireReports(projectRoot: string, moduleRelativePath: string, malformedOut?: string[]): SurefireSuite[] {
+  return parseTestReportDirectory(projectRoot, moduleRelativePath, "surefire-reports", malformedOut);
+}
+
+export function parseFailsafeReports(projectRoot: string, moduleRelativePath: string, malformedOut?: string[]): SurefireSuite[] {
+  return parseTestReportDirectory(projectRoot, moduleRelativePath, "failsafe-reports", malformedOut);
+}
+
+export interface TestReportSummary {
+  suites: SurefireSuite[];
+  total_tests: number;
+  failures: number;
+  errors: number;
+  skipped: number;
+  failed_tests: string[];
+  malformed_reports: string[];
+}
+
+export function summarizeTestReports(projectRoot: string, moduleRelativePaths: string[]): TestReportSummary {
+  const malformedReports: string[] = [];
+  const suites: SurefireSuite[] = [];
+  for (const moduleRelativePath of [...new Set(moduleRelativePaths)]) {
+    suites.push(...parseSurefireReports(projectRoot, moduleRelativePath, malformedReports));
+    suites.push(...parseFailsafeReports(projectRoot, moduleRelativePath, malformedReports));
+  }
+  return {
+    suites,
+    total_tests: suites.reduce((acc, suite) => acc + suite.tests, 0),
+    failures: suites.reduce((acc, suite) => acc + suite.failures, 0),
+    errors: suites.reduce((acc, suite) => acc + suite.errors, 0),
+    skipped: suites.reduce((acc, suite) => acc + suite.skipped, 0),
+    failed_tests: suites.flatMap((suite) => suite.failed_test_names),
+    malformed_reports: malformedReports,
+  };
 }
 
 /**
@@ -197,15 +233,13 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
   };
   const run = await runner.run(runOptions);
 
-  const suites: SurefireSuite[] = [];
-  for (const module of plan.modules) {
-    suites.push(...parseSurefireReports(executionRoot, module.module_relative_path, malformedReports));
-  }
-  const totalTests = suites.reduce((acc, s) => acc + s.tests, 0);
-  const failures = suites.reduce((acc, s) => acc + s.failures, 0);
-  const errors = suites.reduce((acc, s) => acc + s.errors, 0);
-  const skipped = suites.reduce((acc, s) => acc + s.skipped, 0);
-  const failedTests = suites.flatMap((s) => s.failed_test_names);
+  const reportSummary = summarizeTestReports(executionRoot, plan.modules.map((module) => module.module_relative_path));
+  malformedReports.push(...reportSummary.malformed_reports);
+  const totalTests = reportSummary.total_tests;
+  const failures = reportSummary.failures;
+  const errors = reportSummary.errors;
+  const skipped = reportSummary.skipped;
+  const failedTests = reportSummary.failed_tests;
 
   // W03/F06: run exit0 olsa bile XML failure/error varken PASSED OLAMAZ
   let status: BaselineResult["status"] = "PASSED";
@@ -213,12 +247,18 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
   if (failures + errors > 0) {
     status = "FAILED";
     reasonCode = failures > 0 && errors > 0 ? "TEST_FAILURES_AND_ERRORS" : failures > 0 ? "TEST_FAILURES" : "TEST_ERRORS";
+  } else if (run.timed_out) {
+    status = "FAILED";
+    reasonCode = "MAVEN_RUN_TIMEOUT";
   } else if (run.exit_code !== 0) {
     status = "FAILED";
     reasonCode = "MAVEN_EXIT_NONZERO";
   } else if (totalTests === 0) {
     status = "NO_TESTS";
     reasonCode = "NO_DISCOVERED_TESTS";
+  } else if (skipped === totalTests) {
+    status = "UNSTABLE";
+    reasonCode = "ALL_TESTS_SKIPPED";
   } else if (malformedReports.length > 0) {
     status = "UNSTABLE";
     reasonCode = "MALFORMED_TEST_REPORT";

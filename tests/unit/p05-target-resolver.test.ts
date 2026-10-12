@@ -18,7 +18,7 @@ import { Storage } from "../../src/storage/storage.js";
 import { buildJobContract } from "../../src/domain/job-contract.js";
 import { parseExactModelSpec } from "../../src/workers/opencode/profile-reader.js";
 import { requestDigest } from "../../src/application/services.js";
-import { CandidateLoop, type IterateOptions } from "../../src/orchestration/candidate-loop.js";
+import { CandidateLoop, readCoverageAfterRun, type IterateOptions } from "../../src/orchestration/candidate-loop.js";
 import { MavenRunner, type RunResult } from "../../src/runners/maven-runner.js";
 import type { CandidateChangeSet } from "../../src/workers/opencode/model-schemas.js";
 
@@ -123,6 +123,23 @@ describe("P05: frozen concrete hedef listesi", () => {
 });
 
 describe("P05-B: bounded repair feedback", () => {
+  it("per-module JaCoCo XML'i reactor kokundeki stale XML ile karistirilmaz", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p06-module-coverage-"));
+    try {
+      const rootXml = join(dir, "target", "site", "jacoco", "jacoco.xml");
+      const moduleXml = join(dir, "app", "target", "site", "jacoco", "jacoco.xml");
+      mkdirSync(join(rootXml, ".."), { recursive: true });
+      mkdirSync(join(moduleXml, ".."), { recursive: true });
+      const rootReport = "<report><package name=\"com/example\"><class name=\"com/example/PaymentService\" sourcefilename=\"PaymentService.java\"><counter type=\"LINE\" missed=\"9\" covered=\"1\"/></class></package></report>";
+      const moduleReport = "<report><package name=\"com/example\"><class name=\"com/example/PaymentService\" sourcefilename=\"PaymentService.java\"><counter type=\"LINE\" missed=\"1\" covered=\"9\"/></class></package></report>";
+      writeFileSync(rootXml, rootReport, "utf8");
+      writeFileSync(moduleXml, moduleReport, "utf8");
+      expect(readCoverageAfterRun(dir, "com.example.PaymentService", "app")?.line).toEqual({ missed: 1, covered: 9 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("ilk run hatasindan sonra feedback'li tek repair dener ve repair limitini asmaz", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-p05-repair-"));
     const projectRoot = join(dir, "project");

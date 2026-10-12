@@ -17,7 +17,7 @@ import { RecoveryManager } from "./recovery-manager.js";
 import { SourceSnapshot, computeSourceIdentity, type SourceIdentity, type SnapshotManifest } from "../discovery/source-snapshot.js";
 import type { JobContract } from "../domain/job-contract.js";
 import { CandidateLoop, readCoverageAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult, type CandidateGenerationFeedback } from "./candidate-loop.js";
-import { runBaseline } from "./build-plan.js";
+import { runBaseline, summarizeTestReports } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner } from "../runners/maven-runner.js";
@@ -414,11 +414,12 @@ export class JobDispatcher {
           break;
         }
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
-        const frozenBaselineCoverage = readCoverageAfterRun(baselineExecutionRoot, resolved.fqn);
+        const frozenBaselineCoverage = readCoverageAfterRun(baselineExecutionRoot, resolved.fqn, resolved.module.module_relative_path);
         const iterateOptions: IterateOptions = {
           project_root: projectRoot,
           target_fqn: resolved.fqn,
           target_module_path: resolved.module.module_relative_path,
+          target_test_root: resolved.module.test_root,
           line_target_bps: targetSpec.line_target_bps,
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
@@ -545,7 +546,14 @@ export class JobDispatcher {
         workspace_root: join(this.workspaceRoot, "jobs", job.id, "final"),
         timeout_ms: 600000,
       });
-      const replaySucceeded = finalReplay.run.exit_code === 0 && !finalReplay.run.timed_out;
+      const finalReports = summarizeTestReports(finalReplay.workspace, [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))]);
+      const replaySucceeded = finalReplay.run.exit_code === 0
+        && !finalReplay.run.timed_out
+        && finalReports.malformed_reports.length === 0
+        && finalReports.total_tests > 0
+        && finalReports.failures === 0
+        && finalReports.errors === 0
+        && finalReports.skipped < finalReports.total_tests;
       const finalCoverage = replaySucceeded
         ? finalReplay.coverage
         : new Map<string, ReturnType<typeof import("./candidate-loop.js").readCoverageAfterRun>>();
@@ -1194,7 +1202,7 @@ export class JobDispatcher {
     }
 
     // coverage aciklari: gercek satir/branch sayaclari:
-    const coverage = readCoverageAfterRun(projectRoot, targetFqn);
+    const coverage = readCoverageAfterRun(projectRoot, targetFqn, module.module_relative_path);
     const uncoveredAreas: string[] = [];
     if (coverage?.line) {
       uncoveredAreas.push(`LINE: ${coverage.line.covered}/${coverage.line.covered + coverage.line.missed}`);

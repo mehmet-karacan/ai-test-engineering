@@ -65,7 +65,12 @@ export class PolicyGuard {
     }
 
     const inAllowedRoot = this.allowedTestRoots.some((root) => {
-      const rootPrefix = [root.module_relative_path, root.test_root].filter((p) => p.length > 0).join("/");
+      const modulePrefix = root.module_relative_path.replace(/[\\/]/g, "/");
+      const testRoot = root.test_root.replace(/[\\/]/g, "/");
+      // Discovery project-relative root dondurur; legacy caller module-local root verebilir.
+      const rootPrefix = modulePrefix.length > 0 && (testRoot === modulePrefix || testRoot.startsWith(modulePrefix + "/"))
+        ? testRoot
+        : [modulePrefix, testRoot].filter((p) => p.length > 0).join("/");
       const rootAbs = resolve(this.projectRoot, rootPrefix.replace(/\//g, sep));
       const relToRoot = relative(rootAbs, absPath);
       return relToRoot.length > 0 && !relToRoot.startsWith("..") && !isAbsolute(relToRoot);

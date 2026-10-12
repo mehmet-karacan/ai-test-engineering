@@ -64,8 +64,8 @@ export interface CoverageLookup {
   (projectRoot: string, fqn: string): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined;
 }
 
-export function readCoverageAfterRun(projectRoot: string, fqn: string): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
-  const xmlPath = join(projectRoot, "target", "site", "jacoco", "jacoco.xml");
+export function readCoverageAfterRun(projectRoot: string, fqn: string, moduleRelativePath = ""): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
+  const xmlPath = join(projectRoot, moduleRelativePath, "target", "site", "jacoco", "jacoco.xml");
   if (!existsSync(xmlPath)) {
     return undefined;
   }
@@ -239,6 +239,8 @@ export interface IterateOptions {
   attempt_budget?: number;
   /** P06/PP21: dispatcher tarafindan frozen baseline run'ina baglanan raw counter. */
   baseline_coverage?: { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined };
+  /** P06/PP22: effective Maven test root; project-relative path. */
+  target_test_root?: string;
   generate_candidate: (feedback?: CandidateGenerationFeedback) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
@@ -353,8 +355,8 @@ export class CandidateLoop {
   /**
    * W02/F08: orijinal checkout'ta aday olcumu YOK; readCoverageAfterRun workspace'ten okunur.
    */
-  private workspaceCoverage(workspace: string, fqn: string): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
-    const xmlPath = join(workspace, "target", "site", "jacoco", "jacoco.xml");
+  private workspaceCoverage(workspace: string, fqn: string, moduleRelativePath = ""): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
+    const xmlPath = join(workspace, moduleRelativePath, "target", "site", "jacoco", "jacoco.xml");
     if (!existsSync(xmlPath)) {
       return undefined;
     }
@@ -412,7 +414,7 @@ export class CandidateLoop {
       return "next";
     };
 
-    const baselineCoverage = options.baseline_coverage ?? readCoverageAfterRun(options.project_root, options.target_fqn);
+    const baselineCoverage = options.baseline_coverage ?? readCoverageAfterRun(options.project_root, options.target_fqn, options.target_module_path);
     const baselineBps = basisPointsFrom(baselineCoverage?.line);
     bestCoverageBps = baselineBps;
     bestBranchBps = basisPointsFrom(baselineCoverage?.branch);
@@ -514,7 +516,7 @@ export class CandidateLoop {
       }
       const candidateHash = sha256Data(JSON.stringify(candidate));
 
-      const applier = new PatchApplier(options.project_root, [{ module_relative_path: options.target_module_path, test_root: "src/test/java" }], options.staging_root);
+      const applier = new PatchApplier(options.project_root, [{ module_relative_path: options.target_module_path, test_root: options.target_test_root ?? "src/test/java" }], options.staging_root);
       const applyResult = applier.apply(candidate);
 
       if (applyResult.failed.length > 0) {
@@ -624,7 +626,7 @@ export class CandidateLoop {
       const suites = parseSurefireReports(candidateWorkspace, options.target_module_path);
       const regressionFailures = suites.flatMap((s) => s.failed_test_names);
 
-      const afterCoverage = this.workspaceCoverage(candidateWorkspace, options.target_fqn);
+      const afterCoverage = this.workspaceCoverage(candidateWorkspace, options.target_fqn, options.target_module_path);
       afterBps = basisPointsFrom(afterCoverage?.line);
       afterBranchBps = basisPointsFrom(afterCoverage?.branch);
 
@@ -862,8 +864,10 @@ export class CandidateLoop {
       log_dir: join(workspace, "target", "aitest-final-replay-logs"),
     });
     const coverage = new Map<string, ReturnType<CoverageLookup>>();
-    for (const fqn of options.target_fqns) {
-      coverage.set(fqn, this.workspaceCoverage(workspace, fqn));
+    for (let index = 0; index < options.target_fqns.length; index++) {
+      const fqn = options.target_fqns[index]!;
+      const moduleRelativePath = options.target_module_paths[index] ?? "";
+      coverage.set(fqn, this.workspaceCoverage(workspace, fqn, moduleRelativePath));
     }
     return { workspace, run, coverage };
   }

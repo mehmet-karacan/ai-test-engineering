@@ -89,6 +89,38 @@ describe("W03/F06: baseline ayrisimlari", () => {
     }
   }, 60000);
 
+  it("all-skipped baseline PASSED sayilmaz", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-w03-skipped-"));
+    try {
+      writeFileSync(join(dir, "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>skipped</artifactId><version>1</version><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies></project>`);
+      const fakeRunner = {
+        run: async (options: { working_dir: string; log_dir: string }): Promise<RunResult> => {
+          mkdirSync(join(options.working_dir, "target", "surefire-reports"), { recursive: true });
+          writeFileSync(join(options.working_dir, "target", "surefire-reports", "TEST-Skipped.xml"), `<testsuite name="Skipped" tests="2" failures="0" errors="0" skipped="2"><testcase name="one"/><testcase name="two"/></testsuite>`, "utf8");
+          return { exit_code: 0, duration_ms: 1, stdout_log_path: join(options.log_dir, "stdout.log"), stderr_log_path: join(options.log_dir, "stderr.log"), command: ["fake-maven"], timed_out: false };
+        },
+      } as unknown as MavenRunner;
+      const baseline = await runBaseline(dir, fakeRunner, 60000);
+      expect(baseline.status).toBe("UNSTABLE");
+      expect(baseline.reason_code).toBe("ALL_TESTS_SKIPPED");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("timeout baseline basari degildir", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-w03-timeout-"));
+    try {
+      writeFileSync(join(dir, "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>timeout</artifactId><version>1</version><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies></project>`);
+      const fakeRunner = { run: async (options: { log_dir: string }): Promise<RunResult> => ({ exit_code: 0, duration_ms: 60000, stdout_log_path: join(options.log_dir, "stdout.log"), stderr_log_path: join(options.log_dir, "stderr.log"), command: ["fake-maven"], timed_out: true }) } as unknown as MavenRunner;
+      const baseline = await runBaseline(dir, fakeRunner, 1);
+      expect(baseline.status).toBe("FAILED");
+      expect(baseline.reason_code).toBe("MAVEN_RUN_TIMEOUT");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("XML failure + process exit0: PASSED OLAMAZ; FAILED donmeli (sentetik suite fixture)", () => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-w03-failxml-"));
     try {

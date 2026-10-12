@@ -91,6 +91,17 @@ describe("POM discovery", () => {
     expect(core.module_relative_path).toBe("payment-core");
   });
 
+  it("cok modullu custom source/test root'lari project-relative cozulmeli", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-custom-roots-"));
+    const project = join(dir, "custom-reactor");
+    mkdirSync(join(project, "custom"), { recursive: true });
+    writeFileSync(join(project, "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules><module>custom</module></modules></project>`);
+    writeFileSync(join(project, "custom", "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><parent><groupId>g</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>custom</artifactId><build><sourceDirectory>code/main</sourceDirectory><testSourceDirectory>checks/unit</testSourceDirectory></build></project>`);
+    const custom = discoverModules(project).modules.find((module) => module.module_relative_path === "custom")!;
+    expect(custom.source_root).toBe("custom/code/main");
+    expect(custom.test_root).toBe("custom/checks/unit");
+  });
+
   it("resolveTargetModule bulunamayan modulde hata vermeli", () => {
     const result = discoverModules(join(FIXTURES, "multi-module-project"));
     expect(() => resolveTargetModule(result.modules, "yok")).toThrow();
@@ -133,6 +144,12 @@ describe("PolicyGuard", () => {
 
   it("path escape reddedilmeli", () => {
     expect(guard.checkPath("../disari/X.java")).toMatchObject({ allowed: false, reason_code: "PATH_ESCAPE" });
+  });
+
+  it("project-relative modul test root'u iki kez birlestirilmemeli", () => {
+    const multi = new PolicyGuard("/proj", [{ module_relative_path: "app", test_root: "app/checks/unit" }]);
+    expect(multi.checkPath("app/checks/unit/com/ExampleTest.java")).toMatchObject({ allowed: true });
+    expect(multi.checkPath("app/src/test/java/com/ExampleTest.java")).toMatchObject({ allowed: false, reason_code: "NOT_TEST_ROOT" });
   });
 
   it("yeni @Disabled/@Ignore icerigi reddedilmeli", () => {
