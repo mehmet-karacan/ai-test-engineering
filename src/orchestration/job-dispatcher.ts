@@ -16,7 +16,7 @@ import { CheckpointStore, resumeBudgetFromManifest, type AcceptedBlob } from "./
 import { RecoveryManager } from "./recovery-manager.js";
 import { SourceSnapshot, computeSourceIdentity, type SourceIdentity, type SnapshotManifest } from "../discovery/source-snapshot.js";
 import type { JobContract } from "../domain/job-contract.js";
-import { CandidateLoop, readCoverageAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult, type CandidateGenerationFeedback } from "./candidate-loop.js";
+import { CandidateLoop, readCoverageAfterRun, readCoverageEvidenceAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult, type CandidateGenerationFeedback, type CoverageEvidence } from "./candidate-loop.js";
 import { compareTestInventory, runBaseline, summarizeTestReports, type BaselineResult } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
@@ -465,6 +465,7 @@ export class JobDispatcher {
               ? { minimum_mtime_ms: baselineEvidence.run_started_at - 1000, require_session_info: true }
               : {}),
             expected_source_filename: basename(resolved.relative_path),
+            source_relative_path: resolved.relative_path,
           },
         );
         const iterateOptions: IterateOptions = {
@@ -649,6 +650,22 @@ export class JobDispatcher {
         finalReplay.test_inventory,
         [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))],
       );
+      const finalEvidence = new Map<string, CoverageEvidence>();
+      if (finalReplay.run.exit_code === 0 && !finalReplay.run.timed_out && finalReports.malformed_reports.length === 0) {
+        for (const resolved of resolvedTargets) {
+          const evidence = readCoverageEvidenceAfterRun(finalReplay.workspace, resolved.fqn, resolved.module.module_relative_path, {
+            minimum_mtime_ms: finalReplay.started_at - 1000,
+            require_session_info: true,
+            require_class_file: true,
+            expected_source_filename: basename(resolved.relative_path),
+            source_relative_path: resolved.relative_path,
+          });
+          if (evidence) {
+            finalEvidence.set(resolved.fqn, evidence);
+          }
+        }
+      }
+      const replayEvidenceComplete = resolvedTargets.every((resolved) => finalEvidence.has(resolved.fqn));
       const replaySucceeded = finalReplay.run.exit_code === 0
         && !finalReplay.run.timed_out
         && finalReports.malformed_reports.length === 0
@@ -657,7 +674,8 @@ export class JobDispatcher {
         && finalReports.errors === 0
         && finalReports.skipped < finalReports.total_tests
         && finalInventoryRegression.missing_tests.length === 0
-        && finalInventoryRegression.newly_skipped_tests.length === 0;
+        && finalInventoryRegression.newly_skipped_tests.length === 0
+        && replayEvidenceComplete;
       const finalCoverage = replaySucceeded
         ? finalReplay.coverage
         : new Map<string, ReturnType<typeof import("./candidate-loop.js").readCoverageAfterRun>>();
@@ -669,13 +687,14 @@ export class JobDispatcher {
         const branchPair = coverage?.branch;
         // Missing LINE evidence is not a synthetic 0% snapshot (N27/N32).
         if (linePair) {
+          const evidence = finalEvidence.get(resolved.fqn);
           inventory.writeCoverageSnapshot({
             job_id: job.id,
             target_symbol_id: null,
             run_id: finalReplayRunId,
             fqn: resolved.fqn,
-            source_sha256: null,
-            binary_class_id: null,
+            source_sha256: evidence?.source_sha256 ?? null,
+            binary_class_id: evidence?.binary_class_id ?? null,
             line_covered: linePair.covered,
             line_missed: linePair.missed,
             branch_covered: branchPair?.covered ?? null,

@@ -35,7 +35,7 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P05-B | Repair feedback/bounded repair, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | production-005-p05b-resume; 46/46 resume/storage + 2/2 handler zinciri + typecheck |
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | production-005-p06a-frozen-baseline; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | production-005-p06b-module-final-gates; 64/64 unit + 16/16 Maven/accepted + typecheck |
-| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance ve inventory regression gate | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06b-provenance-core + p06b-run-links + p06b-inventory-gate; 87/87 + typecheck; source/binary identity kalan |
+| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression ve source identity gate | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity; 88/88 + typecheck; module digest projection kalan |
 | P06-P10 | Kalan readiness, JaCoCo provenance, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P06-B2 provenance/inventory ve sonraki paketler devam ediyor |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)

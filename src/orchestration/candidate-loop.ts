@@ -72,10 +72,25 @@ export interface CoverageLookup {
 export interface CoverageReadOptions {
   minimum_mtime_ms?: number;
   expected_source_filename?: string;
+  source_relative_path?: string;
+  require_class_file?: boolean;
   require_session_info?: boolean;
 }
 
-export function readCoverageAfterRun(projectRoot: string, fqn: string, moduleRelativePath = "", options: CoverageReadOptions = {}): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
+export interface CoverageEvidence {
+  line: { covered: number; missed: number } | undefined;
+  branch: { covered: number; missed: number } | undefined;
+  report_path: string;
+  report_sha256: string;
+  source_sha256: string | null;
+  binary_class_id: string | null;
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+export function readCoverageEvidenceAfterRun(projectRoot: string, fqn: string, moduleRelativePath = "", options: CoverageReadOptions = {}): CoverageEvidence | undefined {
   const xmlPath = join(projectRoot, moduleRelativePath, "target", "site", "jacoco", "jacoco.xml");
   if (!existsSync(xmlPath)) {
     return undefined;
@@ -98,7 +113,27 @@ export function readCoverageAfterRun(projectRoot: string, fqn: string, moduleRel
       path: xmlPath,
     });
   }
-  return { line: cls.line, branch: cls.branch };
+  const sourcePath = options.source_relative_path ? join(projectRoot, options.source_relative_path) : null;
+  if (sourcePath && !existsSync(sourcePath)) {
+    throw new AppError("INVALID_COVERAGE_EVIDENCE", `Coverage source dosyasi yok: ${sourcePath}`, { reason_code: "JACOCO_SOURCE_MISSING", fqn, path: xmlPath });
+  }
+  const classPath = join(projectRoot, moduleRelativePath, "target", "classes", `${fqn.replace(/\./g, "/")}.class`);
+  if (options.require_class_file && !existsSync(classPath)) {
+    throw new AppError("INVALID_COVERAGE_EVIDENCE", `Coverage class dosyasi yok: ${classPath}`, { reason_code: "JACOCO_CLASS_MISSING", fqn, path: xmlPath });
+  }
+  return {
+    line: cls.line,
+    branch: cls.branch,
+    report_path: xmlPath,
+    report_sha256: sha256File(xmlPath),
+    source_sha256: sourcePath && existsSync(sourcePath) ? sha256File(sourcePath) : null,
+    binary_class_id: existsSync(classPath) ? sha256File(classPath) : null,
+  };
+}
+
+export function readCoverageAfterRun(projectRoot: string, fqn: string, moduleRelativePath = "", options: CoverageReadOptions = {}): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
+  const evidence = readCoverageEvidenceAfterRun(projectRoot, fqn, moduleRelativePath, options);
+  return evidence ? { line: evidence.line, branch: evidence.branch } : undefined;
 }
 
 export function basisPointsFrom(pair: { covered: number; missed: number } | undefined): number | null {
@@ -395,10 +430,11 @@ export class CandidateLoop {
   /**
    * W02/F08: orijinal checkout'ta aday olcumu YOK; readCoverageAfterRun workspace'ten okunur.
    */
-  private workspaceCoverage(workspace: string, fqn: string, moduleRelativePath = "", runStartedAt?: number, expectedSourceFilename?: string): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
+  private workspaceCoverage(workspace: string, fqn: string, moduleRelativePath = "", runStartedAt?: number, expectedSourceFilename?: string, expectedSourcePath?: string): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
     return readCoverageAfterRun(workspace, fqn, moduleRelativePath, {
       ...(runStartedAt !== undefined ? { minimum_mtime_ms: runStartedAt - 1000, require_session_info: true } : {}),
       ...(expectedSourceFilename !== undefined ? { expected_source_filename: expectedSourceFilename } : {}),
+      ...(expectedSourcePath !== undefined ? { source_relative_path: expectedSourcePath } : {}),
     });
   }
 
@@ -680,7 +716,7 @@ export class CandidateLoop {
       });
       const regressionFailures = suites.flatMap((s) => s.failed_test_names);
 
-      const afterCoverage = this.workspaceCoverage(candidateWorkspace, options.target_fqn, options.target_module_path, runStartedAt, options.target_relative_path ? basename(options.target_relative_path) : undefined);
+      const afterCoverage = this.workspaceCoverage(candidateWorkspace, options.target_fqn, options.target_module_path, runStartedAt, options.target_relative_path ? basename(options.target_relative_path) : undefined, options.target_relative_path);
       afterBps = basisPointsFrom(afterCoverage?.line);
       afterBranchBps = basisPointsFrom(afterCoverage?.branch);
 
@@ -932,7 +968,7 @@ export class CandidateLoop {
     for (let index = 0; index < options.target_fqns.length; index++) {
       const fqn = options.target_fqns[index]!;
       const moduleRelativePath = options.target_module_paths[index] ?? "";
-      coverage.set(fqn, this.workspaceCoverage(workspace, fqn, moduleRelativePath, runStartedAt, options.target_relative_paths[index] ? basename(options.target_relative_paths[index]!) : undefined));
+      coverage.set(fqn, this.workspaceCoverage(workspace, fqn, moduleRelativePath, runStartedAt, options.target_relative_paths[index] ? basename(options.target_relative_paths[index]!) : undefined, options.target_relative_paths[index]));
     }
     return { workspace, run, coverage, test_inventory: testInventory, started_at: runStartedAt, finished_at: runFinishedAt };
   }

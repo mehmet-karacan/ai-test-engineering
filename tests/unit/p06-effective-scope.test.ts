@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { assertCoverageConfigured, buildPlan, compareTestInventory, type SurefireSuite } from "../../src/orchestration/build-plan.js";
 import { AppError } from "../../src/domain/errors.js";
-import { readCoverageAfterRun } from "../../src/orchestration/candidate-loop.js";
+import { readCoverageAfterRun, readCoverageEvidenceAfterRun } from "../../src/orchestration/candidate-loop.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
 
@@ -98,5 +98,32 @@ describe("P06-B2 effective Maven affected-module scope", () => {
     );
     expect(result.missing_tests).toEqual(["AppTest#removed"]);
     expect(result.newly_skipped_tests).toEqual(["AppTest#new"]);
+  });
+
+  it("coverage evidence report/source/class hashlerini uretir", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p06-evidence-"));
+    try {
+      const xmlPath = join(dir, "target", "site", "jacoco", "jacoco.xml");
+      const sourcePath = join(dir, "src", "main", "java", "p", "Service.java");
+      const classPath = join(dir, "target", "classes", "p", "Service.class");
+      mkdirSync(join(xmlPath, ".."), { recursive: true });
+      mkdirSync(join(sourcePath, ".."), { recursive: true });
+      mkdirSync(join(classPath, ".."), { recursive: true });
+      writeFileSync(sourcePath, "class Service {}", "utf8");
+      writeFileSync(classPath, Buffer.from([1, 2, 3]));
+      writeFileSync(xmlPath, `<report><sessioninfo id="fresh" start="${Date.now()}" dump="${Date.now()}"/><package name="p"><class name="p.Service" sourcefilename="Service.java"><counter type="LINE" missed="1" covered="9"/></class></package></report>`);
+      const evidence = readCoverageEvidenceAfterRun(dir, "p.Service", "", {
+        minimum_mtime_ms: Date.now() - 1000,
+        require_session_info: true,
+        require_class_file: true,
+        expected_source_filename: "Service.java",
+        source_relative_path: "src/main/java/p/Service.java",
+      });
+      expect(evidence?.report_sha256).toHaveLength(64);
+      expect(evidence?.source_sha256).toHaveLength(64);
+      expect(evidence?.binary_class_id).toHaveLength(64);
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
   });
 });
