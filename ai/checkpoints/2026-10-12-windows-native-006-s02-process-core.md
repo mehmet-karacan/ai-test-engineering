@@ -1,0 +1,42 @@
+# Checkpoint - 006 S02 Windows process core (partial)
+
+- Tarih: 2026-10-12 (Europe/Istanbul)
+- Dal: `codex/windows-native-006-s02`; baslangic `93b1290` S00. Ana checkout ve musteri GPU projesi degismedi.
+- Kapsam: `native-toolchain.ts` ve `windows-process-supervisor.ts` icin ilk bagimsiz cekirdek. Normal MCP/dispatcher entegrasyonu henuz yapilmadi; S02 kabul edilmis sayilmaz.
+
+## Uygulama ve kanit
+
+- Installed `mvn.cmd` varsayilan secilir; `Path`/`PATH` cakismasi reddedilir; wrapper yalniz acik tercihle ve mevcut yerel jar ile secilir. PowerShell/download gerektiren wrapper reddedilir.
+- Tipli Maven goal/profile/property kontrolleri, Windows `cmd` tarafinda kaniti olmayan karakterleri spawn oncesi reddeder. Bosluk, Unicode, parantez ve `&` verisi korunur.
+- Merkezi `cmd.exe /d /s /v:off /c` baslatici mutlak `cmd.exe` kullanir. `close` beklenmeden sonuc yazilmaz. Nonzero, spawn error, timeout ve cancel durumlari ayri; stdout/stderr her biri 8 MiB ile sinirli ve truncation byte sayisi kayitlidir.
+- Gercek Windows `.cmd` fixture'inda `&` sentinel'i komut olarak calismadi. Nonzero exit ve timeout ayri goruldu.
+- `npm.cmd exec -- vitest run tests/unit/wn-command-contract.test.ts tests/unit/wn-process-supervisor.test.ts`: 2 dosya, 9 PASS; byte limitinde yarim UTF-8 karakteri basilmaz. `npm.cmd run typecheck`, `npm.cmd run build`, `npm.cmd run lint`: exit 0; lint 89 mevcut uyari.
+- Qwen salt okunur incelemesi (commit `9a4059a`) komut enjeksiyonu ve UTF-8 icin bulgu bulmadi; surec agaci kapatmasinin kanitlanmamasi, PID reuse riski ve eksik etkin arac zinciri kimligini orta oncelikli buldu. Settings/toolchains/profile ve executable byte hash'leri kimlige eklendi; surec sahipligi ve kapanis kaniti acik.
+- `MavenRunner` dogrudan native resolver/supervisor kullanir; varsayilan installed Maven, acik executable ve yalniz acik wrapper tercihi desteklenir. `-pl ... -am` modul kapsami ve onayli settings/toolchains yollarini tipli argv ile aktarir. Gercek Windows fixture'inda PATH Maven, mevcut wrapper'a tercih edildi. Yeni entegrasyon testi once RED (wrapper/exit 1), sonra 2/2 PASS; 4 ilgili eski test dosyasi 59/59 PASS. Bu yalniz runner katmanidir; normal dispatcher henuz Docker'dan cevrilmedi.
+- Genis unit/contract/benchmark tekrarinda 61 dosyanin 60'i gecti, 605/606 test PASS; ilk `p01-release-gate` child full verifier sonucunda `mode` undefined oldu. Ayni dosya izole tekrar 40/40 PASS. Bu aralikli cocuk surec sorunu S00'da da gorulmustu; kok neden kanitlanmadi ve basarili tekrar ilk hatayi silmez. Sonraki tekrarda stderr/stdout/status gorunsun diye assertion tanisi genisletildi.
+- Qwen ikinci salt okunur review, timeout/cancel/spawn error sonucunun normal run olarak donmesini ve explicit bos settings yolunun sessizce varsayilana kaymasini buldu. Her ikisi gercek Windows fixture'inda once RED goruldu; artik `MavenRunner.run` bu durumlarda `AppError` firlatir, bos yol reddedilir. Odak 3 dosya/13 PASS, typecheck exit 0. Qwen'in inherited JVM env'in identity'de yok iddiasi dogrulanmadi: `effectiveEnvironment()` birlestirilmis env'i hem resolver'a hem spawn'a verir; gercek version kaniti ise halen eksik.
+- `probeNativeMavenVersion` secilen `.cmd` dosyasini `-v` ile olcer; Maven/Java surumlerini ve bounded ham cikti hash'ini base kimlige baglar. Sentetik Windows fixture'inda once RED, sonra odak 3 dosya/14 PASS. Bu probe henuz normal job planinda zorunlu degil; WN15 tamamlanmis sayilmaz.
+
+## Acik is
+
+- Maven `-v` probe sonucunu normal job planinda zorunlu yap; etkin Java ve test toolchain surumunu ayrica kanitla. Varsayilan/ozel settings, toolchains, profile ve `.mvn` konfigurasyon byte hash'leri simdiden kimliktedir.
+- Process kill sonrasi tree kapanisini/PID sahipligini kanitla; hard-kill/restart orphan ve late-result fence testleri ekle.
+- Factory, dispatcher, services/config/entrypoint normal yola baglanacak. Eski runner config/job acik migration gerektirmeli.
+- Native fixture entegrasyonu ve WN14-WN24 tamamlanmadan S02 LOCAL_VERIFIED/VERIFIED degildir. G1 GPU Maven/model, G2 apply, G3 yayin icin ayri onay gerekir.
+
+## 2026-10-12 normal giris ve migration ara parcasi
+
+- Normal MCP `AITEST_RUNNER` secimi artik `windows_native`; acik `docker`, `host_dev_only` veya bos string customer istegi `LEGACY_RUNNER_MIGRATION_REQUIRED` ile reddedilir. Test-only composition icin `host_dev_only` korunur.
+- Dispatcher native preflight'ta `NATIVE_PROCESS_OWNERSHIP_UNVERIFIED` ile Maven/Docker baslatmadan fail-closed olur. WN22/WN23 surec agaci sahipligi ve hard-kill kaniti saglanmadan musteri run acilmaz. Bu nedenle WN14 tamamlanmadi.
+- Goal runner kind dispatcher ile uyusmazsa `RUNNER_CONTRACT_CONFLICT`; resume kayitli artifact runner kind'ini lifecycle `RUNNING` olmadan okur ve degisikligi reddeder. Eski job yeni native varsayilanina sessiz tasinmaz.
+- Kirmizi kanit: yeni entrypoint testi 2/2 FAIL (docker default ve native readiness metodu yok). Yesil: odak 6 dosya/29 PASS, ardindan yeni resume regression dahil 4 dosya/33 PASS. `npm.cmd run typecheck`, `npm.cmd run build`, `npm.cmd run lint` exit 0; lint 89 onceki uyari. `p05b-resume` model conflict fixture'inda eski sabit docker secimi yeni runner migration reddine takildi; fixture kayitli goal runner'i ile eslestirildi ve 33/33 tekrar gecti.
+- Kalan: native owned tree kapatma ve restart orphan fence, toolchain version probe'u normal run kimligine zorunlu baglama, settings/config ve readiness tam entegrasyonu, eski Docker kodunun aktif urunden emekliligi. S02 PARTIAL/NO_GO; musteri/GPU run yapilmadi.
+
+## 2026-10-12 WN20-WN23 process ownership arastirmasi
+
+- Yerel ortam salt okunur envanteri: Windows Node `v24.14.1`, `taskkill.exe` ve `tasklist.exe` var; `wmic`, `csc`, `cl` bulunmadi; `dotnet --list-sdks` bos. Proje bagimliliklarinda Job Object/FFI/N-API koprusu yok. Yeni native bagimlilik veya compiler kurulumu yapilmadi.
+- WN20 kismi: supervisor `close` bekliyor ve stdout/stderr bounded; timeout/cancel/spawn_error normal basari olarak donmuyor. Node resmi dokumani `close` olayinin child exit ve stdio kapanisi sonrasi oldugunu dogrular: https://nodejs.org/api/child_process.html . Bu `cmd.exe` kapanisidir; JVM descendant sahipligi/kapanisi kaniti degildir.
+- WN22 acik: `windows-process-supervisor.ts` `taskkill /PID <cmdPid> /T /F` baslatirken killer `close`/exit sonucunu okumuyor, child/JVM setini sorgulamiyor; yalniz killer spawn `error` durumunda `child.kill()` deniyor. `cmd.exe` kendi kendine cikip JVM yasarsa `stop()` `exited` nedeniyle agaca dokunmuyor. Microsoft `taskkill /T` child process kapatma semantigini belgeler, ancak bu kod komut sonucunu ve descendant kapanisini kanitlamaz: https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill .
+- WN23 acik: yalniz `child.pid` tutuluyor; run/job/attempt, baslama zamani, parent-child, executable/workspace identity kalici registry'si yok. Coordinator hard-kill sonrasi `taskkill` callback'i calismaz. Windows PID yalniz surec hayattayken tekil; salt PID ile restart reaper yabanci surece zarar verebilir: https://learn.microsoft.com/en-us/windows/win32/procthread/process-handles-and-identifiers . Bu nedenle PID tabanli restart cleanup eklenmedi.
+- Guvenli yon: Windows Job Object icinde baslatilan `cmd.exe` ve miras alan JVM cocuklari, `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` ile son handle kapaninca sonlandirilabilir. Dogrulama icin Job Object handle, `AssignProcessToJobObject`, gerekiyorsa suspended creation/assign-before-resume ve job membership/active-process sorgusu gerekir. Win32 dokumani varsayilan cocuk mirasini ve kill-on-close'u aciklar: https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects ; https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-assignprocesstojobobject . Node `child_process.spawn` belgelenen seceneklerinde bu API'yi acan arayuz tespit edilmedi; mevcut yerel compiler/SDK ile guvenilir bir kopru derlenemedi. `taskkill`, WMI veya `child.kill()` tek basina hard-kill/restart sahipligi ve PID reuse kosullarini karsilamaz.
+- Acilis esigi: (1) approved/signed Win32 helper veya guvenilir native kopru, (2) job object ile atomik child sahipligi ve `KILL_ON_JOB_CLOSE`, (3) cancel/timeout, coordinator hard-kill, root `cmd` erken exit/JVM yasiyor, yabanci IDE/Node/Java ve PID reuse fault testleri, (4) run generation/lease fence ve kalici process registry. Bunlar olmadan `assertNativeCustomerReady` reddi korunur; WN22/WN23 ve S02 NO_GO.

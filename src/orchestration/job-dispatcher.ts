@@ -34,7 +34,7 @@ import { collectAcceptedChangeEvidence, collectFinalReplayEvidence, type Evidenc
 import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
 import { buildFrozenTargetList, rebuildFrozenTargetDigest, type ConcreteTarget } from "../discovery/target-resolver.js";
 
-export type RunnerKind = "docker" | "host_dev_only";
+export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 
 export interface GoalContract {
   job_id: string;
@@ -143,6 +143,13 @@ export class JobDispatcher {
   }
 
   async dispatch(job: JobRow, goal: GoalContract, projectRoot: string, executionOwnerId?: string): Promise<DispatchResult> {
+    if (goal.runner_kind !== this.runnerKind) {
+      throw new AppError("POLICY_VIOLATION", "Job runner contract degisti; explicit revision gerekli", {
+        reason_code: "RUNNER_CONTRACT_CONFLICT",
+        recorded_runner: goal.runner_kind,
+        requested_runner: this.runnerKind,
+      });
+    }
     const phases: string[] = [];
     const storage = this.services.storage;
     const jobs = this.services.jobs;
@@ -218,7 +225,11 @@ export class JobDispatcher {
       let dockerRunner: DockerRunner | undefined;
       let dockerImage: string | undefined;
       let hostRunner: MavenRunner | undefined;
-      if (this.runnerKind === "docker") {
+      if (this.runnerKind === "windows_native") {
+        // Native process tree ownership and hard-kill recovery must be proven
+        // before a customer Maven process can be launched.
+        runnerFactory.assertNativeCustomerReady();
+      } else if (this.runnerKind === "docker") {
         // P04/PR04: ensureVerified preflight + tam capability probe calistirir;
         // probe basarisizsa BLOCKED_ISOLATION ile job fail-closed (host fallback yok).
         const capability = await runnerFactory.ensureVerified({ workspaceRoot: join(this.workspaceRoot, "jobs", job.id, "probe") });
@@ -1161,6 +1172,7 @@ export class JobDispatcher {
     if (!storage || !jobs) {
       throw new AppError("INTERNAL_ERROR", "Storage servisleri baslatilmamis");
     }
+    this.assertRecordedRunnerKind(storage, job);
     const leases = new LeaseManager(storage.db);
     const checkpoints = new CheckpointStore(storage.db, this.workspaceRoot);
     const recovery = new RecoveryManager(storage.db, leases, checkpoints);
@@ -1323,6 +1335,33 @@ export class JobDispatcher {
       concrete_targets_digest: rebuildFrozenTargetDigest([...concreteBySelector.values()].flat()),
     };
     return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
+  }
+
+  /** P05-B/PP24: resume modeli manifest yoksa da kalici job contract'tan geri yuklenir. */
+  assertRecordedRunnerKind(storage: NonNullable<Services["storage"]>, job: JobRow): void {
+    const artifact = storage.db.prepare<[string], { relative_store_path: string }>(
+      "SELECT relative_store_path FROM artifacts WHERE job_id = ? AND kind = 'job_contract' AND status = 'READY' ORDER BY created_at DESC LIMIT 1",
+    ).get(job.id);
+    if (!artifact) return; // Existing legacy missing-contract guards handle this case.
+    const root = resolve(this.workspaceRoot);
+    const path = resolve(root, artifact.relative_store_path);
+    if (!isWithinStorageRoot(root, path)) {
+      throw new AppError("STORAGE_ERROR", "Job contract artifact yolu storage kok disinda", { reason_code: "CONTRACT_PATH_ESCAPE" });
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      throw new AppError("STORAGE_ERROR", "Job runner contract okunamadi", { reason_code: "CONTRACT_ARTIFACT_INVALID" });
+    }
+    const recorded = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>)["runner_kind"] : undefined;
+    if (recorded !== this.runnerKind) {
+      throw new AppError("POLICY_VIOLATION", "Job runner contract degisti; explicit revision gerekli", {
+        reason_code: "RUNNER_CONTRACT_CONFLICT",
+        recorded_runner: recorded,
+        requested_runner: this.runnerKind,
+      });
+    }
   }
 
   /** P05-B/PP24: resume modeli manifest yoksa da kalici job contract'tan geri yuklenir. */

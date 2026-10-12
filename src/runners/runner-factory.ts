@@ -9,7 +9,7 @@ import { AppError } from "../domain/errors.js";
 import { DockerRunner, DEFAULT_MAVEN_IMAGE, type DockerPreflightResult, type RunnerCapabilityProbe } from "./docker-runner.js";
 import { MavenRunner, type RunResult, type MavenRunOptions } from "./maven-runner.js";
 
-export type RunnerKind = "docker" | "host_dev_only";
+export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 
 export interface VerifiedCapability {
   kind: RunnerKind;
@@ -31,6 +31,14 @@ export interface VerifiedCapability {
  */
 export class CustomerRunnerFactory {
   private verified: VerifiedCapability | null = null;
+
+  /** WN22/WN23: customer Maven cannot start until an owned process tree can be
+   * closed and verified after cancel, timeout, or coordinator loss. */
+  assertNativeCustomerReady(): void {
+    throw new AppError("BLOCKED_ISOLATION", "Windows native process ownership is not verified", {
+      reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED",
+    });
+  }
 
   /**
    * RT01: env ayari olmayan normal kurulumda docker capability preflight + gercek capability probe ile
@@ -105,11 +113,14 @@ export class CustomerRunnerFactory {
  * RT02: tip donusumune guvenilmez.
  */
 export function resolveRunnerKindFromEnv(envValue: string | undefined, customerJob: boolean): RunnerKind {
-  if (envValue === undefined || envValue.length === 0) {
-    return "docker";
+  if (envValue === undefined || envValue === "windows_native") {
+    return "windows_native";
   }
-  if (envValue === "docker") {
-    return "docker";
+  if (envValue === "docker" || envValue === "host_dev_only" && customerJob || envValue.length === 0) {
+    throw new AppError("BLOCKED_ISOLATION", "Legacy runner secimi icin explicit migration/revision gerekli", {
+      reason_code: "LEGACY_RUNNER_MIGRATION_REQUIRED",
+      runner_kind: envValue,
+    });
   }
   if (envValue === "host_dev_only" && !customerJob) {
     return "host_dev_only";

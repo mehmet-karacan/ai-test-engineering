@@ -226,7 +226,7 @@ describe("P01/PR01/PP01: bare full gate fail-closed; local/full ayrimi", () => {
     const gate = runGate(repoRoot, []);
     expect(gate.status, `release-verify process failed: ${JSON.stringify({ signal: gate.signal, error: gate.processError, stderr: gate.stderr.slice(0, 500), stdout: gate.stdout.slice(-500) })}`).not.toBeNull();
     expect(gate.status).not.toBe(0);
-    expect(gate.resultJson?.mode).toBe("full");
+    expect(gate.resultJson?.mode, `full gate did not emit RESULT_JSON: ${JSON.stringify({ status: gate.status, signal: gate.signal, error: gate.processError, stderr: gate.stderr.slice(0, 1000), stdout: gate.stdout.slice(-1000) })}`).toBe("full");
     expect(gate.resultJson?.decision).toBe("NO_GO");
     expect(gate.resultJson?.reasons.map((r) => r.code)).toContain("EVIDENCE_MANIFEST_EKSIK");
     // Eski fixture yesil mesaji bare komutta production onayi gibi yazilmaz:

@@ -135,13 +135,31 @@ describe("P05-B resume zinciri", () => {
     });
     const dispatcher = new JobDispatcher({
       services: prepared.services,
-      runnerKind: "docker",
+      runnerKind: prepared.goal.runner_kind,
       workerEnabled: false,
       workspaceRoot: prepared.artifactRoot,
     });
 
     await expect(dispatcher.resumeDispatch(prepared.services.jobs!.getJob(prepared.jobId), prepared.projectDir, "litellm/GLM-5.3-Flash-IT"))
       .rejects.toMatchObject({ code: "POLICY_VIOLATION", details: { reason_code: "CONTRACT_CONFLICT" } });
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it("legacy runner job'u RUNNING yapmadan explicit revision ister", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => {
+      prepared.services.storage?.close();
+      rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true });
+    });
+    const jobBefore = prepared.services.jobs!.getJob(prepared.jobId);
+    const artifact = prepared.services.storage!.db.prepare<[string], { relative_store_path: string }>(
+      "SELECT relative_store_path FROM artifacts WHERE job_id = ? AND kind = 'job_contract'",
+    ).get(prepared.jobId)!;
+    writeFileSync(join(prepared.artifactRoot, artifact.relative_store_path), JSON.stringify({ runner_kind: "docker" }));
+    const dispatchSpy = vi.spyOn(JobDispatcher.prototype, "dispatch");
+    await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
+      .rejects.toMatchObject({ code: "POLICY_VIOLATION", details: { reason_code: "RUNNER_CONTRACT_CONFLICT" } });
+    expect(prepared.services.jobs!.getJob(prepared.jobId).lifecycle).toBe(jobBefore.lifecycle);
     expect(dispatchSpy).not.toHaveBeenCalled();
   });
 });

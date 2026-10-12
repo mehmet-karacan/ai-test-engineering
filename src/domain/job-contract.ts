@@ -42,7 +42,7 @@ export interface JobContractInput {
   idempotency_key: string | null;
   source_snapshot_digest: string | null;
   resolved_targets: ContractTarget[];
-  runner_kind: "docker" | "host_dev_only";
+  runner_kind: "windows_native" | "docker" | "host_dev_only";
   model_profile: { provider_id: string; model_id: string } | null;
   policy_digest: string | null;
   config_digest: string;

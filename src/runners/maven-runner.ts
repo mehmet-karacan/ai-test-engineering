@@ -1,14 +1,10 @@
-/**
- * MavenRunner: process supervisor altinda build/test/jacoco goal yurutme.
- * STDOUT log dosyasina; timeout/iptal yalniz ilgili process tree'yi durdurur.
- */
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+/** Native Windows Maven execution through the central command and process contracts. */
 import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { AppError } from "../domain/errors.js";
-
-const MAX_RUN_LOG_BYTES = 8 * 1024 * 1024;
+import { NativeToolchainResolver, buildNativeMavenArgv } from "./native-toolchain.js";
+import { WindowsProcessSupervisor, type NativeProcessResult } from "./windows-process-supervisor.js";
 
 export interface RunResult {
   exit_code: number;
@@ -17,6 +13,10 @@ export interface RunResult {
   stderr_log_path: string;
   command: string[];
   timed_out: boolean;
+  native_status?: NativeProcessResult["status"];
+  stdout_truncated_bytes?: number;
+  stderr_truncated_bytes?: number;
+  toolchain_identity?: string;
 }
 
 export interface MavenRunOptions {
@@ -27,13 +27,13 @@ export interface MavenRunOptions {
   timeout_ms: number;
   log_dir: string;
   env?: Record<string, string>;
+  executable?: string;
+  prefer_wrapper?: boolean;
+  settings_path?: string;
+  toolchains_path?: string;
 }
 
-/**
- * P06: test/coverage kosusu sessiz skip veya failure-ignore ile basarili
- * sayilamaz. CLI property'leri proje POM'indeki ayni user property'leri
- * override eder; boylece gercek test kosusu ve JaCoCo raporu zorlanir.
- */
+/** Runtime test/coverage flags override skip and failure-ignore settings from a POM. */
 export function strictTestExecutionProperties(): Record<string, string> {
   return {
     skipTests: "false",
@@ -46,120 +46,78 @@ export function strictTestExecutionProperties(): Record<string, string> {
   };
 }
 
+function effectiveEnvironment(overrides: Record<string, string> | undefined): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    for (const existing of Object.keys(env)) {
+      if (existing.toLowerCase() === key.toLowerCase()) delete env[existing];
+    }
+    env[key] = value;
+  }
+  return env;
+}
+
 export class MavenRunner {
-  private running = new Map<number, ChildProcess>();
+  private readonly running = new Set<AbortController>();
 
   async run(options: MavenRunOptions): Promise<RunResult> {
-    const mvnwCmd = join(options.working_dir, "mvnw.cmd");
-    const mvnwSh = join(options.working_dir, "mvnw");
-    let command: string[];
-    if (existsSync(mvnwCmd)) {
-      command = ["cmd", "/c", mvnwCmd, ...options.goals];
-    } else if (existsSync(mvnwSh)) {
-      command = ["bash", mvnwSh, ...options.goals];
-    } else {
-      const mvnExecutable = resolveMavenExecutable();
-      command = mvnExecutable.endsWith(".cmd")
-        ? ["cmd", "/c", mvnExecutable, ...options.goals]
-        : [mvnExecutable, ...options.goals];
-    }
-
-    for (const profile of options.profiles ?? []) {
-      command.push(`-P${profile}`);
-    }
-    for (const [key, value] of Object.entries(options.properties ?? {})) {
-      command.push(`-D${key}=${value}`);
-    }
-    command.push("-B", "-ntp");
-
+    const env = effectiveEnvironment(options.env);
+    const toolchain = NativeToolchainResolver.resolve({
+      cwd: options.working_dir, env,
+      ...(options.executable !== undefined ? { executable: options.executable } : {}),
+      ...(options.prefer_wrapper ? { preferWrapper: true } : {}),
+      ...(options.settings_path !== undefined ? { settingsPath: options.settings_path } : {}),
+      ...(options.toolchains_path !== undefined ? { toolchainsPath: options.toolchains_path } : {}),
+      ...(options.profiles ? { profiles: options.profiles } : {}),
+    });
+    const argv = buildNativeMavenArgv({
+      goals: options.goals,
+      ...(options.profiles ? { profiles: options.profiles } : {}),
+      ...(options.properties ? { properties: options.properties } : {}),
+      ...(options.settings_path !== undefined ? { settingsPath: options.settings_path } : {}),
+      ...(options.toolchains_path !== undefined ? { toolchainsPath: options.toolchains_path } : {}),
+    });
+    const command = [toolchain.executable, ...argv];
     mkdirSync(options.log_dir, { recursive: true });
     const stdoutLog = join(options.log_dir, "maven-stdout.log");
     const stderrLog = join(options.log_dir, "maven-stderr.log");
-    writeFileSync(stdoutLog, "");
-    writeFileSync(stderrLog, "");
-
-    const started = Date.now();
-    const child = spawn(command[0]!, command.slice(1), {
-      cwd: resolve(options.working_dir),
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: false,
-      windowsHide: true,
-      env: { ...process.env, ...(options.env ?? {}) },
-    });
-    const pid = child.pid;
-    if (pid !== undefined) {
-      this.running.set(pid, child);
+    const controller = new AbortController();
+    this.running.add(controller);
+    let result: NativeProcessResult;
+    try {
+      result = await new WindowsProcessSupervisor().run({
+        executable: toolchain.executable, cwd: toolchain.cwd, argv,
+        timeoutMs: options.timeout_ms, env,
+      }, controller.signal);
+    } finally {
+      this.running.delete(controller);
     }
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      this.killTree(child);
-    }, options.timeout_ms);
-
-    const stdoutBytes = { value: 0 };
-    const stderrBytes = { value: 0 };
-    const appendLimited = (path: string, chunk: Buffer, state: { value: number }): void => {
-      if (state.value >= MAX_RUN_LOG_BYTES) {
-        return;
-      }
-      const remaining = MAX_RUN_LOG_BYTES - state.value;
-      const accepted = chunk.subarray(0, remaining);
-      appendFileSync(path, accepted.toString("utf8"));
-      state.value += accepted.length;
-    };
-    child.stdout?.on("data", (chunk: Buffer) => {
-      appendLimited(stdoutLog, chunk, stdoutBytes);
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      appendLimited(stderrLog, chunk, stderrBytes);
-    });
-
-    const exitCode = await new Promise<number>((resolveExit) => {
-      child.on("exit", (code) => resolveExit(code ?? -1));
-      child.on("error", () => resolveExit(-1));
-    });
-
-    clearTimeout(timer);
-    if (pid !== undefined) {
-      this.running.delete(pid);
+    writeFileSync(stdoutLog, result.stdout);
+    writeFileSync(stderrLog, result.stderr);
+    if (result.status !== "success" && result.status !== "nonzero") {
+      throw new AppError("BLOCKED_ISOLATION", `Native Maven ${result.status}`, {
+        reason_code: `NATIVE_MAVEN_${result.status.toUpperCase()}`,
+        stdout_log_path: stdoutLog,
+        stderr_log_path: stderrLog,
+        toolchain_identity: toolchain.identity,
+      });
     }
-
     return {
-      exit_code: exitCode,
-      duration_ms: Date.now() - started,
+      exit_code: result.exitCode ?? -1,
+      duration_ms: result.durationMs,
       stdout_log_path: stdoutLog,
       stderr_log_path: stderrLog,
       command,
-      timed_out: timedOut,
+      timed_out: false,
+      native_status: result.status,
+      stdout_truncated_bytes: result.stdoutTruncatedBytes,
+      stderr_truncated_bytes: result.stderrTruncatedBytes,
+      toolchain_identity: toolchain.identity,
     };
   }
 
-  killTree(child: ChildProcess): void {
-    try {
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
-      } else {
-        if (child.exitCode === null) {
-          child.kill("SIGTERM");
-        }
-        const forceTimer = setTimeout(() => {
-          if (child.exitCode === null) {
-            child.kill("SIGKILL");
-          }
-        }, 5000);
-        forceTimer.unref?.();
-      }
-    } catch {
-      // process zaten sonlanmis olabilir
-    }
-  }
-
   stopAll(): void {
-    for (const [, child] of this.running) {
-      this.killTree(child);
-    }
-    this.running.clear();
+    for (const controller of this.running) controller.abort();
   }
 }
 
@@ -168,24 +126,14 @@ export function commandDigest(command: string[], workingDir: string): string {
 }
 
 export function resolveMavenExecutable(): string {
-  if (process.platform !== "win32") {
-    return "mvn";
-  }
-  const pathEnv = process.env["PATH"] ?? "";
-  for (const dir of pathEnv.split(";")) {
-    if (dir.length === 0) {
-      continue;
-    }
-    const candidate = join(dir, "mvn.cmd");
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  throw new AppError("BLOCKED_ISOLATION", "Maven bulunamadi (mvn.cmd PATH'te yok); mvnw wrapper da mevcut degil");
+  return NativeToolchainResolver.resolve({ cwd: process.cwd(), env: process.env }).executable;
 }
 
 export function assertRunCompleted(result: RunResult, phase: string): void {
   if (result.timed_out) {
     throw new AppError("BLOCKED_ISOLATION", `${phase} timeout: ${result.duration_ms} ms`);
+  }
+  if (result.native_status === "spawn_error" || result.native_status === "cancelled") {
+    throw new AppError("BLOCKED_ISOLATION", `${phase} native run ${result.native_status}`);
   }
 }
