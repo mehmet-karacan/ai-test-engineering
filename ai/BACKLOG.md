@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P05-B, P06-A, P06-B1, P06-B2 ve P07-A facts/export cekirdegi local olarak dogrulandi; Report06/ham kanit renderer'i ve P07-P10 suruyor.
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P06 ve P07-A local olarak dogrulandi; P07-B/P08/P09/P10 kapanis paketi suruyor. Ana kalan paket sayisi: 4.
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 
 ## 004 uygulama paketleri (W00-W11)
@@ -37,10 +37,10 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P06-B1 | Module-aware coverage/report, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | production-005-p06b-module-final-gates; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | production-005-p07a-facts-export; 81/81 odak suite + typecheck |
-| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces (PP34/35/37/38/40); surfaces 9/9, P07+P08 odak 101/101, referans hash byte-exact; tam print/offline/DOM/link ve egress allowlist kaniti eksik |
-| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths (PP42) + p08-upgrade-restore (PP44) + w09 (PP43); P07+P08 odak 101/101, typecheck/lint 0 error; gercek Windows/Linux e2e install/upgrade rollback eksik |
-| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | p09-regression + P08/P04/P06/P07B sonrasi tam kosu; 67 dosya, 598/598 PASS, lint 0 error, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
-| P07-P10 | Report06 runtime kabul, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P08 lifecycle sonrasi devam ediyor |
+| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces; entegre odak 159/159 PASS; tam print/offline/DOM/link ve egress allowlist kaniti eksik |
+| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths + p08-upgrade-restore + w09; entegre odak 159/159 PASS, typecheck/build PASS, lint 0 error; gercek Windows/Linux/macOS e2e eksik |
+| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | coordinator final checkpoint; 70 dosya, 620/620 PASS, lint 0 error/89 warning, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
+| P10 | Teknik devir ve yayin karari | IN_PROGRESS | coordinator final checkpoint; evidence manifest, platform/live kanitleri eksik; production GO verilmedi |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 

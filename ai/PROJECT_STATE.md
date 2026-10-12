@@ -3,9 +3,9 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P05-B, P06-A, P06-B1, P06-B2, P06 frozen/counter, P08 lifecycle restore, P04 egress fail-closed, P09 ve P02 dispatch cleanup tamamlandi; P07/P08/P10 dis kanitleri suruyor
+- Asama: P00-P06 ve P07-A yerel olarak dogrulandi; P02/P03 audit, P07/P08 test kapsami ve P09 tam regresyonu main'e alindi; P07-B/P08/P09/P10 kapanis kanitleri suruyor
 - Durum etiketi: `005_P08_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
-- Son guncelleme: 2026-10-12 (P02/P03 GLM izole audit: yeni yerel kod acigi yok; odak 63/63)
+- Son guncelleme: 2026-10-12 (GLM/Qwen auditleri main'e alindi; full suite 70 dosya, 620/620 PASS)
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
 ## 004 paketleri durumu (W00-W11)
@@ -32,7 +32,7 @@
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
 | P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md + pr02-pr03-audit + p02-p03-glm-audit; odak 63/63 PASS (yeni HEAD yeniden dogrulandi); iki owner/hard-kill runtime kaniti NOT_RUN |
-| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit + p02-p03-glm-audit; P03/komsu odak 63/63 PASS (HEAD c2c8cb97); tam live/hard-kill NOT_RUN |
+| P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit + p02-p03-glm-audit; P03/komsu odak 63/63 PASS (main entegre); tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri ve egress fail-closed | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md + pr04-pr06-audit; Docker isolation/capability 11/11, P04 runtime 13/13, egress allowlist enforcement yoksa typed blocker |
 | P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md + pr04-pr06-audit; odak suite 57/57 + runtime target 13/13 + typecheck |
 | P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md + pr04-pr06-audit; 46/46 resume/storage + 2/2 handler + runtime 13/13 + typecheck |
@@ -40,10 +40,10 @@
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven/JaCoCo runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
-| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces (PP34/35/37/38/40); accepted NUL'suz binary 6/6, reserved marker 16/16, report path 5/5, surfaces 9/9, P07 odak 101/101; referans hash byte-exact; tam browser print/DOM e2e ve egress allowlist kaniti eksik |
-| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths (PP42) + p08-upgrade-restore (PP44) + w09 PP43; 101/101 odak (P07+P08), typecheck 0 error, lint 0 error; gercek Windows/Linux e2e install/upgrade rollback ve browser/DOM NOT_RUN |
-| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | p09-regression + P08/P04/P06/P07B sonrasi tam kosu; 67 dosya, 598/598 PASS, lint 0 error, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
-| P07-P10 | Report06 renderer/ham kanit export, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P07-A sonrasi devam ediyor |
+| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces; 159/159 entegre odak kapsaminda PASS; referans hash byte-exact; tam browser print/DOM e2e ve egress allowlist kaniti eksik |
+| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths + p08-upgrade-restore + w09 PP43; 159/159 entegre odak kapsaminda PASS, typecheck/build PASS, lint 0 error; gercek Windows/Linux e2e install/upgrade rollback NOT_RUN |
+| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | coordinator final checkpoint; 70 dosya, 620/620 PASS, lint 0 error/89 warning, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
+| P10 | Teknik devir ve yayin karari | IN_PROGRESS | coordinator final checkpoint; evidence manifest, platform/live kanitleri eksik; production GO verilmedi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
 
@@ -70,9 +70,10 @@
 - TypeScript: 56 dosya, **473/473 PASSED** (unit + integration + contract + security + benchmark; son tam kosu)
 - lint: **0 errors** (son kosuda 88 warning); typecheck: TEMIZ; build: TEMIZ
 - release-verify.mjs: exit 0 (referans hash kontrolu dahil; son coordinator kosusu)
-- Guncel P09 regresyonu: **67 dosya, 598/598 PASSED**, lint 0 error / 89 warning, typecheck ve build PASS.
+- Guncel P09 regresyonu: **70 dosya, 620/620 PASSED**, `npm.cmd test -- --run`, 123.32 sn; lint 0 error / 89 warning, typecheck ve build PASS.
 - Guncel P04-P06 runtime: Docker isolation/capability 11/11, P04 runtime 13/13, Maven/effective-scope/baseline 29/29, P05 resume/target 13/13 PASS.
-- P07/P08 PP34-PP44 denetimi (2026-10-12): kaynak kod acigi yok; 22 yeni yerel test (P07 surfaces 9 + P08 paths 7 + P08 upgrade/restore 3 + P08/PP43 install 3). Odak suite 12 dosya 101/101 PASS, typecheck 0, lint 0 error/89 warning. `ai/checkpoints/2026-10-12-production-005-p07p08-pp34-pp44-audit.md`. Tam (67 dosya) suite bu oturumda yeniden kosulmadi.
+- P02/P03 GLM audit ve P07/P08 Qwen auditleri main'e alindi: odak testleri sirasiyla 63/63 ve 101/101; entegre odak suite 18 dosya 159/159 PASS. P07/P08'te yeni uygulanabilir kod acigi bulunmadi; 22 yeni yerel test eklendi.
+- Tam suite kaniti: 70 dosya, 620/620 PASS, log SHA256 `CAF060D07B36F3EEE616BAA45DB094E2073D1484B3E9862FE9E47C5DFD1A961D`, log repo disinda `C:\Users\mkaracan\AppData\Local\Temp\aitest-production-005-final-suite.log`.
 
 ## FIN paketleri durumu (onceki gorev 003 v2.0; tarihsel kayit)
 
@@ -99,6 +100,7 @@
 
 ## Sonraki somut is
 
-- Sonraki somut is: Docker capability saglanan ortamda P07-B customer dispatcher kabul kaniti; P08 gercek Windows upgrade rollback; P10 handoff/release karari
+- Kalan ana kapanis paketi: **4** (`P07-B`, `P08`, `P09`, `P10`). P09 yerel olarak kapali; release/evidence reconciliation nedeniyle kapanis listesinde tutuluyor.
+- Sonraki somut is: Docker capability saglanan ortamda P07-B customer dispatcher ve egress kaniti; P08 gercek Windows/Linux/macOS platform e2e; P10 evidence manifest + handoff/release karari.
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir
