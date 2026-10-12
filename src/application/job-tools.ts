@@ -185,13 +185,17 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   const bestCheckpoint = checkpoints.bestCheckpoint(job.id);
 
   // gercek rapor yolu: JobDispatcher'in urettigi reports dizini (workspaceRoot/jobs/<id>/reports):
-  const reportDir = join(services.config.storage.root, "jobs", job.id, "reports", "index.html");
-  const reportPath = existsSync(reportDir) ? reportDir : null;
-  const reportJsonPath = join(services.config.storage.root, "jobs", job.id, "reports", "report.json");
-  let reportFacts: ReportStatusFacts | null = null;
+  // report_path yalniz PUBLISHED dogrulamasi gecmis authoritative export'ta
+  // sunulur; stale index.html veya bozuk/eksik manifest rapor yolunu yetkili
+  // sayilamaz (PR07/PP40).
   const reportRoot = join(services.config.storage.root, "jobs", job.id, "reports");
+  const reportDir = join(reportRoot, "index.html");
+  const reportJsonPath = join(reportRoot, "report.json");
   const publishedVerification = existsSync(join(reportRoot, "PUBLISHED")) ? new ReportExporter(reportRoot).verifyExport() : { missing: ["PUBLISHED"], hash_mismatch: [] };
-  if (publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0 && existsSync(reportJsonPath)) {
+  const publicationVerified = publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0;
+  const reportPath = publicationVerified && existsSync(reportDir) ? reportDir : null;
+  let reportFacts: ReportStatusFacts | null = null;
+  if (publicationVerified && existsSync(reportJsonPath)) {
     try {
       reportFacts = projectReportStatusFacts(JSON.parse(readFileSync(reportJsonPath, "utf8")), job.id);
     } catch {
