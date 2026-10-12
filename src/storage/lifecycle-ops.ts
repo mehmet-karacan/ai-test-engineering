@@ -5,9 +5,9 @@
  * - Restore ayri konumda dogrulanir; FK/integrity/blob check'leri gecince switch edilir.
  * - Owned uninstall: yalniz beklenen hash'teki girdiler; user modified korunur.
  */
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
-import { join, resolve, sep as pathSep } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync } from "node:fs";
+import { join, relative, resolve, sep as pathSep } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 
@@ -30,6 +30,13 @@ export interface RestoreVerification {
   reason: string | null;
 }
 
+export interface RestoreResult {
+  backup_id: string;
+  db_path: string;
+  artifact_root: string;
+  verification: RestoreVerification;
+}
+
 export function sha256Data(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
@@ -39,7 +46,7 @@ export function sha256Data(data: Buffer | string): string {
  * Backup complete marker ancak tum blob/hash dogrulamalari gecince yazilir.
  */
 export async function createBackup(db: BetterSqlite3.Database, dbPath: string, artifactRoot: string, backupRoot: string): Promise<BackupResult> {
-  const backupId = crypto.randomUUID();
+  const backupId = randomUUID();
   const backupDir = join(backupRoot, backupId);
   mkdirSync(backupDir, { recursive: true });
 
@@ -64,6 +71,7 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
   }
   const manifestPath = join(backupDir, "blob-manifest.json");
   writeFileSync(manifestPath, JSON.stringify({ schema_version: 1, backup_id: backupId, blobs: blobManifest, taken_at: Date.now() }, null, 2), "utf8");
+  writeFileSync(join(backupDir, "complete.json"), JSON.stringify({ schema_version: 1, backup_id: backupId, complete: true }, null, 2), "utf8");
 
   return {
     backup_id: backupId,
@@ -89,7 +97,18 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   if (!existsSync(manifestPath)) {
     return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BLOB_MANIFEST_EKSIK" };
   }
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { blobs: Array<{ relative_path: string; sha256: string }> };
+  if (!existsSync(join(backupDir, "complete.json"))) {
+    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BACKUP_COMPLETE_MARKER_EKSIK" };
+  }
+  let manifest: { blobs: Array<{ relative_path: string; sha256: string; bytes?: number }> };
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { blobs: Array<{ relative_path: string; sha256: string; bytes?: number }> };
+    if (!Array.isArray(manifest.blobs)) {
+      throw new Error("blob listesi yok");
+    }
+  } catch {
+    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BLOB_MANIFEST_BOZUK" };
+  }
 
   // integrity + schema check (ayri baglanti):
   const Database = require("better-sqlite3") as typeof import("better-sqlite3");
@@ -110,13 +129,20 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   // blob check:
   const missingBlobs: string[] = [];
   for (const blob of manifest.blobs) {
-    const copiedPath = join(backupDir, "blobs", blob.relative_path.replace(/\//g, pathSep));
+    const relativeBlob = blob.relative_path.replace(/\//g, pathSep);
+    const copiedPath = resolve(join(backupDir, "blobs"), relativeBlob);
+    const blobRoot = resolve(join(backupDir, "blobs"));
+    const escaped = relative(blobRoot, copiedPath).startsWith(`..${pathSep}`) || relative(blobRoot, copiedPath) === "..";
+    if (escaped) {
+      missingBlobs.push(blob.relative_path);
+      continue;
+    }
     if (!existsSync(copiedPath)) {
       missingBlobs.push(blob.relative_path);
       continue;
     }
     const actualHash = sha256Data(readFileSync(copiedPath));
-    if (actualHash !== blob.sha256) {
+    if (actualHash !== blob.sha256 || (blob.bytes !== undefined && readFileSync(copiedPath).byteLength !== blob.bytes)) {
       missingBlobs.push(blob.relative_path);
     }
   }
@@ -129,6 +155,46 @@ export function verifyBackup(backupDir: string): RestoreVerification {
     valid: schemaOk && integrityOk && blobCheckOk,
     reason: schemaOk && integrityOk && blobCheckOk ? null : "BACKUP_VERIFICATION_FAILED",
   };
+}
+
+/**
+ * Dogrulanmis backup'i yeni runtime konumuna uygular. Hedef DB acik olmamali;
+ * DB once temp dosyaya kopyalanir, sonra isim degisikligiyle yayinlanir.
+ */
+export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
+  const verification = verifyBackup(backupDir);
+  if (!verification.valid) {
+    throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: verification.reason ?? "BACKUP_VERIFICATION_FAILED" });
+  }
+  const manifest = JSON.parse(readFileSync(join(backupDir, "blob-manifest.json"), "utf8")) as { backup_id: string; blobs: Array<{ relative_path: string }> };
+  mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
+  mkdirSync(targetArtifactRoot, { recursive: true });
+  const tempDb = `${targetDbPath}.restore-${randomUUID()}`;
+  copyFileSync(join(backupDir, "state.db"), tempDb);
+  try {
+    if (existsSync(targetDbPath)) {
+      rmSync(targetDbPath, { force: true });
+    }
+    renameSync(tempDb, targetDbPath);
+    const backupBlobRoot = resolve(join(backupDir, "blobs"));
+    const targetRoot = resolve(targetArtifactRoot);
+    for (const blob of manifest.blobs) {
+      const rel = blob.relative_path.replace(/\//g, pathSep);
+      const source = resolve(backupBlobRoot, rel);
+      const destination = resolve(targetRoot, rel);
+      const destinationRel = relative(targetRoot, destination);
+      if (destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {
+        throw new AppError("POLICY_VIOLATION", "Backup blob yolu artifact kokunu asiyor", { reason_code: "PATH_ESCAPE" });
+      }
+      mkdirSync(resolve(destination, ".."), { recursive: true });
+      copyFileSync(source, destination);
+    }
+  } finally {
+    if (existsSync(tempDb)) {
+      rmSync(tempDb, { force: true });
+    }
+  }
+  return { backup_id: manifest.backup_id, db_path: targetDbPath, artifact_root: targetArtifactRoot, verification };
 }
 
 export interface UninstallDecision {

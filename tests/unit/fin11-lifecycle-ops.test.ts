@@ -13,7 +13,7 @@ import { Storage } from "../../src/storage/storage.js";
 import { JobRepository } from "../../src/storage/job-repository.js";
 import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { ArtifactStore } from "../../src/storage/artifact-store.js";
-import { createBackup, verifyBackup, ownedUninstall, assertQuiescedForUpgrade } from "../../src/storage/lifecycle-ops.js";
+import { createBackup, restoreBackup, verifyBackup, ownedUninstall, assertQuiescedForUpgrade } from "../../src/storage/lifecycle-ops.js";
 
 describe("FIN11: backup/restore gercek zinciri (18.5)", () => {
   let dir: string;
@@ -65,6 +65,17 @@ describe("FIN11: backup/restore gercek zinciri (18.5)", () => {
     expect(verification.schema_ok).toBe(true);
     expect(verification.integrity_ok).toBe(true);
     expect(verification.blob_check_ok).toBe(true);
+    const restoredDbPath = join(dir, "restored", "state.db");
+    const restoredArtifactRoot = join(dir, "restored", "artifacts");
+    const restored = restoreBackup(backup.backup_dir, restoredDbPath, restoredArtifactRoot);
+    expect(restored.db_path).toBe(restoredDbPath);
+    expect(readFileSync(join(restoredArtifactRoot, record.relativeStorePath), "utf8")).toBe("rapor-icerigi");
+    const restoredStorage = new Storage({ dbPath: restoredDbPath });
+    try {
+      expect(new JobRepository(restoredStorage.db).getJob(job.id).lifecycle).toBe("COMPLETED");
+    } finally {
+      restoredStorage.close();
+    }
   }, 60000);
 
   it("restored runtime'da eski job'un result'i goruntulenir; veri kaybi yok (18.5)", async () => {
