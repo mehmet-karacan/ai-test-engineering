@@ -2,6 +2,15 @@
 
 - Tarih: 2026-10-13 (Europe/Istanbul)
 - Dal: `codex/windows-native-006-s01`; referans kod: `a0514f7`.
+
+## 2026-10-13 dar v2 uygulama eki
+
+- Yeni restore generation `formatVersion: 2` ve her asamada degismeyen eski DB/WAL varlik-byte-SHA256, eski SHM varligi, kaynak DB/manifest SHA256 ve tum beklenen blob path/hash/byte/eski-varlik listesini journal'a yazar. v1 kayitlari kendiliginden v2 sayilmaz; ayni generation'da evidence degisimi transition hatasidir.
+- Yalniz son kaydi `PREPARED` olan ve restore oncesinde mevcut eski DB kaydi tasiyan v2 generation'da `Storage` acilisindan once DB owner lock alinir. Hedef DB/WAL byte kimligi, SHM varligi, staged snapshot hash'i, eski korunmus adlarin yoklugu ve mevcut yol segmentlerinde reparse bulunmamasi denetlenir. Kanitlar eslesirse `ROLLED_BACK` fsync edilir ve eski DB acilir. Hicbir DB, WAL, SHM veya blob silinmez/tasinmaz; yeni blob orphan kalabilir. Eski DB yoksa bos DB acilmasin diye fail-closed kalir; kimlik farki, v1, bozuk journal veya `BLOBS_READY` ve sonrasi da fail-closed kalir.
+- Native Windows `taskkill /F` fixture'inda PREPARED ve ilk blob link donusu kesintilerinden sonra gercek `Storage` eski job'u acti; 8 sonraki nonterminal kesilme noktasi bloklandi, COMMITTED acildi. `--expect-recovery` tam kabul modu halen 8 engel nedeniyle RED olmalidir. Bu dar recovery WN11/S01 VERIFIED degildir.
+- GC bagimsiz P1: SQL binary path eslesmesi NTFS case varyantini gormuyordu. Farkli job'un READY `path.toUpperCase()` referansi kirmizi testte ilk blobu sildirdi. Sweep, BEGIN IMMEDIATE icinde tum silinmemis referanslari guvenli yol preflight'iyla ve mevcut dosyalarda `dev/ino` kimligiyle karsilastirir; case varyanti ve hard-link fixture'lari artik silmeyi bloke eder. Harici raw FS/DB yazari, fiziksel alias ve commit-sonrasi-unlink crash araligi yine NO_GO.
+- Son dogrulama: ilgili 9 test dosyasi/89 PASS, `npm.cmd run typecheck`, `npm.cmd run build` ve `npm.cmd run lint` exit 0; lintte 89 eski warning. Native 11 noktali hard-kill probe exit 0, PREPARED/LINK eski job'u gercek Storage acilisinda gordu; `--expect-recovery` tam kabul 8 bloke asama nedeniyle beklenen RED. Stdio entrypoint erken journal kontrolu kaldirildi; tek startup kapisi Storage'in recovery+fail-closed kontroludur.
+- DB/WAL/staged kimlik okumasinda buyuk dosyayi RAM'e alan `readFileSync` yerine sabit 1 MiB buffer ile streaming SHA-256 kullanilir; `fstat` boyut/mtime/ctime okumasi sirasinda degisirse fail-closed. Bu, raw dis yazari tum zamanlamalarda dislama kaniti degildir. Linked orphan blob ozellikle silinmez; mevcut eski DB'nin referanslari korunur, orphan temizligi ayri GC kanitina baglidir.
 - G1 GPU/model, G2 original checkout apply, G3 yayin kapali; bu probe yalniz owned Windows Temp fixture kullanir.
 - Tekrarlanabilir komut: `npm.cmd run build` ardindan `node scripts/probe-restore-hardkill.mjs`. Kabul icin kirmizi mod: `node scripts/probe-restore-hardkill.mjs --expect-recovery`; 10 nonterminal kesilme noktasinda startup hala bloke oldugu icin beklenen exit 1 verdi. Bu kirmizi mod mevcut fail-closed davranisi hata olarak degil, henuz yapilmamis otomatik recovery kabulunun eksikligi olarak olcer.
 

@@ -3,7 +3,7 @@
  * Active/paused/interrupted job'un son trusted/best checkpoint'i, release kaniti veya backup
  * manifest'inin referanslari SILINEMEZ. Rejected/untrusted/gecici artifacts icin configurable TTL.
  */
-import { existsSync, lstatSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep as pathSep } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 import { acquireMaintenanceLock } from "./maintenance-lock.js";
@@ -112,18 +112,18 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
   const release = acquireMaintenanceLock(artifactRoot, "gc");
   try {
   const root = resolve(artifactRoot);
-  const paths = dryRun.candidates.map((candidate) => {
-    const segments = candidate.relative_store_path.split("/");
-    const path = resolve(root, candidate.relative_store_path.replace(/\//g, pathSep));
+  const safeBlobPath = (relativePath: string): string => {
+    const segments = relativePath.split("/");
+    const path = resolve(root, relativePath.replace(/\//g, pathSep));
     const fromRoot = relative(root, path);
     const basename = segments.at(-1)?.toLowerCase() ?? "";
     const control = basename === ".aitest-maintenance.lock" ||
       /^\.aitest-maintenance\.lock\.sqlite(?:-journal|-wal|-shm)?$/.test(basename);
     if (segments.some((segment) => !segment || segment === "." || segment === ".." || /[. ]$/.test(segment)) ||
-        /[\\:<>"|?*]/.test(candidate.relative_store_path) || isAbsolute(fromRoot) ||
+        /[\\:<>"|?*]/.test(relativePath) || isAbsolute(fromRoot) ||
         fromRoot === ".." || fromRoot.startsWith(`..${pathSep}`) || control) {
       throw new AppError("POLICY_VIOLATION", "GC candidate path is unsafe", {
-        reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: candidate.relative_store_path,
+        reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: relativePath,
       });
     }
     let cursor = root;
@@ -134,19 +134,20 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           throw new AppError("POLICY_VIOLATION", "GC candidate path could not be inspected", {
-            reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: candidate.relative_store_path,
+            reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: relativePath,
           });
         }
       }
       if (entry && (entry.isSymbolicLink() || (index < segments.length - 1 && !entry.isDirectory()) ||
           (index === segments.length - 1 && !entry.isFile()))) {
         throw new AppError("POLICY_VIOLATION", "GC candidate path contains a reparse point or collision", {
-          reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: candidate.relative_store_path,
+          reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: relativePath,
         });
       }
     }
     return path;
-  });
+  };
+  const paths = dryRun.candidates.map((candidate) => safeBlobPath(candidate.relative_store_path));
   if (!dryRun.policy || dryRun.candidates.some((candidate) => !candidate.snapshot)) {
     throw new AppError("POLICY_VIOLATION", "GC dry-run lacks a current identity snapshot", { reason_code: "GC_STALE_DRY_RUN" });
   }
@@ -155,18 +156,38 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
     // between this revalidation and file removal.
     const fresh = gcDryRun(db, dryRun.policy!);
     const current = new Map(fresh.candidates.map((candidate) => [candidate.artifact_id, candidate]));
-    const otherReference = db.prepare<[string, string], { id: string }>(
-      "SELECT id FROM artifacts WHERE relative_store_path = ? AND id <> ? AND status <> 'DELETED' LIMIT 1",
-    );
+    const liveReferences = db.prepare<[], { id: string; relative_store_path: string }>(
+      "SELECT id, relative_store_path FROM artifacts WHERE status <> 'DELETED'",
+    ).all();
+    // NTFS can resolve case variants and hard links to the same physical blob.
+    // Check every live reference under the write transaction, not SQL binary path equality.
+    const referencedFiles = liveReferences.map((row) => {
+      const path = safeBlobPath(row.relative_store_path);
+      let identity: { dev: number; ino: number } | null = null;
+      try {
+        const entry = statSync(path);
+        identity = { dev: entry.dev, ino: entry.ino };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      return { ...row, path, identity };
+    });
+    const ownFiles = new Map(referencedFiles.map((entry) => [entry.id, entry]));
     for (const candidate of dryRun.candidates) {
       const now = current.get(candidate.artifact_id);
       const old = candidate.snapshot!;
       const next = now?.snapshot;
+      const own = ownFiles.get(candidate.artifact_id);
       if (!now || !next || candidate.pinned || now.kind !== candidate.kind ||
           now.relative_store_path !== candidate.relative_store_path || now.sha256 !== candidate.sha256 ||
           now.created_at !== candidate.created_at || now.reason !== candidate.reason ||
           next.job_id !== old.job_id || next.status !== old.status || next.pin_reason !== old.pin_reason ||
-          next.bytes !== old.bytes || otherReference.get(candidate.relative_store_path, candidate.artifact_id)) {
+          next.bytes !== old.bytes || !own || referencedFiles.some((other) => {
+            if (other.id === candidate.artifact_id) return false;
+            return other.path.toLowerCase() === own.path.toLowerCase() ||
+              (own.identity !== null && other.identity !== null &&
+                own.identity.dev === other.identity.dev && own.identity.ino === other.identity.ino);
+          })) {
         throw new AppError("POLICY_VIOLATION", "GC dry-run candidate changed or became pinned", {
           reason_code: "GC_STALE_DRY_RUN", artifact_id: candidate.artifact_id,
         });

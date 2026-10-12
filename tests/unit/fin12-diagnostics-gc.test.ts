@@ -4,7 +4,7 @@
  * - GC iki asamali: dry-run -> onayli sweep; aktif/pinned ref silinmez (14.4/PRO26).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, linkSync, mkdtempSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -236,6 +236,39 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
       .run(randomUUID(), job.id, path, "f".repeat(64), Date.now());
     expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
     expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep farkli job'un Windows case-variant blob referansini korur", () => {
+    const oldJob = jobs.createJob({ locationId, requestDigest: "digest-gc-case-old" });
+    jobs.updateLifecycle(oldJob.id, "COMPLETED", 0);
+    const artifact = insertArtifact(oldJob.id, "temp", "case-variant-blob", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    const liveJob = jobs.createJob({ locationId, requestDigest: "digest-gc-case-live" });
+    jobs.updateLifecycle(liveJob.id, "RUNNING", 0);
+    const candidate = dryRun.candidates.find((entry) => entry.artifact_id === artifact.id)!;
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, 'report', ?, ?, ?, '1', 'internal', 'READY', ?)")
+      .run(randomUUID(), liveJob.id, candidate.relative_store_path.toUpperCase(), candidate.sha256, candidate.snapshot!.bytes, Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow(/changed or became pinned/);
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep farkli yoldaki hard-link blob referansini korur", () => {
+    const oldJob = jobs.createJob({ locationId, requestDigest: "digest-gc-hardlink-old" });
+    jobs.updateLifecycle(oldJob.id, "COMPLETED", 0);
+    const artifact = insertArtifact(oldJob.id, "temp", "hardlink-blob", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    const liveJob = jobs.createJob({ locationId, requestDigest: "digest-gc-hardlink-live" });
+    jobs.updateLifecycle(liveJob.id, "RUNNING", 0);
+    const aliasPath = join(artifactRoot, "blobs", "hardlink-alias");
+    linkSync(artifact.path, aliasPath);
+    const candidate = dryRun.candidates.find((entry) => entry.artifact_id === artifact.id)!;
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, 'report', ?, ?, ?, '1', 'internal', 'READY', ?)")
+      .run(randomUUID(), liveJob.id, "blobs/hardlink-alias", candidate.sha256, candidate.snapshot!.bytes, Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow(/changed or became pinned/);
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(existsSync(aliasPath)).toBe(true);
     expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
   });
 
