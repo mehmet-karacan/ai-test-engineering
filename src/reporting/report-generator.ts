@@ -473,6 +473,9 @@ export class ReportExporter {
         if (name === "manifest.json") {
           structuralErrors.push("manifest.json (reserved path)");
         }
+        if (name === "PUBLISHED") {
+          structuralErrors.push("manifest.json (reserved path: PUBLISHED)");
+        }
         if (!REPORT_ARTIFACT_KINDS.has(kind)) {
           structuralErrors.push(`manifest.json (invalid kind: ${name || "unknown"})`);
         }
