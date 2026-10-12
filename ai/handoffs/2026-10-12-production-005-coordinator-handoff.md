@@ -22,10 +22,12 @@
 - P08/PP42: handshake, verify-install ve uninstall scriptlerinde Windows/Unicode path icin `fileURLToPath` tabanli repoRoot; W09 odak 8/8 PASS.
 - PR02/03 audit: lease/checkpoint/resume odak 63/63 PASS; yeni yerel kod acigi yok, iki owner/hard-kill runtime kaniti NOT_RUN.
 - PR04/06 audit: Docker isolation/capability 11/11, P04 runtime 13/13, Maven/effective-scope/baseline 29/29, P05 resume/target 13/13; yeni yerel kod acigi yok. Allowlist egress enforcement yoksa typed blocker korunuyor.
+- P07-B runtime: Report06 evidence/projection/export 17/17 ve normal MCP RG41/RG42 dispatcher lifecycle 2/2 PASS; tam print/offline/DOM/link + allowlist egress kaniti ayri kaldi.
+- P08 lifecycle/install: `fin11-lifecycle-ops` + `w09-install` 15/15 PASS; gercek upgrade/rollback ve Linux/macOS platform kosusu ayri kaldi.
 
 ## Acik maddeler ve gercek engeller
 
-- P07-B normal customer dispatcher Report06 runtime/print/offline/DOM/link kabul kosusu: Docker capability artik mevcut ve temel isolation probe 11/11 PASS; Report06 customer dispatcher'in tam egress/print/offline/DOM/link kaniti henuz kosulmadi.
+- P07-B normal customer dispatcher temel RG41/RG42 lifecycle kabul kosusu Docker ile 2/2 PASS; tam Report06 print/offline/DOM/link ve allowlist egress kaniti henuz kosulmadi.
 - P08 gercek Windows CMD install/uninstall/upgrade rollback ve desteklenen Linux/macOS platform kaniti: NOT_RUN.
 - P06 effective Maven profile/skip/ignoreFailures ve multi-module runtime kaniti: local kod kapilari var, tam runtime kaniti eksik.
 - P10 final handoff/release karari: full gate NO_GO oldugu icin teknik handoff suruyor; production GO verilmedi.
