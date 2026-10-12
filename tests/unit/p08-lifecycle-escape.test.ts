@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:
 import { tmpdir } from "node:os";
 import { join, resolve, relative, sep } from "node:path";
 import { createHash } from "node:crypto";
+import Database from "better-sqlite3";
 import { verifyBackup } from "../../src/storage/lifecycle-ops.js";
 
 function sha256(data: string): string {
@@ -38,10 +39,11 @@ describe("P08: lifecycle-ops path-escape kontrolu (cross-drive/kok disi manifest
       const backupDir = join(dir, "backup");
       mkdirSync(join(backupDir, "blobs"), { recursive: true });
       // Gercek state.db (schema_ok icin minimal tablolar):
-      const Database = require("better-sqlite3") as typeof import("better-sqlite3").default;
       const db = new Database(join(backupDir, "state.db"));
       db.pragma("journal_mode = WAL");
       db.exec("CREATE TABLE test_jobs (id TEXT PRIMARY KEY); CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);");
+      db.exec("CREATE TABLE artifacts (relative_store_path TEXT, sha256 TEXT, bytes INTEGER, status TEXT);");
+      db.prepare("INSERT INTO artifacts VALUES (?, ?, ?, 'READY')").run("blobs/iceride-blob", sha256("ok"), 2);
       db.close();
       writeFileSync(join(backupDir, "blob-manifest.json"), JSON.stringify({
         schema_version: 1,
@@ -66,7 +68,8 @@ describe("P08: lifecycle-ops path-escape kontrolu (cross-drive/kok disi manifest
       const rel = relative(blobRoot, copiedPath);
       // Eski kontrol gercekten kaciriyor mu (Windows'ta mutlak yol ".." ile baslamaz):
       const oldCheckWouldMiss = !(rel.startsWith(`..${sep}`) || rel === "..");
-      expect(oldCheckWouldMiss).toBe(true);
+      // POSIX'te farkli kok ../ ile doner; eski kontrol bu durumda zaten reddeder.
+      expect(oldCheckWouldMiss).toBe(process.platform === "win32");
 
       writeFileSync(join(backupDir, "blob-manifest.json"), JSON.stringify({
         schema_version: 1,

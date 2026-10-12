@@ -42,6 +42,74 @@ export function sha256Data(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
+interface BackupBlob {
+  relative_path: string;
+  sha256: string;
+  bytes: number;
+}
+
+interface BackupManifest {
+  schema_version: 1;
+  backup_id: string;
+  blobs: BackupBlob[];
+}
+
+interface SnapshotInspection {
+  schema_ok: boolean;
+  integrity_ok: boolean;
+  rows: Array<{ relative_store_path: string; sha256: string; bytes: number }>;
+  reason: string | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isBackupBlob(value: unknown): value is BackupBlob {
+  return isRecord(value)
+    && typeof value["relative_path"] === "string" && value["relative_path"].length > 0
+    && typeof value["sha256"] === "string" && /^[a-f0-9]{64}$/.test(value["sha256"])
+    && typeof value["bytes"] === "number" && Number.isSafeInteger(value["bytes"]) && value["bytes"] >= 0;
+}
+
+function isBackupManifest(value: unknown): value is BackupManifest {
+  return isRecord(value) && value["schema_version"] === 1
+    && typeof value["backup_id"] === "string" && value["backup_id"].trim().length > 0
+    && Array.isArray(value["blobs"]) && value["blobs"].every(isBackupBlob);
+}
+
+/** Canli DB degil, restore edilecek snapshot tek otoritedir. */
+function inspectBackupSnapshot(dbPath: string): SnapshotInspection {
+  let checkDb: BetterSqlite3.Database | undefined;
+  let schemaOk = false;
+  let integrityOk = false;
+  try {
+    checkDb = new Database(dbPath, { readonly: true });
+    const tables = checkDb.prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+    schemaOk = ["test_jobs", "schema_migrations", "artifacts"].every((name) => tables.some((table) => table.name === name));
+    integrityOk = checkDb.pragma("integrity_check", { simple: true }) === "ok";
+    if (!schemaOk || !integrityOk) {
+      return { schema_ok: schemaOk, integrity_ok: integrityOk, rows: [], reason: "BACKUP_VERIFICATION_FAILED" };
+    }
+    // SQLite integrity_check FOREIGN KEY ihlallerini denetlemez.
+    if ((checkDb.pragma("foreign_key_check") as unknown[]).length > 0) {
+      return { schema_ok: true, integrity_ok: false, rows: [], reason: "BACKUP_FOREIGN_KEY_CHECK_FAILED" };
+    }
+    const rows = checkDb
+      .prepare<[], { relative_store_path: string; sha256: string; bytes: number }>(
+        "SELECT relative_store_path, sha256, bytes FROM artifacts WHERE status = 'READY'",
+      ).all();
+    if (rows.some((row) => !isBackupBlob({ relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes }))) {
+      return { schema_ok: true, integrity_ok: true, rows: [], reason: "BACKUP_ARTIFACT_METADATA_INVALID" };
+    }
+    return { schema_ok: true, integrity_ok: true, rows, reason: null };
+  } catch {
+    return { schema_ok: schemaOk, integrity_ok: false, rows: [], reason: "BACKUP_DB_BOZUK" };
+  } finally {
+    checkDb?.close();
+  }
+}
+
 /**
  * Online SQLite backup API + blob manifest (18.5).
  * Backup complete marker ancak tum blob/hash dogrulamalari gecince yazilir.
@@ -56,12 +124,13 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
 
     // DB'nin referans verdigi blob'lari manifest'e sabitle. READY kaydi eksik,
     // bozuk veya artifact kokunun disindaysa backup sessizce eksik olamaz.
-    const blobManifest: Array<{ relative_path: string; sha256: string; bytes: number }> = [];
-    const artifactRows = db
-      .prepare<[], { relative_store_path: string; sha256: string; bytes: number }>(
-        "SELECT relative_store_path, sha256, bytes FROM artifacts WHERE status = 'READY'",
-      )
-      .all();
+    const blobManifest: BackupBlob[] = [];
+    // await sonrasi canli db degismis olabilir; satirlari kopyalanan state.db'den oku.
+    const snapshot = inspectBackupSnapshot(backupDbPath);
+    if (snapshot.reason !== null) {
+      throw new AppError("STORAGE_ERROR", "Backup DB snapshot dogrulanamadi", { reason_code: snapshot.reason });
+    }
+    const artifactRows = snapshot.rows;
     const artifactRootPath = resolve(artifactRoot);
     for (const row of artifactRows) {
       const relativeBlob = row.relative_store_path.replace(/\//g, pathSep);
@@ -87,7 +156,8 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
       }
       const copiedPath = join(backupDir, "blobs", relativeBlob);
       mkdirSync(join(copiedPath, ".."), { recursive: true });
-      copyFileSync(blobPath, copiedPath);
+      // Hash'i olculen baytlar yazilir; kaynak ikinci kez okunup degisik bayt kopyalanmaz.
+      writeFileSync(copiedPath, blobData);
       blobManifest.push({ relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes });
     }
     const manifestPath = join(backupDir, "blob-manifest.json");
@@ -115,73 +185,100 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
  * Eksik/bozuk blob varsa backup/restore PASSED degil.
  */
 export function verifyBackup(backupDir: string): RestoreVerification {
+  const invalid = (reason: string): RestoreVerification => ({
+    schema_ok: false, integrity_ok: false, blob_check_ok: false,
+    missing_blobs: [], valid: false, reason,
+  });
   const dbPath = join(backupDir, "state.db");
   if (!existsSync(dbPath)) {
-    return { schema_ok: false, integrity_ok: false, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BACKUP_DB_EKSIK" };
+    return invalid("BACKUP_DB_EKSIK");
   }
   const manifestPath = join(backupDir, "blob-manifest.json");
   if (!existsSync(manifestPath)) {
-    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BLOB_MANIFEST_EKSIK" };
+    return invalid("BLOB_MANIFEST_EKSIK");
   }
-  if (!existsSync(join(backupDir, "complete.json"))) {
-    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BACKUP_COMPLETE_MARKER_EKSIK" };
+  const completePath = join(backupDir, "complete.json");
+  if (!existsSync(completePath)) {
+    return invalid("BACKUP_COMPLETE_MARKER_EKSIK");
   }
-  let manifest: { blobs: Array<{ relative_path: string; sha256: string; bytes?: number }> };
+  let manifest: BackupManifest;
   try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { blobs: Array<{ relative_path: string; sha256: string; bytes?: number }> };
-    if (!Array.isArray(manifest.blobs)) {
-      throw new Error("blob listesi yok");
+    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!isBackupManifest(parsed)) {
+      return invalid("BLOB_MANIFEST_BOZUK");
+    }
+    manifest = parsed;
+  } catch {
+    return invalid("BLOB_MANIFEST_BOZUK");
+  }
+  try {
+    const marker: unknown = JSON.parse(readFileSync(completePath, "utf8"));
+    if (!isRecord(marker) || marker["schema_version"] !== 1 || marker["complete"] !== true
+        || marker["backup_id"] !== manifest.backup_id) {
+      return invalid("BACKUP_COMPLETE_MARKER_BOZUK");
     }
   } catch {
-    return { schema_ok: true, integrity_ok: true, blob_check_ok: false, missing_blobs: [], valid: false, reason: "BLOB_MANIFEST_BOZUK" };
+    return invalid("BACKUP_COMPLETE_MARKER_BOZUK");
   }
 
-  // integrity + schema check (ayri baglanti):
-  const checkDb = new Database(dbPath, { readonly: true });
-  let integrityOk = false;
-  let schemaOk = false;
-  try {
-    const integrity = checkDb.pragma("integrity_check", { simple: true });
-    integrityOk = integrity === "ok";
-    const tableRows = checkDb
-      .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all();
-    schemaOk = tableRows.some((t) => t.name === "test_jobs") && tableRows.some((t) => t.name === "schema_migrations");
-  } finally {
-    checkDb.close();
+  const snapshot = inspectBackupSnapshot(dbPath);
+  if (snapshot.reason !== null) {
+    return { ...invalid(snapshot.reason), schema_ok: snapshot.schema_ok, integrity_ok: snapshot.integrity_ok };
   }
 
-  // blob check:
-  const missingBlobs: string[] = [];
+  // Manifest kendi kendisini dogrulayamaz: READY satirlari ile iki yonlu eslesme.
+  // Ayni content-addressed blob'a ait esit tekrarlar eski v1 backup'larda gecerlidir.
+  const expected = new Map<string, BackupBlob>();
+  const declared = new Map<string, BackupBlob>();
+  const missingBlobs = new Set<string>();
+  const indexBlob = (index: Map<string, BackupBlob>, blob: BackupBlob): void => {
+    const previous = index.get(blob.relative_path);
+    if (previous && (previous.sha256 !== blob.sha256 || previous.bytes !== blob.bytes)) {
+      missingBlobs.add(blob.relative_path);
+    }
+    index.set(blob.relative_path, blob);
+  };
+  for (const row of snapshot.rows) {
+    indexBlob(expected, { relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes });
+  }
   for (const blob of manifest.blobs) {
-    const relativeBlob = blob.relative_path.replace(/\//g, pathSep);
-    const copiedPath = resolve(join(backupDir, "blobs"), relativeBlob);
-    const blobRoot = resolve(join(backupDir, "blobs"));
+    indexBlob(declared, blob);
+  }
+  for (const [path, blob] of expected) {
+    const entry = declared.get(path);
+    if (!entry || entry.sha256 !== blob.sha256 || entry.bytes !== blob.bytes) {
+      missingBlobs.add(path);
+    }
+  }
+  for (const [path, blob] of declared) {
+    if (!expected.has(path)) {
+      missingBlobs.add(path);
+    }
+    const blobRoot = resolve(backupDir, "blobs");
+    const copiedPath = resolve(blobRoot, path.replace(/\//g, pathSep));
     const relFromRoot = relative(blobRoot, copiedPath);
-    // PP39/PP42: capraz surucu/mutlak hedefte relative() tam mutlak yol dondurur;
-    // isAbsolute eki olmadan escape kontrolu kacisir (PP44 backup zinciri acigi).
     const escaped = isAbsolute(relFromRoot) || relFromRoot.startsWith(`..${pathSep}`) || relFromRoot === "..";
     if (escaped) {
-      missingBlobs.push(blob.relative_path);
+      missingBlobs.add(path);
       continue;
     }
-    if (!existsSync(copiedPath)) {
-      missingBlobs.push(blob.relative_path);
-      continue;
-    }
-    const actualHash = sha256Data(readFileSync(copiedPath));
-    if (actualHash !== blob.sha256 || (blob.bytes !== undefined && readFileSync(copiedPath).byteLength !== blob.bytes)) {
-      missingBlobs.push(blob.relative_path);
+    try {
+      const data = readFileSync(copiedPath);
+      if (sha256Data(data) !== blob.sha256 || data.byteLength !== blob.bytes) {
+        missingBlobs.add(path);
+      }
+    } catch {
+      missingBlobs.add(path);
     }
   }
-  const blobCheckOk = missingBlobs.length === 0;
+  const blobCheckOk = missingBlobs.size === 0;
   return {
-    schema_ok: schemaOk,
-    integrity_ok: integrityOk,
+    schema_ok: snapshot.schema_ok,
+    integrity_ok: snapshot.integrity_ok,
     blob_check_ok: blobCheckOk,
-    missing_blobs: missingBlobs,
-    valid: schemaOk && integrityOk && blobCheckOk,
-    reason: schemaOk && integrityOk && blobCheckOk ? null : "BACKUP_VERIFICATION_FAILED",
+    missing_blobs: [...missingBlobs].sort(),
+    valid: blobCheckOk,
+    reason: blobCheckOk ? null : "BACKUP_VERIFICATION_FAILED",
   };
 }
 
