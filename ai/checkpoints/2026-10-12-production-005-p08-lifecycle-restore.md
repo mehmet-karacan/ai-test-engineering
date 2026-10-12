@@ -18,6 +18,7 @@
 
 - `npm.cmd test -- --run tests/unit/fin11-lifecycle-ops.test.ts`: 1 dosya, 6/6 PASS.
 - `npm.cmd run typecheck`: PASS.
+- P08 sonrasi tam regresyon: `npm.cmd test` 66 dosya, 588/588 PASS; `npm.cmd run build` PASS.
 
 ## Kalan
 
