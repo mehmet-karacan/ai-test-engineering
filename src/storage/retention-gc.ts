@@ -3,10 +3,11 @@
  * Active/paused/interrupted job'un son trusted/best checkpoint'i, release kaniti veya backup
  * manifest'inin referanslari SILINEMEZ. Rejected/untrusted/gecici artifacts icin configurable TTL.
  */
-import { existsSync, rmSync } from "node:fs";
-import { join, sep as pathSep } from "node:path";
+import { existsSync, lstatSync, rmSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep as pathSep } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 import { acquireMaintenanceLock } from "./maintenance-lock.js";
+import { AppError } from "../domain/errors.js";
 
 export interface RetentionPolicy {
   /** Rejected/untrusted artifact TTL (ms) */
@@ -102,9 +103,45 @@ export interface GcSweepResult {
 export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, artifactRoot: string): GcSweepResult {
   const release = acquireMaintenanceLock(artifactRoot, "gc");
   try {
+  const root = resolve(artifactRoot);
+  const paths = dryRun.candidates.map((candidate) => {
+    const segments = candidate.relative_store_path.split("/");
+    const path = resolve(root, candidate.relative_store_path.replace(/\//g, pathSep));
+    const fromRoot = relative(root, path);
+    const basename = segments.at(-1)?.toLowerCase() ?? "";
+    const control = basename === ".aitest-maintenance.lock" ||
+      /^\.aitest-maintenance\.lock\.sqlite(?:-journal|-wal|-shm)?$/.test(basename);
+    if (segments.some((segment) => !segment || segment === "." || segment === ".." || /[. ]$/.test(segment)) ||
+        /[\\:<>"|?*]/.test(candidate.relative_store_path) || isAbsolute(fromRoot) ||
+        fromRoot === ".." || fromRoot.startsWith(`..${pathSep}`) || control) {
+      throw new AppError("POLICY_VIOLATION", "GC candidate path is unsafe", {
+        reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: candidate.relative_store_path,
+      });
+    }
+    let cursor = root;
+    for (const [index, segment] of segments.entries()) {
+      cursor = resolve(cursor, segment);
+      let entry: ReturnType<typeof lstatSync> | undefined;
+      try { entry = lstatSync(cursor); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw new AppError("POLICY_VIOLATION", "GC candidate path could not be inspected", {
+            reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: candidate.relative_store_path,
+          });
+        }
+      }
+      if (entry && (entry.isSymbolicLink() || (index < segments.length - 1 && !entry.isDirectory()) ||
+          (index === segments.length - 1 && !entry.isFile()))) {
+        throw new AppError("POLICY_VIOLATION", "GC candidate path contains a reparse point or collision", {
+          reason_code: "GC_UNSAFE_BLOB_PATH", relative_store_path: candidate.relative_store_path,
+        });
+      }
+    }
+    return path;
+  });
   const swept: GcSweepResult["swept"] = [];
-  for (const candidate of dryRun.candidates) {
-    const blobPath = join(artifactRoot, candidate.relative_store_path.replace(/\//g, pathSep));
+  for (const [index, candidate] of dryRun.candidates.entries()) {
+    const blobPath = paths[index]!;
     if (existsSync(blobPath)) {
       rmSync(blobPath, { force: true });
     }

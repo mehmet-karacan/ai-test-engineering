@@ -492,9 +492,11 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     const source = resolve(backupBlobRoot, rel);
     const destination = resolve(targetRoot, rel);
     assertSafePathComponents(destination, "file");
-    if ([targetDbPath, `${targetDbPath}-wal`, `${targetDbPath}-shm`,
-      journalPathForDb(targetDbPath), `${targetDbPath}.restore.lock`,
-      join(targetRoot, ".aitest-maintenance.lock")].some((protectedPath) => relative(protectedPath, destination) === "") ||
+    if ([targetDbPath, `${targetDbPath}-wal`, `${targetDbPath}-shm`, `${targetDbPath}-journal`,
+      journalPathForDb(targetDbPath), `${targetDbPath}.restore.lock`, `${targetDbPath}.restore.lock.sqlite`,
+      `${targetDbPath}.restore.lock.sqlite-journal`, join(targetRoot, ".aitest-maintenance.lock"),
+      join(targetRoot, ".aitest-maintenance.lock.sqlite"), join(targetRoot, ".aitest-maintenance.lock.sqlite-journal")]
+      .some((protectedPath) => relative(protectedPath, destination) === "") ||
       destination.toLowerCase().startsWith(`${targetDbPath}.restore-`.toLowerCase())) {
       throw new AppError("POLICY_VIOLATION", "Restore blob path collides with runtime control data", {
         reason_code: "RESTORE_PATH_COLLISION", relative_path: blob.relative_path,
