@@ -16,9 +16,14 @@ export interface IterationBudget {
   max_candidate_iterations: number;
   max_repairs_per_candidate: number;
   no_progress_window: number;
+  /** P05-B: resume manifest icin mutlak logical iteration siniri. */
+  iteration_limit?: number;
+  /** P05-B: resume manifest icin kalan fiziksel attempt havuzu. */
+  remaining_attempts?: number;
 }
 
 export interface CandidateDecision {
+  attempt_ordinal: number;
   iteration: number;
   repair_for_attempt?: number | null;
   decision: "adopted" | "rejected" | "needs_review";
@@ -241,6 +246,8 @@ export interface IterateOptions {
   baseline_coverage?: { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined };
   /** P06/PP22: effective Maven test root; project-relative path. */
   target_test_root?: string;
+  /** P05-B: resume'da logical limit start iteration'dan bagimsiz korunur. */
+  iteration_limit?: number;
   generate_candidate: (feedback?: CandidateGenerationFeedback) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
@@ -262,6 +269,7 @@ export interface IterateOptions {
   generation_failure_reason?: () => string | null;
   /** FIN06/12.1: her aday kararindan sonra cagirilir (DB candidate_iterations kaydi) */
   on_decision?: (info: {
+    attempt_ordinal: number;
     iteration: number;
     repair_for_attempt?: number | null;
     decision: "adopted" | "rejected";
@@ -382,9 +390,10 @@ export class CandidateLoop {
     let repairCount = 0;
     let repairsUsed = 0;
     const deadlineExceeded = (): boolean => options.deadline_at !== undefined && Date.now() >= options.deadline_at;
-    const iterationLimit = startIteration > 1
-      ? startIteration + options.budget.max_candidate_iterations - 1
-      : options.budget.max_candidate_iterations;
+    const iterationLimit = options.iteration_limit
+      ?? (startIteration > 1
+        ? startIteration + options.budget.max_candidate_iterations - 1
+        : options.budget.max_candidate_iterations);
     const attemptLimit = options.attempt_budget === undefined
       ? Number.MAX_SAFE_INTEGER
       : Math.max(0, options.attempt_budget);
@@ -465,6 +474,7 @@ export class CandidateLoop {
         break;
       }
       const currentFeedback = repairFeedback;
+      const attemptOrdinal = iterations.length + 1;
       let candidate: CandidateChangeSet | null;
       try {
         candidate = await options.generate_candidate(currentFeedback);
@@ -472,6 +482,7 @@ export class CandidateLoop {
         const reason = `Worker aday uretimi basarisiz: ${String(error).slice(0, 500)}`;
         const errorFingerprint = sha256Data(reason);
         options.on_decision?.({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
@@ -482,6 +493,7 @@ export class CandidateLoop {
           error_fingerprint: errorFingerprint,
         });
         iterations.push({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
@@ -520,8 +532,9 @@ export class CandidateLoop {
       const applyResult = applier.apply(candidate);
 
       if (applyResult.failed.length > 0) {
-        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Patch uygulama basarisiz: ${applyResult.failed[0]!.reason}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
+        options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Patch uygulama basarisiz: ${applyResult.failed[0]!.reason}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
         iterations.push({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
@@ -569,8 +582,9 @@ export class CandidateLoop {
       }
 
       if (qualityFailed) {
-        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: "Kalite kapisi basarisiz", changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
+        options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: "Kalite kapisi basarisiz", changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
         iterations.push({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
@@ -631,8 +645,9 @@ export class CandidateLoop {
       afterBranchBps = basisPointsFrom(afterCoverage?.branch);
 
       if (regressionFailures.length > 0) {
-        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Regresyon: ${regressionFailures.join(", ")}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Regresyon: ${regressionFailures.join(", ")}`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
@@ -657,8 +672,9 @@ export class CandidateLoop {
       }
 
       if (run.exit_code !== 0) {
-        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Maven run basarisiz (exit ${run.exit_code})`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Maven run basarisiz (exit ${run.exit_code})`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
@@ -694,8 +710,9 @@ export class CandidateLoop {
         const reason = noProgressCount + 1 >= options.budget.no_progress_window
           ? `Plateau: ilerleme yok (${gainEvaluation.reason})`
           : `Anlamsiz kazanc yok (${gainEvaluation.reason})`;
-        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "rejected",
@@ -765,6 +782,7 @@ export class CandidateLoop {
         }
 
         iterations.push({
+          attempt_ordinal: attemptOrdinal,
           iteration,
           repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
           decision: "adopted",
@@ -793,12 +811,14 @@ export class CandidateLoop {
               max_candidate_iterations: Math.max(0, iterationLimit - iteration),
               max_repairs_per_candidate: options.budget.max_repairs_per_candidate,
               no_progress_window: options.budget.no_progress_window,
+              iteration_limit: iterationLimit,
+              remaining_attempts: Math.max(0, attemptLimit - iterations.length),
             },
           });
         }
         // P03/PR03: adopted karar kaydi yalniz checkpoint publish basarisindan SONRA
         // kalici olur; publish basarisinda (at) yuklenmis aday DB'de adopted kalmaz.
-        options.on_decision?.({ iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "adopted", reason: adoptedReason, changeset_hash: candidateHash, coverage_before_bps: previousBestCoverageBps, coverage_after_bps: afterBps });
+        options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "adopted", reason: adoptedReason, changeset_hash: candidateHash, coverage_before_bps: previousBestCoverageBps, coverage_after_bps: afterBps });
         if (acceptedBackupDir) {
           rmSync(acceptedBackupDir, { recursive: true, force: true });
         }

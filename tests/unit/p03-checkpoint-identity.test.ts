@@ -474,10 +474,14 @@ describe("P03/PP15: resume identity, butce, contract ve kalicilik", () => {
     expect(budget.remaining_repairs).toBe(1);
     expect(budget.no_progress_window).toBe(2);
     expect(budget.start_iteration).toBe(5);
+    expect(budget.iteration_limit).toBe(6);
+    expect(budget.remaining_attempts).toBe(2);
     // eksik butce: config'e sessiz fallback YOK; 0 kalir (fail-closed)
     const empty = resumeBudgetFromManifest({ ...manifest, remaining_budget: {} }, { max_candidate_iterations: 20, max_repairs_per_candidate: 5, no_progress_window: 10 });
     expect(empty.remaining_iterations).toBe(0);
     expect(empty.start_iteration).toBe(5);
+    expect(empty.iteration_limit).toBe(4);
+    expect(empty.remaining_attempts).toBe(0);
   });
 
   it("resume plan checkpoint manifest'ini doner; accepted set immutable blob'dan geri yuklenir", () => {
@@ -655,5 +659,36 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
     // accepted set birikti:
     expect(existsSync(join(acceptedDir, ACCEPTED_PATH))).toBe(true);
     expect(readFileSync(join(acceptedDir, ACCEPTED_PATH), "utf8")).toContain("add_positive");
+  });
+
+  it("reddedilen repair denemeleri ayni logical iteration'da fiziksel attempt butcesini tuketir", async () => {
+    const decisions: Array<{ attempt_ordinal: number; iteration: number; repair_for_attempt: number | null }> = [];
+    const loop = new CandidateLoop(new MavenRunner());
+    let generated = 0;
+    const result = await loop.iterate({
+      project_root: projectRoot,
+      target_fqn: "com.example.calc.CalcService",
+      target_module_path: "",
+      line_target_bps: 5000,
+      branch_target_bps: 0,
+      baseline_coverage: { line: { covered: 0, missed: 10 }, branch: undefined },
+      budget: { max_candidate_iterations: 2, max_repairs_per_candidate: 1, no_progress_window: 10 },
+      attempt_budget: 2,
+      iteration_limit: 2,
+      staging_root: staging,
+      workspace_root: join(dir, "workspaces-rejected"),
+      generate_candidate: async () => {
+        generated++;
+        throw new Error(`sentetik compiler failure ${generated}`);
+      },
+      on_decision: (info) => decisions.push({ attempt_ordinal: info.attempt_ordinal, iteration: info.iteration, repair_for_attempt: info.repair_for_attempt ?? null }),
+    });
+
+    expect(result.outcome).toBe("TARGET_NOT_MET_BUDGET");
+    expect(result.attempts_used).toBe(2);
+    expect(decisions).toEqual([
+      { attempt_ordinal: 1, iteration: 1, repair_for_attempt: null },
+      { attempt_ordinal: 2, iteration: 1, repair_for_attempt: 1 },
+    ]);
   });
 });

@@ -473,6 +473,7 @@ export class InventoryRepository {
   writeCandidateIteration(input: {
     job_id: string;
     parent_checkpoint_id: string | null;
+    attempt_ordinal?: number;
     iteration_ordinal: number;
     changeset_hash: string;
     strategy_key: string | null;
@@ -483,20 +484,21 @@ export class InventoryRepository {
     error_fingerprint: string | null;
   }): string {
     const existing = this.db
-      .prepare<[string, number], { id: string }>("SELECT id FROM candidate_iterations WHERE job_id = ? AND iteration_ordinal = ?")
-      .get(input.job_id, input.iteration_ordinal);
+      .prepare<[string, number], { id: string }>("SELECT id FROM candidate_iterations WHERE job_id = ? AND attempt_ordinal = ?")
+      .get(input.job_id, input.attempt_ordinal ?? input.iteration_ordinal);
     if (existing) {
       return existing.id;
     }
     const id = randomUUID();
     this.db
       .prepare(
-        "INSERT INTO candidate_iterations (id, job_id, parent_checkpoint_id, iteration_ordinal, changeset_hash, strategy_key, decision, decision_reason, coverage_before_bps, coverage_after_bps, error_fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO candidate_iterations (id, job_id, parent_checkpoint_id, attempt_ordinal, iteration_ordinal, changeset_hash, strategy_key, decision, decision_reason, coverage_before_bps, coverage_after_bps, error_fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         id,
         input.job_id,
         input.parent_checkpoint_id,
+        input.attempt_ordinal ?? input.iteration_ordinal,
         input.iteration_ordinal,
         input.changeset_hash,
         input.strategy_key,
@@ -510,10 +512,10 @@ export class InventoryRepository {
     return id;
   }
 
-  listCandidateIterations(jobId: string): Array<{ iteration_ordinal: number; decision: string; decision_reason: string | null; changeset_hash: string; coverage_before_bps: number | null; coverage_after_bps: number | null }> {
+  listCandidateIterations(jobId: string): Array<{ attempt_ordinal: number; iteration_ordinal: number; decision: string; decision_reason: string | null; changeset_hash: string; coverage_before_bps: number | null; coverage_after_bps: number | null }> {
     return this.db
-      .prepare<[string], { iteration_ordinal: number; decision: string; decision_reason: string | null; changeset_hash: string; coverage_before_bps: number | null; coverage_after_bps: number | null }>(
-        "SELECT iteration_ordinal, decision, decision_reason, changeset_hash, coverage_before_bps, coverage_after_bps FROM candidate_iterations WHERE job_id = ? ORDER BY iteration_ordinal",
+      .prepare<[string], { attempt_ordinal: number; iteration_ordinal: number; decision: string; decision_reason: string | null; changeset_hash: string; coverage_before_bps: number | null; coverage_after_bps: number | null }>(
+        "SELECT attempt_ordinal, iteration_ordinal, decision, decision_reason, changeset_hash, coverage_before_bps, coverage_after_bps FROM candidate_iterations WHERE job_id = ? ORDER BY attempt_ordinal",
       )
       .all(jobId);
   }

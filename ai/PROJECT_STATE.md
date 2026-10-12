@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P04 ve P05-A tamamlandi; P05-B cekirdegi, P06-A frozen baseline ve P06-B1 module-aware/final report kapilari uygulandi, kalan P05-B-P10 sirada
-- Durum etiketi: `005_P05B_P06A_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P05-B, P06-A ve P06-B1 tamamlandi; P06-B2-P10 sirada
+- Durum etiketi: `005_P06B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
@@ -35,7 +35,7 @@
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md; P04 11/11 + security/contract 90 passed/10 skipped(Docker NOT_RUN); Docker capability/egress tam kaniti NOT_RUN |
 | P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md; odak suite 57/57 + typecheck |
-| P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p05b-shared-budget.md; 57/57 odak test + typecheck; tam resume uc-test kaniti/mode kapanmadi |
+| P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md; 46/46 resume/storage + 2/2 handler zinciri + typecheck |
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06a-frozen-baseline.md; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-P10 | Effective Maven/JaCoCo provenance, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P06-B1 disindaki isler devam ediyor |
@@ -91,7 +91,6 @@
 
 ## Sonraki somut is
 
-- P05-B kalan: accepted checkpoint'ten trusted baseline/coverage ve resume uc-test kaniti; P05-B core checkpoint'ini referans al
 - P06-B kalan: effective Maven/affected module scope, JaCoCo freshness/provenance/blocker ve baseline inventory; P06-B1 checkpoint'ini referans al
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

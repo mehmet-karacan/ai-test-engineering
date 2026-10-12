@@ -24,10 +24,10 @@ describe("SQLite storage kalicilik", () => {
     }
   });
 
-  it("migration sonrasi schema version 4 olmali (FIN03 + P03 + P05: checkpoint blob/source identity + frozen concrete hedef tablolari)", () => {
+  it("migration sonrasi schema version 5 olmali (FIN03 + P03 + P05-B: frozen concrete ve attempt ordinal tablolari)", () => {
     const storage = new Storage({ dbPath });
     storage.migrate();
-    expect(storage.schemaVersion()).toBe(4);
+    expect(storage.schemaVersion()).toBe(5);
     storage.close();
   });
 

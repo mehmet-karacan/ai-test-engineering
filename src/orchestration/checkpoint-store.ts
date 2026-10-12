@@ -65,6 +65,8 @@ export interface ResumeBudget {
   remaining_repairs: number;
   no_progress_window: number;
   start_iteration: number;
+  iteration_limit: number;
+  remaining_attempts: number;
 }
 
 function safeAcceptedParts(path: string): string[] {
@@ -103,6 +105,10 @@ export function resumeBudgetFromManifest(
     remaining_repairs: clamp(rb["max_repairs_per_candidate"]),
     no_progress_window: clamp(rb["no_progress_window"]),
     start_iteration: typeof manifest.generation === "number" && manifest.generation >= 1 ? manifest.generation + 1 : 1,
+    iteration_limit: typeof rb["iteration_limit"] === "number" && Number.isFinite(rb["iteration_limit"]) && rb["iteration_limit"] >= 0
+      ? rb["iteration_limit"]
+      : (typeof manifest.generation === "number" && manifest.generation >= 1 ? manifest.generation : 0) + clamp(rb["max_candidate_iterations"]),
+    remaining_attempts: clamp(rb["remaining_attempts"] ?? rb["max_candidate_iterations"]),
   };
 }
 

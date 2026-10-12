@@ -4,7 +4,7 @@
  * MCP handler yalniz use-case'e yonlendirir; event loop'u bloke etmez.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../domain/errors.js";
@@ -26,7 +26,7 @@ import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric } from "../coverage/coverage-math.js";
 import { buildWorkerPrompt, DEFAULT_POLICY_RULES, type WorkerPromptContext } from "../workers/opencode/role-prompts.js";
 import { promptForJsonResult, WorkerRequestFailure, type WorkerPromptResult } from "../workers/opencode/worker-client.js";
-import { readWorkerProfileFromOpencodeConfig } from "../workers/opencode/profile-reader.js";
+import { parseExactModelSpec, readWorkerProfileFromOpencodeConfig } from "../workers/opencode/profile-reader.js";
 import { CandidateChangeSetSchema } from "../workers/opencode/model-schemas.js";
 import { ReportExporter } from "../reporting/report-generator.js";
 import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
@@ -56,6 +56,12 @@ export interface GoalContract {
   model_profile: string | null;
   /** Resume'da son accepted iteration sonrasi baslangic ordinal'i. */
   start_iteration?: number;
+  /** P05-B: resume'da fiziksel attempt havuzunun kalan kismi. */
+  attempt_budget?: number;
+  /** P05-B: resume'da mutlak logical iteration limiti. */
+  iteration_limit?: number;
+  /** P05-B: dispatch runtime budget'i ile immutable contract budget'ini ayirir. */
+  contract_budget?: { max_candidate_iterations: number; max_repairs_per_candidate: number; no_progress_window: number };
   /** P05/PR06: frozen concrete hedef liste digest'i (servis/dispatcher tutarliligi). */
   concrete_targets_digest?: string | null;
 }
@@ -80,6 +86,11 @@ export interface DispatcherOptions {
 // ile sinirli tutulur ve yabanci process'e dokunulmaz.
 const ownedWorkerServers = new Map<string, import("../workers/opencode/worker-server-manager.js").WorkerServerManager>();
 const ownedRunners = new Map<string, MavenRunner>();
+
+function isWithinStorageRoot(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel.length === 0 || (!rel.startsWith("..") && !isAbsolute(rel));
+}
 
 export class JobDispatcher {
   private readonly services: Services;
@@ -405,7 +416,7 @@ export class JobDispatcher {
       ownedRunners.set(job.id, loopRunner);
       const loop = new CandidateLoop(loopRunner, { accepted_set_dir: acceptedDir, staging_root: stagingRoot });
       const loopResults = new Map<string, IterationLoopResult>();
-      let remainingAttemptBudget = Math.max(0, goal.budget.max_candidate_iterations);
+      let remainingAttemptBudget = Math.max(0, goal.attempt_budget ?? goal.budget.max_candidate_iterations);
 
       for (const resolved of resolvedTargets) {
         assertLease();
@@ -424,6 +435,7 @@ export class JobDispatcher {
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
           attempt_budget: remainingAttemptBudget,
+          ...(goal.iteration_limit !== undefined ? { iteration_limit: goal.iteration_limit } : {}),
           ...(frozenBaselineCoverage ? { baseline_coverage: frozenBaselineCoverage } : {}),
           staging_root: stagingRoot,
           workspace_root: join(this.workspaceRoot, "jobs", job.id, "candidates", resolved.fqn.replace(/[^A-Za-z0-9_.-]/g, "_")),
@@ -500,6 +512,7 @@ export class JobDispatcher {
               new InventoryRepository(storage.db).writeCandidateIteration({
                 job_id: job.id,
                 parent_checkpoint_id: checkpoints.bestCheckpoint(job.id),
+                attempt_ordinal: info.attempt_ordinal,
                 iteration_ordinal: info.iteration,
                 changeset_hash: info.changeset_hash ?? "unknown",
                 strategy_key: null,
@@ -747,7 +760,7 @@ export class JobDispatcher {
       job_id: job.id,
       project_root: goal.project_root,
       targets: goal.targets,
-      budget: goal.budget,
+      budget: goal.contract_budget ?? goal.budget,
       runner_kind: goal.runner_kind,
       model_profile: goal.model_profile,
       source_digest: sourceIdentity.source_digest,
@@ -949,14 +962,20 @@ export class JobDispatcher {
     // Butce ve tursu YALNIZ dogrulanmis checkpoint manifest'inden yuklenir;
     // global config butceyi sifirlamaz (config yalniz checkpoint'siz yolda kullanilir).
     const configBudgets = this.services.config.budgets;
-    let budget = {
+    const contractBudget = this.readJobContractBudget(storage, job) ?? {
       max_candidate_iterations: configBudgets.max_candidate_iterations,
       max_repairs_per_candidate: configBudgets.max_repairs_per_candidate,
       no_progress_window: configBudgets.no_progress_window,
     };
+    let budget = { ...contractBudget };
     let startIteration = 1;
+    let iterationLimit: number | undefined;
+    let attemptBudget = contractBudget.max_candidate_iterations;
     const contractModelProfile = this.readJobContractModelProfile(storage, job);
     let goalModelProfile: string | null = contractModelProfile;
+    const recordedAttempts = storage.db
+      .prepare<[string], { attempt_count: number }>("SELECT COUNT(*) AS attempt_count FROM candidate_iterations WHERE job_id = ?")
+      .get(job.id)?.attempt_count ?? 0;
     if (plan.action === "resume" && plan.checkpoint_id && plan.checkpoint_manifest) {
       const rb = resumeBudgetFromManifest(plan.checkpoint_manifest, configBudgets);
       budget = {
@@ -965,6 +984,15 @@ export class JobDispatcher {
         no_progress_window: rb.no_progress_window,
       };
       startIteration = rb.start_iteration;
+      iterationLimit = rb.iteration_limit;
+      // Checkpoint manifest'i accepted denemede yazilir; son accepted'dan sonra
+      // reddedilen repair/run denemeleri manifest'te bulunmayabilir. DB'deki
+      // attempt ordinal sayisi bu tuketimi tamamlar; kalan havuz azalabilir,
+      // fakat global contract butcesi yeniden artamaz.
+      attemptBudget = Math.min(
+        rb.remaining_attempts,
+        Math.max(0, contractBudget.max_candidate_iterations - recordedAttempts),
+      );
       if (contractModelProfile !== null && plan.checkpoint_manifest.requested_model !== null && contractModelProfile !== plan.checkpoint_manifest.requested_model) {
         throw new AppError("POLICY_VIOLATION", "Resume checkpoint modeli immutable contract ile uyusmuyor", { reason_code: "CONTRACT_CONFLICT" });
       }
@@ -978,13 +1006,14 @@ export class JobDispatcher {
       }
     } else {
       const recorded = storage.db
-        .prepare<[string], { max_iteration: number | null }>("SELECT MAX(iteration_ordinal) AS max_iteration FROM candidate_iterations WHERE job_id = ?")
+        .prepare<[string], { max_iteration: number | null; attempt_count: number }>("SELECT MAX(iteration_ordinal) AS max_iteration, COUNT(*) AS attempt_count FROM candidate_iterations WHERE job_id = ?")
         .get(job.id);
       const consumedIterations = recorded?.max_iteration ?? 0;
       if (consumedIterations > 0) {
-        budget.max_candidate_iterations = Math.max(0, configBudgets.max_candidate_iterations - consumedIterations);
+        budget.max_candidate_iterations = Math.max(0, contractBudget.max_candidate_iterations - consumedIterations);
         startIteration = consumedIterations + 1;
       }
+      attemptBudget = Math.max(0, contractBudget.max_candidate_iterations - (recorded?.attempt_count ?? 0));
       jobs.appendEvent({ job_id: job.id, event_type: "resume_fresh_start", phase: job.phase, origin: "resumeDispatch" });
     }
 
@@ -1013,10 +1042,6 @@ export class JobDispatcher {
         reason_code: "LEGACY_GOAL_NO_CONCRETE",
       });
     }
-    const digestBySelector = new Map<string, string>();
-    for (const row of concreteRows) {
-      digestBySelector.set(row.selector, row.concrete_digest);
-    }
     const concreteBySelector = new Map<string, ConcreteTarget[]>();
     for (const row of concreteRows) {
       const list = concreteBySelector.get(row.selector) ?? [];
@@ -1043,7 +1068,10 @@ export class JobDispatcher {
       runner_kind: this.runnerKind,
       model_profile: goalModelProfile,
       start_iteration: startIteration,
-      concrete_targets_digest: [...digestBySelector.values()][0] ?? null,
+      attempt_budget: attemptBudget,
+      ...(iterationLimit !== undefined ? { iteration_limit: iterationLimit } : {}),
+      contract_budget: contractBudget,
+      concrete_targets_digest: rebuildFrozenTargetDigest([...concreteBySelector.values()].flat()),
     };
     return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
   }
@@ -1063,7 +1091,7 @@ export class JobDispatcher {
     }
     const root = resolve(this.workspaceRoot);
     const path = resolve(root, artifact.relative_store_path);
-    if (path !== root && !path.startsWith(`${root}${process.platform === "win32" ? "\\\\" : "/"}`)) {
+    if (!isWithinStorageRoot(root, path)) {
       throw new AppError("STORAGE_ERROR", "Job contract artifact yolu storage kok disinda", { reason_code: "CONTRACT_PATH_ESCAPE" });
     }
     if (!existsSync(path)) {
@@ -1082,6 +1110,10 @@ export class JobDispatcher {
     if (profile === null || profile === undefined) {
       return null;
     }
+    if (typeof profile === "string") {
+      parseExactModelSpec(profile);
+      return profile;
+    }
     if (!profile || typeof profile !== "object") {
       throw new AppError("STORAGE_ERROR", "Job contract model_profile bozuk", { reason_code: "CONTRACT_MODEL_INVALID" });
     }
@@ -1091,6 +1123,51 @@ export class JobDispatcher {
       throw new AppError("STORAGE_ERROR", "Job contract model_profile alani gecersiz", { reason_code: "CONTRACT_MODEL_INVALID" });
     }
     return `${providerId}/${modelId}`;
+  }
+
+  private readJobContractBudget(
+    storage: NonNullable<Services["storage"]>,
+    job: JobRow,
+  ): { max_candidate_iterations: number; max_repairs_per_candidate: number; no_progress_window: number } | null {
+    const artifact = storage.db
+      .prepare<[string], { relative_store_path: string }>(
+        "SELECT relative_store_path FROM artifacts WHERE job_id = ? AND kind = 'job_contract' AND status = 'READY' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(job.id);
+    if (!artifact) {
+      return null;
+    }
+    const root = resolve(this.workspaceRoot);
+    const path = resolve(root, artifact.relative_store_path);
+    if (!isWithinStorageRoot(root, path)) {
+      throw new AppError("STORAGE_ERROR", "Job contract artifact yolu storage kok disinda", { reason_code: "CONTRACT_PATH_ESCAPE" });
+    }
+    if (!existsSync(path)) {
+      throw new AppError("STORAGE_ERROR", "Job contract artifact dosyasi bulunamadi", { reason_code: "CONTRACT_ARTIFACT_MISSING" });
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    } catch (error) {
+      throw new AppError("STORAGE_ERROR", "Job contract artifact JSON bozuk: " + String(error), { reason_code: "CONTRACT_ARTIFACT_INVALID" });
+    }
+    const raw = parsed && typeof parsed === "object" ? (parsed as { budget?: unknown }).budget : undefined;
+    if (!raw || typeof raw !== "object") {
+      throw new AppError("STORAGE_ERROR", "Job contract budget alani gecersiz", { reason_code: "CONTRACT_BUDGET_INVALID" });
+    }
+    const record = raw as Record<string, unknown>;
+    const readNonNegative = (key: string): number => {
+      const value = record[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        throw new AppError("STORAGE_ERROR", "Job contract budget degeri gecersiz: " + key, { reason_code: "CONTRACT_BUDGET_INVALID" });
+      }
+      return value;
+    };
+    return {
+      max_candidate_iterations: readNonNegative("max_candidate_iterations"),
+      max_repairs_per_candidate: readNonNegative("max_repairs_per_candidate"),
+      no_progress_window: readNonNegative("no_progress_window"),
+    };
   }
 
   /**

@@ -373,6 +373,47 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
   CREATE INDEX IF NOT EXISTS idx_job_target_concretes_job ON job_target_concretes(job_id);
   `,
     },
+    {
+      version: 5,
+      name: "candidate-attempt-ordinal",
+      sql: `
+  -- P05-B/PP15: repair/rejected attempts ayni logical iteration'da da kalici tutulur.
+  ALTER TABLE candidate_iterations RENAME TO candidate_iterations_v4;
+  DROP INDEX IF EXISTS idx_candidate_iterations_job;
+
+  CREATE TABLE candidate_iterations (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES test_jobs(id),
+    parent_checkpoint_id TEXT REFERENCES checkpoints(id),
+    attempt_ordinal INTEGER NOT NULL,
+    iteration_ordinal INTEGER NOT NULL,
+    changeset_hash TEXT NOT NULL,
+    strategy_key TEXT,
+    decision TEXT NOT NULL CHECK (decision IN ('adopted','rejected','needs_review','duplicate')),
+    decision_reason TEXT,
+    coverage_before_bps INTEGER,
+    coverage_after_bps INTEGER,
+    error_fingerprint TEXT,
+    created_at INTEGER NOT NULL,
+    CHECK (length(id) = 36),
+    UNIQUE (job_id, attempt_ordinal)
+  );
+
+  INSERT INTO candidate_iterations (
+    id, job_id, parent_checkpoint_id, attempt_ordinal, iteration_ordinal,
+    changeset_hash, strategy_key, decision, decision_reason,
+    coverage_before_bps, coverage_after_bps, error_fingerprint, created_at
+  )
+  SELECT id, job_id, parent_checkpoint_id,
+    ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY iteration_ordinal, created_at, id),
+    iteration_ordinal, changeset_hash, strategy_key, decision, decision_reason,
+    coverage_before_bps, coverage_after_bps, error_fingerprint, created_at
+  FROM candidate_iterations_v4;
+
+  DROP TABLE candidate_iterations_v4;
+  CREATE INDEX IF NOT EXISTS idx_candidate_iterations_job ON candidate_iterations(job_id);
+  `,
+    },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

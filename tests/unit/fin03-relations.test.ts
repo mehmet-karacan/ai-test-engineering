@@ -80,8 +80,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     };
   }
 
-  it("schema v4: coverage_snapshots + worker_attempts + candidate_iterations + benchmark_trials + checkpoint_blobs + job_target_concretes var", () => {
-    expect(storage.schemaVersion()).toBe(4);
+  it("schema v5: coverage_snapshots + worker_attempts + candidate_attempts + benchmark_trials + checkpoint_blobs + job_target_concretes var", () => {
+    expect(storage.schemaVersion()).toBe(5);
     const tables = storage.db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
@@ -289,6 +289,28 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     expect(inventory.listCandidateIterations(jobId)).toHaveLength(1);
   });
 
+  it("candidate repair denemeleri ayni logical iteration'da da ayri ordinal saklar", () => {
+    const base = {
+      job_id: jobId,
+      parent_checkpoint_id: null,
+      iteration_ordinal: 1,
+      changeset_hash: "3".repeat(64),
+      strategy_key: "s1",
+      decision: "rejected" as const,
+      decision_reason: "compiler failure",
+      coverage_before_bps: 4000,
+      coverage_after_bps: null,
+      error_fingerprint: "4".repeat(64),
+    };
+    inventory.writeCandidateIteration({ ...base, attempt_ordinal: 1 });
+    inventory.writeCandidateIteration({ ...base, attempt_ordinal: 2, changeset_hash: "5".repeat(64), decision_reason: "test failure" });
+
+    const rows = inventory.listCandidateIterations(jobId);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.attempt_ordinal)).toEqual([1, 2]);
+    expect(rows.every((row) => row.iteration_ordinal === 1)).toBe(true);
+  });
+
   it("checkpoint blob'u + accepted blob dogrulanir; DB kaydi blob'suz trusted sayilmaz (canli job zinciri)", () => {
     const lease = leases.acquire(jobId, "owner-fin03c", 300000);
     const ckpt = publishWithAccepted(manifest(), lease.lease.owner_id, lease.lease.fencing_token);
@@ -301,7 +323,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("migration idempotent: migrate tekrar cagrildiginda hata yok", () => {
     expect(() => storage.migrate()).not.toThrow();
-    expect(storage.schemaVersion()).toBe(4);
+    expect(storage.schemaVersion()).toBe(5);
   });
 
   it("future schema fail-closed: bilinmeyen yuksek version yazmayi durdurur", () => {
