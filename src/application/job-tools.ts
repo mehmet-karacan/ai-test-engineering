@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "./services.js";
@@ -14,6 +15,8 @@ import { LeaseManager } from "../orchestration/lease-manager.js";
 import { CheckpointStore } from "../orchestration/checkpoint-store.js";
 import { defaultApplyConfig } from "../reporting/test-apply.js";
 import { CustomerRunnerFactory, resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
+import { verifyNativeToolchain } from "../runners/native-toolchain.js";
+import { NativeToolchainRecordStore } from "../orchestration/native-toolchain-record.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { ReportExporter } from "../reporting/report-generator.js";
@@ -79,26 +82,51 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     // Do not mark a resumed job RUNNING when customer process ownership is
     // still unavailable. The dispatcher will recheck before any Maven probe.
     new CustomerRunnerFactory().assertNativeCustomerReady();
+    const record = new NativeToolchainRecordStore(storage.db, services.config.storage.root);
+    const options = record.optionsForResume(job.id, process.env);
+    const locationRoot = new ProjectRepository(storage.db).getLocation(job.location_id).canonical_root;
+    if (options.cwd !== locationRoot || (parsed.project_root && canonicalProjectRoot(parsed.project_root) !== locationRoot)) {
+      throw new AppError("POLICY_VIOLATION", "Native toolchain project root differs from job location", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
+    }
+    await record.verify(job.id, options, verifyNativeToolchain);
   }
 
-  // K05/B05: resume gercek dispatcher devami - ayni job'dan kaldigi asamadan devam.
-  jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
-  jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });
+  // Acquire a unique fenced owner before publishing RUNNING. A competing
+  // resume must not mutate the state/event stream of the active owner.
+  const leaseOwnerId = `resume-${process.pid}-${job.id}-${randomUUID()}`;
+  const leaseManager = new LeaseManager(storage.db);
+  const lease = leaseManager.acquire(job.id, leaseOwnerId, 300000, `resume-${process.pid}`).lease;
+  try {
+    storage.db.transaction(() => {
+      jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
+      jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });
+    })();
+  } catch (error) {
+    leaseManager.release(job.id, leaseOwnerId);
+    throw error;
+  }
 
   // dispatch'i ayni job'dan tekrar baslat (kaldigi asamadan; source/checkpoint dogrulamasi dispatcher'da):
   // GoalContract job kayitlarindan yeniden kurulur (resume parametresi gerekmez):
-  void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined, parsed.model_profile ?? null).catch((error: unknown) => {
+  void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined, parsed.model_profile ?? null, leaseOwnerId).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] resume job ${job.id} hata: ${String(error)}\n`);
-    if (error instanceof AppError && error.details?.["reason_code"] === "CONTRACT_CONFLICT") {
-      try {
+    try {
+      storage.db.transaction(() => {
+        const owner = storage.db.prepare<[string], { owner_id: string; fencing_token: number }>(
+          "SELECT owner_id, fencing_token FROM job_leases WHERE job_id = ?",
+        ).get(job.id);
         const latest = jobs.getJob(job.id);
-        if (latest.lifecycle === "RUNNING") {
-          jobs.updateOutcome(job.id, "POLICY_VIOLATION", latest.row_version);
-          jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
-        }
-      } catch (stateError) {
-        process.stderr.write(`[aitest-dispatch] resume job ${job.id} contract conflict state update hatasi: ${String(stateError)}\n`);
-      }
+        if (owner?.owner_id !== leaseOwnerId || owner.fencing_token !== lease.fencing_token || latest.lifecycle !== "RUNNING") return;
+        const outcome = error instanceof AppError && error.code === "POLICY_VIOLATION" ? "POLICY_VIOLATION"
+          : error instanceof AppError && error.code === "BLOCKED_ISOLATION" ? "BLOCKED_ISOLATION"
+          : "BLOCKED_ENVIRONMENT";
+        jobs.updateOutcome(job.id, outcome, latest.row_version);
+        jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
+      })();
+    } catch (stateError) {
+      process.stderr.write(`[aitest-dispatch] resume job ${job.id} state update hatasi: ${String(stateError)}\n`);
+    } finally {
+      leaseManager.release(job.id, leaseOwnerId);
     }
   });
 
