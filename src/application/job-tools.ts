@@ -14,6 +14,8 @@ import { LeaseManager } from "../orchestration/lease-manager.js";
 import { CheckpointStore } from "../orchestration/checkpoint-store.js";
 import { defaultApplyConfig } from "../reporting/test-apply.js";
 import { CustomerRunnerFactory, resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
+import { verifyNativeToolchain } from "../runners/native-toolchain.js";
+import { NativeToolchainRecordStore } from "../orchestration/native-toolchain-record.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { ReportExporter } from "../reporting/report-generator.js";
@@ -79,6 +81,13 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     // Do not mark a resumed job RUNNING when customer process ownership is
     // still unavailable. The dispatcher will recheck before any Maven probe.
     new CustomerRunnerFactory().assertNativeCustomerReady();
+    const record = new NativeToolchainRecordStore(storage.db, services.config.storage.root);
+    const options = record.optionsForResume(job.id, process.env);
+    const locationRoot = new ProjectRepository(storage.db).getLocation(job.location_id).canonical_root;
+    if (options.cwd !== locationRoot || (parsed.project_root && canonicalProjectRoot(parsed.project_root) !== locationRoot)) {
+      throw new AppError("POLICY_VIOLATION", "Native toolchain project root differs from job location", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
+    }
+    await record.verify(job.id, options, verifyNativeToolchain);
   }
 
   // K05/B05: resume gercek dispatcher devami - ayni job'dan kaldigi asamadan devam.

@@ -13,6 +13,8 @@ import { createDefaultServicesForTest, handleTestStart } from "../../src/applica
 import { handleTestResume } from "../../src/application/job-tools.js";
 import { JobDispatcher, type GoalContract } from "../../src/orchestration/job-dispatcher.js";
 import { CustomerRunnerFactory } from "../../src/runners/runner-factory.js";
+import { NativeToolchainRecordStore } from "../../src/orchestration/native-toolchain-record.js";
+import { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolchain } from "../../src/runners/native-toolchain.js";
 import type { Services } from "../../src/application/services.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
@@ -79,6 +81,15 @@ async function prepareJob(): Promise<PreparedJob> {
     Date.now(),
   );
 
+  // Synthetic -v fixture pins the same native toolchain contract the real
+  // preflight would persist. It never runs customer Maven goals.
+  const executable = join(dir, "mvn.cmd");
+  writeFileSync(executable, "@echo off\r\necho Apache Maven 3.9.16\r\necho Java version: 25.0.3, vendor: Fixture\r\n");
+  const options = { cwd: projectDir, env: process.env, executable };
+  const env = effectiveMavenEnvironment(options.env);
+  const verified = await verifyNativeToolchain(NativeToolchainResolver.resolve({ ...options, env }), env);
+  new NativeToolchainRecordStore(services.storage!.db, artifactRoot).pin(started.job_id, options, verified);
+
   return { services, projectDir, jobId: started.job_id, goal, artifactRoot };
 }
 
@@ -107,8 +118,8 @@ describe("P05-B resume zinciri", () => {
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
 
     const result = await handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services);
-    for (let i = 0; i < 20 && resumedGoal === null; i++) {
-      await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 60 && resumedGoal === null; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
     expect(result).toMatchObject({ job_id: prepared.jobId, resumed: true, lifecycle: "RUNNING" });
@@ -175,5 +186,21 @@ describe("P05-B resume zinciri", () => {
     await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
       .rejects.toMatchObject({ details: { reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED" } });
     expect(prepared.services.jobs!.getJob(prepared.jobId).lifecycle).toBe(before);
+  });
+
+  it("native identity kaydi eksikse ownership test kapisi gecilse bile RUNNING olmaz", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => {
+      prepared.services.storage?.close();
+      rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true });
+    });
+    prepared.services.storage!.db.prepare("DELETE FROM artifacts WHERE job_id = ? AND kind = 'native_toolchain_contract'").run(prepared.jobId);
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const dispatchSpy = vi.spyOn(JobDispatcher.prototype, "dispatch");
+    const before = prepared.services.jobs!.getJob(prepared.jobId).lifecycle;
+    await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
+      .rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_MISSING" } });
+    expect(prepared.services.jobs!.getJob(prepared.jobId).lifecycle).toBe(before);
+    expect(dispatchSpy).not.toHaveBeenCalled();
   });
 });

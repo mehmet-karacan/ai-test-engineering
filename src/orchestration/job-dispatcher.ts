@@ -33,6 +33,8 @@ import { projectAcceptedChanges, projectRunSummary } from "../reporting/report-p
 import { collectAcceptedChangeEvidence, collectFinalReplayEvidence, type EvidenceFile, type MissingEvidence } from "../reporting/evidence-collector.js";
 import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
 import { buildFrozenTargetList, rebuildFrozenTargetDigest, type ConcreteTarget } from "../discovery/target-resolver.js";
+import { NativeToolchainRecordStore } from "./native-toolchain-record.js";
+import { verifyNativeToolchain } from "../runners/native-toolchain.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 
@@ -229,7 +231,9 @@ export class JobDispatcher {
       if (this.runnerKind === "windows_native") {
         // Native process tree ownership and hard-kill recovery must be proven
         // before a customer Maven process can be launched.
-        const toolchain = await runnerFactory.prepareNativeCustomerToolchain({ cwd: projectRoot, env: process.env });
+        const nativeOptions = { cwd: projectRoot, env: process.env };
+        const toolchain = await runnerFactory.prepareNativeCustomerToolchain(nativeOptions);
+        new NativeToolchainRecordStore(storage.db, this.workspaceRoot).pin(job.id, nativeOptions, toolchain);
         nativeToolchainIdentity = toolchain.identity;
         jobs.appendEvent({
           job_id: job.id,
@@ -1211,6 +1215,17 @@ export class JobDispatcher {
     const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
     const recoveryOwnerId = `resume-${process.pid}-${job.id}`;
     const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity });
+    if (this.runnerKind === "windows_native" && plan.checkpoint_manifest) {
+      try {
+        const pinned = new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id);
+        if (plan.checkpoint_manifest.toolchain["native_maven"] !== pinned.identity) {
+          throw new AppError("BLOCKED_ISOLATION", "Resume checkpoint toolchain identity differs from job", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
+        }
+      } catch (error) {
+        leases.release(job.id, recoveryOwnerId);
+        throw error;
+      }
+    }
 
     if (plan.action === "rebaseline") {
       // W05/F11/N35: kaynak degisti; stale coverage isaretlenir; kontrollu rebaseline
@@ -1342,6 +1357,21 @@ export class JobDispatcher {
       contract_budget: contractBudget,
       concrete_targets_digest: rebuildFrozenTargetDigest([...concreteBySelector.values()].flat()),
     };
+    if (this.runnerKind === "windows_native") {
+      // Also guard direct resumeDispatch callers, not only the MCP handler.
+      try {
+        new CustomerRunnerFactory().assertNativeCustomerReady();
+        const record = new NativeToolchainRecordStore(storage.db, this.workspaceRoot);
+        const options = record.optionsForResume(job.id, process.env);
+        if (options.cwd !== projectRoot) {
+          throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
+        }
+        await record.verify(job.id, options, verifyNativeToolchain);
+      } catch (error) {
+        leases.release(job.id, recoveryOwnerId);
+        throw error;
+      }
+    }
     return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
   }
 
