@@ -414,6 +414,43 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
   CREATE INDEX IF NOT EXISTS idx_candidate_iterations_job ON candidate_iterations(job_id);
   `,
     },
+    {
+      version: 6,
+      name: "test-run-provenance",
+      sql: `
+  -- P06/PP31: baseline/candidate/final kosulari test envanteri ve run kimligiyle
+  -- kalici tut; yalniz Maven exit kodu authoritative kanit degildir.
+  CREATE TABLE IF NOT EXISTS test_run_provenance (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES test_jobs(id),
+    provenance_key TEXT NOT NULL UNIQUE,
+    stage TEXT NOT NULL CHECK (stage IN ('baseline','candidate','final_replay')),
+    attempt_ordinal INTEGER,
+    iteration_ordinal INTEGER,
+    execution_root TEXT NOT NULL,
+    command_json TEXT NOT NULL,
+    command_digest TEXT NOT NULL CHECK (length(command_digest) = 64),
+    stdout_log_path TEXT NOT NULL,
+    stderr_log_path TEXT NOT NULL,
+    exit_code INTEGER NOT NULL,
+    timed_out INTEGER NOT NULL CHECK (timed_out IN (0, 1)),
+    total_tests INTEGER NOT NULL,
+    failures INTEGER NOT NULL,
+    errors INTEGER NOT NULL,
+    skipped INTEGER NOT NULL,
+    test_inventory_json TEXT NOT NULL,
+    coverage_report_path TEXT NOT NULL,
+    coverage_report_sha256 TEXT CHECK (coverage_report_sha256 IS NULL OR length(coverage_report_sha256) = 64),
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    CHECK (length(id) = 36),
+    CHECK (finished_at >= started_at)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_test_run_provenance_job ON test_run_provenance(job_id, stage, created_at);
+  `,
+    },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

@@ -55,6 +55,7 @@ const MINIMAL_POM = `<?xml version="1.0" encoding="UTF-8"?>
   <artifactId>p03-fixture</artifactId>
   <version>1.0.0</version>
   <packaging>jar</packaging>
+  <build><plugins><plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version></plugin></plugins></build>
 </project>`;
 
 const sha = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
@@ -538,7 +539,7 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
 
   /** baseline jacoco: LINE 0/10 (target alani), BRANCH yok */
   function writeBaselineJacoco(covered: number, missed: number): void {
-    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no"?><report name="p">
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no"?><report name="p"><sessioninfo id="fake" start="${Date.now()}" dump="${Date.now()}"/>
 <package name="com/example/calc">
 <class name="com/example/calc/CalcService" sourcefilename="CalcService.java">
 <counter type="INSTRUCTION" missed="0" covered="0"/><counter type="LINE" missed="${missed}" covered="${covered}"/><counter type="COMPLEXITY" missed="0" covered="0"/><counter type="METHOD" missed="0" covered="0"/><counter type="CLASS" missed="0" covered="0"/>
@@ -554,7 +555,7 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
   /** workspace icinde jacoco yaz (candidate workspace target/site/jacoco) */
   function writeWorkspaceJacoco(workspace: string, covered: number, missed: number): void {
     mkdirSync(join(workspace, "target/site/jacoco"), { recursive: true });
-    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no"?><report name="p">
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no"?><report name="p"><sessioninfo id="fake" start="${Date.now()}" dump="${Date.now()}"/>
 <package name="com/example/calc">
 <class name="com/example/calc/CalcService" sourcefilename="CalcService.java">
 <counter type="LINE" missed="${missed}" covered="${covered}"/><counter type="METHOD" missed="0" covered="0"/><counter type="CLASS" missed="0" covered="0"/>

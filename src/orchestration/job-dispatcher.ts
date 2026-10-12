@@ -17,7 +17,7 @@ import { RecoveryManager } from "./recovery-manager.js";
 import { SourceSnapshot, computeSourceIdentity, type SourceIdentity, type SnapshotManifest } from "../discovery/source-snapshot.js";
 import type { JobContract } from "../domain/job-contract.js";
 import { CandidateLoop, readCoverageAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult, type CandidateGenerationFeedback } from "./candidate-loop.js";
-import { runBaseline, summarizeTestReports } from "./build-plan.js";
+import { runBaseline, summarizeTestReports, type BaselineResult } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner } from "../runners/maven-runner.js";
@@ -90,6 +90,13 @@ const ownedRunners = new Map<string, MavenRunner>();
 function isWithinStorageRoot(root: string, candidate: string): boolean {
   const rel = relative(root, candidate);
   return rel.length === 0 || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function fileSha256(path: string): string | null {
+  if (!existsSync(path)) {
+    return null;
+  }
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 export class JobDispatcher {
@@ -235,10 +242,12 @@ export class JobDispatcher {
       phases.push("baseline");
       const baselineWorkspace = join(this.workspaceRoot, "jobs", job.id, "baseline");
       let baselineExecutionRoot: string | null = null;
+      let baselineEvidence: BaselineResult | null = null;
 
       // baseline: mevcut testler gercekten calisir (guvenli runner contract'indan)
       if (this.runnerKind === "host_dev_only" && hostRunner) {
         const baseline = await runBaseline(projectRoot, hostRunner, 600000, { workspace_root: baselineWorkspace, collect_coverage: true });
+        baselineEvidence = baseline;
         baselineExecutionRoot = baseline.execution_root;
         if (baseline.status !== "PASSED") {
           const latest = jobs.getJob(job.id);
@@ -258,6 +267,7 @@ export class JobDispatcher {
         const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, baselineWorkspace, job.id, dockerImage);
         ownedRunners.set(job.id, baselineRunner);
         const baseline = await runBaseline(projectRoot, baselineRunner, 600000, { workspace_root: baselineWorkspace, collect_coverage: true });
+        baselineEvidence = baseline;
         baselineExecutionRoot = baseline.execution_root;
         if (baseline.status !== "PASSED") {
           const latest = jobs.getJob(job.id);
@@ -400,6 +410,25 @@ export class JobDispatcher {
           reason_code: "TEST_SOURCE_TARGETS",
         });
       }
+      if (baselineEvidence?.run && baselineEvidence.run_started_at !== null && baselineEvidence.run_finished_at !== null) {
+        inventory.writeTestRunProvenance({
+          job_id: job.id,
+          stage: "baseline",
+          attempt_ordinal: null,
+          iteration_ordinal: null,
+          execution_root: baselineEvidence.execution_root,
+          command: baselineEvidence.run.command,
+          stdout_log_path: baselineEvidence.run.stdout_log_path,
+          stderr_log_path: baselineEvidence.run.stderr_log_path,
+          exit_code: baselineEvidence.run.exit_code,
+          timed_out: baselineEvidence.run.timed_out,
+          test_inventory: baselineEvidence.test_inventory,
+          coverage_report_path: join(baselineEvidence.execution_root, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml"),
+          coverage_report_sha256: fileSha256(join(baselineEvidence.execution_root, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml")),
+          started_at: baselineEvidence.run_started_at,
+          finished_at: baselineEvidence.run_finished_at,
+        });
+      }
       phases.push("analysis_ok");
 
       jobs.updatePhase(job.id, "generation", jobs.getJob(job.id).row_version);
@@ -431,6 +460,7 @@ export class JobDispatcher {
           target_fqn: resolved.fqn,
           target_module_path: resolved.module.module_relative_path,
           target_test_root: resolved.module.test_root,
+          target_relative_path: resolved.relative_path,
           line_target_bps: targetSpec.line_target_bps,
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
@@ -441,6 +471,26 @@ export class JobDispatcher {
           workspace_root: join(this.workspaceRoot, "jobs", job.id, "candidates", resolved.fqn.replace(/[^A-Za-z0-9_.-]/g, "_")),
           timeout_ms_per_run: 600000,
           deadline_at: jobDeadlineAt,
+          on_run: (info) => {
+            assertLease();
+            inventory.writeTestRunProvenance({
+              job_id: job.id,
+              stage: "candidate",
+              attempt_ordinal: info.attempt_ordinal,
+              iteration_ordinal: info.iteration,
+              execution_root: info.execution_root,
+              command: info.run.command,
+              stdout_log_path: info.run.stdout_log_path,
+              stderr_log_path: info.run.stderr_log_path,
+              exit_code: info.run.exit_code,
+              timed_out: info.run.timed_out,
+              test_inventory: info.test_inventory,
+              coverage_report_path: info.coverage_report_path,
+              coverage_report_sha256: fileSha256(info.coverage_report_path),
+              started_at: info.started_at,
+              finished_at: info.finished_at,
+            });
+          },
         // K04/B04: birikimli accepted set + checkpoint callback'i runtime'a bagli:
         // W04/F09/N29: on_accepted artik GERCEK accepted checkpoint yayinlar (yalniz event/log degil):
         // accepted manifest blob'u + DB checkpoint satiri + best_checkpoint pointer'i publish edilir.
@@ -554,10 +604,28 @@ export class JobDispatcher {
         project_root: projectRoot,
         target_fqns: resolvedTargets.map((rt) => rt.fqn),
         target_module_paths: resolvedTargets.map((rt) => rt.module.module_relative_path),
+        target_relative_paths: resolvedTargets.map((rt) => rt.relative_path),
         accepted_snapshot_dir: acceptedDir,
         staging_root: stagingRoot,
         workspace_root: join(this.workspaceRoot, "jobs", job.id, "final"),
         timeout_ms: 600000,
+      });
+      inventory.writeTestRunProvenance({
+        job_id: job.id,
+        stage: "final_replay",
+        attempt_ordinal: null,
+        iteration_ordinal: null,
+        execution_root: finalReplay.workspace,
+        command: finalReplay.run.command,
+        stdout_log_path: finalReplay.run.stdout_log_path,
+        stderr_log_path: finalReplay.run.stderr_log_path,
+        exit_code: finalReplay.run.exit_code,
+        timed_out: finalReplay.run.timed_out,
+        test_inventory: finalReplay.test_inventory,
+        coverage_report_path: join(finalReplay.workspace, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml"),
+        coverage_report_sha256: fileSha256(join(finalReplay.workspace, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml")),
+        started_at: finalReplay.started_at,
+        finished_at: finalReplay.finished_at,
       });
       const finalReports = summarizeTestReports(finalReplay.workspace, [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))]);
       const replaySucceeded = finalReplay.run.exit_code === 0
@@ -729,6 +797,8 @@ export class JobDispatcher {
                 ? "BLOCKED_DEPENDENCIES"
                 : errorCode === "BLOCKED_TARGET_RESOLUTION"
                   ? "BLOCKED_TARGET_RESOLUTION"
+                  : errorCode === "BLOCKED_COVERAGE_CONFIGURATION"
+                    ? "BLOCKED_COVERAGE_CONFIGURATION"
                   : "BLOCKED_ENVIRONMENT";
           jobs.updateOutcome(job.id, outcome, jobs.getJob(job.id).row_version);
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);

@@ -80,8 +80,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     };
   }
 
-  it("schema v5: coverage_snapshots + worker_attempts + candidate_attempts + benchmark_trials + checkpoint_blobs + job_target_concretes var", () => {
-    expect(storage.schemaVersion()).toBe(5);
+  it("schema v6: coverage_snapshots + worker_attempts + candidate_attempts + benchmark_trials + checkpoint_blobs + job_target_concretes + test_run_provenance var", () => {
+    expect(storage.schemaVersion()).toBe(6);
     const tables = storage.db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
@@ -101,6 +101,35 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     for (const col of ["resolved_fqn", "module_path", "source_set", "relative_path", "snapshot_id", "concrete_digest"]) {
       expect(targetCols).toContain(col);
     }
+    expect(tables).toContain("test_run_provenance");
+  });
+
+  it("baseline/candidate/final run envanteri ayni provenance anahtariyla idempotent yazilir", () => {
+    const input = {
+      job_id: jobId,
+      stage: "baseline" as const,
+      attempt_ordinal: null,
+      iteration_ordinal: null,
+      execution_root: "C:/store/job/baseline",
+      command: ["mvn", "test", "jacoco:report"],
+      stdout_log_path: "C:/store/job/baseline/stdout.log",
+      stderr_log_path: "C:/store/job/baseline/stderr.log",
+      exit_code: 0,
+      timed_out: false,
+      test_inventory: [{ name: "CalcTest", tests: 2, failures: 0, errors: 0, skipped: 0, failed_test_names: [] }],
+      coverage_report_path: "C:/store/job/baseline/jacoco.xml",
+      coverage_report_sha256: "a".repeat(64),
+      started_at: 1000,
+      finished_at: 1100,
+    };
+    const first = inventory.writeTestRunProvenance(input);
+    const second = inventory.writeTestRunProvenance(input);
+    expect(second).toBe(first);
+    const rows = inventory.listTestRunProvenance(jobId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.stage).toBe("baseline");
+    expect(rows[0]!.total_tests).toBe(2);
+    expect(rows[0]!.command_digest).toHaveLength(64);
   });
 
   /** P03: manifest accepted_changes'i iceren publish icin immutable accepted blob. */
@@ -323,7 +352,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("migration idempotent: migrate tekrar cagrildiginda hata yok", () => {
     expect(() => storage.migrate()).not.toThrow();
-    expect(storage.schemaVersion()).toBe(5);
+    expect(storage.schemaVersion()).toBe(6);
   });
 
   it("future schema fail-closed: bilinmeyen yuksek version yazmayi durdurur", () => {

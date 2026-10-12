@@ -64,6 +64,31 @@ export function buildPlan(projectRoot: string, affectedModulePaths: string[]): B
   };
 }
 
+/**
+ * P06/PP27: coverage kosusu agent + report zinciri icin POM'da JaCoCo
+ * konfigurasyonu bulunmadiginda Maven exit koduna guvenilmez; typed blocker
+ * ile durulur. Baseline'da en az bir executable modul, hedefli kosuda ise
+ * secilen her executable modul kontrol edilir.
+ */
+export function assertCoverageConfigured(plan: BuildPlan, affectedModulePaths: string[] = plan.affected_modules): void {
+  const normalized = [...new Set(affectedModulePaths.map((modulePath) => modulePath.replace(/[\\/]/g, "/").replace(/^\.\//, "").replace(/\/+$/, "")))].filter(Boolean);
+  const selected = normalized.length > 0
+    ? plan.modules.filter((module) => normalized.includes(module.module_relative_path) && module.packaging !== "pom")
+    : plan.modules.filter((module) => module.packaging !== "pom");
+  const missing = selected.filter((module) => !module.jacoco_configured).map((module) => module.module_relative_path || ".");
+  if (missing.length > 0 && (normalized.length > 0 || missing.length === selected.length)) {
+    throw new AppError("BLOCKED_COVERAGE_CONFIGURATION", `JaCoCo agent/report yapilandirmasi yok: ${missing.join(", ")}`, {
+      reason_code: "JACOCO_PLUGIN_MISSING",
+      modules: missing,
+    });
+  }
+  if (selected.length === 0) {
+    throw new AppError("BLOCKED_COVERAGE_CONFIGURATION", "Coverage icin executable Maven modul bulunamadi", {
+      reason_code: "NO_EXECUTABLE_MODULE",
+    });
+  }
+}
+
 export interface BaselineResult {
   status: "PASSED" | "FAILED" | "UNSTABLE" | "NO_TESTS";
   /** W03/F06: gercek run yapilmadiysa null; sentetik exit0 kaydi uretilmez */
@@ -81,6 +106,9 @@ export interface BaselineResult {
   skip_config_detected: string[];
   /** P06/PP20: baseline'in gercek calistigi frozen workspace. */
   execution_root: string;
+  test_inventory: SurefireSuite[];
+  run_started_at: number | null;
+  run_finished_at: number | null;
 }
 
 export interface BaselineOptions {
@@ -242,7 +270,14 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
       malformed_reports: [],
       skip_config_detected: skipConfig,
       execution_root: executionRoot,
+      test_inventory: [],
+      run_started_at: null,
+      run_finished_at: null,
     };
+  }
+
+  if (options.collect_coverage) {
+    assertCoverageConfigured(plan, []);
   }
 
   const runOptions: MavenRunOptions = {
@@ -251,7 +286,9 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
     timeout_ms: timeoutMs,
     log_dir: join(executionRoot, "target", "aitest-baseline-logs"),
   };
+  const runStartedAt = Date.now();
   const run = await runner.run(runOptions);
+  const runFinishedAt = Date.now();
 
   const reportSummary = summarizeTestReports(executionRoot, plan.modules.map((module) => module.module_relative_path));
   malformedReports.push(...reportSummary.malformed_reports);
@@ -296,6 +333,9 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
     malformed_reports: malformedReports,
     skip_config_detected: skipConfig,
     execution_root: executionRoot,
+    test_inventory: reportSummary.suites,
+    run_started_at: runStartedAt,
+    run_finished_at: runFinishedAt,
   };
 }
 

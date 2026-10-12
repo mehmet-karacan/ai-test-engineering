@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { AppError } from "../../src/domain/errors.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
 
@@ -57,6 +58,7 @@ describe("W03/F06: baseline ayrisimlari", () => {
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>frozen</artifactId><version>1</version>
   <dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies>
+  <build><plugins><plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version></plugin></plugins></build>
 </project>`);
       mkdirSync(join(dir, "target", "site", "jacoco"), { recursive: true });
       const stale = "stale-original-jacoco";
@@ -88,6 +90,17 @@ describe("W03/F06: baseline ayrisimlari", () => {
       }
     }
   }, 60000);
+
+  it("coverage istenip JaCoCo yoksa Maven kosmadan typed blocker doner", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-w03-no-jacoco-"));
+    try {
+      writeFileSync(join(dir, "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>no-jacoco</artifactId><version>1</version><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies></project>`);
+      const fakeRunner = { run: async (): Promise<RunResult> => { throw new Error("Maven calismamali"); } } as unknown as MavenRunner;
+      await expect(runBaseline(dir, fakeRunner, 60000, { collect_coverage: true })).rejects.toMatchObject({ code: "BLOCKED_COVERAGE_CONFIGURATION" } satisfies Partial<AppError>);
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
 
   it("all-skipped baseline PASSED sayilmaz", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-w03-skipped-"));

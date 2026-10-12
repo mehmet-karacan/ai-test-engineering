@@ -42,7 +42,7 @@ interface PomRaw {
     artifactId?: string | { "#text": string };
     version?: string | { "#text": string };
     packaging?: string;
-    parent?: { groupId?: string; artifactId?: string; version?: string };
+    parent?: { groupId?: string; artifactId?: string; version?: string; relativePath?: string };
     modules?: { module?: string[] };
     build?: {
       sourceDirectory?: string[];
@@ -51,6 +51,30 @@ interface PomRaw {
     };
     dependencies?: { dependency?: Array<Record<string, unknown>> };
   };
+}
+
+function inheritedPluginConfigured(pomPath: string, pluginId: string, seen = new Set<string>()): boolean {
+  const absPath = resolve(pomPath);
+  if (seen.has(absPath) || !existsSync(absPath)) {
+    return false;
+  }
+  seen.add(absPath);
+  let raw: PomRaw;
+  try {
+    raw = parser.parse(readFileSync(absPath, "utf8")) as PomRaw;
+  } catch {
+    return false;
+  }
+  const plugins = raw.project?.build?.plugins?.plugin ?? [];
+  if (plugins.some((plugin) => pluginArtifactId(plugin) === pluginId)) {
+    return true;
+  }
+  const parent = raw.project?.parent;
+  if (!parent) {
+    return false;
+  }
+  const relativeParent = parent.relativePath === "" ? "../pom.xml" : parent.relativePath ?? "../pom.xml";
+  return inheritedPluginConfigured(resolve(absPath, "..", relativeParent), pluginId, seen);
 }
 
 function text(value: string | { "#text": string } | undefined): string | null {
@@ -103,9 +127,8 @@ export function parsePom(pomPath: string, reactorRoot: string): PomModule {
   const relativeToReactor = relative(reactorRoot, absPath.replace(/[\\/]pom\.xml$/, "")).replace(/\\/g, "/");
   const moduleRelativePath = relativeToReactor.length === 0 ? "" : relativeToReactor;
 
-  const plugins = project.build?.plugins?.plugin ?? [];
-  const jacocoConfigured = plugins.some((p) => pluginArtifactId(p) === "jacoco-maven-plugin");
-  const surefireConfigured = plugins.some((p) => pluginArtifactId(p) === "maven-surefire-plugin");
+  const jacocoConfigured = inheritedPluginConfigured(absPath, "jacoco-maven-plugin");
+  const surefireConfigured = inheritedPluginConfigured(absPath, "maven-surefire-plugin");
 
   return {
     module_relative_path: moduleRelativePath,

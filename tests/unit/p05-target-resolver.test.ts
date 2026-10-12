@@ -151,7 +151,7 @@ describe("P05-B: bounded repair feedback", () => {
       const writeCoverage = (workspace: string, covered: number, missed: number): void => {
         const path = join(workspace, "target", "site", "jacoco", "jacoco.xml");
         mkdirSync(join(path, ".."), { recursive: true });
-        writeFileSync(path, `<report name="repair"><package name="com/example/calc"><class name="com/example/calc/CalcService" sourcefilename="CalcService.java"><counter type="LINE" missed="${missed}" covered="${covered}"/></class></package></report>`, "utf8");
+        writeFileSync(path, `<report name="repair"><sessioninfo id="fake" start="${Date.now()}" dump="${Date.now()}"/><package name="com/example/calc"><class name="com/example/calc/CalcService" sourcefilename="CalcService.java"><counter type="LINE" missed="${missed}" covered="${covered}"/></class></package></report>`, "utf8");
       };
       writeCoverage(projectRoot, 0, 10);
 

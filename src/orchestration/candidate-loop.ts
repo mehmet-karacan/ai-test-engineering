@@ -2,14 +2,14 @@
  * Aday kabul dongusu: iterate (candidate -> apply -> run -> coverage -> kalite -> kabul/red).
  * Kazanim kabul: hard gate'ler + coverage ayni kapsamla karsilastirilir.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, cpSync, readdirSync, lstatSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, cpSync, readdirSync, lstatSync, statSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import { PatchApplier } from "../application/patch-applier.js";
 import { assertQualityGate, isSutShadowing, type QualityFinding } from "../policies/quality-gate.js";
 import { MavenRunner, type RunResult } from "../runners/maven-runner.js";import { parseJacocoXml, findClassInReport } from "../coverage/jacoco-parser.js";
-import { parseSurefireReports, buildPlan } from "../orchestration/build-plan.js";
+import { summarizeTestReports, assertCoverageConfigured, buildPlan, type SurefireSuite } from "../orchestration/build-plan.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 
 export interface IterationBudget {
@@ -69,15 +69,34 @@ export interface CoverageLookup {
   (projectRoot: string, fqn: string): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined;
 }
 
-export function readCoverageAfterRun(projectRoot: string, fqn: string, moduleRelativePath = ""): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
+export interface CoverageReadOptions {
+  minimum_mtime_ms?: number;
+  expected_source_filename?: string;
+  require_session_info?: boolean;
+}
+
+export function readCoverageAfterRun(projectRoot: string, fqn: string, moduleRelativePath = "", options: CoverageReadOptions = {}): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
   const xmlPath = join(projectRoot, moduleRelativePath, "target", "site", "jacoco", "jacoco.xml");
   if (!existsSync(xmlPath)) {
     return undefined;
   }
+  if (options.minimum_mtime_ms !== undefined && statSync(xmlPath).mtimeMs < options.minimum_mtime_ms) {
+    throw new AppError("INVALID_COVERAGE_EVIDENCE", `Stale JaCoCo raporu reddedildi: ${xmlPath}`, { reason_code: "STALE_COVERAGE_EVIDENCE", path: xmlPath });
+  }
   const report = parseJacocoXml(xmlPath);
+  if (options.require_session_info && report.session_infos.length === 0) {
+    throw new AppError("INVALID_COVERAGE_EVIDENCE", `JaCoCo session bilgisi yok: ${xmlPath}`, { reason_code: "JACOCO_SESSION_MISSING", path: xmlPath });
+  }
   const cls = findClassInReport(report, fqn);
   if (!cls) {
     return undefined;
+  }
+  if (options.expected_source_filename !== undefined && cls.sourcefilename !== options.expected_source_filename) {
+    throw new AppError("INVALID_COVERAGE_EVIDENCE", `JaCoCo source eslesmedi: ${cls.sourcefilename} != ${options.expected_source_filename}`, {
+      reason_code: "JACOCO_SOURCE_MISMATCH",
+      fqn,
+      path: xmlPath,
+    });
   }
   return { line: cls.line, branch: cls.branch };
 }
@@ -246,6 +265,8 @@ export interface IterateOptions {
   baseline_coverage?: { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined };
   /** P06/PP22: effective Maven test root; project-relative path. */
   target_test_root?: string;
+  /** P06/PP28: JaCoCo class-source identity icin frozen kaynak yolu. */
+  target_relative_path?: string;
   /** P05-B: resume'da logical limit start iteration'dan bagimsiz korunur. */
   iteration_limit?: number;
   generate_candidate: (feedback?: CandidateGenerationFeedback) => Promise<CandidateChangeSet | null>;
@@ -278,6 +299,17 @@ export interface IterateOptions {
     coverage_before_bps: number | null;
     coverage_after_bps: number | null;
     error_fingerprint?: string | null;
+  }) => void;
+  /** P06/PP31: her candidate run'in test inventory/provenance kaydi icin callback. */
+  on_run?: (info: {
+    attempt_ordinal: number;
+    iteration: number;
+    execution_root: string;
+    run: RunResult;
+    test_inventory: SurefireSuite[];
+    started_at: number;
+    finished_at: number;
+    coverage_report_path: string;
   }) => void;
 }
 
@@ -363,17 +395,11 @@ export class CandidateLoop {
   /**
    * W02/F08: orijinal checkout'ta aday olcumu YOK; readCoverageAfterRun workspace'ten okunur.
    */
-  private workspaceCoverage(workspace: string, fqn: string, moduleRelativePath = ""): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
-    const xmlPath = join(workspace, moduleRelativePath, "target", "site", "jacoco", "jacoco.xml");
-    if (!existsSync(xmlPath)) {
-      return undefined;
-    }
-    const report = parseJacocoXml(xmlPath);
-    const cls = findClassInReport(report, fqn);
-    if (!cls) {
-      return undefined;
-    }
-    return { line: cls.line, branch: cls.branch };
+  private workspaceCoverage(workspace: string, fqn: string, moduleRelativePath = "", runStartedAt?: number, expectedSourceFilename?: string): { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined } | undefined {
+    return readCoverageAfterRun(workspace, fqn, moduleRelativePath, {
+      ...(runStartedAt !== undefined ? { minimum_mtime_ms: runStartedAt - 1000, require_session_info: true } : {}),
+      ...(expectedSourceFilename !== undefined ? { expected_source_filename: expectedSourceFilename } : {}),
+    });
   }
 
   async iterate(options: IterateOptions, startIteration = 1): Promise<IterationLoopResult> {
@@ -609,6 +635,7 @@ export class CandidateLoop {
       }
 
       const plan = buildPlan(options.project_root, [options.target_module_path]);
+      assertCoverageConfigured(plan, [options.target_module_path]);
       const goals = plan.maven_goals_coverage;
 
       // W02/F08: aday ORIJINAL checkout'a yazilmaz; ayri candidate workspace kurulur ve
@@ -624,12 +651,14 @@ export class CandidateLoop {
       let afterBps: number | null = null;
       let afterBranchBps: number | null = null;
       const remainingDeadline = options.deadline_at === undefined ? null : Math.max(1, options.deadline_at - Date.now());
+      const runStartedAt = Date.now();
       const run: RunResult = await this.runner.run({
         working_dir: candidateWorkspace,
         goals,
         timeout_ms: Math.min(options.timeout_ms_per_run ?? 600000, remainingDeadline ?? Number.MAX_SAFE_INTEGER),
         log_dir: join(candidateWorkspace, "target", `aitest-iter-${iteration}-logs`),
       });
+      const runFinishedAt = Date.now();
 
       if (deadlineExceeded()) {
         budgetExhausted = true;
@@ -637,10 +666,21 @@ export class CandidateLoop {
         break;
       }
 
-      const suites = parseSurefireReports(candidateWorkspace, options.target_module_path);
+      const testSummary = summarizeTestReports(candidateWorkspace, [options.target_module_path]);
+      const suites = testSummary.suites;
+      options.on_run?.({
+        attempt_ordinal: attemptOrdinal,
+        iteration,
+        execution_root: candidateWorkspace,
+        run,
+        test_inventory: suites,
+        started_at: runStartedAt,
+        finished_at: runFinishedAt,
+        coverage_report_path: join(candidateWorkspace, options.target_module_path, "target", "site", "jacoco", "jacoco.xml"),
+      });
       const regressionFailures = suites.flatMap((s) => s.failed_test_names);
 
-      const afterCoverage = this.workspaceCoverage(candidateWorkspace, options.target_fqn, options.target_module_path);
+      const afterCoverage = this.workspaceCoverage(candidateWorkspace, options.target_fqn, options.target_module_path, runStartedAt, options.target_relative_path ? basename(options.target_relative_path) : undefined);
       afterBps = basisPointsFrom(afterCoverage?.line);
       afterBranchBps = basisPointsFrom(afterCoverage?.branch);
 
@@ -870,25 +910,30 @@ export class CandidateLoop {
     project_root: string;
     target_fqns: string[];
     target_module_paths: string[];
+    target_relative_paths: string[];
     accepted_snapshot_dir: string;
     staging_root: string;
     workspace_root: string;
     timeout_ms?: number;
-  }): Promise<{ workspace: string; run: RunResult; coverage: Map<string, ReturnType<CoverageLookup>> }> {
+  }): Promise<{ workspace: string; run: RunResult; coverage: Map<string, ReturnType<CoverageLookup>>; test_inventory: SurefireSuite[]; started_at: number; finished_at: number }> {
     const workspace = this.buildCandidateWorkspace(options.project_root, [], options.workspace_root, 0, options.staging_root, options.accepted_snapshot_dir);
     const plan = buildPlan(options.project_root, [...new Set(options.target_module_paths)]);
+    assertCoverageConfigured(plan, [...new Set(options.target_module_paths)]);
+    const runStartedAt = Date.now();
     const run = await this.runner.run({
       working_dir: workspace,
       goals: plan.maven_goals_coverage,
       timeout_ms: options.timeout_ms ?? 600000,
       log_dir: join(workspace, "target", "aitest-final-replay-logs"),
     });
+    const runFinishedAt = Date.now();
+    const testInventory = summarizeTestReports(workspace, [...new Set(options.target_module_paths)]).suites;
     const coverage = new Map<string, ReturnType<CoverageLookup>>();
     for (let index = 0; index < options.target_fqns.length; index++) {
       const fqn = options.target_fqns[index]!;
       const moduleRelativePath = options.target_module_paths[index] ?? "";
-      coverage.set(fqn, this.workspaceCoverage(workspace, fqn, moduleRelativePath));
+      coverage.set(fqn, this.workspaceCoverage(workspace, fqn, moduleRelativePath, runStartedAt, options.target_relative_paths[index] ? basename(options.target_relative_paths[index]!) : undefined));
     }
-    return { workspace, run, coverage };
+    return { workspace, run, coverage, test_inventory: testInventory, started_at: runStartedAt, finished_at: runFinishedAt };
   }
 }

@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
-import { buildPlan } from "../../src/orchestration/build-plan.js";
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { assertCoverageConfigured, buildPlan } from "../../src/orchestration/build-plan.js";
 import { AppError } from "../../src/domain/errors.js";
+import { readCoverageAfterRun } from "../../src/orchestration/candidate-loop.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
 
@@ -37,5 +40,42 @@ describe("P06-B2 effective Maven affected-module scope", () => {
     const plan = buildPlan(join(FIXTURES, "sample-maven-project"), [""]);
 
     expect(plan.maven_goals_coverage).toEqual(["test", "jacoco:report"]);
+  });
+
+  it("JaCoCo olmayan hedef modul typed coverage blocker uretir", () => {
+    const plan = buildPlan(join(FIXTURES, "java21-multi-module"), ["core"]);
+    expect(() => assertCoverageConfigured(plan, ["core"])).toThrowError(AppError);
+    try {
+      assertCoverageConfigured(plan, ["core"]);
+    } catch (error) {
+      expect((error as AppError).code).toBe("BLOCKED_COVERAGE_CONFIGURATION");
+      expect((error as AppError).details?.reason_code).toBe("JACOCO_PLUGIN_MISSING");
+    }
+  });
+
+  it("stale JaCoCo XML counter'a donusturulmez", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p06-stale-"));
+    try {
+      const xmlPath = join(dir, "target", "site", "jacoco", "jacoco.xml");
+      mkdirSync(join(xmlPath, ".."), { recursive: true });
+      writeFileSync(xmlPath, `<report><sessioninfo id="old" start="1" dump="1"/><package name="p"><class name="p.Service" sourcefilename="Service.java"><counter type="LINE" missed="9" covered="1"/></class></package></report>`);
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(xmlPath, old, old);
+      expect(() => readCoverageAfterRun(dir, "p.Service", "", { minimum_mtime_ms: Date.now() - 1000, require_session_info: true, expected_source_filename: "Service.java" })).toThrowError(/Stale JaCoCo/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("JaCoCo wrong-source XML source mismatch olarak reddedilir", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-p06-source-"));
+    try {
+      const xmlPath = join(dir, "target", "site", "jacoco", "jacoco.xml");
+      mkdirSync(join(xmlPath, ".."), { recursive: true });
+      writeFileSync(xmlPath, `<report><sessioninfo id="fresh" start="${Date.now()}" dump="${Date.now()}"/><package name="p"><class name="p.Service" sourcefilename="Other.java"><counter type="LINE" missed="9" covered="1"/></class></package></report>`);
+      expect(() => readCoverageAfterRun(dir, "p.Service", "", { minimum_mtime_ms: Date.now() - 1000, require_session_info: true, expected_source_filename: "Service.java" })).toThrowError(/source eslesmedi/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
   });
 });

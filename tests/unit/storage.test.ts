@@ -24,10 +24,10 @@ describe("SQLite storage kalicilik", () => {
     }
   });
 
-  it("migration sonrasi schema version 5 olmali (FIN03 + P03 + P05-B: frozen concrete ve attempt ordinal tablolari)", () => {
+  it("migration sonrasi schema version 6 olmali (P06: test run provenance tablosu dahil)", () => {
     const storage = new Storage({ dbPath });
     storage.migrate();
-    expect(storage.schemaVersion()).toBe(5);
+    expect(storage.schemaVersion()).toBe(6);
     storage.close();
   });
 
