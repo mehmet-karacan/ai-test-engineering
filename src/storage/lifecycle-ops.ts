@@ -6,8 +6,8 @@
  * - Owned uninstall: yalniz beklenen hash'teki girdiler; user modified korunur.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync, linkSync } from "node:fs";
-import { join, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync, linkSync, lstatSync } from "node:fs";
+import { dirname, join, parse, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
@@ -80,6 +80,57 @@ function isBackupManifest(value: unknown): value is BackupManifest {
     && Array.isArray(value["blobs"]) && value["blobs"].every(isBackupBlob);
 }
 
+/** Reject reparse traversal and file/directory collisions before restore publication. */
+function assertSafePathComponents(path: string, finalKind: "file" | "directory", operation: "BACKUP" | "RESTORE" = "RESTORE"): void {
+  const absolute = resolve(path);
+  const root = parse(absolute).root;
+  const components: string[] = [];
+  for (let cursor = absolute; cursor !== root; cursor = dirname(cursor)) components.push(cursor);
+  components.push(root);
+  components.reverse();
+  for (const [index, component] of components.entries()) {
+    let entry: ReturnType<typeof lstatSync>;
+    try { entry = lstatSync(component); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new AppError("POLICY_VIOLATION", `Path could not be inspected: ${component}`, {
+        reason_code: `${operation}_PATH_UNREADABLE`, path: component,
+      });
+    }
+    if (entry.isSymbolicLink()) {
+      throw new AppError("POLICY_VIOLATION", `Path contains a reparse point: ${component}`, {
+        reason_code: `${operation}_REPARSE_POINT`, path: component,
+      });
+    }
+    const isFinal = index === components.length - 1;
+    if ((!isFinal || finalKind === "directory") && !entry.isDirectory()) {
+      throw new AppError("POLICY_VIOLATION", `Path parent is not a directory: ${component}`, {
+        reason_code: `${operation}_PARENT_NOT_DIRECTORY`, path: component,
+      });
+    }
+    if (isFinal && finalKind === "file" && !entry.isFile()) {
+      throw new AppError("POLICY_VIOLATION", `Path target is not a file: ${component}`, {
+        reason_code: `${operation}_PATH_COLLISION`, path: component,
+      });
+    }
+  }
+}
+
+function pathWithinOrEqual(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${pathSep}`));
+}
+
+function assertRestoreRootsDisjoint(backupDir: string, targetDbPath: string, targetArtifactRoot: string): void {
+  const source = resolve(backupDir);
+  if (pathWithinOrEqual(source, targetArtifactRoot) || pathWithinOrEqual(targetArtifactRoot, source) ||
+      pathWithinOrEqual(source, targetDbPath)) {
+    throw new AppError("POLICY_VIOLATION", "Backup and restore target paths overlap", {
+      reason_code: "RESTORE_PATH_OVERLAP",
+    });
+  }
+}
+
 /** Canli DB degil, restore edilecek snapshot tek otoritedir. */
 function inspectBackupSnapshot(dbPath: string): SnapshotInspection {
   let checkDb: BetterSqlite3.Database | undefined;
@@ -117,9 +168,12 @@ function inspectBackupSnapshot(dbPath: string): SnapshotInspection {
  * Backup complete marker ancak tum blob/hash dogrulamalari gecince yazilir.
  */
 export async function createBackup(db: BetterSqlite3.Database, dbPath: string, artifactRoot: string, backupRoot: string): Promise<BackupResult> {
-  const release = acquireMaintenanceLock(artifactRoot, "backup");
   const backupId = randomUUID();
   const backupDir = join(backupRoot, backupId);
+  assertSafePathComponents(dbPath, "file", "BACKUP");
+  assertSafePathComponents(artifactRoot, "directory", "BACKUP");
+  assertSafePathComponents(backupDir, "directory", "BACKUP");
+  const release = acquireMaintenanceLock(artifactRoot, "backup");
   try {
     mkdirSync(backupDir, { recursive: true });
     const backupDbPath = join(backupDir, "state.db");
@@ -149,6 +203,7 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
           relative_path: row.relative_store_path,
         });
       }
+      assertSafePathComponents(blobPath, "file", "BACKUP");
       const blobData = readFileSync(blobPath);
       const actualHash = sha256Data(blobData);
       if (actualHash !== row.sha256 || blobData.byteLength !== row.bytes) {
@@ -158,6 +213,7 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
         });
       }
       const copiedPath = join(backupDir, "blobs", relativeBlob);
+      assertSafePathComponents(copiedPath, "file", "BACKUP");
       mkdirSync(join(copiedPath, ".."), { recursive: true });
       // Hash'i olculen baytlar yazilir; kaynak ikinci kez okunup degisik bayt kopyalanmaz.
       writeFileSync(copiedPath, blobData);
@@ -195,6 +251,13 @@ export function verifyBackup(backupDir: string): RestoreVerification {
     missing_blobs: [], valid: false, reason,
   });
   const dbPath = join(backupDir, "state.db");
+  try {
+    assertSafePathComponents(backupDir, "directory", "BACKUP");
+    assertSafePathComponents(dbPath, "file", "BACKUP");
+    assertSafePathComponents(join(backupDir, "blob-manifest.json"), "file", "BACKUP");
+    assertSafePathComponents(join(backupDir, "complete.json"), "file", "BACKUP");
+    assertSafePathComponents(join(backupDir, "blobs"), "directory", "BACKUP");
+  } catch { return invalid("BACKUP_UNSAFE_PATH"); }
   if (!existsSync(dbPath)) {
     return invalid("BACKUP_DB_EKSIK");
   }
@@ -268,6 +331,7 @@ export function verifyBackup(backupDir: string): RestoreVerification {
       continue;
     }
     try {
+      assertSafePathComponents(copiedPath, "file", "BACKUP");
       const data = readFileSync(copiedPath);
       if (sha256Data(data) !== blob.sha256 || data.byteLength !== blob.bytes) {
         missingBlobs.add(path);
@@ -318,23 +382,40 @@ function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: 
 export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
   targetDbPath = resolve(targetDbPath);
   targetArtifactRoot = resolve(targetArtifactRoot);
+  backupDir = resolve(backupDir);
+  assertRestoreRootsDisjoint(backupDir, targetDbPath, targetArtifactRoot);
+  assertSafePathComponents(backupDir, "directory");
+  assertSafePathComponents(join(backupDir, "state.db"), "file");
+  assertSafePathComponents(join(backupDir, "blob-manifest.json"), "file");
+  assertSafePathComponents(join(backupDir, "complete.json"), "file");
+  assertSafePathComponents(join(backupDir, "blobs"), "directory");
+  assertSafePathComponents(targetDbPath, "file");
+  assertSafePathComponents(targetArtifactRoot, "directory");
   const releaseDb = acquireRestoreDbLock(targetDbPath);
   try {
   assertRestoreReadyBeforeOpen(targetDbPath);
   const release = acquireMaintenanceLock(targetArtifactRoot, "restore");
   try {
-  const verification = verifyBackup(backupDir);
-  if (!verification.valid) {
-    throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: verification.reason ?? "BACKUP_VERIFICATION_FAILED" });
-  }
-  const manifestParsed: unknown = JSON.parse(readFileSync(join(backupDir, "blob-manifest.json"), "utf8"));
-  // verifyBackup ayni dosyayi dogruladi; TOCTOU penceresine karsi burada da tip kontrolu.
+  let manifestParsed: unknown;
+  try { manifestParsed = JSON.parse(readFileSync(join(backupDir, "blob-manifest.json"), "utf8")); }
+  catch { throw new AppError("STORAGE_ERROR", "Backup blob manifesti okunamadi", { reason_code: "BLOB_MANIFEST_BOZUK" }); }
   if (!isBackupManifest(manifestParsed)) {
     throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: "BLOB_MANIFEST_BOZUK" });
   }
   const manifest = manifestParsed;
   const backupBlobRoot = resolve(join(backupDir, "blobs"));
   const targetRoot = resolve(targetArtifactRoot);
+  for (const blob of manifest.blobs) {
+    const source = resolve(backupBlobRoot, blob.relative_path.replace(/\//g, pathSep));
+    if (!pathWithinOrEqual(backupBlobRoot, source)) {
+      throw new AppError("POLICY_VIOLATION", "Backup blob path escapes its root", { reason_code: "PATH_ESCAPE" });
+    }
+    assertSafePathComponents(source, "file");
+  }
+  const verification = verifyBackup(backupDir);
+  if (!verification.valid) {
+    throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: verification.reason ?? "BACKUP_VERIFICATION_FAILED" });
+  }
 
   // Preflight: tum hedef blob yollari, aktif DB veya mevcut blob'lar
   // degistirilmeden once cozulur ve dogrulanir.
@@ -343,6 +424,15 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     const rel = blob.relative_path.replace(/\//g, pathSep);
     const source = resolve(backupBlobRoot, rel);
     const destination = resolve(targetRoot, rel);
+    assertSafePathComponents(destination, "file");
+    if ([targetDbPath, `${targetDbPath}-wal`, `${targetDbPath}-shm`,
+      journalPathForDb(targetDbPath), `${targetDbPath}.restore.lock`,
+      join(targetRoot, ".aitest-maintenance.lock")].some((protectedPath) => relative(protectedPath, destination) === "") ||
+      destination.toLowerCase().startsWith(`${targetDbPath}.restore-`.toLowerCase())) {
+      throw new AppError("POLICY_VIOLATION", "Restore blob path collides with runtime control data", {
+        reason_code: "RESTORE_PATH_COLLISION", relative_path: blob.relative_path,
+      });
+    }
     const destinationRel = relative(targetRoot, destination);
     // PP39/PP42: capraz surucu hedefte relative() mutlak yol dondurur; isAbsolute eki zorunlu.
     if (isAbsolute(destinationRel) || destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {

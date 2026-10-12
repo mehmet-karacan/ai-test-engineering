@@ -9,11 +9,11 @@
  */
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
-import { createBackup, restoreBackup, sha256Data } from "../../src/storage/lifecycle-ops.js";
+import { createBackup, restoreBackup, verifyBackup, sha256Data } from "../../src/storage/lifecycle-ops.js";
 import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
 import { ArtifactStore } from "../../src/storage/artifact-store.js";
 import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
@@ -74,6 +74,204 @@ function makeBlob(artifactsRoot: string, text: string): BlobEntry {
 }
 
 describe("WN restore atomikligi", () => {
+  it("backup refuses a source blob junction instead of following it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-create-backup-junction-"));
+    const dbPath = join(root, "state.db");
+    const artifacts = join(root, "artifacts");
+    const db = new Database(dbPath);
+    try {
+      db.exec(SCHEMA);
+      const blob = makeBlob(artifacts, "source junction payload");
+      db.prepare("INSERT INTO artifacts VALUES ('a', NULL, ?, ?, ?, 'READY')")
+        .run(blob.relative_path, blob.sha256, blob.bytes);
+      const segment = join(artifacts, "blobs", "sha256");
+      const outside = join(root, "outside-source");
+      renameSync(segment, outside);
+      symlinkSync(outside, segment, "junction");
+      await assert.rejects(createBackup(db, dbPath, artifacts, join(root, "backups")),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "BACKUP_REPARSE_POINT");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a backup tree nested inside the target artifact root before restore mutation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-overlap-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "shared-artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(sourceArtifacts, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, sourceArtifacts),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PATH_OVERLAP");
+      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a nested junction before a blob can be written outside the artifact root", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-junction-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const blob = makeBlob(sourceArtifacts, "junction payload");
+      sourceDb.prepare("INSERT INTO artifacts VALUES ('a', NULL, ?, ?, ?, 'READY')")
+        .run(blob.relative_path, blob.sha256, blob.bytes);
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      const targetArtifacts = join(root, "runtime", "artifacts");
+      const outside = join(root, "outside");
+      mkdirSync(outside, { recursive: true });
+      mkdirSync(targetArtifacts, { recursive: true });
+      symlinkSync(outside, join(targetArtifacts, "blobs"), "junction");
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_REPARSE_POINT");
+      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+      assert.equal(existsSync(join(outside, "sha256", blob.sha256)), false);
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a junction in the backup blob tree before reading it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-backup-junction-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const blob = makeBlob(sourceArtifacts, "backup junction payload");
+      sourceDb.prepare("INSERT INTO artifacts VALUES ('a', NULL, ?, ?, ?, 'READY')")
+        .run(blob.relative_path, blob.sha256, blob.bytes);
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const backupSegment = join(saved.backup_dir, "blobs", "blobs", "sha256");
+      const outside = join(root, "outside-backup-segment");
+      renameSync(backupSegment, outside);
+      symlinkSync(outside, backupSegment, "junction");
+      assert.equal(verifyBackup(saved.backup_dir).valid, false);
+      const targetDbPath = join(root, "runtime", "state.db");
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_REPARSE_POINT");
+      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a blob destination that aliases the target DB", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-db-blob-collision-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const content = "blob at future db path";
+      const sha256 = sha256Data(content);
+      mkdirSync(sourceArtifacts, { recursive: true });
+      writeFileSync(join(sourceArtifacts, "state.db"), content);
+      sourceDb.prepare("INSERT INTO artifacts VALUES ('a', NULL, 'state.db', ?, ?, 'READY')")
+        .run(sha256, Buffer.byteLength(content));
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, dirname(targetDbPath)),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PATH_COLLISION");
+      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a manifest blob path on another drive before target mutation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-cross-drive-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const blob = makeBlob(sourceArtifacts, "cross drive payload");
+      sourceDb.prepare("INSERT INTO artifacts VALUES ('a', NULL, ?, ?, ?, 'READY')")
+        .run(blob.relative_path, blob.sha256, blob.bytes);
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const manifestPath = join(saved.backup_dir, "blob-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { blobs: Array<{ relative_path: string }> };
+      const otherDrive = root[0]?.toUpperCase() === "C" ? "D" : "C";
+      manifest.blobs[0]!.relative_path = `${otherDrive}:\\outside\\blob`;
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const targetDbPath = join(root, "runtime", "state.db");
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "PATH_ESCAPE");
+      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a file used as a blob parent before the journal starts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-parent-file-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const blob = makeBlob(sourceArtifacts, "parent file payload");
+      sourceDb.prepare("INSERT INTO artifacts VALUES ('a', NULL, ?, ?, ?, 'READY')")
+        .run(blob.relative_path, blob.sha256, blob.bytes);
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      const targetArtifacts = join(root, "runtime", "artifacts");
+      mkdirSync(targetArtifacts, { recursive: true });
+      writeFileSync(join(targetArtifacts, "blobs"), "keep me");
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PARENT_NOT_DIRECTORY");
+      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+      assert.equal(readFileSync(join(targetArtifacts, "blobs"), "utf8"), "keep me");
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("DB owner lock blocks restore before journal or active DB changes", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-db-owner-"));
     let sourceDb: Database.Database | undefined;
