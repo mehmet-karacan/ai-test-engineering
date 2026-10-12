@@ -2,6 +2,13 @@
 
 ## Son durum
 
+- Qwen devam oturumu (2026-10-12, branch `codex/qwen-prod005-remaining`, HEAD `ffdf8df`): P07-B wire blocker + P08 final2 store gercek runtime kanitlari eklendi.
+  - Uncommitted degisiklikler korunup dogrulandi: `src/storage/lifecycle-ops.ts` ESM static `import Database from "better-sqlite3"` duzeltmesi + `tests/integration/p07b-dispatch-egress.test.ts` P07-B wire blocker testi.
+  - P07-B wire blocker: gercek stdio-entry + Docker; provisioning ACIK + izinli mirror DOLU, egress enforcement mekanizmasi yok iken fail-closed typed `BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE` (FAILED) **1/1 PASS** (sahte COMPLETED/PASS yok).
+  - P08 final2 store (`C:\Users\mkaracan\AppData\Local\Temp\opencode\p08-chain-final2`): verify **exit 0**, chain (v4->v7 migration + trusted veri korunumu + quiesce gate + online backup/restore/rollback) **`CHAIN_ALL_OK=true` exit 0**, uninstall **exit 0** (OpenCode kaydi kaldirildi, runtime DB/blob/config korundu, dist kaldirildi), build **exit 0**. Eski p08-chain processleri yok.
+  - Odak: 4 dosya **22/22 PASS** (p07b-dispatch-egress + fin11-lifecycle-ops + p08-upgrade-restore + p04-isolation-policy); typecheck/build/lint **0 error** (lint 90 warning, hepsi mevcut).
+  - Checkpoint: `ai/checkpoints/2026-10-12-production-005-p07b-p08-remaining.md`.
+  - Kalan: P07-B customer dispatcher COMPLETED/export (egress enforcement mekanizmasi yok -> typed blocker); P08 gercek binary surum-atlayi upgrade/rollback e2e + macOS; P10 evidence manifest/release karari.
 - GLM runtime denetimi (2026-10-12, branch `codex/glm-prod005-runtime`, HEAD `4140d9ba`): P02/P03 odak 7 dosya **63/63 PASS** yeniden dogrulandi; build exit 0; Docker 29.8.2 **linux/amd64** dogrulandi. PP08: probe container `docker stop` sonrasi `STATUS=exited, EXITCODE=137` (gercek stop/inspect kaniti). PP09: Linux container'da `uname -s=Linux` + `node -e process.exit(3)` -> exit 3 yakalandi; host spawn ENOENT event'i gozlendi. Yeni uygulanabilir kod/harness acigi yok; kod degisikligi yapilmadi. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-runtime-glm.md`. Kalan: iki-process TTL harness, tam Linux spawn-failure harness, gercek hard-kill live kaniti NOT_RUN.
 - Ikinci GLM oturumu (2026-10-12, HEAD `5c07c7c` checkpoint commit'i uzerinde): odak 63/63 PASS yeniden dogrulandi (33.03 sn); Docker Server 29.8.2; PP08 `--network none` probe `iso-ok`, owned-container stop probe `Exited (137)` (probe `docker rm` ile temizlendi). Yeni kod/harness acigi yok; ikinci oturum kaydi ayni checkpoint dosyasina eklendi.
 
