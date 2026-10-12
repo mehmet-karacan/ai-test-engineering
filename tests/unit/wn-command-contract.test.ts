@@ -32,6 +32,9 @@ describe("S02 native Maven command contract", () => {
 
   it("rejects unapproved goals and unsupported platforms", () => {
     expect(() => buildNativeMavenArgv({ goals: ["deploy"] })).toThrow();
+    expect(buildNativeMavenArgv({ goals: ["-pl", "module-a,module-b", "-am", "test"] }).slice(0, 4))
+      .toEqual(["-pl", "module-a,module-b", "-am", "test"]);
+    expect(() => buildNativeMavenArgv({ goals: ["-pl", "../escape", "-am", "test"] })).toThrow();
     expect(() => NativeToolchainResolver.resolve({ cwd: ".", env: {}, platform: "linux" })).toThrow();
   });
 
@@ -66,6 +69,8 @@ describe("S02 native Maven command contract", () => {
       const fourth = NativeToolchainResolver.resolve({ ...base, profiles: ["coverage"] });
       expect(fourth.identity).not.toBe(third.identity);
       expect(JSON.stringify(fourth)).not.toContain("SECRET_SENTINEL");
+      expect(buildNativeMavenArgv({ goals: ["test"], settingsPath: settings, toolchainsPath: toolchains }))
+        .toEqual(["test", "-s", settings, "-t", toolchains, "-B", "-ntp"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -13,6 +13,8 @@ export interface NativeMavenArguments {
   goals: string[];
   profiles?: string[];
   properties?: Record<string, string>;
+  settingsPath?: string;
+  toolchainsPath?: string;
 }
 
 export interface NativeToolchainOptions {
@@ -40,7 +42,19 @@ function validCmdValue(value: string, label: string): void {
 }
 
 export function buildNativeMavenArgv(input: NativeMavenArguments): string[] {
-  if (input.goals.length === 0 || input.goals.some((goal) => !ALLOWED_GOALS.has(goal))) {
+  const scoped = input.goals[0] === "-pl";
+  let goals = input.goals;
+  if (scoped) {
+    const modules = input.goals[1] ?? "";
+    validCmdValue(modules, "Maven module list");
+    if (input.goals[2] !== "-am" || modules.split(",").some((part) =>
+      part.length === 0 || part.startsWith("-") || part.startsWith("/") || part.includes("\\") ||
+      part.includes(":") || part.split("/").some((segment) => segment === "." || segment === ".."))) {
+      throw new AppError("INVALID_PARAMETERS", "Invalid scoped Maven module list");
+    }
+    goals = input.goals.slice(3);
+  }
+  if (goals.length === 0 || goals.some((goal) => !ALLOWED_GOALS.has(goal))) {
     throw new AppError("INVALID_PARAMETERS", "Maven goal is outside the approved pilot set");
   }
   const argv = [...input.goals];
@@ -56,6 +70,15 @@ export function buildNativeMavenArgv(input: NativeMavenArguments): string[] {
     }
     validCmdValue(value, `Maven property ${key}`);
     argv.push(`-D${key}=${value}`);
+  }
+  for (const [flag, path] of [["-s", input.settingsPath], ["-t", input.toolchainsPath]] as const) {
+    if (path === undefined) continue;
+    if (!isAbsolute(path)) throw new AppError("INVALID_PARAMETERS", "Maven config path must be absolute");
+    validCmdValue(path, "Maven config path");
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      throw new AppError("INVALID_PARAMETERS", "Maven config file does not exist");
+    }
+    argv.push(flag, path);
   }
   argv.push("-B", "-ntp");
   return argv;
