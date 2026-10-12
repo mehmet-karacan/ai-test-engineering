@@ -22,6 +22,7 @@ export function loadConfig(configPath?: string): AppConfig {
       cause: String(error),
     });
   }
+  assertNoLegacyRunnerField(raw);
   const parsed = AppConfigSchema.safeParse(raw);
   if (!parsed.success) {
     throw new AppError("INVALID_PARAMETERS", `Config schema dogrulamasi basarisiz: ${effectivePath}`, {
@@ -58,6 +59,7 @@ export function defaultConfigPath(): string {
 }
 
 export function saveConfig(config: AppConfig, configPath: string): void {
+  assertNoLegacyRunnerField(config);
   const parsed = AppConfigSchema.safeParse(config);
   if (!parsed.success) {
     throw new AppError("INVALID_PARAMETERS", "Kaydedilecek config schema dogrulamasi basarisiz", {
@@ -70,4 +72,13 @@ export function saveConfig(config: AppConfig, configPath: string): void {
   }
   mkdirSync(dirname(absPath), { recursive: true });
   writeFileSync(absPath, JSON.stringify(parsed.data, null, 2) + "\n", "utf8");
+}
+
+function assertNoLegacyRunnerField(raw: unknown): void {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+  if (["runner", "runner_kind", "runnerKind"].some((key) => Object.hasOwn(raw, key))) {
+    throw new AppError("INVALID_PARAMETERS", "Legacy runner config requires explicit migration/revision", {
+      reason_code: "LEGACY_RUNNER_MIGRATION_REQUIRED",
+    });
+  }
 }

@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { DockerRunner, DEFAULT_MAVEN_IMAGE, type DockerPreflightResult, type RunnerCapabilityProbe } from "./docker-runner.js";
 import { MavenRunner, type RunResult, type MavenRunOptions } from "./maven-runner.js";
+import { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolchain, type NativeToolchainOptions, type VerifiedNativeToolchainPlan } from "./native-toolchain.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 
@@ -38,6 +39,15 @@ export class CustomerRunnerFactory {
     throw new AppError("BLOCKED_ISOLATION", "Windows native process ownership is not verified", {
       reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED",
     });
+  }
+
+  /** Once ownership is proven, this preflight binds executable/config bytes
+   * and actual Maven/Java versions to one typed identity before baseline. */
+  async prepareNativeCustomerToolchain(options: NativeToolchainOptions): Promise<VerifiedNativeToolchainPlan> {
+    this.assertNativeCustomerReady();
+    const env = effectiveMavenEnvironment(options.env);
+    const selected = NativeToolchainResolver.resolve({ ...options, env });
+    return verifyNativeToolchain(selected, env);
   }
 
   /**

@@ -125,6 +125,14 @@ export class JobRepository {
       .all(...locationIds);
   }
 
+  findLatestJobByLocations(locationIds: string[]): JobRow | null {
+    if (locationIds.length === 0) return null;
+    const placeholders = locationIds.map(() => "?").join(", ");
+    return this.db.prepare<string[], JobRow>(
+      `SELECT * FROM test_jobs WHERE location_id IN (${placeholders}) ORDER BY created_at DESC, id DESC LIMIT 1`,
+    ).get(...locationIds) ?? null;
+  }
+
   updateLifecycle(id: string, lifecycle: Lifecycle, expectedRowVersion: number): JobRow {
     if (!LIFECYCLE_VALUES.includes(lifecycle)) {
       throw new AppError("INVALID_PARAMETERS", `Gecersiz lifecycle: ${String(lifecycle)}`);

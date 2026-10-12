@@ -12,6 +12,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createDefaultServicesForTest, handleTestStart } from "../../src/application/services.js";
 import { handleTestResume } from "../../src/application/job-tools.js";
 import { JobDispatcher, type GoalContract } from "../../src/orchestration/job-dispatcher.js";
+import { CustomerRunnerFactory } from "../../src/runners/runner-factory.js";
 import type { Services } from "../../src/application/services.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
@@ -103,6 +104,7 @@ describe("P05-B resume zinciri", () => {
       resumedGoal = goal;
       return { job_id: goal.job_id, phases_completed: ["resume_dispatch_boundary"], final_outcome: "TEST_ONLY_STUB", best_coverage: null, error: null };
     });
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
 
     const result = await handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services);
     for (let i = 0; i < 20 && resumedGoal === null; i++) {
@@ -161,5 +163,17 @@ describe("P05-B resume zinciri", () => {
       .rejects.toMatchObject({ code: "POLICY_VIOLATION", details: { reason_code: "RUNNER_CONTRACT_CONFLICT" } });
     expect(prepared.services.jobs!.getJob(prepared.jobId).lifecycle).toBe(jobBefore.lifecycle);
     expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it("native process ownership eksikse resume lifecycle RUNNING olmaz", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => {
+      prepared.services.storage?.close();
+      rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true });
+    });
+    const before = prepared.services.jobs!.getJob(prepared.jobId).lifecycle;
+    await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
+      .rejects.toMatchObject({ details: { reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED" } });
+    expect(prepared.services.jobs!.getJob(prepared.jobId).lifecycle).toBe(before);
   });
 });

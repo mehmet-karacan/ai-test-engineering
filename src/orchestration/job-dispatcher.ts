@@ -225,10 +225,18 @@ export class JobDispatcher {
       let dockerRunner: DockerRunner | undefined;
       let dockerImage: string | undefined;
       let hostRunner: MavenRunner | undefined;
+      let nativeToolchainIdentity: string | null = null;
       if (this.runnerKind === "windows_native") {
         // Native process tree ownership and hard-kill recovery must be proven
         // before a customer Maven process can be launched.
-        runnerFactory.assertNativeCustomerReady();
+        const toolchain = await runnerFactory.prepareNativeCustomerToolchain({ cwd: projectRoot, env: process.env });
+        nativeToolchainIdentity = toolchain.identity;
+        jobs.appendEvent({
+          job_id: job.id,
+          event_type: "native_toolchain_verified",
+          phase: "preflight",
+          origin: "JobDispatcher",
+        });
       } else if (this.runnerKind === "docker") {
         // P04/PR04: ensureVerified preflight + tam capability probe calistirir;
         // probe basarisizsa BLOCKED_ISOLATION ile job fail-closed (host fallback yok).
@@ -556,7 +564,7 @@ export class JobDispatcher {
               build_digest: sourceIdentity.build_digest,
               policy_digest: goal.model_profile ? null : job.policy_digest,
               parser_version: "statik-tarama-1",
-              toolchain: { node: process.version },
+              toolchain: { node: process.version, ...(nativeToolchainIdentity ? { native_maven: nativeToolchainIdentity } : {}) },
               accepted_changes: info.files.map((f) => ({ path: f.path, sha256: f.sha256, action: f.action })),
               parent_checkpoint_id: checkpoints.bestCheckpoint(job.id),
               baseline_run_id: baselineRunId,
