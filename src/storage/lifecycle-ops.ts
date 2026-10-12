@@ -8,6 +8,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, renameSync } from "node:fs";
 import { join, relative, resolve, sep as pathSep } from "node:path";
+import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 
@@ -132,7 +133,6 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   }
 
   // integrity + schema check (ayri baglanti):
-  const Database = require("better-sqlite3") as typeof import("better-sqlite3");
   const checkDb = new Database(dbPath, { readonly: true });
   let integrityOk = false;
   let schemaOk = false;
