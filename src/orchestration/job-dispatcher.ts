@@ -17,7 +17,7 @@ import { RecoveryManager } from "./recovery-manager.js";
 import { SourceSnapshot, computeSourceIdentity, type SourceIdentity, type SnapshotManifest } from "../discovery/source-snapshot.js";
 import type { JobContract } from "../domain/job-contract.js";
 import { CandidateLoop, readCoverageAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult, type CandidateGenerationFeedback } from "./candidate-loop.js";
-import { runBaseline, summarizeTestReports, type BaselineResult } from "./build-plan.js";
+import { compareTestInventory, runBaseline, summarizeTestReports, type BaselineResult } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner } from "../runners/maven-runner.js";
@@ -644,13 +644,20 @@ export class JobDispatcher {
         finished_at: finalReplay.finished_at,
       });
       const finalReports = summarizeTestReports(finalReplay.workspace, [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))]);
+      const finalInventoryRegression = compareTestInventory(
+        baselineEvidence?.test_inventory ?? [],
+        finalReplay.test_inventory,
+        [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))],
+      );
       const replaySucceeded = finalReplay.run.exit_code === 0
         && !finalReplay.run.timed_out
         && finalReports.malformed_reports.length === 0
         && finalReports.total_tests > 0
         && finalReports.failures === 0
         && finalReports.errors === 0
-        && finalReports.skipped < finalReports.total_tests;
+        && finalReports.skipped < finalReports.total_tests
+        && finalInventoryRegression.missing_tests.length === 0
+        && finalInventoryRegression.newly_skipped_tests.length === 0;
       const finalCoverage = replaySucceeded
         ? finalReplay.coverage
         : new Map<string, ReturnType<typeof import("./candidate-loop.js").readCoverageAfterRun>>();

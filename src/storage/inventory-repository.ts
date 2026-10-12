@@ -32,7 +32,7 @@ export class InventoryRepository {
     stderr_log_path: string;
     exit_code: number;
     timed_out: boolean;
-    test_inventory: Array<{ name: string; tests: number; failures: number; errors: number; skipped: number; failed_test_names: string[] }>;
+    test_inventory: Array<{ module_relative_path: string; name: string; tests: number; failures: number; errors: number; skipped: number; test_names: string[]; skipped_test_names: string[]; failed_test_names: string[] }>;
     coverage_report_path: string;
     coverage_report_sha256: string | null;
     started_at: number;

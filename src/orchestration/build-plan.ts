@@ -145,11 +145,14 @@ const surefireParser = new XMLParser({
 });
 
 export interface SurefireSuite {
+  module_relative_path: string;
   name: string;
   tests: number;
   failures: number;
   errors: number;
   skipped: number;
+  test_names: string[];
+  skipped_test_names: string[];
   failed_test_names: string[];
 }
 
@@ -169,18 +172,28 @@ function parseTestReportDirectory(projectRoot: string, moduleRelativePath: strin
       const suiteList = Array.isArray(suitesRaw) ? suitesRaw as Array<Record<string, unknown>> : suitesRaw ? [suitesRaw as Record<string, unknown>] : [];
       for (const suiteRaw of suiteList) {
         const testcases = Array.isArray(suiteRaw["testcase"]) ? suiteRaw["testcase"] as Array<Record<string, unknown>> : suiteRaw["testcase"] ? [suiteRaw["testcase"] as Record<string, unknown>] : [];
+        const testNames: string[] = [];
+        const skippedNames: string[] = [];
         const failedNames: string[] = [];
         for (const tc of testcases) {
+          const testName = `${String(tc["@_classname"] ?? "")}#${String(tc["@_name"] ?? "")}`;
+          testNames.push(testName);
+          if (tc["skipped"]) {
+            skippedNames.push(testName);
+          }
           if (tc["failure"] || tc["error"]) {
-            failedNames.push(`${String(tc["@_classname"] ?? "")}#${String(tc["@_name"] ?? "")}`);
+            failedNames.push(testName);
           }
         }
         suites.push({
+          module_relative_path: moduleRelativePath,
           name: String(suiteRaw["@_name"] ?? name),
           tests: Number.parseInt(String(suiteRaw["@_tests"] ?? "0"), 10) || 0,
           failures: Number.parseInt(String(suiteRaw["@_failures"] ?? "0"), 10) || 0,
           errors: Number.parseInt(String(suiteRaw["@_errors"] ?? "0"), 10) || 0,
           skipped: Number.parseInt(String(suiteRaw["@_skipped"] ?? "0"), 10) || 0,
+          test_names: testNames,
+          skipped_test_names: skippedNames,
           failed_test_names: failedNames,
         });
       }
@@ -208,6 +221,27 @@ export interface TestReportSummary {
   skipped: number;
   failed_tests: string[];
   malformed_reports: string[];
+}
+
+export interface TestInventoryRegression {
+  missing_tests: string[];
+  newly_skipped_tests: string[];
+}
+
+/** P06/PP31: baseline test kimligi kaybolur veya yeni skip olursa final gecmez. */
+export function compareTestInventory(baseline: SurefireSuite[], current: SurefireSuite[], moduleRelativePaths?: string[]): TestInventoryRegression {
+  const scope = moduleRelativePaths === undefined ? null : new Set(moduleRelativePaths);
+  const select = (suites: SurefireSuite[]): SurefireSuite[] => scope === null ? suites : suites.filter((suite) => scope.has(suite.module_relative_path));
+  const baselineSuites = select(baseline);
+  const currentSuites = select(current);
+  const baselineNames = new Set(baselineSuites.flatMap((suite) => suite.test_names));
+  const currentNames = new Set(currentSuites.flatMap((suite) => suite.test_names));
+  const baselineSkipped = new Set(baselineSuites.flatMap((suite) => suite.skipped_test_names));
+  const currentSkipped = new Set(currentSuites.flatMap((suite) => suite.skipped_test_names));
+  return {
+    missing_tests: [...baselineNames].filter((name) => !currentNames.has(name)).sort(),
+    newly_skipped_tests: [...currentSkipped].filter((name) => !baselineSkipped.has(name)).sort(),
+  };
 }
 
 export function summarizeTestReports(projectRoot: string, moduleRelativePaths: string[]): TestReportSummary {

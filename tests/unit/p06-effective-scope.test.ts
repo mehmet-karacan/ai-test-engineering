@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { assertCoverageConfigured, buildPlan } from "../../src/orchestration/build-plan.js";
+import { assertCoverageConfigured, buildPlan, compareTestInventory, type SurefireSuite } from "../../src/orchestration/build-plan.js";
 import { AppError } from "../../src/domain/errors.js";
 import { readCoverageAfterRun } from "../../src/orchestration/candidate-loop.js";
 
@@ -77,5 +77,26 @@ describe("P06-B2 effective Maven affected-module scope", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
+  });
+
+  it("baseline test kimligi kaybi ve yeni skip final replay'i gecirmez", () => {
+    const suite = (test_names: string[], skipped_test_names: string[] = []): SurefireSuite => ({
+      module_relative_path: "app",
+      name: "AppTest",
+      tests: test_names.length,
+      failures: 0,
+      errors: 0,
+      skipped: skipped_test_names.length,
+      test_names,
+      skipped_test_names,
+      failed_test_names: [],
+    });
+    const result = compareTestInventory(
+      [suite(["AppTest#kept", "AppTest#removed"])],
+      [suite(["AppTest#kept", "AppTest#new"], ["AppTest#new"])],
+      ["app"],
+    );
+    expect(result.missing_tests).toEqual(["AppTest#removed"]);
+    expect(result.newly_skipped_tests).toEqual(["AppTest#new"]);
   });
 });

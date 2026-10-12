@@ -116,7 +116,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
       stderr_log_path: "C:/store/job/baseline/stderr.log",
       exit_code: 0,
       timed_out: false,
-      test_inventory: [{ name: "CalcTest", tests: 2, failures: 0, errors: 0, skipped: 0, failed_test_names: [] }],
+      test_inventory: [{ module_relative_path: "", name: "CalcTest", tests: 2, failures: 0, errors: 0, skipped: 0, test_names: ["CalcTest#one", "CalcTest#two"], skipped_test_names: [], failed_test_names: [] }],
       coverage_report_path: "C:/store/job/baseline/jacoco.xml",
       coverage_report_sha256: "a".repeat(64),
       started_at: 1000,
