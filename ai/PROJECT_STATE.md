@@ -3,10 +3,11 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P06 ve P07-A yerel olarak dogrulandi; P02/P03 audit, P07/P08 test kapsami ve P09 tam regresyonu main'e alindi; P07-B wire blocker + P08 final2 store (verify/chain/uninstall) gercek runtime kanitlari eklendi; P09/P10 kapanis suruyor
-- Durum etiketi: `005_P08_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
+- Asama: P00-P06 ve P07-A yerel olarak dogrulandi; P02/P03 audit, P07/P08 test kapsami, P09 release verifier provenance ve P10 kapanis kanitlari main'e alindi; P07-B/P08 runtime blocker'lari ve P10 canli/platform eksikleri suruyor
+- Durum etiketi: `005_P07B_P08_P10_BLOCKED` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12 (GLM kalan P02/P03 runtime kanitlari: PP07 iki-process PASS, PP08 owned container stop/inspect 137 + cancel gec sonuc korumasi PASS, PP09 Linux taskkill-yok/exit3 + stop/inspect PASS, PP14 taskkill hard-kill sonrasi trusted state + WAL recovery 3/3 PASS; odak 63/63, typecheck/build/lint PASS; kod degisikligi YOK)
 - Son guncelleme: 2026-10-12 (GLM P02/P03-P04 runtime denetimi: odak 63/63 PASS, Docker Linux PP08/PP09; Qwen P07-B/P08 gercek runtime kanitlari: PP37 browser 4/4, PP41/PP42/PP44 e2e, PP43 Docker probe, odak 176/176; Qwen final2 store: P07-B wire blocker 1/1, P08 verify/chain/uninstall exit 0 + CHAIN_ALL_OK=true, odak 22/22, typecheck/build/lint 0 error)
+- Son guncelleme: 2026-10-12 (GLM `297607f` ve Qwen `7b3b00d` main'e alindi; P09 release verifier build-stamp/digest provenance ve fail-closed kapilari eklendi; P01 40/40 PASS, ana dal odak 15 dosya/87 test PASS, Qwen tam suite 638 PASS/2 AC67 ortam FAIL; typecheck/build/lint PASS; full gate NO_GO korunuyor)
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
 
 ## 004 paketleri durumu (W00-W11)
@@ -31,7 +32,7 @@
 | Paket | Is | Durum | Kanit |
 | --- | --- | --- | --- |
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
-| P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
+| P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md + production-005-qwen-next; P01 40/40 |
 | P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | RUNTIME_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md + pr02-pr03-audit + p02-p03-glm-audit + p02p03-runtime-glm + p02p03-remaining-runtime-kanit; odak 63/63 PASS; **PP07 iki gercek child process LEASE_HELD ret + TTL ustu LEASE_LOST + monoton token 1->2 PASS; PP08 owned container docker stop/inspect EXITCODE=137 + cancel gec sonuc korumasi PASS; PP09 Linux taskkill-yok/exit3 + stop/inspect 137 PASS; PP14 taskkill hard-kill sonrasi trusted state + WAL recovery 3/3 PASS** |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | RUNTIME_VERIFIED (live MCP resume akisi NOT_RUN) | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md + pr02-pr03-audit + p02-p03-glm-audit + p02p03-runtime-glm + p02p03-remaining-runtime-kanit; odak 63/63 PASS; **PP14 hard-kill 3/3 PASS (taskkill sonrasi trusted state + WAL recovery + tmp READY sizmasi yok)** |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri ve egress fail-closed | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md + pr04-pr06-audit; Docker isolation/capability 11/11, P04 runtime 13/13, egress allowlist enforcement yoksa typed blocker |
@@ -43,7 +44,7 @@
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces + p07b-browser-e2e + p07b-dispatch-egress (YENI); PP37 gercek browser DOM/print/offline/link 4/4 PASS; gercek MCP customer dispatcher Docker egress wire fail-closed typed blocker 1/1 PASS (COMPLETED/export henuz NOT_RUN) |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths + p08-upgrade-restore + w09 PP43 + PP41/PP42/PP44 gercek e2e; final2 store (YENI) verify/chain/uninstall exit 0 + CHAIN_ALL_OK=true (v4->v7 + quiesce + backup/restore/rollback); PP41 install/verify/uninstall exit 0, PP42 gercek Docker-linux path, PP43 gercek Docker probe 4/4, PP44 uninstall e2e + yerel 15/15; gercek binary surum-atlayi upgrade/rollback ve macOS NOT_RUN |
-| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | coordinator final checkpoint; 70 dosya, 620/620 PASS, lint 0 error/89 warning, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
+| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | production-005-coordinator-next + qwen-next; P01 40/40, tam suite 638 PASS/2 AC67 ortam FAIL, ana dal odak 87/87, lint 0 error/89 warning, typecheck/build PASS; local gate PASS, full gate NO_GO |
 | P10 | Teknik devir ve yayin karari | IN_PROGRESS | coordinator final checkpoint; evidence manifest, platform/live kanitleri eksik; production GO verilmedi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
@@ -71,13 +72,14 @@
 - TypeScript: 56 dosya, **473/473 PASSED** (unit + integration + contract + security + benchmark; son tam kosu)
 - lint: **0 errors** (son kosuda 88 warning); typecheck: TEMIZ; build: TEMIZ
 - release-verify.mjs: exit 0 (referans hash kontrolu dahil; son coordinator kosusu)
-- Guncel P09 regresyonu: **70 dosya, 620/620 PASSED**, `npm.cmd test -- --run`, 123.32 sn; lint 0 error / 89 warning, typecheck ve build PASS.
+- Guncel P09 regresyonu: Qwen worktree tam kosusu **72 dosya, 638 PASS/2 AC67 ortam FAIL**; iki test `tmp/pilot-stdout.txt` eksikligi nedeniyle ortam kaynakli FAIL (canli pilot PAUSED_BY_USER). Ana dal birlesik odak kosusu **15 dosya, 87/87 PASS**; P01 release-gate **40/40 PASS**. Lint 0 error / 89 warning, typecheck ve build PASS.
 - Guncel P04-P06 runtime: Docker isolation/capability 11/11, P04 runtime 13/13, Maven/effective-scope/baseline 29/29, P05 resume/target 13/13 PASS.
 - P02/P03 GLM audit ve P07/P08 Qwen auditleri main'e alindi: odak testleri sirasiyla 63/63 ve 101/101; entegre odak suite 18 dosya 159/159 PASS. P07/P08'te yeni uygulanabilir kod acigi bulunmadi; 22 yeni yerel test eklendi.
 - Tam suite kaniti: 70 dosya, 620/620 PASS, log SHA256 `CAF060D07B36F3EEE616BAA45DB094E2073D1484B3E9862FE9E47C5DFD1A961D`, log repo disinda `C:\Users\mkaracan\AppData\Local\Temp\aitest-production-005-final-suite.log`.
 - P07-B/P08 gercek runtime kanitlari (2026-10-12, Qwen): PP37 gercek browser (Edge 155) DOM/print/offline/link e2e 4/4 PASS (`tests/integration/p07b-browser-e2e.test.ts`); PP41 gercek Windows CMD install/verify/uninstall izole store exit 0; PP42 gercek Docker-linux path (default + XDG) probe; PP43 fin02 gercek Docker capability probe 4/4 PASS; odak 18 dosya 176/176 + typecheck/build PASS, lint 0 error/90 warning. Gercek binary upgrade/rollback + customer dispatcher Docker egress henuz NOT_RUN. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p07b-p08-runtime-kanit.md`.
 - P02/P03 kalan runtime kanitlari (2026-10-12, GLM, branch `codex/glm-prod005-remaining`, taban ffdf8df): PP07 iki gercek child process + WAL DB: B LEASE_HELD ret (exit 2), A TTL ustu LEASE_LOST (exit 2), B monoton token 1->2 devralma (exit 0); log SHA256 `1e1fba2e11ada359089203eede9232db75ba5d0a77cb7709640955fdeced393c` (repo disi gecici). PP08 gercek docker stop/inspect: probe container `STATUS=exited EXITCODE=137` + fin07 cancel gec sonuc korumasi. PP09 Linux container: `TASKKILL_NOT_FOUND`, `uname -s=Linux`, exit 3 yakalandi, stop/inspect exited/137. PP14 taskkill /F hard-kill sonrasi onceki trusted state + WAL recovery + tmp READY sizmasi yok: 3/3 PASS. Odak 63/63, typecheck/build/lint PASS (0 error/90 warning). Urun kodu degisikligi YOK. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.
 - P07-B/P08 final2 store kanitlari (2026-10-12, Qwen): P07-B wire blocker (`tests/integration/p07b-dispatch-egress.test.ts`) Docker egress enforcement yok iken fail-closed typed `BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE` 1/1 PASS; P08 final2 store (`C:\Users\mkaracan\AppData\Local\Temp\opencode\p08-chain-final2`) verify exit 0 + chain v4->v7/quiesce/backup/restore `CHAIN_ALL_OK=true` exit 0 + uninstall exit 0 (OpenCode kaydi kaldirildi, runtime DB/blob/config korundu, dist kaldirildi) + build exit 0; odak 4 dosya 22/22 PASS, typecheck/build/lint 0 error. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p07b-p08-remaining.md`.
+- P09/P10 coordinator kapanis (2026-10-12): Qwen `7b3b00d` release verifier'da mtime yerine `dist/build-stamp.json` digest zinciri, catalog-derived evidence levels, `run.exit_code == 0` fail-closed ve `ai/acceptance` kaynak digest'i eklendi; P01 40/40, local gate exit 0, full gate exit 1 `EVIDENCE_MANIFEST_EKSIK`. GLM `297607f` P07-B non-zero facts/Report06 ve P08 version-skip migration/rollback testlerini ekledi. Main'e cherry-pick commitleri `6ff4337` ve `9ec01cc` ile alindi. Checkpoint: `ai/checkpoints/2026-10-12-production-005-coordinator-next.md`.
 
 ## FIN paketleri durumu (onceki gorev 003 v2.0; tarihsel kayit)
 
@@ -105,6 +107,6 @@
 ## Sonraki somut is
 
 - Kalan ana kapanis paketi: **4** (`P07-B`, `P08`, `P09`, `P10`). P09 yerel olarak kapali; release/evidence reconciliation nedeniyle kapanis listesinde tutuluyor.
-- Sonraki somut is: Docker egress enforcement (network policy/proxy) saglaninca P07-B customer dispatcher COMPLETED + Report06 export runtime kosusu; P08 gercek binary surum-atlayi upgrade/rollback e2e + macOS; P10 evidence manifest + handoff/release karari.
+- Sonraki somut is: Docker egress enforcement (network policy/proxy) saglaninca P07-B customer dispatcher COMPLETED + Report06 export runtime kosusu; P08 gercek binary surum-atlayi upgrade/rollback e2e + macOS; P10 gercek evidence manifest + platform/live kanitlari ve handoff/release karari.
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

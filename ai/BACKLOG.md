@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P06 ve P07-A local olarak dogrulandi; P07-B/P08/P09/P10 kapanis paketi suruyor. Ana kalan paket sayisi: 4.
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P06 ve P07-A local olarak dogrulandi; P09 verifier/reconciliation local olarak kapali, P07-B/P08/P10 kapanis paketi suruyor. Ana kalan paket sayisi: 3 (P09 kapanis kaniti korunuyor).
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFIED; checkpoint `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.
 
@@ -28,7 +28,7 @@ P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFI
 | Paket | Is | Durum | Kanit |
 | --- | --- | --- | --- |
 | P00 | Sozlesme devri, arsiv/hash ve baseline | VERIFIED | production-005-p00-baseline |
-| P01 | Fail-closed release gate ve evidence manifest dogrulamasi | LOCAL_VERIFIED | production-005-p01-gate; 25/25 |
+| P01 | Fail-closed release gate ve evidence manifest dogrulamasi | LOCAL_VERIFIED | production-005-p01-gate + production-005-qwen-next; 40/40 |
 | P02 | Lease sahipligi, TTL/fencing, heartbeat, erken donus cleanup, owned process ve checkpoint CAS | RUNTIME_VERIFIED | production-005-p02-dispatch-cleanup + pr02-pr03-audit + p02p03-runtime-glm + p02p03-remaining-runtime-kanit; odak 63/63; **PP07 iki gercek child process PASS (LEASE_HELD ret + TTL ustu LEASE_LOST + monoton token 1->2, log sha 1e1fba2e); PP08 owned container docker stop/inspect EXITCODE=137 + cancel gec sonuc korumasi PASS; PP09 Linux taskkill-yok/exit3/stop-inspect PASS** |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | RUNTIME_VERIFIED (live MCP resume akisi NOT_RUN) | production-005-p03-checkpoint + pr02-pr03-audit + p02p03-runtime-glm + p02p03-remaining-runtime-kanit; odak 63/63; **PP14 hard-kill 3/3 PASS (taskkill /F sonrasi onceki trusted state + WAL recovery + tmp READY sizmasi yok)** |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri ve egress fail-closed | LOCAL_VERIFIED | production-005-p04-isolation + pr04-pr06-audit; Docker isolation/capability 11/11, P04 runtime 13/13; allowlist enforcement yoksa typed blocker |
@@ -40,7 +40,7 @@ P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFI
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | production-005-p07a-facts-export; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces + p07b-browser-e2e + p07b-dispatch-egress (YENI); PP37 gercek browser DOM/print/offline/link 4/4 PASS; gercek MCP customer dispatcher Docker egress wire fail-closed typed blocker 1/1 PASS (COMPLETED/export NOT_RUN) |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths + p08-upgrade-restore + w09 + PP41/PP42/PP44 gercek e2e + final2 store (YENI) verify/chain/uninstall exit 0 + CHAIN_ALL_OK=true (v4->v7/quiesce/backup/restore); PP41 install/verify/uninstall exit 0, PP42 gercek Docker-linux path, PP44 uninstall e2e + yerel 15/15; gercek binary surum-atlayi upgrade/rollback ve macOS NOT_RUN |
-| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | coordinator final checkpoint; 70 dosya, 620/620 PASS, lint 0 error/89 warning, typecheck/build PASS; full gate NO_GO evidence manifest eksik |
+| P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | production-005-coordinator-next + qwen-next; P01 40/40, tam suite 638 PASS/2 AC67 ortam FAIL, ana dal odak 87/87, lint 0 error/89 warning, typecheck/build PASS; local PASS, full NO_GO |
 | P10 | Teknik devir ve yayin karari | IN_PROGRESS | coordinator final checkpoint; evidence manifest, platform/live kanitleri eksik; production GO verilmedi |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
