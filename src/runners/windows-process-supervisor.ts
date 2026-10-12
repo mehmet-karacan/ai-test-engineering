@@ -104,21 +104,25 @@ export class WindowsProcessSupervisor {
     child.stdout?.on("data", (data: Buffer) => stdout.append(data));
     child.stderr?.on("data", (data: Buffer) => stderr.append(data));
     let reason: "timeout" | "cancelled" | undefined;
+    let exited = false;
+    child.once("exit", () => { exited = true; });
     const stop = (why: "timeout" | "cancelled"): void => {
-      if (reason || child.exitCode !== null || !child.pid) return;
+      if (reason || exited || child.exitCode !== null || !child.pid) return;
       reason = why;
       const killer = spawn(join(plan.env.SystemRoot ?? process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
         ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", shell: false });
       killer.on("error", () => { child.kill(); });
     };
-    const timer = setTimeout(() => stop("timeout"), plan.timeoutMs);
-    const onAbort = (): void => stop("cancelled");
-    signal?.addEventListener("abort", onAbort, { once: true });
-    const completion = await new Promise<{ code: number | null; errorCode?: string }>((resolveDone) => {
+    const completionPromise = new Promise<{ code: number | null; errorCode?: string }>((resolveDone) => {
       let spawnError: string | undefined;
       child.on("error", (error: NodeJS.ErrnoException) => { spawnError = error.code ?? "UNKNOWN"; });
       child.on("close", (code) => resolveDone(spawnError ? { code, errorCode: spawnError } : { code }));
     });
+    const timer = setTimeout(() => stop("timeout"), Math.max(0, plan.timeoutMs - (Date.now() - started)));
+    const onAbort = (): void => stop("cancelled");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    const completion = await completionPromise;
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
     const status = reason ?? (completion.errorCode ? "spawn_error" : completion.code === 0 ? "success" : "nonzero");

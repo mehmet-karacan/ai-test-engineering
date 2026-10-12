@@ -16,6 +16,7 @@ export interface RunResult {
   native_status?: NativeProcessResult["status"];
   stdout_truncated_bytes?: number;
   stderr_truncated_bytes?: number;
+  toolchain_identity?: string;
 }
 
 export interface MavenRunOptions {
@@ -63,18 +64,18 @@ export class MavenRunner {
     const env = effectiveEnvironment(options.env);
     const toolchain = NativeToolchainResolver.resolve({
       cwd: options.working_dir, env,
-      ...(options.executable ? { executable: options.executable } : {}),
+      ...(options.executable !== undefined ? { executable: options.executable } : {}),
       ...(options.prefer_wrapper ? { preferWrapper: true } : {}),
-      ...(options.settings_path ? { settingsPath: options.settings_path } : {}),
-      ...(options.toolchains_path ? { toolchainsPath: options.toolchains_path } : {}),
+      ...(options.settings_path !== undefined ? { settingsPath: options.settings_path } : {}),
+      ...(options.toolchains_path !== undefined ? { toolchainsPath: options.toolchains_path } : {}),
       ...(options.profiles ? { profiles: options.profiles } : {}),
     });
     const argv = buildNativeMavenArgv({
       goals: options.goals,
       ...(options.profiles ? { profiles: options.profiles } : {}),
       ...(options.properties ? { properties: options.properties } : {}),
-      ...(options.settings_path ? { settingsPath: options.settings_path } : {}),
-      ...(options.toolchains_path ? { toolchainsPath: options.toolchains_path } : {}),
+      ...(options.settings_path !== undefined ? { settingsPath: options.settings_path } : {}),
+      ...(options.toolchains_path !== undefined ? { toolchainsPath: options.toolchains_path } : {}),
     });
     const command = [toolchain.executable, ...argv];
     mkdirSync(options.log_dir, { recursive: true });
@@ -93,16 +94,25 @@ export class MavenRunner {
     }
     writeFileSync(stdoutLog, result.stdout);
     writeFileSync(stderrLog, result.stderr);
+    if (result.status !== "success" && result.status !== "nonzero") {
+      throw new AppError("BLOCKED_ISOLATION", `Native Maven ${result.status}`, {
+        reason_code: `NATIVE_MAVEN_${result.status.toUpperCase()}`,
+        stdout_log_path: stdoutLog,
+        stderr_log_path: stderrLog,
+        toolchain_identity: toolchain.identity,
+      });
+    }
     return {
       exit_code: result.exitCode ?? -1,
       duration_ms: result.durationMs,
       stdout_log_path: stdoutLog,
       stderr_log_path: stderrLog,
       command,
-      timed_out: result.status === "timeout",
+      timed_out: false,
       native_status: result.status,
       stdout_truncated_bytes: result.stdoutTruncatedBytes,
       stderr_truncated_bytes: result.stderrTruncatedBytes,
+      toolchain_identity: toolchain.identity,
     };
   }
 
