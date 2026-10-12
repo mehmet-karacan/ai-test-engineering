@@ -4,6 +4,7 @@
  * Temiz clone'da (dist yokken) calisir: config-merge bootstrap'tan ONCE import edilmez.
  */
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -28,6 +29,10 @@ function runNpm(args, cwd) {
   }
 }
 
+function sha256File(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
 export async function mainInstall() {
   step("Bolum 1: prerequisite kontrolu");
   const nodeVersion = process.version.replace("v", "");
@@ -44,6 +49,7 @@ export async function mainInstall() {
   const { resolveRuntimeRoot, resolveConfigPath } = await import("../dist/configuration/runtime-paths.js");
   appRoot = resolveRuntimeRoot();
   const configPath = resolveConfigPath();
+  let configCreatedByInstall = false;
   step("  OK: bagimliliklar kurulu, dist uretildi");
 
   step("Bolum 3: runtime dizinleri");
@@ -66,6 +72,7 @@ export async function mainInstall() {
     };
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+    configCreatedByInstall = true;
     step(`  OK: config olusturuldu (${configPath})`);
   } else {
     step("  OK: mevcut config korundu");
@@ -122,6 +129,19 @@ export async function mainInstall() {
     return 1;
   }
   step(`  OK: ${smoke.stdout.trim().split("\n").pop()}`);
+
+  // P08: uninstall yalniz install'in sahip oldugu, degistirilmemis dosyalari
+  // silebilsin. Mevcut config merge edildiyse tum dosya sahiplenilmez.
+  const installManifestPath = join(appRoot, "install-manifest.json");
+  if (!existsSync(installManifestPath)) {
+    const ownedFiles = configCreatedByInstall && existsSync(configPath)
+      ? [{ path: configPath, sha256: sha256File(configPath) }]
+      : [];
+    writeFileSync(installManifestPath, JSON.stringify({ schema_version: 1, owned_files: ownedFiles }, null, 2) + "\n", "utf8");
+    step("  OK: install manifest yazildi");
+  } else {
+    step("  OK: mevcut install manifest korundu");
+  }
 
   const persistedConfig = JSON.parse(readFileSync(configPath, "utf8"));
   const workerReady = process.env["AITEST_WORKER_ENABLED"] === "1"

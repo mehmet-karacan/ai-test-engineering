@@ -5,28 +5,23 @@
 import { existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { removeConfigRecord } from "../dist/configuration/config-merge.js";
+import { resolveOpenCodeConfigPath, resolveRuntimeRoot } from "../dist/configuration/runtime-paths.js";
+import { ownedUninstall } from "../dist/storage/lifecycle-ops.js";
 
 const repoRoot = resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 
-function resolveAppRoot() {
-  if (process.platform === "win32") {
-    const localAppData = process.env["LOCALAPPDATA"];
-    if (localAppData) return join(localAppData, "ai-test-engineering");
-  } else {
-    const xdg = process.env["XDG_DATA_HOME"];
-    if (xdg) return join(xdg, "ai-test-engineering");
-    const home = process.env["HOME"];
-    if (home) return join(home, ".local", "share", "ai-test-engineering");
-  }
-  return null;
-}
-
 function main() {
   console.log("[uninstall] Bolum 1: OpenCode MCP girdisi (sadece ai-test-engineering)");
-  const home = process.env["USERPROFILE"] ?? process.env["HOME"];
-  const opencodeConfigPath = join(home ?? "", ".config", "opencode", "opencode.json");
-  const appRoot = resolveAppRoot();
+  const opencodeConfigPath = resolveOpenCodeConfigPath();
+  const appRoot = resolveRuntimeRoot();
   const backupDir = appRoot ? join(appRoot, "backups") : undefined;
+
+  const installManifestPath = appRoot ? join(appRoot, "install-manifest.json") : null;
+  if (installManifestPath && existsSync(installManifestPath)) {
+    const owned = ownedUninstall(installManifestPath);
+    for (const removed of owned.removed) console.log(`  OK: sahip olunan dosya kaldirildi: ${removed.path}`);
+    for (const preserved of owned.preserved) console.log(`  UYARI: dosya korundu: ${preserved.path} (${preserved.reason})`);
+  }
 
   if (existsSync(opencodeConfigPath)) {
     try {

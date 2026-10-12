@@ -19,8 +19,10 @@
 - `npm.cmd test -- --run tests/unit/fin11-lifecycle-ops.test.ts`: 1 dosya, 6/6 PASS.
 - `npm.cmd run typecheck`: PASS.
 - P08 sonrasi tam regresyon: `npm.cmd test` 66 dosya, 588/588 PASS; `npm.cmd run build` PASS.
+- Install/uninstall kod baglantisi: install ilk kurulumda hash tabanli `install-manifest.json` yazar; uninstall ortak runtime-path resolver ve `ownedUninstall` kullanir.
+- `npm.cmd test -- --run tests/unit/w09-install.test.ts`: 7/7 PASS; `npm.cmd run typecheck`, `npm.cmd run build`, `npm.cmd run lint` PASS (90 warning, 0 error).
 
 ## Kalan
 
-- Install script'in gercek install-manifest/upgrade rollback baglantisi ve gercek Windows temiz install/uninstall e2e kaniti ayridir.
+- Gercek Windows temiz install/uninstall e2e ve upgrade rollback uygulamasi halen ayridir; test bu turda kod sozlesmesi/static entry kanitidir.
 - Aktif DB uzerinde restore cagrisini durduran quiesce/operasyon akisi ve Docker runtime kaniti halen gereklidir.

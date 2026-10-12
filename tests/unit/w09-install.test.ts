@@ -35,6 +35,9 @@ describe("W09/N61: PS1'siz temiz kurulum", () => {
     expect(verifier).toContain("runtime-paths.js");
     expect(verifier).toContain("AITEST_CONFIG");
     expect(verifier).toContain("AITEST_DB_PATH");
+    expect(readFileSync(join(repoRoot, "scripts", "install.mjs"), "utf8")).toContain("install-manifest.json");
+    expect(readFileSync(join(repoRoot, "scripts", "uninstall.mjs"), "utf8")).toContain("resolveOpenCodeConfigPath");
+    expect(readFileSync(join(repoRoot, "scripts", "uninstall.mjs"), "utf8")).toContain("ownedUninstall");
   });
 
   it("temiz copy bootstrap: dist yokken install.mjs statik import hatasi vermez", () => {
