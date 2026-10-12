@@ -64,19 +64,23 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false, message: "Is zaten tamamlandi; yeniden devam etmez" };
   }
 
+  // Runner identity must be checked before lifecycle becomes RUNNING. A legacy
+  // Docker job cannot silently inherit the new Windows native default.
+  const { JobDispatcher } = await import("../orchestration/job-dispatcher.js");
+  const runnerKind = resolveRunnerKindFromEnv(process.env["AITEST_RUNNER"], true);
+  const dispatcher = new JobDispatcher({
+    services,
+    runnerKind,
+    workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
+    workspaceRoot: services.config.storage.root,
+  });
+  dispatcher.assertRecordedRunnerKind(storage, job);
+
   // K05/B05: resume gercek dispatcher devami - ayni job'dan kaldigi asamadan devam.
   jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
   jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });
 
   // dispatch'i ayni job'dan tekrar baslat (kaldigi asamadan; source/checkpoint dogrulamasi dispatcher'da):
-  const { JobDispatcher } = await import("../orchestration/job-dispatcher.js");
-  const { resolveRunnerKindFromEnv } = await import("../runners/runner-factory.js");
-  const dispatcher = new JobDispatcher({
-    services,
-    runnerKind: resolveRunnerKindFromEnv(process.env["AITEST_RUNNER"], true),
-    workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
-    workspaceRoot: services.config.storage.root,
-  });
   // GoalContract job kayitlarindan yeniden kurulur (resume parametresi gerekmez):
   void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined, parsed.model_profile ?? null).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] resume job ${job.id} hata: ${String(error)}\n`);

@@ -23,3 +23,11 @@
 - Process kill sonrasi tree kapanisini/PID sahipligini kanitla; hard-kill/restart orphan ve late-result fence testleri ekle.
 - Factory, dispatcher, services/config/entrypoint normal yola baglanacak. Eski runner config/job acik migration gerektirmeli.
 - Native fixture entegrasyonu ve WN14-WN24 tamamlanmadan S02 LOCAL_VERIFIED/VERIFIED degildir. G1 GPU Maven/model, G2 apply, G3 yayin icin ayri onay gerekir.
+
+## 2026-10-12 normal giris ve migration ara parcasi
+
+- Normal MCP `AITEST_RUNNER` secimi artik `windows_native`; acik `docker`, `host_dev_only` veya bos string customer istegi `LEGACY_RUNNER_MIGRATION_REQUIRED` ile reddedilir. Test-only composition icin `host_dev_only` korunur.
+- Dispatcher native preflight'ta `NATIVE_PROCESS_OWNERSHIP_UNVERIFIED` ile Maven/Docker baslatmadan fail-closed olur. WN22/WN23 surec agaci sahipligi ve hard-kill kaniti saglanmadan musteri run acilmaz. Bu nedenle WN14 tamamlanmadi.
+- Goal runner kind dispatcher ile uyusmazsa `RUNNER_CONTRACT_CONFLICT`; resume kayitli artifact runner kind'ini lifecycle `RUNNING` olmadan okur ve degisikligi reddeder. Eski job yeni native varsayilanina sessiz tasinmaz.
+- Kirmizi kanit: yeni entrypoint testi 2/2 FAIL (docker default ve native readiness metodu yok). Yesil: odak 6 dosya/29 PASS, ardindan yeni resume regression dahil 4 dosya/33 PASS. `npm.cmd run typecheck`, `npm.cmd run build`, `npm.cmd run lint` exit 0; lint 89 onceki uyari. `p05b-resume` model conflict fixture'inda eski sabit docker secimi yeni runner migration reddine takildi; fixture kayitli goal runner'i ile eslestirildi ve 33/33 tekrar gecti.
+- Kalan: native owned tree kapatma ve restart orphan fence, toolchain version probe'u normal run kimligine zorunlu baglama, settings/config ve readiness tam entegrasyonu, eski Docker kodunun aktif urunden emekliligi. S02 PARTIAL/NO_GO; musteri/GPU run yapilmadi.
