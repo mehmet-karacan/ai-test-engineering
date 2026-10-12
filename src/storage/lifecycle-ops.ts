@@ -12,7 +12,7 @@ import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
-import { appendRestorePhase, assertRestoreReadyBeforeOpen, journalPathForDb, type RestorePhase } from "./restore-journal.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, journalPathForDb, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
 
 export interface BackupResult {
@@ -492,9 +492,11 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     const source = resolve(backupBlobRoot, rel);
     const destination = resolve(targetRoot, rel);
     assertSafePathComponents(destination, "file");
-    if ([targetDbPath, `${targetDbPath}-wal`, `${targetDbPath}-shm`,
-      journalPathForDb(targetDbPath), `${targetDbPath}.restore.lock`,
-      join(targetRoot, ".aitest-maintenance.lock")].some((protectedPath) => relative(protectedPath, destination) === "") ||
+    if ([targetDbPath, `${targetDbPath}-wal`, `${targetDbPath}-shm`, `${targetDbPath}-journal`,
+      journalPathForDb(targetDbPath), `${targetDbPath}.restore.lock`, `${targetDbPath}.restore.lock.sqlite`,
+      `${targetDbPath}.restore.lock.sqlite-journal`, join(targetRoot, ".aitest-maintenance.lock"),
+      join(targetRoot, ".aitest-maintenance.lock.sqlite"), join(targetRoot, ".aitest-maintenance.lock.sqlite-journal")]
+      .some((protectedPath) => relative(protectedPath, destination) === "") ||
       destination.toLowerCase().startsWith(`${targetDbPath}.restore-`.toLowerCase())) {
       throw new AppError("POLICY_VIOLATION", "Restore blob path collides with runtime control data", {
         reason_code: "RESTORE_PATH_COLLISION", relative_path: blob.relative_path,
@@ -533,9 +535,13 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
   const oldSuffix = `.restore-old-${randomUUID()}`;
   const journalPath = journalPathForDb(targetDbPath);
   const journalBase = {
-    generation: randomUUID(), targetDbPath, artifactRoot: targetArtifactRoot,
+    formatVersion: 2 as const, generation: randomUUID(), targetDbPath, artifactRoot: targetArtifactRoot,
     stagedDbPath: tempDb, preservedDbPath: `${targetDbPath}${oldSuffix}`,
     publishedBlobs: plan.filter((item) => !item.skip).map((item) => ({ path: item.destination, sha256: item.sha256 })),
+    evidence: captureRestoreEvidence(targetDbPath, join(backupDir, "state.db"), join(backupDir, "blob-manifest.json"),
+      manifest.blobs.map((blob) => ({ path: resolve(targetRoot, blob.relative_path.replace(/\//g, pathSep)),
+        sha256: blob.sha256, bytes: blob.bytes,
+        existedBefore: plan.find((item) => item.destination === resolve(targetRoot, blob.relative_path.replace(/\//g, pathSep)))!.skip }))),
   };
   let journalStarted = false;
   let journalTerminal = false;

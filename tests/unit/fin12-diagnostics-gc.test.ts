@@ -3,8 +3,9 @@
  * - Tek ortak diagnostic servisi: kontrol seviyeleri ayri; hata raporu reason_code + tek somut aksiyon (17.1).
  * - GC iki asamali: dry-run -> onayli sweep; aktif/pinned ref silinmez (14.4/PRO26).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { existsSync, linkSync, mkdtempSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDiagnostics, type DiagnosticInput } from "../../src/application/diagnostics.js";
@@ -15,6 +16,20 @@ import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { ArtifactStore } from "../../src/storage/artifact-store.js";
 import { CheckpointStore } from "../../src/orchestration/checkpoint-store.js";
 import { LeaseManager } from "../../src/orchestration/lease-manager.js";
+
+const gcDeleteFault = vi.hoisted(() => ({ secondDelete: false, count: 0 }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const rmSync: typeof actual.rmSync = (path, options) => {
+    if (gcDeleteFault.secondDelete && String(path).includes("blobs") && ++gcDeleteFault.count === 2) {
+      const error: NodeJS.ErrnoException = new Error("EACCES: second GC delete failed");
+      error.code = "EACCES";
+      throw error;
+    }
+    return actual.rmSync(path, options);
+  };
+  return { ...actual, rmSync };
+});
 
 function healthyInput(): DiagnosticInput {
   return {
@@ -170,6 +185,109 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
     // DB satiri DELETED:
     const status = storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(oldArtifact.id)!.status;
     expect(status).toBe("DELETED");
+  });
+
+  it.each(["RUNNING", "WAITING_INPUT"])("sweep eski dry-run sonrasi %s olan job blob'unu korur", (lifecycle) => {
+    const job = jobs.createJob({ locationId, requestDigest: `digest-gc-race-${lifecycle}` });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "sonradan-aktif", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates.some((candidate) => candidate.artifact_id === artifact.id)).toBe(true);
+    storage.db.prepare("UPDATE test_jobs SET lifecycle = ? WHERE id = ?").run(lifecycle, job.id);
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep eski dry-run sonrasi checkpoint manifesti olan blob'u korur", () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-gc-checkpoint-race" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "sonradan-checkpoint", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates.some((candidate) => candidate.artifact_id === artifact.id)).toBe(true);
+    storage.db.prepare("INSERT INTO checkpoints (id, job_id, manifest_artifact_id, source_digest, generation, created_at) VALUES (?, ?, ?, ?, 0, ?)")
+      .run(randomUUID(), job.id, artifact.id, "e".repeat(64), Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it.each(["path", "hash", "pin"])("sweep eski dry-run sonrasi degisen %s kimligini reddeder", (change) => {
+    const job = jobs.createJob({ locationId, requestDigest: `digest-gc-identity-${change}` });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "kimlik-degisti", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates.some((candidate) => candidate.artifact_id === artifact.id)).toBe(true);
+    if (change === "path") storage.db.prepare("UPDATE artifacts SET relative_store_path = 'blobs/other' WHERE id = ?").run(artifact.id);
+    if (change === "hash") storage.db.prepare("UPDATE artifacts SET sha256 = ? WHERE id = ?").run("f".repeat(64), artifact.id);
+    if (change === "pin") storage.db.prepare("UPDATE artifacts SET pin_reason = 'release' WHERE id = ?").run(artifact.id);
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep eski dry-run sonrasi ayni blob yoluna eklenen baska READY referansini korur", () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-gc-shared-path" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "paylasilan-blob", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    const path = dryRun.candidates.find((candidate) => candidate.artifact_id === artifact.id)!.relative_store_path;
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, 'report', ?, ?, 1, '1', 'internal', 'READY', ?)")
+      .run(randomUUID(), job.id, path, "f".repeat(64), Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep farkli job'un Windows case-variant blob referansini korur", () => {
+    const oldJob = jobs.createJob({ locationId, requestDigest: "digest-gc-case-old" });
+    jobs.updateLifecycle(oldJob.id, "COMPLETED", 0);
+    const artifact = insertArtifact(oldJob.id, "temp", "case-variant-blob", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    const liveJob = jobs.createJob({ locationId, requestDigest: "digest-gc-case-live" });
+    jobs.updateLifecycle(liveJob.id, "RUNNING", 0);
+    const candidate = dryRun.candidates.find((entry) => entry.artifact_id === artifact.id)!;
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, 'report', ?, ?, ?, '1', 'internal', 'READY', ?)")
+      .run(randomUUID(), liveJob.id, candidate.relative_store_path.toUpperCase(), candidate.sha256, candidate.snapshot!.bytes, Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow(/changed or became pinned/);
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep farkli yoldaki hard-link blob referansini korur", () => {
+    const oldJob = jobs.createJob({ locationId, requestDigest: "digest-gc-hardlink-old" });
+    jobs.updateLifecycle(oldJob.id, "COMPLETED", 0);
+    const artifact = insertArtifact(oldJob.id, "temp", "hardlink-blob", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    const liveJob = jobs.createJob({ locationId, requestDigest: "digest-gc-hardlink-live" });
+    jobs.updateLifecycle(liveJob.id, "RUNNING", 0);
+    const aliasPath = join(artifactRoot, "blobs", "hardlink-alias");
+    linkSync(artifact.path, aliasPath);
+    const candidate = dryRun.candidates.find((entry) => entry.artifact_id === artifact.id)!;
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, 'report', ?, ?, ?, '1', 'internal', 'READY', ?)")
+      .run(randomUUID(), liveJob.id, "blobs/hardlink-alias", candidate.sha256, candidate.snapshot!.bytes, Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow(/changed or became pinned/);
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(existsSync(aliasPath)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("second GC delete failure never leaves the first missing blob marked READY", () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-gc-second-delete" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const first = insertArtifact(job.id, "temp", "gc-first", -2 * 24 * 60 * 60 * 1000);
+    const second = insertArtifact(job.id, "temp", "gc-second", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates).toHaveLength(2);
+    gcDeleteFault.count = 0;
+    gcDeleteFault.secondDelete = true;
+    try {
+      expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow(/EACCES/);
+    } finally { gcDeleteFault.secondDelete = false; }
+    expect(existsSync(first.path)).toBe(false);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(first.id)?.status).toBe("DELETED");
+    expect(existsSync(second.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(second.id)?.status).toBe("DELETED");
   });
 
   it("checkpoint manifest artifact'i her zaman pin (GC silinmez)", () => {

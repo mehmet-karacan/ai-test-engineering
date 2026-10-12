@@ -11,13 +11,11 @@ import { JobRepository } from "../storage/job-repository.js";
 import { ArtifactStore } from "../storage/artifact-store.js";
 import { resolveProfile } from "./profile-schemas.js";
 import { resolveDbPath } from "../configuration/runtime-paths.js";
-import { assertRestoreReadyBeforeOpen } from "../storage/restore-journal.js";
 
 async function main(): Promise<void> {
   const configPath = process.env["AITEST_CONFIG"];
   const services = createServices(configPath);
   const dbPath = resolveDbPath(services.config.storage.root);
-  assertRestoreReadyBeforeOpen(dbPath);
   const storage = new Storage({ dbPath });
   storage.migrate();
   services.storage = storage;
