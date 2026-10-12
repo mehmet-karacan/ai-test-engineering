@@ -2,7 +2,7 @@
 
 ## Son durum
 
-- HEAD ve `origin/main`: `9992891` (`gorev: handoff sha kanitini duzelt`). Entegre GLM/Qwen commit'leri `6ef54af` ve `95136f0` olarak main'e alindi.
+- HEAD ve `origin/main`: push sonrasi `git rev-parse --short HEAD` ve `git rev-parse --short origin/main` ile ayni olarak dogrulandi. Entegre GLM/Qwen commit'leri `6ef54af` ve `95136f0` olarak main'e alindi.
 - Branch: `main`; tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
 - Tam regresyon: 67 test dosyasi, 598/598 PASS.
 - Typecheck/build: PASS. Lint: 0 error, 89 warning.
