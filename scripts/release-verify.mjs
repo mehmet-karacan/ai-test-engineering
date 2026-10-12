@@ -143,6 +143,18 @@ function checkMandatoryFiles() {
   }
 }
 
+function checkWindowsScopeIntegrity() {
+  const verifier = join(repoRoot, "scripts", "validate-windows-scope.mjs");
+  if (!existsSync(verifier)) {
+    addReason("WINDOWS_SCOPE_VALIDATOR_EKSIK", "scripts/validate-windows-scope.mjs bulunamadi");
+    return;
+  }
+  const result = spawnSync(process.execPath, [verifier, repoRoot], { encoding: "utf8", timeout: 30000, windowsHide: true });
+  if (result.error || result.status !== 0) {
+    addReason("WINDOWS_SCOPE_GECERSIZ", (result.stderr || result.error?.message || `exit ${result.status}`).slice(0, 2000));
+  }
+}
+
 // W10/F17/N01: referans/arsiv hash butunlugu - onayli 06 HTML referansi beklenen hash ile eslesmeli;
 // farkliysa verifier non-zero doner (sessiz ezme/ikame yok).
 const REFERENCE_HTML_EXPECTED_SHA256 = "e3c8fd2da77000a0fd39ed88a00b3159e1100e4cf35146b0bbb83969eaef8c80";
@@ -775,6 +787,7 @@ function main() {
   console.log(`[release-verify] mod: ${mode.toUpperCase()}${mode === "full" ? " (fail-closed; gercek kabul evidence dogrulamasi)" : " (yalniz yapisal/fixture kontrolleri)"}`);
 
   checkMandatoryFiles();
+  checkWindowsScopeIntegrity();
   const catalog = checkCatalogIntegrity();
   checkCorpusIntegrity();
   checkSecurityDoc();

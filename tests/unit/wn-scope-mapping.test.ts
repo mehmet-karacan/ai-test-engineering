@@ -82,8 +82,9 @@ describe("S00 windows-native-v1 scope ve legacy mapping (WN01-WN04, WN67-WN69)",
 
   it("WN02/WN68: Docker/Linux/macOS ozgul her ID acik reason ve WN karsiligi tasiyor; PP01-PP46 dahil", () => {
     const dockerish = new Set([
-      "AC39", "AC40", "AC65", "RG01", "RG16", "RG17", "RG18", "RG20", "RG34",
-      "PRO12", "PRO29", "N18", "N19", "N20", "PP08", "PP09", "PP16", "PP17", "PP18", "PP19",
+      "AC39", "AC40", "AC65", "RG01", "RG16", "RG17", "RG18", "RG19", "RG20", "RG34",
+      "PRO11", "PRO12", "PRO15", "PRO16", "PRO29", "PRO45", "PRO58", "N18", "N19", "N20", "N37",
+      "RT14", "RT27", "PP08", "PP09", "PP16", "PP17", "PP18", "PP19", "PP43",
     ]);
     let superseded = 0;
     for (const row of mapping.mappings) {
@@ -107,10 +108,10 @@ describe("S00 windows-native-v1 scope ve legacy mapping (WN01-WN04, WN67-WN69)",
       expect(row?.status === "REPLACED" || row?.status === "OUT_OF_SCOPE_BY_USER", legacyId).toBe(true);
       expect(row?.reason).toBeDefined();
     }
-    expect(superseded).toBe(24);
+    expect(superseded).toBe(34);
     // RETAINED gecerli yukumluluklarda WN karsiligi zorunlu:
     const retained = mapping.mappings.filter((row) => row.status === "RETAINED");
-    expect(retained.length).toBe(296);
+    expect(retained.length).toBe(286);
     for (const row of retained) {
       expect(row.wn.length, row.legacy_id).toBeGreaterThan(0);
     }
@@ -183,5 +184,23 @@ describe("S00 windows-native-v1 scope ve legacy mapping (WN01-WN04, WN67-WN69)",
     const result = runValidator(dir);
     expect(result.code).not.toBe(0);
     expect(result.stderr ?? "").toContain("status_counts.RETAINED");
+  });
+
+  it("WN68: gecerli bir ID sayaclar birlikte degistirilse bile onaysiz scope disina alinamaz", () => {
+    const rows = mapping.mappings.map((row) => row.legacy_id === "RT15"
+      ? { ...row, status: "OUT_OF_SCOPE_BY_USER", reason: "Onaysiz kapsam cikarma denemesi; sadece sayaclarin degismesi kabul olamaz." }
+      : row);
+    const counts = { ...mapping.status_counts, RETAINED: 285, OUT_OF_SCOPE_BY_USER: 10 };
+    const dir = makeFixture("unauthorized-removal", { ...scope, status_counts: counts }, { ...mapping, status_counts: counts, mappings: rows });
+    const result = runValidator(dir);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr ?? "").toContain("Onayli per-ID scope karari hash'i uyusmuyor");
+  });
+
+  it("WN68: yanlis evidence seviyesi reddedilir", () => {
+    const dir = makeFixture("wrong-evidence-level", { ...scope, evidence_levels: [...scope.evidence_levels, "FAKE_PASS"] }, mapping);
+    const result = runValidator(dir);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr ?? "").toContain("evidence_levels");
   });
 });

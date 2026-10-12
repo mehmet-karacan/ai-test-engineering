@@ -27,8 +27,8 @@
   ],
   "legacy_total": 320,
   "status_counts": {
-    "RETAINED": 296,
-    "REPLACED": 15,
+    "RETAINED": 286,
+    "REPLACED": 25,
     "OUT_OF_SCOPE_BY_USER": 9
   },
   "legacy_ids": [
@@ -352,5 +352,7 @@
     "PP44",
     "PP45",
     "PP46"
-  ]
+  ],
+  "approved_mapping_sha256": "a0422803c7c1f772a92d8c7a4c9b139404fac5b816f7d93feefd05cea83cd914",
+  "contract_sha256": "59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989"
 }

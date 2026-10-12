@@ -3,9 +3,10 @@
 ## Aktif gorev
 
 - Gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (sozlesme: `AKTIF_GOREV.md`, SHA-256 `59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989`). G0 kullanici uygulama talimatiyla acildi; G1/G2/G3 ayri onay bekler.
-- Asama: S00 IN_PROGRESS. Onceki 005 gorevi byte/hash korunarak arsivlendi (SHA-256 `cc741769116cee3b2cd921256406a58560b0d65ad0a476c3471bb01ac378336f`). Windows native yeni scope ve legacy mapping henuz tamamlanmadi; yeni full gate GO iddiasi yok.
+- Asama: S00 LOCAL_VERIFIED (S09 full evidence gate acik). Onceki 005 gorevi byte/hash korunarak arsivlendi (SHA-256 `cc741769116cee3b2cd921256406a58560b0d65ad0a476c3471bb01ac378336f`). Windows native scope ve 320 tekil legacy mapping bagimsiz incelendi; full gate NO_GO kalir.
 - Calisma dali/worktree: `codex/windows-native-006`, `C:\Users\mkaracan\.codex\worktrees\windows-native-006\ai-test-engineering`; taban `3b1916ed6f35f0c674cc459b30ca9f5614af9b94`. Ana checkout'taki untracked `JavaMetadataScannerCoverageTest.java` korundu.
 - S00 baslangic: Node v24.14.1; `npm.cmd ci` exit 0 (236 paket); typecheck/build exit 0; lint exit 0 (89 uyari). Guvenli unit/contract/benchmark baseline 58 dosya, 582 PASS / 2 FAIL: `p01-release-gate` ve `w10-ledger` eski aktif 005 pause metnini kok `AKTIF_GOREV.md` icinde ariyor. Eski `release-verify --local` exit 0; eski full gate exit 1 `EVIDENCE_MANIFEST_EKSIK` (274/274). Yeni scope gate'i uygulanmadan bu ciktılar 006 kabul kaniti degildir. Checkpoint: `ai/checkpoints/2026-10-12-windows-native-006-s00-start.md`.
+- S00 uzlastirma: 320 mapping (286 RETAINED, 25 REPLACED, 9 OUT_OF_SCOPE_BY_USER), onayli karar digest `a0422803c7c1f772a92d8c7a4c9b139404fac5b816f7d93feefd05cea83cd914`; Qwen bagimsiz ilk ve duzeltme review. Dort Docker runtime testi tarihsel `tests/retired/` altinda. Son guvenli alt kume 59 dosya/597 PASS; onceki kosuda 596 PASS/1 FAIL (`p01` child gate sonucu `mode` yok), tekil tekrar PASS, neden henuz kesin degil; sonraki tam suite'te izlenir. Typecheck/build/lint exit 0; local gate LOCAL_PASS, full gate `WINDOWS_006_FULL_GATE_PENDING` ile NO_GO. Checkpoint: `ai/checkpoints/2026-10-12-windows-native-006-s00-mapping-reviewed.md`.
 
 ## Tarihsel 005 kaydi (korunur)
 

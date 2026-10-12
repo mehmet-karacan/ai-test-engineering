@@ -36,6 +36,8 @@ interface Identity {
 
 interface GateResult {
   status: number | null;
+  signal: NodeJS.Signals | null;
+  processError: string | null;
   stdout: string;
   stderr: string;
   resultJson: {
@@ -61,7 +63,7 @@ function runGate(cwd: string, extraArgs: string[] = [], timeout = 30000): GateRe
   if (marker >= 0) {
     parsed = JSON.parse(result.stdout.slice(marker + "RESULT_JSON:".length));
   }
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr, resultJson: parsed };
+  return { status: result.status, signal: result.signal, processError: result.error?.message ?? null, stdout: result.stdout, stderr: result.stderr, resultJson: parsed };
 }
 
 function reasonCodes(gate: GateResult): string[] {
@@ -222,6 +224,7 @@ function allObligationEntries(dir: string, job_id: string, run_id: string): Arra
 describe("P01/PR01/PP01: bare full gate fail-closed; local/full ayrimi", () => {
   it("bare komut (mod belirtilmemis) FULL mod; evidence manifesti yokken non-zero NO_GO (PP01)", () => {
     const gate = runGate(repoRoot, []);
+    expect(gate.status, `release-verify process failed: ${JSON.stringify({ signal: gate.signal, error: gate.processError, stderr: gate.stderr.slice(0, 500), stdout: gate.stdout.slice(-500) })}`).not.toBeNull();
     expect(gate.status).not.toBe(0);
     expect(gate.resultJson?.mode).toBe("full");
     expect(gate.resultJson?.decision).toBe("NO_GO");

@@ -8,8 +8,8 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 
 | Paket | Is | Durum | Sonraki kanit |
 | --- | --- | --- | --- |
-| S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | IN_PROGRESS | WN01-WN04/WN67-WN69; mapping ve baseline checkpoint |
-| S01 | Backup otoritesi ve hata atomik restore | TODO | WN05-WN13 |
+| S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | LOCAL_VERIFIED | WN01-WN04 mapping/baseline; WN67-WN69 full evidence kapisi S09'da tamamlanir; S00 review checkpoint |
+| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; native fault/crash kaniti |
 | S02 | Windows native runner ve Docker'in kaldirilmasi | TODO | WN14-WN24 |
 | S03 | Tam metadata envanteri ve source snapshot | TODO | WN25-WN31 |
 | S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42 |

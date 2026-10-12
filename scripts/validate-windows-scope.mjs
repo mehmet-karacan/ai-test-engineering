@@ -7,7 +7,13 @@
  * Kullanim: node scripts/validate-windows-scope.mjs [repo-koku]
  */
 import { readFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
+
+// S00 bagimsiz scope review sonrasi sabitlenen per-ID kararlar. Data dosyalarinin
+// sayac ve gerekcesini birlikte degistirmek yetkisiz scope kaldirma izni vermez.
+const APPROVED_MAPPING_SHA256 = "a0422803c7c1f772a92d8c7a4c9b139404fac5b816f7d93feefd05cea83cd914";
+const CONTRACT_SHA256 = "59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989";
 
 const repoRoot = resolve(process.argv[2] ?? process.cwd());
 const scopePath = join(repoRoot, "ai", "acceptance", "scope-windows-native-v1.json");
@@ -93,6 +99,11 @@ if (scope && mapping) {
   const statusCounts = { RETAINED: 0, REPLACED: 0, OUT_OF_SCOPE_BY_USER: 0 };
   for (const row of rows) {
     const id = row?.legacy_id ?? "?";
+    if (typeof row?.source_row !== "string"
+      || typeof row?.source_row_sha256 !== "string"
+      || createHash("sha256").update(row.source_row).digest("hex") !== row.source_row_sha256) {
+      fail(`${id}: legacy kaynak satiri hash'i gecersiz`);
+    }
     if (!validStatuses.has(row?.status)) {
       fail(`${id}: gecersiz status ${String(row?.status)}`);
       continue;
@@ -133,15 +144,38 @@ if (scope && mapping) {
     fail(`mapping.total ${mapping.total} != 320`);
   }
 
+  const decisionRows = rows.map((row) => ({
+    legacy_id: row?.legacy_id,
+    status: row?.status,
+    wn: row?.wn,
+    reason: row?.reason,
+    source_file: row?.source_file,
+    source_row: row?.source_row,
+    source_row_sha256: row?.source_row_sha256,
+  }));
+  const decisionHash = createHash("sha256").update(JSON.stringify(decisionRows)).digest("hex");
+  if (decisionHash !== APPROVED_MAPPING_SHA256
+    || scope.approved_mapping_sha256 !== APPROVED_MAPPING_SHA256
+    || mapping.approved_mapping_sha256 !== APPROVED_MAPPING_SHA256) {
+    fail("Onayli per-ID scope karari hash'i uyusmuyor; yetkisiz kapsam degisikligi");
+  }
+
   // --- Kimlik ve kapsam alanlari ---
   if (scope.scope_id !== "windows-native-v1" || mapping.scope_id !== "windows-native-v1") {
     fail(`scope_id windows-native-v1 olmali`);
+  }
+  if (scope.contract_sha256 !== CONTRACT_SHA256 || mapping.contract_sha256 !== CONTRACT_SHA256) {
+    fail("006 aktif gorev sozlesme hash'i uyusmuyor");
   }
   if (!Array.isArray(scope.basis) || scope.basis.length === 0) {
     fail(`scope.basis karar listesi bos olamaz`);
   }
   if (scope.gate?.default_without_valid_scope !== "NO_GO") {
     fail(`Gecerli scope yokken gate varsayilani NO_GO olmali`);
+  }
+  const evidenceLevels = ["UNIT", "INTEGRATION_LOCAL", "WINDOWS_RUNTIME", "LIVE_PILOT", "USER_REVIEW"];
+  if (JSON.stringify(scope.evidence_levels) !== JSON.stringify(evidenceLevels)) {
+    fail("scope.evidence_levels onayli Windows evidence seviyesi listesiyle uyusmuyor");
   }
 }
 
