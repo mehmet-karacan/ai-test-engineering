@@ -7,6 +7,7 @@
 - Full gate durumu degismedi ve durustce NO_GO: Qwen reconciliation 74 dosya 639 PASS/5 FAIL, local gate PASS, full gate exit 1; `evidence-manifest.json` yok, 274/274 obligation missing, live/platform kaniti yok.
 - Son iki dar audit: GLM `08ec13b` / main `f05a8c6` P07-B egress enforcement'in mevcut repo/host ile uygulanamaz oldugunu ve typed blocker'in 1/1 gercek Docker kosusunu kaydetti; Qwen `89e3eec` / main `8b400e7` verifier'in partial NOT_RUN/BLOCKED manifest kabul etmedigini kanitladi. Yeni altyapi veya sahte manifest yazilmadi.
 - Yeni coordinator entegrasyonu: Qwen `b73e979` / main `12fcd12` ledger uzlastirmasini pushladi; GLM `79c1961` / main `021a505` Windows cross-drive path escape duzeltmesini ve 8 dosya/47 PASS odak kanitini pushladi. MacOS kullanici karariyla bu gorev kapsamindan cikarildi.
+- Guncel scope override: kullanici Docker, Docker execution, Docker egress enforcement ve PP17 kanitini da bu gorevden cikardi. Bu kanitler calistirilmayacak; P07-B Docker blocker'i sonraki aktif goreve devredildi. Original full gate obligation semasi degistirilmedi ve kanit yokken NO_GO korunuyor.
 
 - Coordinator final2 (2026-10-12): GLM P07-B blocked kaniti `49e3ca3`, Qwen P08 eski v4 binary kaniti `8f1091f` pushlandi ve main'e alindi. Ana dal odak suite 8 dosya 71/71 PASS; typecheck/build/lint PASS; local release verifier PASS, full verifier NO_GO (`EVIDENCE_MANIFEST_EKSIK`, 274 obligation). Checkpoint: `ai/checkpoints/2026-10-12-production-005-coordinator-final2.md`.
 - P07-B blocked belgeleme (2026-10-12, branch `codex/glm-prod005-p07b-next2`, taban main `10f3f4f`, GLM): egress enforcement mekanizmasi (Docker network policy/proxy adapter) **depoda ve hostta YOK**; hizlandirma karari ile yeni altyapi YAZILMADI. P07-B gercek customer dispatcher COMPLETED + Report06 export runtime kosusu **BLOCKED_KAYITLI**; `BLOCKED_EGRESS_ENFORCEMENT_UNAVAILABLE` fail-closed blocker korunuyor. Odak: wire blocker + nonzero facts **2/2 PASS** gercek kosu (29.68 sn; Docker 29.8.2 preflight gecildi, skip yok), typecheck/build/lint PASS (0 error/89 warning). Urun kodu degisikligi YOK. Checkpoint: `ai/checkpoints/2026-10-12-production-005-p07b-next2-blocked.md`.
@@ -50,8 +51,8 @@
 
 ## Acik maddeler ve gercek engeller
 
-- Kalan ana kapanis paketi sayisi: **2** (`P07-B`, `P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P09 yerel olarak kapali; evidence reconciliation P10 kapanisinin alt kanitidir.
-- P07-B gercek customer dispatcher COMPLETED + Report06 export runtime kosusu: **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi; typed blocker fail-closed korunuyor).
+- Kalan ana kapanis paketi sayisi: **1 formal paket** (`P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P07-B/PP17 Docker runtime bu gorevde kapsam disidir; P09 yerel olarak kapali.
+- P07-B/PP17 Docker customer dispatcher + egress runtime kosusu: bu gorevde **KAPSAM_DISI**. Repo/host egress enforcement kaniti uydurulmadi; sonraki aktif goreve devredildi.
 - P08: gercek Windows CMD install/verify/uninstall (PP41), v4->v7 upgrade + kayip/restore (PP44) ve cross-drive path escape duzeltmesi artik RUNTIME_VERIFIED; macOS kullanici karariyla kapsam disi, downgrade bu kapsamda zorunlu degil.
 - P06 effective Maven profile/skip/ignoreFailures ve multi-module runtime kaniti: local kod kapilari var, tam runtime kaniti eksik.
 - PP09 artik RUNTIME_VERIFIED (`p02p03-remaining-runtime-kanit`: Linux taskkill yok + exit 3 yakalanmasi + stop/inspect 137 + log butcesi kod/test); bu madde kapanmistir.
@@ -60,4 +61,4 @@
 
 ## Sonraki en hizli guvenli adim
 
-Docker egress enforcement (network policy/proxy) altyapisi kullanici onayiyla saglanirsa P07-B customer dispatcher/egress kabul kosusunu ve PP17 negative/positive container kanitini calistir; Windows kanitlarini ayri runtime store'da kaydet. MacOS bu gorevde kapsam disidir. Evidence manifesti olmadan full gate'i GO'ya cevirmeyin. Bu handoff, P07-B blocked karari, Windows path duzeltmesi ve yeniden dogrulama kaniti ile guncellenmistir.
+Docker egress enforcement ve PP17 bu gorevde calistirilmayacak; sonraki aktif gorevde kullanici onayi ve host policy/proxy saglanirsa ele alinacak. Windows kanitlarini ayri runtime store'da kaydet. MacOS ve Docker bu gorevde kapsam disidir. Evidence manifesti olmadan full gate'i GO'ya cevirmeyin. Bu handoff, Windows path duzeltmesi ve scope override kaniti ile guncellenmistir.

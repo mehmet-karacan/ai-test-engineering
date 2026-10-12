@@ -3,9 +3,9 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P08 Windows kapsaminda dogrulandi; P02/P03 audit, P07/P08 test kapsami, P09 release verifier provenance ve P10 kapanis kanitlari main'e alindi; P07-B egress blocker'i ve P10 kanit eksikleri suruyor
-- Durum etiketi: `005_P07B_P10_BLOCKED` (tam urun kabul: NOT_VERIFIED)
-- Kapsam karari (kullanici, 2026-10-12): macOS bu gorevde kapsam disidir; macOS kaniti kalan is veya release blocker olarak sayilmaz. Windows standard akis korunur.
+- Asama: P00-P08 Windows kapsaminda dogrulandi; P02/P03 audit, P07/P08 test kapsami, P09 release verifier provenance ve P10 kapanis kanitlari main'e alindi; Docker/PP17 bu gorev kapsamindan cikarildi, P10 full gate kanit eksigi suruyor
+- Durum etiketi: `005_WINDOWS_NO_DOCKER_SCOPE_HANDOFF` (tam urun kabul: NOT_VERIFIED)
+- Kapsam karari (kullanici, 2026-10-12): macOS ve Docker/Docker egress/PP17 bu gorevde kapsam disidir; kanitleri kalan is veya release blocker olarak sayilmaz. Windows standard akis korunur. Original full gate sozlesmesi zayiflatilmaz; kanit yoksa NO_GO kalir.
 - Son guncelleme: 2026-10-12 (Qwen P00 baseline + P08 gercek eski v4 binary: tam suite 74 dosya 640 PASS/4 FAIL (2 AC67 ortam, 1 p01 tam-suite flake -> izole 40/40 PASS, 1 browser print flake); eski binary 0822c3d gercek npm ci/build exit 0 + OLD_SCHEMA_VERSION=4; v4->v7 PP44 e2e NOT_RUN; kod degisikligi YOK)
 - Son guncelleme: 2026-10-12 (GLM PP44 gercek eski v4 binary -> yeni v7 binary upgrade, quiesce, trusted job/artifact korunumu, online backup/kayip/restore ve standalone MCP entry smoke PASS; checkpoint `production-005-p08-pp44-realbin-e2e`; commit `bb84e2f`, main cherry-pick `1b64a0c`)
 - Son guncelleme: 2026-10-12 (Qwen P09/P10 reconciliation: full suite 74 dosya 639 PASS/5 FAIL, P01 iki timeout testi tekil kosuda PASS; local gate PASS, full gate NO_GO, 274 obligation manifest yok; checkpoint `production-005-p10-p09-reconciliation`; commit `ab53861`, main cherry-pick `fdeef28`)
@@ -115,7 +115,7 @@
 
 ## Sonraki somut is
 
-- Kalan ana kapanis paketi: **2** (`P07-B`, `P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P09 yerel olarak kapali; release/evidence reconciliation P10 kapanisinin alt kanitidir.
-- Sonraki somut is: P07-B COMPLETED + Report06 export runtime kosusu **BLOCKED_KAYITLI** (egress enforcement altyapisi depoda ve hostta yok; hizlandirma karari ile yeni altyapi yazilmadi); Docker egress enforcement (network policy/proxy) kullanici onayiyla saglaninca kosulur. P10 gercek evidence manifest + live kanitlari ve handoff/release karari.
-- Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
+- Kalan ana kapanis paketi: **1 formal paket** (`P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P07-B/PP17 Docker runtime kosusu bu gorevde kapsam disidir; P09 yerel olarak kapali.
+- Sonraki somut is: P10 teknik devir kaydini koru. Original full gate icin gercek evidence manifest + live/platform kanitlari olmadan production GO verme. Docker/egress sonraki aktif goreve devredildi.
+- Docker/Docker egress/PP16-PP17 kanit kosusu sonraki aktif goreve devredildi; bu gorevde calistirilmayacak ve kalan is sayisina dahil edilmeyecek.
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir
