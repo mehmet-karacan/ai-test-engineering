@@ -2,7 +2,7 @@
 
 ## Son durum
 
-- HEAD: `6ef54af` (`gorev: pr04 pr06 hattina denetim kanitini ekle`). Entegre GLM/Qwen commit'leri `6ef54af` ve `95136f0` olarak main'e alindi; dokuman push'u bu guncellemeden sonra yapilacak.
+- HEAD ve `origin/main`: `d8c4e60` (`gorev: p04 p06 runtime kanitlarini guncelle`). Entegre GLM/Qwen commit'leri `6ef54af` ve `95136f0` olarak main'e alindi.
 - Branch: `main`; tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
 - Tam regresyon: 67 test dosyasi, 598/598 PASS.
 - Typecheck/build: PASS. Lint: 0 error, 89 warning.
