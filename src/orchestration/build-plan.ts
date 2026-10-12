@@ -22,20 +22,40 @@ export interface BuildPlan {
   settings_xml: string | null;
 }
 
+function scopedMavenGoals(modules: PomModule[], affectedModules: string[], goals: string[]): string[] {
+  const normalized = [...new Set(affectedModules.map((modulePath) => modulePath.replace(/[\\/]/g, "/").replace(/^\.\/$/, "").replace(/\/+$/, "")))];
+  const reactorModules = new Set(modules.map((module) => module.module_relative_path));
+  const unknown = normalized.filter((modulePath) => modulePath.length > 0 && !reactorModules.has(modulePath));
+  if (unknown.length > 0) {
+    throw new AppError("BLOCKED_TARGET_RESOLUTION", `Effective Maven modul listesinde bilinmeyen modul: ${unknown.join(", ")}`, {
+      reason_code: "AFFECTED_MODULE_UNKNOWN",
+      affected_modules: unknown,
+    });
+  }
+  const scoped = normalized.filter((modulePath) => modulePath.length > 0);
+  if (scoped.length === 0 || modules.length <= 1) {
+    return [...goals];
+  }
+  // Maven reactor kokunden relative module path'leri secilir; -am hedef modulu
+  // icin gereken upstream modulleri de ayni invocation'a dahil eder.
+  return ["-pl", scoped.join(","), "-am", ...goals];
+}
+
 export function buildPlan(projectRoot: string, affectedModulePaths: string[]): BuildPlan {
   const root = resolve(projectRoot);
   const discovery = discoverModules(root);
   const hasJunit4 = discovery.modules.some((m) => m.junit4_present);
   const hasJunit5 = discovery.modules.some((m) => m.junit5_present);
   const settingsPath = join(root, "settings.xml");
+  const normalizedAffectedModules = [...new Set(affectedModulePaths.map((modulePath) => modulePath.replace(/[\\/]/g, "/").replace(/^\.\/$/, "").replace(/\/+$/, "")))];
 
   return {
     reactor_root: discovery.reactor_root,
     modules: discovery.modules,
-    affected_modules: affectedModulePaths,
-    maven_goals_build: ["test-compile"],
-    maven_goals_test: ["test"],
-    maven_goals_coverage: ["test", "jacoco:report"],
+    affected_modules: normalizedAffectedModules,
+    maven_goals_build: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test-compile"]),
+    maven_goals_test: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test"]),
+    maven_goals_coverage: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test", "jacoco:report"]),
     jdk_version: process.env["JAVA_HOME"] ? "from_env" : "default",
     test_framework: hasJunit4 && hasJunit5 ? "both" : hasJunit4 ? "junit4" : hasJunit5 ? "junit5" : "none",
     mockito_present: discovery.modules.some((m) => m.mockito_present),

@@ -2,7 +2,7 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
-Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P04, P05-A, P06-A ve P06-B1 local olarak dogrulandi; P05-B-P10 suruyor.
+Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P05-B, P06-A, P06-B1 ve P06-B2 effective scope local olarak dogrulandi; P06-B2 provenance/inventory ve P07-P10 suruyor.
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 
 ## 004 uygulama paketleri (W00-W11)
@@ -35,7 +35,8 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P05-B | Repair feedback/bounded repair, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | production-005-p05b-resume; 46/46 resume/storage + 2/2 handler zinciri + typecheck |
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | production-005-p06a-frozen-baseline; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | production-005-p06b-module-final-gates; 64/64 unit + 16/16 Maven/accepted + typecheck |
-| P06-P10 | Kalan readiness, effective Maven/JaCoCo provenance, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P06-B1 disindaki isler devam ediyor |
+| P06-B2 | Effective Maven affected-module scope | LOCAL_VERIFIED | production-005-p06b-effective-scope; 22/22 + typecheck; JaCoCo provenance/inventory kalan |
+| P06-P10 | Kalan readiness, JaCoCo provenance, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md; P06-B2 provenance/inventory ve sonraki paketler devam ediyor |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 
