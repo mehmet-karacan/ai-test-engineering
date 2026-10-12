@@ -23,6 +23,7 @@ import { InventoryQueryService } from "./inventory-query.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
+import { ReportExporter } from "../reporting/report-generator.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
@@ -598,9 +599,11 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
       lastTrustedCoverage = { percent: basisPoints / 100, basisPoints };
     }
   }
-  const reportPath = join(services.config.storage.root, "jobs", job.id, "reports", "report.json");
+  const reportRoot = join(services.config.storage.root, "jobs", job.id, "reports");
+  const reportPath = join(reportRoot, "report.json");
   let reportFacts: ReportStatusFacts | null = null;
-  if (existsSync(reportPath)) {
+  const publishedVerification = existsSync(join(reportRoot, "PUBLISHED")) ? new ReportExporter(reportRoot).verifyExport() : { missing: ["PUBLISHED"], hash_mismatch: [] };
+  if (publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0 && existsSync(reportPath)) {
     try {
       reportFacts = projectReportStatusFacts(JSON.parse(readFileSync(reportPath, "utf8")), job.id);
     } catch {

@@ -33,6 +33,8 @@ export interface AcceptedChangeEvidenceInput {
   job_id: string;
   checkpoint_id: string | null;
   changes: Array<{ path: string; sha256: string; action: string }>;
+  /** P03 frozen source manifest'indeki immutable before hash'leri. */
+  before_sha256_by_path?: ReadonlyMap<string, string>;
   home_dir?: string;
 }
 
@@ -41,6 +43,8 @@ interface CollectorInput {
   module_paths: string[];
   run_id: string;
   job_id: string;
+  stdout_log_path: string;
+  stderr_log_path: string;
   home_dir?: string;
 }
 
@@ -62,13 +66,39 @@ function containedWorkspaceFile(workspace: string, relativePath: string): string
   if (rel.length === 0 || rel.startsWith("..") || isAbsolute(rel)) {
     throw new AppError("POLICY_VIOLATION", `Evidence yolu workspace disina cikiyor: ${relativePath}`, { reason_code: "PATH_ESCAPE" });
   }
+  assertNoSymlinkComponents(root, candidate);
   return candidate;
+}
+
+function assertNoSymlinkComponents(root: string, candidate: string): void {
+  const rootAbs = resolve(root);
+  const candidateAbs = resolve(candidate);
+  const rel = relative(rootAbs, candidateAbs);
+  if (rel.length === 0 || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new AppError("POLICY_VIOLATION", `Evidence yolu workspace disina cikiyor: ${candidate}`, { reason_code: "PATH_ESCAPE" });
+  }
+  let cursor = rootAbs;
+  for (const part of rel.split(/[\\/]/)) {
+    cursor = join(cursor, part);
+    try {
+      if (lstatSync(cursor).isSymbolicLink()) {
+        throw new AppError("POLICY_VIOLATION", `Evidence yolu symlink/junction iceriyor: ${candidate}`, { reason_code: "SYMLINK_ESCAPE" });
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      // Missing final/parent path becomes typed missing evidence later.
+    }
+  }
 }
 
 function walkFiles(root: string): string[] {
   if (!existsSync(root)) {
     return [];
   }
+  const parent = resolve(root, "..");
+  assertNoSymlinkComponents(parent, root);
   const result: string[] = [];
   const visit = (directory: string): void => {
     const entries: Dirent[] = readdirSync(directory, { withFileTypes: true });
@@ -107,6 +137,7 @@ function redactSource(content: Buffer, homeDir: string | undefined): { content: 
 }
 
 function addFile(result: FinalReplayEvidence, input: CollectorInput, filePath: string, relativePath: string, kind: ReportEvidenceKind, required: boolean, redacted: boolean): void {
+  assertNoSymlinkComponents(input.workspace, filePath);
   const content = readFileSync(filePath);
   result.files.push({
     relative_path: safeRelativePath(relativePath, "Evidence hedefi"),
@@ -170,9 +201,18 @@ export function collectFinalReplayEvidence(input: CollectorInput): FinalReplayEv
     }
   }
 
-  const logRoot = join(workspace, "target", "aitest-final-replay-logs");
-  for (const [name, destination] of [["stdout.log", "stdout.log"], ["stderr.log", "stderr.log"]] as const) {
-    const path = join(logRoot, name);
+  for (const [logPath, destination] of [[input.stdout_log_path, "stdout.log"], [input.stderr_log_path, "stderr.log"]] as const) {
+    let path: string;
+    try {
+      path = resolve(logPath);
+      assertNoSymlinkComponents(workspace, path);
+    } catch (error) {
+      if (error instanceof AppError) {
+        addMissing(result, `evidence/final-replay/logs/${destination}`, "run_log", error.message);
+        continue;
+      }
+      throw error;
+    }
     const relativePath = `evidence/final-replay/logs/${destination}`;
     if (existsSync(path) && lstatSync(path).isFile()) {
       addFile(result, input, path, relativePath, "run_log", true, true);
@@ -208,9 +248,17 @@ export function collectAcceptedChangeEvidence(input: AcceptedChangeEvidenceInput
       result.missing.push({ relative_path: `evidence/accepted/${path}`, kind: "accepted_source", reason: "ACCEPTED_AFTER_HASH_MISMATCH", required: true });
       continue;
     }
-    const redactedBefore = before === null ? null : redactSource(before, input.home_dir).content;
+    const expectedBeforeSha = action === "create" ? null : input.before_sha256_by_path?.get(path) ?? null;
+    if (action !== "create" && expectedBeforeSha === null) {
+      result.missing.push({ relative_path: `evidence/accepted/${path}`, kind: "accepted_source", reason: "ACCEPTED_BEFORE_UNVERIFIED", required: true });
+      continue;
+    }
+    if (action !== "create" && before !== null && sha256Hex(before) !== expectedBeforeSha) {
+      result.missing.push({ relative_path: `evidence/accepted/${path}`, kind: "accepted_source", reason: "ACCEPTED_BEFORE_HASH_MISMATCH", required: true });
+      continue;
+    }
+    patchInputs.push({ path, action, before, after });
     const redactedAfter = after === null ? null : redactSource(after, input.home_dir).content;
-    patchInputs.push({ path, action, before: redactedBefore, after: redactedAfter });
     if (redactedAfter !== null) {
       result.files.push({
         relative_path: `evidence/accepted/${path}`,
@@ -224,7 +272,17 @@ export function collectAcceptedChangeEvidence(input: AcceptedChangeEvidenceInput
     }
   }
   if (patchInputs.length > 0) {
-    const patch = buildPatchArtifact({ job_id: input.job_id, checkpoint_id: input.checkpoint_id, files: patchInputs });
+    const rawPatch = buildPatchArtifact({ job_id: input.job_id, checkpoint_id: input.checkpoint_id, files: patchInputs });
+    const exportedDiff = textEvidence(Buffer.from(rawPatch.unified_diff, "utf8"), input.home_dir).toString("utf8");
+    const patch = {
+      ...rawPatch,
+      unified_diff: exportedDiff,
+      patch_sha256: sha256Hex(exportedDiff),
+      patch_bytes: Buffer.byteLength(exportedDiff, "utf8"),
+      source_patch_sha256: rawPatch.patch_sha256,
+      source_patch_bytes: rawPatch.patch_bytes,
+      redacted: exportedDiff !== rawPatch.unified_diff,
+    };
     result.files.push({
       relative_path: "evidence/accepted/changes.patch",
       kind: "patch",

@@ -16,6 +16,7 @@ import { defaultApplyConfig } from "../reporting/test-apply.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
+import { ReportExporter } from "../reporting/report-generator.js";
 
 export interface TestResumeResult {
   job_id: string;
@@ -188,7 +189,9 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   const reportPath = existsSync(reportDir) ? reportDir : null;
   const reportJsonPath = join(services.config.storage.root, "jobs", job.id, "reports", "report.json");
   let reportFacts: ReportStatusFacts | null = null;
-  if (existsSync(reportJsonPath)) {
+  const reportRoot = join(services.config.storage.root, "jobs", job.id, "reports");
+  const publishedVerification = existsSync(join(reportRoot, "PUBLISHED")) ? new ReportExporter(reportRoot).verifyExport() : { missing: ["PUBLISHED"], hash_mismatch: [] };
+  if (publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0 && existsSync(reportJsonPath)) {
     try {
       reportFacts = projectReportStatusFacts(JSON.parse(readFileSync(reportJsonPath, "utf8")), job.id);
     } catch {

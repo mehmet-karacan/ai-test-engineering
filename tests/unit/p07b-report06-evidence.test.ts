@@ -137,13 +137,15 @@ describe("P07-B final replay collector", () => {
       writeFileSync(join(jacoco, "jacoco.xml"), "<report sessioninfo='ok'/>", { encoding: "utf8" });
       writeFileSync(join(jacoco, "jacoco.exec"), binary);
       writeFileSync(join(surefire, "TEST-A.xml"), "<testsuite tests='1' failures='0' errors='0' skipped='0'/>", { encoding: "utf8" });
-      writeFileSync(join(logs, "stdout.log"), "C:\\Users\\secret\\project sk-secretvalue123\n", { encoding: "utf8" });
-      writeFileSync(join(logs, "stderr.log"), "", { encoding: "utf8" });
+      writeFileSync(join(logs, "maven-stdout.log"), "C:\\Users\\secret\\project sk-secretvalue123\n", { encoding: "utf8" });
+      writeFileSync(join(logs, "maven-stderr.log"), "", { encoding: "utf8" });
       const collected = collectFinalReplayEvidence({
         workspace,
         module_paths: ["module-a"],
         run_id: "run-final-001",
         job_id: "job-p07b-001",
+        stdout_log_path: join(logs, "maven-stdout.log"),
+        stderr_log_path: join(logs, "maven-stderr.log"),
         home_dir: "C:\\Users\\secret",
       });
       const jacocoEntry = collected.files.find((file) => file.relative_path.endsWith("jacoco.xml"));
@@ -173,6 +175,7 @@ describe("P07-B final replay collector", () => {
         job_id: "job-p07b-001",
         checkpoint_id: "checkpoint-001",
         changes: [{ path: "src/test/java/XTest.java", sha256: sha("class XTest { String token=sk-secretvalue123; }\n"), action: "modify" }],
+        before_sha256_by_path: new Map([["src/test/java/XTest.java", sha("class XTest { }\n")]]),
         home_dir: "C:\\Users\\secret",
       });
       expect(collected.missing).toEqual([]);

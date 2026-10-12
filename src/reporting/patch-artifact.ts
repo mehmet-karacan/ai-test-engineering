@@ -22,6 +22,10 @@ export interface PatchArtifact {
   unified_diff: string;
   patch_sha256: string;
   patch_bytes: number;
+  /** Ham source diff'in hash'i; exported unified_diff redacted olabilir. */
+  source_patch_sha256: string;
+  source_patch_bytes: number;
+  redacted: boolean;
   generated_at: number;
   /** Patch'in stale source'a uygulama riski belirtilir (16.1) */
   stale_risk_note: string;
@@ -36,6 +40,13 @@ export function sha256Hex(data: Buffer | string): string {
  * Encoding/EOL bilgisi korunur; binary icerik metin olarak donusturulmeZ.
  */
 export function buildUnifiedDiff(entries: Array<{ path: string; before: Buffer | string | null; after: Buffer | string | null }>): string {
+  const splitLines = (value: string): string[] => {
+    const lines = value.split(/\r?\n/);
+    if (value.endsWith("\n") || value.endsWith("\r")) {
+      lines.pop();
+    }
+    return lines;
+  };
   const parts: string[] = [];
   for (const entry of [...entries].sort((a, b) => a.path.localeCompare(b.path))) {
     const beforeBuffer = entry.before === null ? null : typeof entry.before === "string" ? Buffer.from(entry.before, "utf8") : entry.before;
@@ -49,15 +60,26 @@ export function buildUnifiedDiff(entries: Array<{ path: string; before: Buffer |
     }
     const beforeText = entry.before === null ? "" : typeof entry.before === "string" ? entry.before : entry.before.toString("utf8");
     const afterText = entry.after === null ? "" : typeof entry.after === "string" ? entry.after : entry.after.toString("utf8");
-    const beforeLines = entry.before === null ? [] : beforeText.split(/\r?\n/);
-    const afterLines = afterText.split(/\r?\n/);
+    const beforeLines = entry.before === null ? [] : splitLines(beforeText);
+    const afterLines = entry.after === null ? [] : splitLines(afterText);
     if (entry.after === null) {
       parts.push(`@@ -1,${beforeLines.length} +0,0 @@`);
       for (const line of beforeLines) {
         parts.push(`-${line}`);
       }
-    } else {
+    } else if (entry.before === null) {
       parts.push(`@@ -0,0 +1,${afterLines.length} @@`);
+      for (const line of afterLines) {
+        parts.push(`+${line}`);
+      }
+    } else {
+      // Modify is represented as a complete replacement. It is deterministic,
+      // byte-faithful at the line level, and remains applicable without
+      // inventing context that is not present in the accepted snapshot.
+      parts.push(`@@ -1,${beforeLines.length} +1,${afterLines.length} @@`);
+      for (const line of beforeLines) {
+        parts.push(`-${line}`);
+      }
       for (const line of afterLines) {
         parts.push(`+${line}`);
       }
@@ -86,14 +108,18 @@ export function buildPatchArtifact(input: {
     };
   });
   const unifiedDiff = buildUnifiedDiff(input.files.map((f) => ({ path: f.path, before: f.before, after: f.after })));
+  const patchSha256 = sha256Hex(unifiedDiff);
   return {
     schema_version: 1,
     job_id: input.job_id,
     checkpoint_id: input.checkpoint_id,
     files: fileEntries,
     unified_diff: unifiedDiff,
-    patch_sha256: sha256Hex(unifiedDiff),
+    patch_sha256: patchSha256,
     patch_bytes: Buffer.byteLength(unifiedDiff, "utf8"),
+    source_patch_sha256: patchSha256,
+    source_patch_bytes: Buffer.byteLength(unifiedDiff, "utf8"),
+    redacted: false,
     generated_at: Date.now(),
     stale_risk_note: "Patch immutable snapshot'ta dogrulanmis source'a karsi uretildi; original checkout arada degistiyse apply expected-before kontroluyle CONFLICT verir (16.3).",
   };
@@ -115,11 +141,12 @@ export const DEFAULT_REDACTIONS: ReadonlyArray<RedactionRule> = [
 
 /** Kullaniciya ozel tam yol temizlenir; sadece ana dizin banti kalir */
 export function redactUserPath(path: string, homeDir: string): string {
-  const normalizedHome = homeDir.replace(/[\\/]+$/, "");
-  if (path.startsWith(normalizedHome)) {
-    return "[HOME]" + path.slice(normalizedHome.length);
+  const normalizedHome = homeDir.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (normalizedHome.length === 0) {
+    return path;
   }
-  return path;
+  const escaped = normalizedHome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]");
+  return path.replace(new RegExp(escaped, "gi"), "[HOME]");
 }
 
 export function redactSensitive(text: string, extraRules?: ReadonlyArray<RedactionRule>): string {

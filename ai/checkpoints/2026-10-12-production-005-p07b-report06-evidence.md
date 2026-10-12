@@ -17,11 +17,12 @@
 - Accepted checkpoint test kaynaklari, deterministic changes.patch, patch metadata ve checkpoint manifesti export zincirine baglandi.
 - Manifest schema v2 job/head/snapshot/checkpoint/run kimliklerini, artifact kind/hash/bytes bilgilerini ve report.json evidence mutabakatini dogruluyor.
 - Zorunlu kanit eksigi, hash/bytes/path/kind/job/run uyusmazligi ve PUBLISHED marker eksigi fail-closed; export tamamlanmadan lifecycle COMPLETED olamiyor.
+- GLM/Qwen bagimsiz denetiminde bulunan runtime kopukluklari giderildi: final replay collector runner provenance log yollarini kullaniyor; accepted before bayt hash'i frozen source manifest ile eslesiyor; modify diff before/after'i temsil ediyor; redacted patch hash'i ile source patch hash'i ayriliyor; symlink/junction bilesenleri reddediliyor; progress stage son run'dan projekte ediliyor; status/result yalniz PUBLISHED ve manifest verify sonrasini okuyor.
 
 ## Kanit
 
 - `npm.cmd run typecheck`: PASS.
-- P07-B ve ilgili export/report suite: 6 dosya, 55/55 PASS.
+- Duzeltme sonrasi P07-B ve ilgili export/report suite: 6 dosya, 60/60 PASS.
 - Degisen kaynak lint: 0 error, 2 onceki warning (`job-dispatcher.ts` unused type import).
 - `npm.cmd run build`: PASS.
 - Report06 referans: 257845 byte, SHA-256 `e3c8fd2da77000a0fd39ed88a00b3159e1100e4cf35146b0bbb83969eaef8c80`.
@@ -29,10 +30,10 @@
 
 ## Kalan
 
-- Gercek Maven fixture ile normal MCP end-to-end report/status/print/offline/DOM/link kabul kosusu.
+- Gercek Maven fixture ile normal MCP end-to-end report/status/print/offline/DOM/link kabul kosusu; Maven ve Java mevcut, dispatcher runtime kabul kosusu henuz calistirilmadi.
 - Release verifier testlerinin guncel P01 fail-closed sozlesmesiyle reconcile edilmesi.
 - P08 kurulum, P09 tam regression/release gate ve P10 handoff.
 
 ## Sonraki tek somut is
 
-- P07-B runtime kabul fixture'i ve exporter negative senaryolarini production dispatcher akisinda calistir; sonra P08 kurulum resolver'ina gec.
+- Gercek Maven fixture'i production dispatcher akisinda calistir; report/status/print/offline/DOM/link kabulunu kaydet; sonra P08 kurulum resolver'ina gec.

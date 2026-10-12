@@ -792,9 +792,13 @@ export class JobDispatcher {
             run_summary: null,
           };
         }
-        const total = rows.reduce((sum, row) => sum + row.total_tests, 0);
-        const failed = rows.reduce((sum, row) => sum + row.failures + row.errors, 0);
-        const skipped = rows.reduce((sum, row) => sum + row.skipped, 0);
+        // Ayni candidate stage birden fazla deneme icerir; bunlari tek bir
+        // run gibi toplamak test sayisini yapay olarak sisirir. Son provenance
+        // satiri, dispatcher'in ilerleme icin kullandigi en guncel run'dir.
+        const latest = rows[rows.length - 1]!;
+        const total = latest.total_tests;
+        const failed = latest.failures + latest.errors;
+        const skipped = latest.skipped;
         return {
           name: stage === "candidate" ? "progress" as const : stage === "final_replay" ? "final" as const : "baseline" as const,
           status: "KNOWN" as const,
@@ -816,6 +820,8 @@ export class JobDispatcher {
         module_paths: [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))],
         run_id: finalReplayRunId,
         job_id: job.id,
+        stdout_log_path: finalReplay.run.stdout_log_path,
+        stderr_log_path: finalReplay.run.stderr_log_path,
         home_dir: homedir(),
       });
       const acceptedEvidence = collectAcceptedChangeEvidence({
@@ -824,6 +830,7 @@ export class JobDispatcher {
         job_id: job.id,
         checkpoint_id: bestCheckpointId,
         changes: acceptedChanges,
+        before_sha256_by_path: new Map(sourceManifest.entries.map((entry) => [entry.relative_path, entry.sha256])),
         home_dir: homedir(),
       });
       const evidenceFiles: EvidenceFile[] = [...replayEvidence.files, ...acceptedEvidence.files];

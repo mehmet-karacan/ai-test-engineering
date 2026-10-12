@@ -388,8 +388,11 @@ export class ReportExporter {
    * bos listeyi dogrulamak yerine manifest artifacts'ini okur (corrupt manifest fail-closed).
    */
   verifyExport(expected?: ExportResult["files"], requirePublished = true): { missing: string[]; hash_mismatch: string[] } {
-    let files = expected;
-    if (!files || files.length === 0) {
+    // Kimlik ve evidence kontrolleri caller'in verdigi dosya listesine
+    // birakilamaz; aksi halde expected yolu manifest kapilarini atlar.
+    let files: ExportResult["files"];
+    const expectedPublished = expected?.find((file) => file.name === "PUBLISHED");
+    {
       // canonical manifest'ten yukle:
       const manifestPath = containedReportPath(this.reportRoot, "manifest.json");
       if (!existsSync(manifestPath)) {
@@ -510,6 +513,9 @@ export class ReportExporter {
       }
       if (structuralErrors.length > 0) {
         return { missing: structuralErrors, hash_mismatch: [] };
+      }
+      if (expectedPublished) {
+        files.push(expectedPublished);
       }
     }
     const missing: string[] = [];
