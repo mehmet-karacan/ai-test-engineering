@@ -235,6 +235,8 @@ export interface IterateOptions {
   line_target_bps: number;
   branch_target_bps: number;
   budget: IterationBudget;
+  /** P05-B/PP26: job icindeki tum hedefler icin ortak aday/repair maliyet havuzu. */
+  attempt_budget?: number;
   generate_candidate: (feedback?: CandidateGenerationFeedback) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
@@ -379,6 +381,9 @@ export class CandidateLoop {
     const iterationLimit = startIteration > 1
       ? startIteration + options.budget.max_candidate_iterations - 1
       : options.budget.max_candidate_iterations;
+    const attemptLimit = options.attempt_budget === undefined
+      ? Number.MAX_SAFE_INTEGER
+      : Math.max(0, options.attempt_budget);
     const scheduleRetry = (feedback: Omit<CandidateGenerationFeedback, "attempt_kind" | "repair_ordinal" | "repair_of_iteration" | "remaining_deadline_ms">): "repair" | "next" | "stop" => {
       noProgressCount++;
       if (noProgressCount >= options.budget.no_progress_window) {
@@ -449,14 +454,52 @@ export class CandidateLoop {
       };
     }
 
-    while (iteration <= iterationLimit) {
+    while (iteration <= iterationLimit && iterations.length < attemptLimit) {
       if (deadlineExceeded()) {
         budgetExhausted = true;
         outcome = "TARGET_NOT_MET_BUDGET";
         break;
       }
       const currentFeedback = repairFeedback;
-      const candidate = await options.generate_candidate(currentFeedback);
+      let candidate: CandidateChangeSet | null;
+      try {
+        candidate = await options.generate_candidate(currentFeedback);
+      } catch (error) {
+        const reason = `Worker aday uretimi basarisiz: ${String(error).slice(0, 500)}`;
+        const errorFingerprint = sha256Data(reason);
+        options.on_decision?.({
+          iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
+          decision: "rejected",
+          reason,
+          changeset_hash: null,
+          coverage_before_bps: bestCoverageBps,
+          coverage_after_bps: null,
+          error_fingerprint: errorFingerprint,
+        });
+        iterations.push({
+          iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
+          decision: "rejected",
+          reason,
+          coverage_before_bps: bestCoverageBps,
+          coverage_after_bps: null,
+          quality_findings: [],
+          regression_failures: [],
+          run_exit_code: null,
+        });
+        const retry = scheduleRetry({
+          previous_failure: reason,
+          failed_tests: [],
+          quality_findings: [],
+          run_exit_code: null,
+          coverage_after_bps: null,
+        });
+        if (retry === "stop") {
+          break;
+        }
+        continue;
+      }
       if (candidate === null) {
         const generationFailure = options.generation_failure_reason?.() ?? null;
         if (generationFailure) {
@@ -778,7 +821,7 @@ export class CandidateLoop {
       iteration++;
     }
 
-    if (iteration > iterationLimit && outcome === "IN_PROGRESS") {
+    if ((iteration > iterationLimit || iterations.length >= attemptLimit) && outcome === "IN_PROGRESS") {
       budgetExhausted = true;
       outcome = "TARGET_NOT_MET_BUDGET";
     }

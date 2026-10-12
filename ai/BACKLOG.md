@@ -32,7 +32,7 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | production-005-p03-checkpoint; P03/komsu suite 93/93 |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri | LOCAL_VERIFIED | production-005-p04-isolation; P04 11/11 + security/contract 90 passed/10 skipped (Docker NOT_RUN) |
 | P05-A | Frozen concrete resolver, source-set, exact model ve deadline baglantisi | LOCAL_VERIFIED | production-005-p05a-target-resolver; 57/57 + typecheck |
-| P05-B | Repair feedback/bounded repair ve resume model provenance cekirdegi | IN_PROGRESS | production-005-p05b-repair-contract; 55/55 + typecheck; targetlar arasi toplam butce/mode tam kapanmadi |
+| P05-B | Repair feedback/bounded repair, shared target budget ve resume model provenance cekirdegi | IN_PROGRESS | production-005-p05b-shared-budget; 57/57 + typecheck; tam resume uc-test kaniti/mode tam kapanmadi |
 | P06-P10 | Kalan readiness, rapor, kurulum, regression ve handoff | TODO | AKTIF_GOREV.md |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)

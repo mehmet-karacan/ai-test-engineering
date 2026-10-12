@@ -398,9 +398,14 @@ export class JobDispatcher {
       ownedRunners.set(job.id, loopRunner);
       const loop = new CandidateLoop(loopRunner, { accepted_set_dir: acceptedDir, staging_root: stagingRoot });
       const loopResults = new Map<string, IterationLoopResult>();
+      let remainingAttemptBudget = Math.max(0, goal.budget.max_candidate_iterations);
 
       for (const resolved of resolvedTargets) {
         assertLease();
+        if (remainingAttemptBudget <= 0) {
+          phases.push("shared_candidate_budget_exhausted");
+          break;
+        }
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
         const iterateOptions: IterateOptions = {
           project_root: projectRoot,
@@ -409,6 +414,7 @@ export class JobDispatcher {
           line_target_bps: targetSpec.line_target_bps,
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
+          attempt_budget: remainingAttemptBudget,
           staging_root: stagingRoot,
           workspace_root: join(this.workspaceRoot, "jobs", job.id, "candidates", resolved.fqn.replace(/[^A-Za-z0-9_.-]/g, "_")),
           timeout_ms_per_run: 600000,
@@ -511,6 +517,7 @@ export class JobDispatcher {
         const loopResult = await loop.iterate(iterateOptions, goal.start_iteration ?? 1);
         assertLease();
         loopResults.set(resolved.fqn, loopResult);
+        remainingAttemptBudget = Math.max(0, remainingAttemptBudget - loopResult.attempts_used);
         phases.push(`loop_${resolved.selector}_${loopResult.outcome}`);
       }
 

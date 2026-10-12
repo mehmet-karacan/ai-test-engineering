@@ -35,7 +35,7 @@
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md; P04 11/11 + security/contract 90 passed/10 skipped(Docker NOT_RUN); Docker capability/egress tam kaniti NOT_RUN |
 | P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md; odak suite 57/57 + typecheck |
-| P05-B | Repair feedback/butcesi ve resume model provenance cekirdegi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p05b-repair-contract.md; 55/55 odak test + typecheck; targetlar arasi toplam butce/mode tam kapanmadi |
+| P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | IN_PROGRESS | ai/checkpoints/2026-10-12-production-005-p05b-shared-budget.md; 57/57 odak test + typecheck; tam resume uc-test kaniti/mode kapanmadi |
 | P06-P10 | Frozen baseline, rapor, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
