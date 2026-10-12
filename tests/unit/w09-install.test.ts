@@ -109,3 +109,40 @@ describe("W09/N61+N51: rapor asset paketi", () => {
     expect(content).toContain("default-src 'none'");
   });
 });
+
+describe("P08/PP43: kurulum readiness ayrimi (handshake pass urun-ready degildir)", () => {
+  const install = () => readFileSync(join(repoRoot, "scripts", "install.mjs"), "utf8");
+
+  it("test uretimi hazirlik sonucu worker flag VE worker_profiles'e bagli; handshake tek basina urun-kanit sayilmaz", () => {
+    const content = install();
+    // Hazirlik hem AITEST_WORKER_ENABLED=1 hem persist edilen worker_profiles gerektirir.
+    expect(content).toMatch(/AITEST_WORKER_ENABLED["']?\]\s*===\s*["']1["']/);
+    expect(content).toMatch(/persistedConfig\.worker_profiles/);
+    // Iki ayrik readiness sonucu: READY ve NOT_READY (handshake basari + hazirlik ayrisir).
+    expect(content).toContain("READY: MCP handshake");
+    expect(content).toContain("NOT_READY: MCP handshake basarili");
+    // NOT_READY mesaji eksik hazirlik girdisini acikca beyan eder (sessiz ready yok).
+    const notReady = /NOT_READY:[^"]*/.exec(content)?.[0] ?? "";
+    expect(notReady).toContain("worker_profiles");
+  });
+
+  it("worker/profile env'i yalniz acikca verildiginde kayitli OpenCode entry'ne gider (sessiz default yok)", () => {
+    const content = install();
+    // Worker/profile sadece env'te tanimliysa entry'ne yazilir; boylece eksik
+    // worker/model sessizce default profil veya ready durumuna cevrilmez.
+    expect(content).toMatch(/if\s*\(\s*process\.env\["AITEST_WORKER_ENABLED"\]\s*!==\s*undefined\s*\)/);
+    expect(content).toMatch(/if\s*\(\s*process\.env\["AITEST_PROFILE"\]\s*!==\s*undefined\s*\)/);
+    // Entry her zaman asgari config/DB binding'i tasiyor (handshake smoke girisi).
+    expect(content).toContain("AITEST_CONFIG: configPath");
+    expect(content).toContain("AITEST_DB_PATH: dbPath");
+  });
+
+  it("handshake smoke basarisizsa kurulum BLOCKED; smoke basari urun hazirli degil", () => {
+    const content = install();
+    // Smoke (MCP handshake) basarisizsa kurulum exit 1 (BLOCKED) doner.
+    expect(content).toMatch(/smoke\.status\s*!==\s*0/);
+    expect(content).toMatch(/BLOCKED: MCP handshake smoke basarisiz/);
+    // Smoke basarisi sonrasi da urun hazirlik sonucu READY/NOT_READY olarak ayrilir.
+    expect(content).toContain("KURULUM TAMAMLANDI");
+  });
+});
