@@ -21,9 +21,17 @@
  */
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, resolve, dirname, relative, isAbsolute } from "node:path";
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  DIST_ARTIFACTS,
+  BUILD_STAMP_REL,
+  BUILD_STAMP_SCHEMA_VERSION,
+  sha256File,
+  computeTreeDigest,
+  computeBuildInputDigest,
+  distArtifactList as distArtifactListFor,
+} from "./release-digest.mjs";
 
 const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), "..");
@@ -52,23 +60,16 @@ const MANDATORY_FILES = [
 ];
 
 // PR01: kaynak/paket/lockfile/config/build input digest'i deterministik relative path +
-// baytlarla uretilir; dosya mtime'i tek basina provenance degildir.
-const TREE_DIGEST_DIRS = ["src", "scripts", "tests", "docs"];
-const TREE_DIGEST_ROOT_FILES = ["package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts", "eslint.config.mjs"];
-const BUILD_INPUT_FILES = [
-  "package.json",
-  "package-lock.json",
-  "tsconfig.json",
-  "vitest.config.ts",
-  "eslint.config.mjs",
-  "scripts/release-verify.mjs",
-  "scripts/install.mjs",
-  "scripts/uninstall.mjs",
-  "scripts/verify-install.mjs",
-  "scripts/mcp-handshake-smoke.mjs",
-];
-const DIST_ARTIFACTS = ["dist/mcp/stdio-entry.js", "dist/index.js"];
+// baytlarla uretilir; dosya mtime'i tek basina provenance degildir. Kabul ledger'i
+// (ai/acceptance: catalog, kanit ozetleri) da kaynak kimligi icindedir: ledger'e dokunmak
+// kayitli tree digest'i bozar. Evidence manifesti kendi tree digest'ine girmez (dairesel
+// referans); manifest, HEAD agacinin birebir commit'li kopyasi + clean tree kuraliyla
+// baglanti kurar (PP03). Digest sabitleri ve algoritmalar scripts/release-digest.mjs
+// moduluyla ortaktir (gate ve build stamp arasinda drift olusamaz).
 const WALK_SKIP = new Set(["node_modules", ".git", "target", "dist", "build", ".mvn", "coverage"]);
+function distArtifactList() {
+  return distArtifactListFor(repoRoot);
+}
 
 // PR01: secret kontrolu calisma kapsamiyla dogru isimlendirilir; yayinlanacak Git/paket
 // artifact envanterini kapsar. Iki dosya kapsam disidir: bu script (kendi pattern
@@ -84,7 +85,10 @@ function __filename_placeholder() {
 
 // Urunun mevcut VerificationLevel semantigi (src/domain/job-state.ts) ile ayni payda:
 const VERIFICATION_SCOPES = ["UNVERIFIED", "TARGET_ONLY", "AFFECTED_SCOPE", "FULL_DECLARED_SCOPE"];
-const KNOWN_EVIDENCE_LEVELS = ["UNIT", "CONTRACT", "CONTRACT_HTTP", "INTEGRATION_LOCAL", "INTEGRATION_ISOLATED", "OPERATIONAL", "REVIEW", "BROWSER", "LIVE_MODEL", "PLATFORM"];
+// PR01: tanimli seviye kumesi kabul ledger'inden (catalog evidence_levels birlesimi)
+// turetilir; elle tutulmus liste ile catalog arasi sessiz uyumsuzluk olusamaz. PLATFORM
+// seviyesi platform_evidence kaydi tarafindan ayrica zorunlu tutulur (PP01).
+const PLATFORM_EVIDENCE_LEVEL = "PLATFORM";
 const LIVE_PILOT_STATUSES = ["PASSED", "NOT_PASSED", "PAUSED_BY_USER", "NOT_RUN"];
 
 const reasons = [];
@@ -92,10 +96,6 @@ const warnings = [];
 
 function addReason(code, detail) {
   reasons.push({ code, detail });
-}
-
-function sha256File(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function checkMandatoryFiles() {
@@ -123,83 +123,71 @@ function checkReferenceHtmlIntegrity() {
   }
 }
 
-function checkDistNotStale() {
-  const entryPath = join(repoRoot, "dist", "mcp", "stdio-entry.js");
-  const sourcePath = join(repoRoot, "src", "mcp", "stdio-entry.ts");
-  if (!existsSync(entryPath) || !existsSync(sourcePath)) {
+// dist/build-stamp.json: dagitilacak build'in kaynak kimligina baytlarla bagli oldugunun
+// makine-okunur kaydi. build script'i (scripts/write-build-stamp.mjs) uretir; gate, stamp'in
+// varligini, tam eslesmesini ve stamp'in kendisinin kaynak digest'ine girme DUSUNMESINI
+// (dist/ zaten digest disi) kontrol eder.
+function checkBuildStamp(identity) {
+  // PR01: dist freshness dosya mtime'i ile OLCEMEZ (mtime tek basina provenance degildir).
+  const stampPath = join(repoRoot, BUILD_STAMP_REL);
+  if (!existsSync(stampPath)) {
+    if (DIST_ARTIFACTS.every((rel) => !existsSync(join(repoRoot, rel)))) {
+      addReason("BUILD_STAMP_EKSIK", `${BUILD_STAMP_REL} yok ve dist artifacts uretilmemis; dagitilacak build kanitla bagli degil`);
+    } else {
+      addReason("BUILD_STAMP_EKSIK", `${BUILD_STAMP_REL} yok; dist, kaynak/build input digeslerine bagli degil (npm run build gerekli)`);
+    }
     return;
   }
-  const distMtime = statSync(entryPath).mtimeMs;
-  const srcMtime = statSync(sourcePath).mtimeMs;
-  if (srcMtime > distMtime) {
-    addReason("DIST_ESKI", "src/mcp/stdio-entry.ts, dist/mcp/stdio-entry.js'den yeni; npm run build gerekli");
+  let stamp;
+  try {
+    stamp = JSON.parse(readFileSync(stampPath, "utf8"));
+  } catch (error) {
+    addReason("BUILD_STAMP_PARSE", `${BUILD_STAMP_REL} parse edilemiyor: ${String(error)}`);
+    return;
   }
-}
-
-function collectDigestEntries(dirs, rootFiles) {
-  const entries = [];
-  const walk = (current, prefix) => {
-    if (!existsSync(current)) {
-      return;
+  if (stamp.schema_version !== BUILD_STAMP_SCHEMA_VERSION) {
+    addReason("BUILD_STAMP_SCHEMA", `schema_version=${JSON.stringify(stamp.schema_version ?? null)}; beklenen ${BUILD_STAMP_SCHEMA_VERSION}`);
+  }
+  if (stamp.kind !== "build_stamp") {
+    addReason("BUILD_STAMP_KIND", `kind=${JSON.stringify(stamp.kind ?? null)}; beklenen build_stamp`);
+  }
+  if (stamp.tree_digest !== identity.tree_digest) {
+    addReason("DIST_STALE_TREE", `build stamp tree_digest ${JSON.stringify(stamp.tree_digest ?? null)}, kaynak agac digest'i ${identity.tree_digest.slice(0, 16)}... ile uyusmuyor (dist, bu kaynakla derlenmemis)`);
+  }
+  if (stamp.build_input_digest !== identity.build_input_digest) {
+    addReason("DIST_STALE_BUILD_INPUT", "build stamp build_input_digest, guncel build input digesleriyle uyusmuyor (dist, bu build inputlariyla derlenmemis)");
+  }
+  if (stamp.lockfile_sha256 !== identity.lockfile_sha256) {
+    addReason("DIST_STALE_LOCKFILE", "build stamp lockfile_sha256, package-lock.json hash'i ile uyusmuyor");
+  }
+  const stampDist = Array.isArray(stamp.dist_artifacts) ? stamp.dist_artifacts : [];
+  const currentDist = distArtifactList();
+  if (currentDist.length === 0) {
+    addReason("DIST_EKSIK", "dist artifacts uretilmemis; dagitilacak build yok");
+    return;
+  }
+  for (const artifact of currentDist) {
+    const entry = stampDist.find((d) => d?.relative_path === artifact.relative_path);
+    if (!entry) {
+      addReason("DIST_STAMP_UYUSMAZ", `${artifact.relative_path} build stamp'te kayitli degil`);
+    } else if (entry.sha256 !== artifact.sha256 || entry.bytes !== artifact.bytes) {
+      addReason("DIST_STAMP_UYUSMAZ", `${artifact.relative_path} stamp hash/boyut ile guncel dist byte'lari uyusmuyor (build sonrasinda degistigi icin stale)`);
     }
-    for (const name of readdirSync(current)) {
-      if (WALK_SKIP.has(name)) {
-        continue;
-      }
-      const full = join(current, name);
-      const stat = statSync(full);
-      const rel = prefix ? `${prefix}/${name}` : name;
-      if (stat.isDirectory()) {
-        walk(full, rel);
-      } else {
-        entries.push({ rel, size: stat.size });
-      }
-    }
-  };
-  for (const dir of dirs) {
-    walk(join(repoRoot, dir), dir);
   }
-  for (const file of rootFiles) {
-    const full = join(repoRoot, file);
-    if (existsSync(full)) {
-      entries.push({ rel: file, size: statSync(full).size });
-    }
-  }
-  entries.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-  return entries;
-}
-
-function deterministicDigest(entries) {
-  const digest = createHash("sha256");
-  for (const entry of entries) {
-    digest.update(entry.rel);
-    digest.update("\0");
-    digest.update(sha256File(join(repoRoot, entry.rel)));
-    digest.update("\n");
-  }
-  return digest.digest("hex");
 }
 
 function computeSourceIdentity() {
-  const treeEntries = collectDigestEntries(TREE_DIGEST_DIRS, TREE_DIGEST_ROOT_FILES);
+  const { entries: treeEntries, tree_digest: treeDigest } = computeTreeDigest(repoRoot);
   if (treeEntries.length === 0) {
-    addReason("SOURCE_TREE_BOS", "src/scripts/tests/docs dizinleri bos");
+    addReason("SOURCE_TREE_BOS", "src/scripts/tests/docs/ai-acceptance dizinleri bos");
   }
-  const treeDigest = deterministicDigest(treeEntries);
-  const buildEntries = collectDigestEntries([], BUILD_INPUT_FILES);
-  const buildInputDigest = deterministicDigest(buildEntries);
+  const buildInputDigest = computeBuildInputDigest(repoRoot);
   const lockfilePath = join(repoRoot, "package-lock.json");
   const lockfileSha256 = existsSync(lockfilePath) ? sha256File(lockfilePath) : null;
   if (!lockfileSha256) {
     addReason("ZORUNLU_DOSYA_EKSIK", "package-lock.json");
   }
-  const distArtifacts = [];
-  for (const rel of DIST_ARTIFACTS) {
-    const abs = join(repoRoot, rel);
-    if (existsSync(abs)) {
-      distArtifacts.push({ relative_path: rel, sha256: sha256File(abs), bytes: statSync(abs).size });
-    }
-  }
+  const distArtifacts = distArtifactList();
   let commit = null;
   try {
     const result = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", windowsHide: true, timeout: 3000 });
@@ -310,6 +298,26 @@ function catalogEvidenceLevels(catalog) {
     }
   }
   return map;
+}
+
+// PR01: tanimli seviye = ledger'deki tum evidence_levels birlesimi + PLATFORM (platform
+// kaniti ayri kayitta zorunlu). Ledger'in kendisi source tree digest'ine girer; yeni seviye
+// eklemek digest'i bozar ve manifest'i yenilemeyi zorunlu kilar.
+function catalogKnownLevels(catalog) {
+  const set = new Set([PLATFORM_EVIDENCE_LEVEL]);
+  if (!catalog) {
+    return set;
+  }
+  for (const row of [...(catalog.rt_obligations ?? []), ...(catalog.n_obligations ?? [])]) {
+    if (Array.isArray(row?.evidence_levels)) {
+      for (const level of row.evidence_levels) {
+        if (typeof level === "string" && level.length > 0) {
+          set.add(level);
+        }
+      }
+    }
+  }
+  return set;
 }
 
 function checkCorpusIntegrity() {
@@ -440,9 +448,9 @@ function validateEvidenceEntry(entry, ctx) {
     problems.push({ code: "EVIDENCE_PREDICATE_UYUSMAZ", detail: `${id}: predicate ${JSON.stringify(entry.predicate ?? null)} requirement_id ile uyusmuyor` });
   }
   const level = entry.evidence_level;
-  const allowed = ctx.catalogLevels.get(id) ?? KNOWN_EVIDENCE_LEVELS;
-  if (typeof level !== "string" || !KNOWN_EVIDENCE_LEVELS.includes(level)) {
-    problems.push({ code: "EVIDENCE_SEVIYE_GECERSIZ", detail: `${id}: evidence_level ${JSON.stringify(level ?? null)} tanimli seviye degil` });
+  const allowed = ctx.catalogLevels.get(id) ?? [...ctx.knownLevels];
+  if (typeof level !== "string" || !ctx.knownLevels.has(level)) {
+    problems.push({ code: "EVIDENCE_SEVIYE_GECERSIZ", detail: `${id}: evidence_level ${JSON.stringify(level ?? null)} tanimli seviye degil (ledger'deki seviyeler: ${[...ctx.knownLevels].sort().join(", ")})` });
   } else if (!allowed.includes(level)) {
     problems.push({ code: "EVIDENCE_SEVIYE_UYUSMAZ", detail: `${id}: ${level}, katalog seviyeleriyle uyusmuyor (${allowed.join(", ")})` });
   }
@@ -537,6 +545,39 @@ function verifyEvidenceManifest(identity, catalog, universe) {
       problems.push({ code: "EVIDENCE_DIST_UYUSMAZ", detail: `${distRel} hash uyusmuyor (dagitilacak build kanitla bagli degil)` });
     }
   }
+  // PR01: dagitilacak build, kabul run'unda kanitlanan kaynakla derlenmis build olmalidir.
+  // Zincir: manifest dist hash == disk dist (yukarida) + disk dist == stamp dist +
+  // stamp kaynak kimligi == identity (yapisal kontrolde) + identity == manifest source.
+  // Zincirin her halkasi bozuksa full gate gecmez.
+  const stampPath = join(repoRoot, BUILD_STAMP_REL);
+  let stamp = null;
+  if (!existsSync(stampPath)) {
+    problems.push({ code: "EVIDENCE_BUILD_STAMP_EKSIK", detail: `${BUILD_STAMP_REL} yok; dagitilacak build'in kaynak kimligina bagliligi kanitlanamadi (PP03)` });
+  } else {
+    try {
+      stamp = JSON.parse(readFileSync(stampPath, "utf8"));
+    } catch (error) {
+      problems.push({ code: "EVIDENCE_BUILD_STAMP_PARSE", detail: `${BUILD_STAMP_REL} parse edilemiyor: ${String(error)}` });
+    }
+    if (stamp && stamp.tree_digest !== identity.tree_digest) {
+      problems.push({ code: "EVIDENCE_DIST_TREE_UYUSMAZ", detail: "build stamp tree_digest, kabul run kaynak agaciyla uyusmuyor (dist, kanitlanan kaynakla derlenmemis)" });
+    }
+    if (stamp && stamp.build_input_digest !== identity.build_input_digest) {
+      problems.push({ code: "EVIDENCE_DIST_BUILD_INPUT_UYUSMAZ", detail: "build stamp build_input_digest, kabul run build inputlariyla uyusmuyor" });
+    }
+    if (stamp && stamp.lockfile_sha256 !== identity.lockfile_sha256) {
+      problems.push({ code: "EVIDENCE_DIST_LOCKFILE_UYUSMAZ", detail: "build stamp lockfile_sha256, kabul run lockfile'i ile uyusmuyor" });
+    }
+    if (stamp && Array.isArray(stamp.dist_artifacts)) {
+      for (const distRel of DIST_ARTIFACTS) {
+        const abs = join(repoRoot, distRel);
+        const entry = stamp.dist_artifacts.find((d) => d?.relative_path === distRel);
+        if (existsSync(abs) && (!entry || entry.sha256 !== sha256File(abs) || entry.bytes !== statSync(abs).size)) {
+          problems.push({ code: "EVIDENCE_DIST_STAMP_UYUSMAZ", detail: `${distRel} guncel dist baytlari, build stamp kaydiyla uyusmuyor (stamp eski veya dist sonradan degisti)` });
+        }
+      }
+    }
+  }
 
   const run = manifest.run ?? {};
   if (typeof run.job_id !== "string" || run.job_id.length === 0 || typeof run.run_id !== "string" || run.run_id.length === 0) {
@@ -547,6 +588,13 @@ function verifyEvidenceManifest(identity, catalog, universe) {
   if (typeof run.started_at !== "number" || typeof run.ended_at !== "number" || run.ended_at < run.started_at) {
     problems.push({ code: "EVIDENCE_RUN_ZAMAN", detail: "run.started_at/ended_at gecersiz" });
   }
+  // PR01/PP03: kabul run'i non-zero exit vermisse evidence kabul kaniti olamaz;
+  // exit_code yoksa/basarisizsa full gate non-zero (fail-closed).
+  if (typeof run.exit_code !== "number") {
+    problems.push({ code: "EVIDENCE_RUN_EXIT_EKSIK", detail: "run.exit_code zorunlu ve sayisal olmali" });
+  } else if (run.exit_code !== 0) {
+    problems.push({ code: "EVIDENCE_RUN_EXIT_SIFIR_DEGIL", detail: `run.exit_code=${run.exit_code}; basarisiz kabul run'i kanit sayilamaz (fail-closed)` });
+  }
 
   const obligationList = manifest.obligations;
   if (!Array.isArray(obligationList) || obligationList.length === 0) {
@@ -555,7 +603,8 @@ function verifyEvidenceManifest(identity, catalog, universe) {
   }
 
   const catalogLevels = catalogEvidenceLevels(catalog);
-  const ctx = { run, catalogLevels };
+  const knownLevels = catalogKnownLevels(catalog);
+  const ctx = { run, catalogLevels, knownLevels };
   const seen = new Map();
   const duplicateIds = new Set();
   const invalidIds = new Set();
@@ -641,12 +690,23 @@ function main() {
   const identity = computeSourceIdentity();
 
   if (printIdentity) {
+    const stampPath = join(repoRoot, BUILD_STAMP_REL);
+    let stamp = null;
+    if (existsSync(stampPath)) {
+      try {
+        stamp = JSON.parse(readFileSync(stampPath, "utf8"));
+      } catch {
+        stamp = null;
+      }
+    }
     printResultJson({
       schema_version: 1,
       tool: "release-verify",
       kind: "source_build_identity",
       source: { commit: identity.commit, dirty: identity.dirty, tree_digest: identity.tree_digest, file_count: identity.file_count },
       build: { lockfile_sha256: identity.lockfile_sha256, build_input_digest: identity.build_input_digest, dist_artifacts: identity.dist_artifacts },
+      build_stamp: stamp,
+      build_stamp_path: BUILD_STAMP_REL,
       node: process.version,
       platform: `${process.platform}-${process.arch}`,
       generated_at: new Date().toISOString(),
@@ -662,8 +722,9 @@ function main() {
   checkSecurityDoc();
   checkNoSecretsInReleaseInventory();
   checkReferenceHtmlIntegrity();
-  checkDistNotStale();
+  checkBuildStamp(identity);
   const universe = mandatoryObligationUniverse(catalog);
+  const knownLevels = [...catalogKnownLevels(catalog)].sort();
 
   let evidence = null;
 
@@ -682,11 +743,13 @@ function main() {
     tool: "release-verify",
     mode,
     scope: {
-      structural_checks: ["mandatory_files", "dist_freshness", "catalog_integrity", "corpus_integrity", "security_doc", "secret_scan_release_inventory", "reference_html_integrity", "source_tree_digest"],
+      structural_checks: ["mandatory_files", "build_stamp_dist_provenance", "catalog_integrity", "corpus_integrity", "security_doc", "secret_scan_release_inventory", "reference_html_integrity", "source_tree_digest"],
       obligation_universe: { count: universe.idList.length, groups: universe.groups },
       evidence_manifest_path: relative(repoRoot, evidenceManifestPath) || evidenceManifestPath,
-      evidence_levels: KNOWN_EVIDENCE_LEVELS,
+      evidence_levels: knownLevels,
+      evidence_levels_source: "ai/acceptance/catalog.json evidence_levels birlesimi + PLATFORM",
       evidence_scopes: VERIFICATION_SCOPES,
+      build_stamp_path: BUILD_STAMP_REL,
     },
     source: { commit: identity.commit, commit_available: identity.commit !== null, tree_digest: identity.tree_digest, dirty: identity.dirty, file_count: identity.file_count },
     build: { lockfile_sha256: identity.lockfile_sha256, build_input_digest: identity.build_input_digest, dist_artifacts: identity.dist_artifacts },
