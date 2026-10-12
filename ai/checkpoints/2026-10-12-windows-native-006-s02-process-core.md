@@ -60,3 +60,13 @@
 - Odak 6 dosya/32 PASS. `npm run typecheck`, `npm run build`, `npm run lint` exit 0; lint 89 mevcut uyari. RG41/RG42 canli pilot izole 2/2 FAIL; `start_ok=false`, `status_ok=false`, kabul halen NOT_VERIFIED. Process ownership Job Object koprusu, hard-kill/restart reaper ve musteri pilot kaniti yok; S02 NO_GO.
 - Son gizlilik siniri kontrolunde artifact `relative_store_path` icin tam job/hash eslesmesi, DB bytes/SHA, JSON alan tipleri ve realpath tabanli junction/symlink disari cikis reddi eklendi. Sentetik fixture byte sapmasi, yabanci path ve storage disina junction yonlendirmesini fail-closed dogruladi. Resume reddinde recovery lease serbest birakilir.
 - Son tekrar: odak 6 dosya/33 PASS; typecheck/build/lint exit 0, lint 89 mevcut uyari.
+
+## 2026-10-13 resume lease ve async hata onarimi
+
+- Bagimsiz review iki P1 yolu yakaladi: `resumeDispatch` recovery lease'i sonrasinda model/checkpoint/accepted restore hatasinda release etmiyordu; direct native identity kontrolu checkpoint event ve accepted restore sonrasindaydi. `handleTestResume` async hata callback'i de yalniz `CONTRACT_CONFLICT` icin lifecycle'i FAILED yapiyor, identity drift'te RUNNING birakiyordu.
+- Uc regresyon testi once RED: model conflict'te lease `expires_at` 5 dakika ilerideydi; identity drift'ten once `resume_fresh_start` event'i yazilmisti; async drift sonrasi lifecycle RUNNING kaldi. Native direct resume identity preflight'i recovery/mutation onune tasindi. Recovery acquire dahil tum sonrasini `finally` lease release kapsiyor; ayni process eszamanli resume cagrilari ayrilsin diye owner ID'ye UUID eklendi. Async resume hatasi RUNNING job'u typed BLOCKED_ISOLATION/POLICY_VIOLATION veya BLOCKED_ENVIRONMENT sonucu ile FAILED yapiyor; INTERRUPTED/SOURCE_CHANGED korunuyor.
+- Odak resume dosyasi 7/7 PASS; S02 odak 6 dosya/35 PASS. Process ownership customer gate halen kapali, S02 NO_GO; musteri/GPU Maven goals calistirilmadi.
+- Recovery plan lease aldiktan sonra checkpoint okuma hatasi attiginda da owner expiry testi eklendi; final tekrar resume 8/8, S02 odak 6 dosya/36 PASS. Typecheck/build/lint exit 0; lint 89 mevcut uyari. RG41/RG42 canli kabul halen NO_GO.
+- Async callback baska canli owner'dan `LEASE_HELD` alirsa onun RUNNING isini FAILED yapmaz; canli owner'i koruyan fixture resume 9/9 PASS. Bu kontrol yeni genel async hata outcome davranisinin eszamanli owner'a zarar vermemesini dogrular.
+- Son S02 odak 6 dosya/37 PASS; typecheck/build/lint exit 0 (lint 89 mevcut uyari). S02 NO_GO degismedi.
+- Canli RG41/RG42 izole tekrar 2/2 FAIL (`start_ok=false`, `status_ok=false`); bu kabul testleri blocker assertion'ina cevrilmedi.

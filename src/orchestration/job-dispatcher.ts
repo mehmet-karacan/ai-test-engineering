@@ -1207,23 +1207,31 @@ export class JobDispatcher {
       throw new AppError("INVALID_PARAMETERS", `Job icin proje koku cozumlenemedi: ${job.id}`);
     }
 
+    // No recovery lease, checkpoint event, accepted-file restore or state
+    // mutation may precede the current native ownership/toolchain check.
+    if (this.runnerKind === "windows_native") {
+      new CustomerRunnerFactory().assertNativeCustomerReady();
+      const record = new NativeToolchainRecordStore(storage.db, this.workspaceRoot);
+      const options = record.optionsForResume(job.id, process.env);
+      if (options.cwd !== projectRoot) {
+        throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
+      }
+      await record.verify(job.id, options, verifyNativeToolchain);
+    }
+
     // P03/PP11: kaynak kontrolu tam source identity ile: HEAD + sirali canonical
     // path+byte source digest + build config digest. Null/bilinmeyen recorded
     // identity "degismeyen kaynak" sayilmaz (R04).
     const snapshot = new SourceSnapshot(projectRoot);
     const snapshotManifest = snapshot.buildManifest();
     const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
-    const recoveryOwnerId = `resume-${process.pid}-${job.id}`;
+    const recoveryOwnerId = `resume-${process.pid}-${job.id}-${randomUUID()}`;
+    try {
     const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity });
     if (this.runnerKind === "windows_native" && plan.checkpoint_manifest) {
-      try {
-        const pinned = new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id);
-        if (plan.checkpoint_manifest.toolchain["native_maven"] !== pinned.identity) {
-          throw new AppError("BLOCKED_ISOLATION", "Resume checkpoint toolchain identity differs from job", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
-        }
-      } catch (error) {
-        leases.release(job.id, recoveryOwnerId);
-        throw error;
+      const pinned = new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id);
+      if (plan.checkpoint_manifest.toolchain["native_maven"] !== pinned.identity) {
+        throw new AppError("BLOCKED_ISOLATION", "Resume checkpoint toolchain identity differs from job", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
     }
 
@@ -1232,13 +1240,11 @@ export class JobDispatcher {
       jobs.appendEvent({ job_id: job.id, event_type: "resume_source_changed", phase: job.phase, origin: "resumeDispatch" });
       // Eski accepted set ve coverage yeni customer bytes ile birlestirilmez.
       // Kontrollu rebaseline yeni revision/explicit start gerektirir.
-      leases.release(job.id, recoveryOwnerId);
       throw new AppError("SOURCE_CHANGED", `Resume kaynagi degismis (${plan.reason}); eski accepted checkpoint ile devam edilmedi`, { reason_code: "SOURCE_CHANGED" });
     }
 
     if (targetRows.length === 0) {
       // job_targets yoksa hedef cozulemez; sessiz discovery ile baslatma yok.
-      leases.release(job.id, recoveryOwnerId);
       throw new AppError("INVALID_PARAMETERS", `Job hedefleri kayitli degil; test_start ile yeni is gerekli: ${job.id}`);
     }
 
@@ -1321,7 +1327,6 @@ export class JobDispatcher {
       )
       .all(job.id);
     if (concreteRows.length === 0) {
-      leases.release(job.id, recoveryOwnerId);
       throw new AppError("BLOCKED_TARGET_RESOLUTION", "Job icin frozen concrete hedef kaydi yok (legacy); resume sessiz yeniden cozumlemez", {
         reason_code: "LEGACY_GOAL_NO_CONCRETE",
       });
@@ -1357,22 +1362,12 @@ export class JobDispatcher {
       contract_budget: contractBudget,
       concrete_targets_digest: rebuildFrozenTargetDigest([...concreteBySelector.values()].flat()),
     };
-    if (this.runnerKind === "windows_native") {
-      // Also guard direct resumeDispatch callers, not only the MCP handler.
-      try {
-        new CustomerRunnerFactory().assertNativeCustomerReady();
-        const record = new NativeToolchainRecordStore(storage.db, this.workspaceRoot);
-        const options = record.optionsForResume(job.id, process.env);
-        if (options.cwd !== projectRoot) {
-          throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
-        }
-        await record.verify(job.id, options, verifyNativeToolchain);
-      } catch (error) {
-        leases.release(job.id, recoveryOwnerId);
-        throw error;
-      }
+    return await this.dispatch(job, goal, projectRoot, recoveryOwnerId);
+    } finally {
+      // planRecovery can throw after acquire, and any contract/checkpoint
+      // check can throw before dispatch assumes ownership.
+      leases.release(job.id, recoveryOwnerId);
     }
-    return this.dispatch(job, goal, projectRoot, recoveryOwnerId);
   }
 
   /** P05-B/PP24: resume modeli manifest yoksa da kalici job contract'tan geri yuklenir. */

@@ -98,16 +98,19 @@ export async function handleTestResume(input: unknown, services: Services): Prom
   // GoalContract job kayitlarindan yeniden kurulur (resume parametresi gerekmez):
   void dispatcher.resumeDispatch(job, parsed.project_root ?? undefined, parsed.model_profile ?? null).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] resume job ${job.id} hata: ${String(error)}\n`);
-    if (error instanceof AppError && error.details?.["reason_code"] === "CONTRACT_CONFLICT") {
-      try {
-        const latest = jobs.getJob(job.id);
-        if (latest.lifecycle === "RUNNING") {
-          jobs.updateOutcome(job.id, "POLICY_VIOLATION", latest.row_version);
-          jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
-        }
-      } catch (stateError) {
-        process.stderr.write(`[aitest-dispatch] resume job ${job.id} contract conflict state update hatasi: ${String(stateError)}\n`);
+    try {
+      const latest = jobs.getJob(job.id);
+      // A rejected contender must not fail the job owned by another live lease.
+      const leaseHeld = error instanceof AppError && error.details?.["reason_code"] === "LEASE_HELD";
+      if (latest.lifecycle === "RUNNING" && !leaseHeld) {
+        const outcome = error instanceof AppError && error.code === "POLICY_VIOLATION" ? "POLICY_VIOLATION"
+          : error instanceof AppError && error.code === "BLOCKED_ISOLATION" ? "BLOCKED_ISOLATION"
+          : "BLOCKED_ENVIRONMENT";
+        jobs.updateOutcome(job.id, outcome, latest.row_version);
+        jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
       }
+    } catch (stateError) {
+      process.stderr.write(`[aitest-dispatch] resume job ${job.id} state update hatasi: ${String(stateError)}\n`);
     }
   });
 
