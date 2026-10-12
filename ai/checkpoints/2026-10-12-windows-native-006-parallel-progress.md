@@ -25,3 +25,10 @@
 - S01 iki P1 yaris duzeltmesi `3cde1cd`; odak 8 dosya/42 PASS, typecheck/build/lint exit 0. Hard-kill recovery ve kalan WN kabulleri icin dal ayri gelistirilmeye devam ediyor.
 - S02 gecis commit'i `179d7f9`: normal MCP varsayilani `windows_native`, eski runner migration reddi ve process ownership dogrulanmadikca customer Maven blokaji; ilgili 33/33 PASS, typecheck/build/lint exit 0. S02 NO_GO.
 - S03 snapshot commit'i `3b11df9`: `.mvn` ve Maven wrapper build kimligine/kopyasina girer; ilgili 55/55 PASS, typecheck/build/lint exit 0. S04 veri kontrati eksik; S03 NO_GO.
+
+## Coordinator entegrasyonu
+
+- S02 dali `7ae7d06` dahil `2c262ec` merge commit'iyle, S03 dali `61af70e` dahil `45ef344` merge commit'iyle coordinator dalina alindi. S01 dali hard-kill ve WN13 aciklari nedeniyle ayri tutuluyor.
+- Birlesik S02/S03 odak kosusu: 8 dosya/77 PASS. `typecheck`, `build`, `lint` exit 0; lint 89 warning. `release-verify --local` exit 0. Normal customer native run bilerek `NATIVE_PROCESS_OWNERSHIP_UNVERIFIED` ile baslatilmiyor; bu sonuc S02 VERIFIED degildir.
+- S03'te `.mvn`/wrapper snapshot girdisi ve junction kaynak/hedef reddi var. Check-copy arasindaki reparse TOCTOU ve S04 kalici scan kontrati acik; S03 PARTIAL/NO_GO.
+- S01 journal crash recovery icin eski DB varligi, yeni snapshot kimligi ve gercek blob sahipligi eksik. Kurulu Node v24.14.1'de senkron named-pipe bind API yok; full maintenance lock gecisi tasarim gerektirir. Mevcut fail-closed koruma surer; S01 NO_GO.
