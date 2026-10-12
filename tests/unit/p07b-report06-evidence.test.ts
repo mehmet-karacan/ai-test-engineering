@@ -120,6 +120,38 @@ describe("P07-B evidence export", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("tampanilmis manifest PUBLISHED marker'i artifact olarak tasidiginda fail-closed kalir", () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-p07b-reserved-"));
+    try {
+      const reportsDir = join(root, "reports");
+      const exporter = new ReportExporter(reportsDir);
+      const binary = Buffer.from([0, 1, 127, 128, 255]);
+      const result = exporter.export(reportData(), { "evidence/final-replay/jacoco.xml": binary });
+      expect(result.verification_passed).toBe(true);
+
+      const manifest = JSON.parse(readFileSync(join(reportsDir, "manifest.json"), "utf8")) as {
+        artifacts: Array<{ relative_path: string; sha256: string; bytes: number; kind: string }>;
+      };
+      // Temiz export PUBLISHED'i normal artifact olarak listelemez.
+      expect(manifest.artifacts.filter((artifact) => artifact.relative_path === "PUBLISHED")).toHaveLength(0);
+      const published = readFileSync(join(reportsDir, "PUBLISHED"), "utf8");
+      manifest.artifacts.push({
+        relative_path: "PUBLISHED",
+        sha256: sha(published),
+        bytes: published.byteLength,
+        kind: "extra",
+      });
+      writeFileSync(join(reportsDir, "manifest.json"), JSON.stringify(manifest), "utf8");
+
+      // PUBLISHED atomik yayin marker'idir; dosya var ve hash/bytes eslesse bile
+      // normal artifact listesinde gorunemez (PP40 reserved path).
+      const verification = exporter.verifyExport();
+      expect(verification.missing.some((entry) => entry.includes("reserved path: PUBLISHED"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("P07-B final replay collector", () => {
