@@ -5,6 +5,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var"
 Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P06 ve P07-A local olarak dogrulandi; P09 verifier/reconciliation local olarak kapali, P07-B/P08/P10 kapanis paketi suruyor. Ana kalan paket sayisi: 3 (P09 kapanis kaniti korunuyor).
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFIED; checkpoint `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.
+Son coordinator kapanis kanitlari: GLM P08 PP44 checkpoint `ai/checkpoints/2026-10-12-production-005-p08-pp44-realbin-e2e.md`; Qwen P09/P10 reconciliation checkpoint `ai/checkpoints/2026-10-12-production-005-p10-p09-reconciliation.md`.
 
 ## 004 uygulama paketleri (W00-W11)
 
@@ -39,9 +40,9 @@ P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFI
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | production-005-p07a-facts-export; 81/81 odak suite + typecheck |
 | P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS (COMPLETED/export BLOCKED_KAYITLI) | p07b-report06-evidence + p07b-published-reserved + report-path-authority + p07b-report06-surfaces + p07b-browser-e2e + p07b-dispatch-egress + p07b-next2-blocked (YENI); PP37 gercek browser DOM/print/offline/link 4/4 PASS; wire fail-closed typed blocker 1/1 PASS; nonzero facts gercek Maven kosu 2/2 PASS; COMPLETED/export kosusu BLOCKED (egress enforcement altyapisi depoda ve hostta yok) |
-| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | p08-install-runtime + p08-lifecycle-restore + p08-runtime-paths + p08-upgrade-restore + w09 PP43 + PP41/PP42/PP44 gercek e2e; final2 store (YENI) verify/chain/uninstall exit 0 + CHAIN_ALL_OK=true (v4->v7 + quiesce + backup/restore/rollback); PP41 install/verify/uninstall exit 0, PP42 gercek Docker-linux path, PP43 gercek Docker probe 4/4, PP44 uninstall e2e + yerel 15/15; gercek eski v4 binary (0822c3d) derlendi + OLD_SCHEMA_VERSION=4 (p08-realbin-v4); gercek binary surum-atlayi upgrade/rollback e2e ve macOS NOT_RUN |
+| P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | IN_PROGRESS | PP44 gercek eski v4 binary -> v7 binary migration, quiesce, trusted job/artifact, backup/kayip/restore ve standalone MCP entry smoke PASS (GLM checkpoint); macOS NOT_RUN |
 | P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | production-005-coordinator-next + qwen-next + coordinator-final2; P01 40/40, ana dal odak 8 dosya 71/71 PASS, lint 0 error/89 warning, typecheck/build PASS; local PASS, full NO_GO (`EVIDENCE_MANIFEST_EKSIK`, 274 obligation) |
-| P10 | Teknik devir ve yayin karari | IN_PROGRESS | coordinator final checkpoint; evidence manifest, platform/live kanitleri eksik; production GO verilmedi |
+| P10 | Teknik devir ve yayin karari | IN_PROGRESS | Qwen reconciliation: full suite 74/639 PASS/5 FAIL; local PASS, full NO_GO; 274 obligation manifest eksik, live/platform/egress kanitleri yok |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 
