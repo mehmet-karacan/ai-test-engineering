@@ -2,7 +2,7 @@
 
 ## Son durum
 
-- Coordinator branch: `main`; GLM model commit'i `71a9660` (main cherry-pick `e269340`), Qwen model commit'i `5df8a87` (main cherry-pick `6144e4e`) olarak entegre edildi. Push sonrasi HEAD/origin/main eslesmesi ayri komutla dogrulanacak.
+- Coordinator branch: `main`; GLM model commit'i `71a9660` (main cherry-pick `e269340`), Qwen model commit'i `5df8a87` (main cherry-pick `6144e4e`) olarak entegre edildi. Push sonrasi HEAD/origin/main eslesmesi `fa2149f` ile dogrulandi.
 - Tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
 - P02/P03 (PR02/PR03) GLM izole audit: PR02/PR03 yerel (kod + test) hattinda yeni uygulanabilir kod acigi yok; PP04-PP15 mevcut kaynaklarla fail-closed dogrulandi. Odak 63/63 PASS, typecheck/build PASS, lint 0 error.
 - Tam regresyon: `npm.cmd test -- --run` exit 0; 70 test dosyasi, 620/620 PASS, 123.32 sn. Log SHA256: `CAF060D07B36F3EEE616BAA45DB094E2073D1484B3E9862FE9E47C5DFD1A961D`.
