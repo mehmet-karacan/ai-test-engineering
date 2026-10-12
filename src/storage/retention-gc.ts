@@ -6,6 +6,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { join, sep as pathSep } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
+import { acquireMaintenanceLock } from "./maintenance-lock.js";
 
 export interface RetentionPolicy {
   /** Rejected/untrusted artifact TTL (ms) */
@@ -99,6 +100,8 @@ export interface GcSweepResult {
  * Active/pinned ref silinmez (14.4); silme islemi audit kaydi birakir (event).
  */
 export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, artifactRoot: string): GcSweepResult {
+  const release = acquireMaintenanceLock(artifactRoot, "gc");
+  try {
   const swept: GcSweepResult["swept"] = [];
   for (const candidate of dryRun.candidates) {
     const blobPath = join(artifactRoot, candidate.relative_store_path.replace(/\//g, pathSep));
@@ -109,4 +112,7 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
     swept.push({ artifact_id: candidate.artifact_id, relative_store_path: candidate.relative_store_path });
   }
   return { swept, skipped_pinned: dryRun.pinned_count, artifact_root: artifactRoot };
+  } finally {
+    release();
+  }
 }

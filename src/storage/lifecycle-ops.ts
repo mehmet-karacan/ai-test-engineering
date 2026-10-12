@@ -11,6 +11,7 @@ import { join, relative, resolve, isAbsolute, sep as pathSep } from "node:path";
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
+import { acquireMaintenanceLock } from "./maintenance-lock.js";
 
 export interface BackupResult {
   backup_id: string;
@@ -115,10 +116,11 @@ function inspectBackupSnapshot(dbPath: string): SnapshotInspection {
  * Backup complete marker ancak tum blob/hash dogrulamalari gecince yazilir.
  */
 export async function createBackup(db: BetterSqlite3.Database, dbPath: string, artifactRoot: string, backupRoot: string): Promise<BackupResult> {
+  const release = acquireMaintenanceLock(artifactRoot, "backup");
   const backupId = randomUUID();
   const backupDir = join(backupRoot, backupId);
-  mkdirSync(backupDir, { recursive: true });
   try {
+    mkdirSync(backupDir, { recursive: true });
     const backupDbPath = join(backupDir, "state.db");
     await db.backup(backupDbPath);
 
@@ -177,6 +179,8 @@ export async function createBackup(db: BetterSqlite3.Database, dbPath: string, a
     // Incomplete snapshots cannot later be mistaken for a restorable backup.
     rmSync(backupDir, { recursive: true, force: true });
     throw error;
+  } finally {
+    release();
   }
 }
 
@@ -292,6 +296,8 @@ export function verifyBackup(backupDir: string): RestoreVerification {
  * hedefi ezmez. Crash-safe journal/rollback ayri asamada tamamlanacaktir.
  */
 export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
+  const release = acquireMaintenanceLock(targetArtifactRoot, "restore");
+  try {
   const verification = verifyBackup(backupDir);
   if (!verification.valid) {
     throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: verification.reason ?? "BACKUP_VERIFICATION_FAILED" });
@@ -397,6 +403,9 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     }
   }
   return { backup_id: manifest.backup_id, db_path: targetDbPath, artifact_root: targetArtifactRoot, verification };
+  } finally {
+    release();
+  }
 }
 
 export interface UninstallDecision {
