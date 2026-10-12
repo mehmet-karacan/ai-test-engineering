@@ -14,13 +14,16 @@ Bu depo, AI test muhendisligi MCP urununun gelistirme deposudur. Aktif gorev soz
 
 ## Kurallar
 
-- Aktif gorev sozlesmesi kokteki `AKTIF_GOREV.md`'de: bulgular (F/B), duzeltme asamalari (K00-K09), zorunlu kabul senaryolari (RT01-RT28).
+- Aktif gorev `AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0`: kokteki `AKTIF_GOREV.md`; paketler S00-S09 ve zorunlu Windows kabulleri WN01-WN80.
+- Onceki `AITE-PRODUCTION-READINESS-005 v1.0` byte-korunmus arsivi `ai/tasks/archive/AITE-PRODUCTION-READINESS-005-v1.0.md` altindadir. Eski kabul iddialari yeni Windows kapsamina otomatik PASSED tasinmaz.
+- G0 urun kodu ve sentetik Windows testlerini acar. GPU Fusion'da ilk Maven/model kosusu G1, ozgun checkout'a test uygulamasi G2, yayin G3 ayri kullanici kararidir.
 - Arsivdeki urun sozlesmesi: `ai/tasks/archive/` (AITE-FOUNDATION-001: R01-R20/AC01-AC70; AITE-REMEDIATION-002: RG01-RG52).
 - Onceki denetimler: `ai/reviews/` (foundation-review, runtime-acceptance-review).
-- Guncel durum: `ai/PROJECT_STATE.md`; is listesi: `ai/BACKLOG.md` (K00-K09).
+- Guncel durum: `ai/PROJECT_STATE.md`; is listesi: `ai/BACKLOG.md` (S00-S09); kabul: `ai/ACCEPTANCE_MATRIX.md` ve `ai/acceptance/`.
 - Gelistirme hafizasi `ai/` altindadir; runtime hafizasi ile karistirma.
 - Runtime veri (DB, blob, log) bu repoya yazilmaz; `session-*.md` kullanici oturum kaydidir, public'e gitmez.
-- Windows standart yol CMD + Node.js; PS1/PowerShell zorunlu degil; kurum policy'si bypass edilmez.
+- Windows standart yol CMD + Node.js + yerel JDK/Maven'dir; Docker/WSL/PS1 zorunlu degil; kurum policy'si bypass edilmez. Native calisma OS sandbox degildir.
+- Gelistirme subagent'lari izole branch/worktree ve kisa hashli brief kullanir; ayni dosyada eszamanli yazar olmaz. Gelistiren kendi nihai reviewer'i olamaz.
 - CI kullanici karariyla kapalidir; kendiliginden acilmaz.
 - Git kimligi: `mehmet-karacan <karacan.mehmet@hotmail.com>` (local config). Global konfigurasyona dokunma.
 - Yeni commit mesajlari Turkce ASCII yazilir.

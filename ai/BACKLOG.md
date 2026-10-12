@@ -2,6 +2,25 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
+## 006 Windows native paketleri
+
+Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G1/G2/G3 ayri karar. Asagidaki durumlar eski P paketlerini PASSED'a ceviremez.
+
+| Paket | Is | Durum | Sonraki kanit |
+| --- | --- | --- | --- |
+| S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | IN_PROGRESS | WN01-WN04/WN67-WN69; mapping ve baseline checkpoint |
+| S01 | Backup otoritesi ve hata atomik restore | TODO | WN05-WN13 |
+| S02 | Windows native runner ve Docker'in kaldirilmasi | TODO | WN14-WN24 |
+| S03 | Tam metadata envanteri ve source snapshot | TODO | WN25-WN31 |
+| S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42 |
+| S05 | Gercek subagent oturumlari ve context butcesi | TODO | WN43-WN52 |
+| S06 | Native Maven/coverage/iteration | TODO | WN53-WN60 |
+| S07 | Report06, kurulum, readiness | TODO | WN61-WN66 |
+| S08 | GPU Fusion kontrollu pilot | G1_BEKLIYOR | WN70-WN75; ilk Maven/model G1 onayi ister |
+| S09 | Yeni scope release gate ve final review | TODO | WN67-WN69/WN76-WN80 |
+
+## Tarihsel 005 kaydi (korunur)
+
 Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P08 Windows kapsaminda dogrulandi; P09 verifier/reconciliation local olarak kapali. Docker/Docker execution/Docker egress/PP17 bu gorevde acikca kapsam disidir ve sonraki aktif goreve devredilmistir. Ana kalan formal paket sayisi: 1 (P10; macOS da kapsam disi).
 Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFIED (tarihsel kayit asagida).
 P02/P03 kalan runtime kanitlari (2026-10-12): PP07/PP08/PP09/PP14 RUNTIME_VERIFIED; checkpoint `ai/checkpoints/2026-10-12-production-005-p02p03-remaining-runtime-kanit.md`.

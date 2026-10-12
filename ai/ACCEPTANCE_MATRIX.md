@@ -1,3 +1,9 @@
+# Kabul Matrisi - AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0
+
+Yeni Windows scope icin WN01-WN80 ve 320 eski ID'nin acik mapping'i zorunludur. S00 IN_PROGRESS; 006 full kabul NO_GO (scope/evidence/pilot henuz yok). Eski 005'in 274-ID full gate ve NO_GO sonucu tarihsel olarak korunur; yeni scope'a otomatik PASSED aktarilmaz. G0 acik; GPU Fusion G1, apply G2 ve yayin G3 ayri karardir. Ayrinti `AKTIF_GOREV.md` bolum 1, 9-12 ve `ai/acceptance/` kayitlarindadir.
+
+## Tarihsel 005 matrisi (korunur)
+
 # Kabul Matrisi - AC/RG/RT/PRO + N (AITE-PRODUCTION-READINESS-005 v1.0; tarihsel 003/004 kayitlari korunur)
 
 Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kismen)" KULLANILMAZ.

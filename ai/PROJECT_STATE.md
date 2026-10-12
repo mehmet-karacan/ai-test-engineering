@@ -2,6 +2,13 @@
 
 ## Aktif gorev
 
+- Gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (sozlesme: `AKTIF_GOREV.md`, SHA-256 `59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989`). G0 kullanici uygulama talimatiyla acildi; G1/G2/G3 ayri onay bekler.
+- Asama: S00 IN_PROGRESS. Onceki 005 gorevi byte/hash korunarak arsivlendi (SHA-256 `cc741769116cee3b2cd921256406a58560b0d65ad0a476c3471bb01ac378336f`). Windows native yeni scope ve legacy mapping henuz tamamlanmadi; yeni full gate GO iddiasi yok.
+- Calisma dali/worktree: `codex/windows-native-006`, `C:\Users\mkaracan\.codex\worktrees\windows-native-006\ai-test-engineering`; taban `3b1916ed6f35f0c674cc459b30ca9f5614af9b94`. Ana checkout'taki untracked `JavaMetadataScannerCoverageTest.java` korundu.
+- S00 baslangic: Node v24.14.1; `npm.cmd ci` exit 0 (236 paket); typecheck/build exit 0; lint exit 0 (89 uyari). Guvenli unit/contract/benchmark baseline 58 dosya, 582 PASS / 2 FAIL: `p01-release-gate` ve `w10-ledger` eski aktif 005 pause metnini kok `AKTIF_GOREV.md` icinde ariyor. Eski `release-verify --local` exit 0; eski full gate exit 1 `EVIDENCE_MANIFEST_EKSIK` (274/274). Yeni scope gate'i uygulanmadan bu ciktılar 006 kabul kaniti degildir. Checkpoint: `ai/checkpoints/2026-10-12-windows-native-006-s00-start.md`.
+
+## Tarihsel 005 kaydi (korunur)
+
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
 - Asama: P00-P08 Windows kapsaminda dogrulandi; P02/P03 audit, P07/P08 test kapsami, P09 release verifier provenance ve P10 kapanis kanitlari main'e alindi; Docker/PP17 bu gorev kapsamindan cikarildi, P10 full gate kanit eksigi suruyor
 - Durum etiketi: `005_WINDOWS_NO_DOCKER_SCOPE_HANDOFF` (tam urun kabul: NOT_VERIFIED)
