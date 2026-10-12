@@ -1,0 +1,2905 @@
+{
+  "schema_version": "1.0",
+  "scope_id": "windows-native-v1",
+  "created": "2026-10-12",
+  "task": "AITE-WINDOWS-SUBAGENT-PILOT-006",
+  "total": 320,
+  "status_counts": {
+    "RETAINED": 296,
+    "REPLACED": 15,
+    "OUT_OF_SCOPE_BY_USER": 9
+  },
+  "superseded_policy": "Her Docker/Linux/macOS ozgul legacy ID RETAINED, REPLACED veya OUT_OF_SCOPE_BY_USER ile eslenir. REPLACED ve OUT_OF_SCOPE_BY_USER kayitlarinda acik neden ve WN karsiligi zorunludur. Kullanici karariyla kaldirilan bir maddeye PASSED yazilmaz; OUT_OF_SCOPE_BY_USER Windows GO'yu bloke etmez.",
+  "mappings": [
+    {
+      "legacy_id": "AC01",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN01"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN01 ile korunur."
+    },
+    {
+      "legacy_id": "AC02",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN44"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN44 ile korunur."
+    },
+    {
+      "legacy_id": "AC03",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN44"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN44 ile korunur."
+    },
+    {
+      "legacy_id": "AC04",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "AC05",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "AC06",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "AC07",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "AC08",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "AC09",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN32"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN32 ile korunur."
+    },
+    {
+      "legacy_id": "AC10",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN25"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN25 ile korunur."
+    },
+    {
+      "legacy_id": "AC11",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN17"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN17 ile korunur."
+    },
+    {
+      "legacy_id": "AC12",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN29"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN29 ile korunur."
+    },
+    {
+      "legacy_id": "AC13",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "AC14",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "AC15",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN18"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN18 ile korunur."
+    },
+    {
+      "legacy_id": "AC16",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "AC17",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "AC18",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN56"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN56 ile korunur."
+    },
+    {
+      "legacy_id": "AC19",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "AC20",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "AC21",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "AC22",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "AC23",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "AC24",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "AC25",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "AC26",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "AC27",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "AC28",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "AC29",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN63"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN63 ile korunur."
+    },
+    {
+      "legacy_id": "AC30",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN56"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN56 ile korunur."
+    },
+    {
+      "legacy_id": "AC31",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "AC32",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "AC33",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "AC34",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "AC35",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "AC36",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "AC37",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN31"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN31 ile korunur."
+    },
+    {
+      "legacy_id": "AC38",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN17"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN17 ile korunur."
+    },
+    {
+      "legacy_id": "AC39",
+      "source": "AITE-FOUNDATION-001",
+      "status": "REPLACED",
+      "wn": [
+        "WN19",
+        "WN51"
+      ],
+      "reason": "Docker-era runner host izolasyon vaadi (host source/home/secrets okuyamaz) K02 ile geri cekildi; yerel runner kullanici hesabi yetkileriyle calisir. Secretin modele/rapora/public Git'e aktarilmamasi WN19, runtime ajan genel erisim siniri WN51 ile model/ajan sinirinda korunur."
+    },
+    {
+      "legacy_id": "AC40",
+      "source": "AITE-FOUNDATION-001",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN13"
+      ],
+      "reason": "Container/cgroup kaynak kota yaptirimi K02 ve 2026-10-12 kullanici karariyla emekliye ayrildi; bu maddeye PASSED yazilmaz. Musteri verisi ve path korumasi WN13 ile surer."
+    },
+    {
+      "legacy_id": "AC41",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "AC42",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN51"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN51 ile korunur."
+    },
+    {
+      "legacy_id": "AC43",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN19"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN19 ile korunur."
+    },
+    {
+      "legacy_id": "AC44",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN24"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN24 ile korunur."
+    },
+    {
+      "legacy_id": "AC45",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN40"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN40 ile korunur."
+    },
+    {
+      "legacy_id": "AC46",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN22"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN22 ile korunur."
+    },
+    {
+      "legacy_id": "AC47",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN39"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN39 ile korunur."
+    },
+    {
+      "legacy_id": "AC48",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN36"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN36 ile korunur."
+    },
+    {
+      "legacy_id": "AC49",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN37"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN37 ile korunur."
+    },
+    {
+      "legacy_id": "AC50",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN42"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN42 ile korunur."
+    },
+    {
+      "legacy_id": "AC51",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN38"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN38 ile korunur."
+    },
+    {
+      "legacy_id": "AC52",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN10"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN10 ile korunur."
+    },
+    {
+      "legacy_id": "AC53",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN12"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN12 ile korunur."
+    },
+    {
+      "legacy_id": "AC54",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN13"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN13 ile korunur."
+    },
+    {
+      "legacy_id": "AC55",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN22"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN22 ile korunur."
+    },
+    {
+      "legacy_id": "AC56",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "AC57",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN75"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN75 ile korunur."
+    },
+    {
+      "legacy_id": "AC58",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN75"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN75 ile korunur."
+    },
+    {
+      "legacy_id": "AC59",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN11"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN11 ile korunur."
+    },
+    {
+      "legacy_id": "AC60",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN11"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN11 ile korunur."
+    },
+    {
+      "legacy_id": "AC61",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "AC62",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "AC63",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "AC64",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN25"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN25 ile korunur."
+    },
+    {
+      "legacy_id": "AC65",
+      "source": "AITE-FOUNDATION-001",
+      "status": "REPLACED",
+      "wn": [
+        "WN65",
+        "WN66"
+      ],
+      "reason": "K01 geregi desteklenen kullanici platformu yalniz Windows'tur; Linux temiz kurulum/tekrar/uninstall kaniti kapsam disina cikarildi. Windows temiz kurulum WN65, upgrade/restore/uninstall WN66 ile sinanir."
+    },
+    {
+      "legacy_id": "AC66",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "AC67",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "AC68",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN40"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN40 ile korunur."
+    },
+    {
+      "legacy_id": "AC69",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN01"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN01 ile korunur."
+    },
+    {
+      "legacy_id": "AC70",
+      "source": "AITE-FOUNDATION-001",
+      "status": "RETAINED",
+      "wn": [
+        "WN77"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN77 ile korunur."
+    },
+    {
+      "legacy_id": "RG01",
+      "source": "AITE-REMEDIATION-002",
+      "status": "REPLACED",
+      "wn": [
+        "WN25",
+        "WN33"
+      ],
+      "reason": "Linux kaynak/envanter ve default config/DB kapsami K01 ile cikarildi. Tam metadata envanteri WN25, Windows canonical path/identity kurallari WN33 ile sinanir."
+    },
+    {
+      "legacy_id": "RG02",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN32"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN32 ile korunur."
+    },
+    {
+      "legacy_id": "RG03",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "RG04",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "RG05",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "RG06",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN44"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN44 ile korunur."
+    },
+    {
+      "legacy_id": "RG07",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "RG08",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "RG09",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN66"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN66 ile korunur."
+    },
+    {
+      "legacy_id": "RG10",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "RG11",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "RG12",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "RG13",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN37"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN37 ile korunur."
+    },
+    {
+      "legacy_id": "RG14",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN67"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN67 ile korunur."
+    },
+    {
+      "legacy_id": "RG15",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN17"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN17 ile korunur."
+    },
+    {
+      "legacy_id": "RG16",
+      "source": "AITE-REMEDIATION-002",
+      "status": "REPLACED",
+      "wn": [
+        "WN17",
+        "WN51"
+      ],
+      "reason": "Docker izole runner vaadi (testin production/secret/home yazmasinin gercek izole runner'da engellenmesi) K02 ile emekliye ayrildi. Yazma containment WN17, runtime ajan erisim/yazma siniri WN51 ile Windows'ta korunur."
+    },
+    {
+      "legacy_id": "RG17",
+      "source": "AITE-REMEDIATION-002",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN68"
+      ],
+      "reason": "Docker/network/process/memory/disk kota probe'lari (NO_CGROUP dahil) K02 ve 2026-10-12 kullanici karariyla emekli; false-success ve degersiz kanit reddi WN68 evidence-level denetimiyle korunur. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "RG18",
+      "source": "AITE-REMEDIATION-002",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN24"
+      ],
+      "reason": "Docker capability fail-closed kapisi (Docker/runner yok, read-only probe basarili) K02 ile emekli; capability/config eksikliginde sessiz fallback engeli WN24 explicit migration/rejection davranisiyla korunur. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "RG19",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN13"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN13 ile korunur."
+    },
+    {
+      "legacy_id": "RG20",
+      "source": "AITE-REMEDIATION-002",
+      "status": "REPLACED",
+      "wn": [
+        "WN19"
+      ],
+      "reason": "Model credential'inin JVM'ye gecmemesi vaadi K02 ve Bolum 5.1.6 ile geri cekildi; yerel onayli credential'li settings native Maven tarafindan kullanilabilir. Credential/secretin modele, rapora ve public Git'e gecmemesi WN19 ile korunur."
+    },
+    {
+      "legacy_id": "RG21",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "RG22",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "RG23",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "RG24",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "RG25",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "RG26",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN51"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN51 ile korunur."
+    },
+    {
+      "legacy_id": "RG27",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "RG28",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "RG29",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "RG30",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "RG31",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN36"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN36 ile korunur."
+    },
+    {
+      "legacy_id": "RG32",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN37"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN37 ile korunur."
+    },
+    {
+      "legacy_id": "RG33",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN42"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN42 ile korunur."
+    },
+    {
+      "legacy_id": "RG34",
+      "source": "AITE-REMEDIATION-002",
+      "status": "REPLACED",
+      "wn": [
+        "WN22",
+        "WN23"
+      ],
+      "reason": "Docker container hard-kill/cancel kismi K02 ile emekli; owned Maven/JVM surec sonlandirma WN22, orphan/PID reuse ve gec gelen sonuc guvenligi WN23 ile Windows'ta sinanir."
+    },
+    {
+      "legacy_id": "RG35",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN39"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN39 ile korunur."
+    },
+    {
+      "legacy_id": "RG36",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN10"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN10 ile korunur."
+    },
+    {
+      "legacy_id": "RG37",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN38"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN38 ile korunur."
+    },
+    {
+      "legacy_id": "RG38",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN30"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN30 ile korunur."
+    },
+    {
+      "legacy_id": "RG39",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN29"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN29 ile korunur."
+    },
+    {
+      "legacy_id": "RG40",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN12"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN12 ile korunur."
+    },
+    {
+      "legacy_id": "RG41",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "RG42",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN73"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN73 ile korunur."
+    },
+    {
+      "legacy_id": "RG43",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "RG44",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "RG45",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN75"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN75 ile korunur."
+    },
+    {
+      "legacy_id": "RG46",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN75"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN75 ile korunur."
+    },
+    {
+      "legacy_id": "RG47",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN11"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN11 ile korunur."
+    },
+    {
+      "legacy_id": "RG48",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN11"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN11 ile korunur."
+    },
+    {
+      "legacy_id": "RG49",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "RG50",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "RG51",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "RG52",
+      "source": "AITE-REMEDIATION-002",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "RT01",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN14"
+      ],
+      "reason": "Docker-era izolasyon kosulu (env ayari olmayan kurulumda customer host JVM/Maven baslamaz; host fallback) K02 ile emekli; normal MCP yolu windows_native varsayilaniyla WN14'te acik cozumlenir, gizli fallback yoktur."
+    },
+    {
+      "legacy_id": "RT02",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN24"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN24 ile korunur."
+    },
+    {
+      "legacy_id": "RT03",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "RT04",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "RT05",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN31"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN31 ile korunur."
+    },
+    {
+      "legacy_id": "RT06",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN50"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN50 ile korunur."
+    },
+    {
+      "legacy_id": "RT07",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "RT08",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "RT09",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "RT10",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "RT11",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "RT12",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN40"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN40 ile korunur."
+    },
+    {
+      "legacy_id": "RT13",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN42"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN42 ile korunur."
+    },
+    {
+      "legacy_id": "RT14",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN22"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN22 ile korunur."
+    },
+    {
+      "legacy_id": "RT15",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN36"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN36 ile korunur."
+    },
+    {
+      "legacy_id": "RT16",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN39"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN39 ile korunur."
+    },
+    {
+      "legacy_id": "RT17",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN38"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN38 ile korunur."
+    },
+    {
+      "legacy_id": "RT18",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "RT19",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "RT20",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "RT21",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "RT22",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "RT23",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "RT24",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "RT25",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN75"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN75 ile korunur."
+    },
+    {
+      "legacy_id": "RT26",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN11"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN11 ile korunur."
+    },
+    {
+      "legacy_id": "RT27",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "RT28",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN44"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN44 ile korunur."
+    },
+    {
+      "legacy_id": "PRO01",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "PRO02",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "PRO03",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN32"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN32 ile korunur."
+    },
+    {
+      "legacy_id": "PRO04",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN42"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN42 ile korunur."
+    },
+    {
+      "legacy_id": "PRO05",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "PRO06",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "PRO07",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "PRO08",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN75"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN75 ile korunur."
+    },
+    {
+      "legacy_id": "PRO09",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN44"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN44 ile korunur."
+    },
+    {
+      "legacy_id": "PRO10",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN76"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN76 ile korunur."
+    },
+    {
+      "legacy_id": "PRO11",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN31"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN31 ile korunur."
+    },
+    {
+      "legacy_id": "PRO12",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN19"
+      ],
+      "reason": "Docker egress yaptirimi ve runner izolasyon vaadi (model/runner process'ine yasak egress denemesi) K02 ve 2026-10-12 kullanici karariyla emekli; runner'a gateway/user secret gecmemesi ve secretin modele/log/rapora sizmamasi WN19 ile model sinirinda korunur."
+    },
+    {
+      "legacy_id": "PRO13",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN23"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN23 ile korunur."
+    },
+    {
+      "legacy_id": "PRO14",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN19"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN19 ile korunur."
+    },
+    {
+      "legacy_id": "PRO15",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN17"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN17 ile korunur."
+    },
+    {
+      "legacy_id": "PRO16",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN22"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN22 ile korunur."
+    },
+    {
+      "legacy_id": "PRO17",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "PRO18",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "PRO19",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "PRO20",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN77"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN77 ile korunur."
+    },
+    {
+      "legacy_id": "PRO21",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN34"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN34 ile korunur."
+    },
+    {
+      "legacy_id": "PRO22",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN12"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN12 ile korunur."
+    },
+    {
+      "legacy_id": "PRO23",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN13"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN13 ile korunur."
+    },
+    {
+      "legacy_id": "PRO24",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN09"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN09 ile korunur."
+    },
+    {
+      "legacy_id": "PRO25",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN10"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN10 ile korunur."
+    },
+    {
+      "legacy_id": "PRO26",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN13"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN13 ile korunur."
+    },
+    {
+      "legacy_id": "PRO27",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "PRO28",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "PRO29",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN65",
+        "WN33"
+      ],
+      "reason": "K01 geregi Linux temiz kurulum, supported Linux paketi/native SQLite ABI ve POSIX path kaniti kapsam disidir. Windows kurulum WN65, Windows path/identity kurallari WN33 ile sinanir."
+    },
+    {
+      "legacy_id": "PRO30",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN66"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN66 ile korunur."
+    },
+    {
+      "legacy_id": "PRO31",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN31"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN31 ile korunur."
+    },
+    {
+      "legacy_id": "PRO32",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "PRO33",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "PRO34",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "PRO35",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "PRO36",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "PRO37",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "PIT/mutation testing Bolum 8.3 geregi bu goreve zorunlu yeni pipeline olarak eklenmez; predicate korunur, kalite zorunlulugu WN58 kapilariyla sinirlidir ve kanit zorunlulugu 006 kapsaminda yoktur."
+    },
+    {
+      "legacy_id": "PRO38",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "PIT/mutation testing Bolum 8.3 geregi bu goreve zorunlu yeni pipeline olarak eklenmez; predicate korunur, kalite zorunlulugu WN58 kapilariyla sinirlidir ve kanit zorunlulugu 006 kapsaminda yoktur."
+    },
+    {
+      "legacy_id": "PRO39",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "PIT/mutation testing Bolum 8.3 geregi bu goreve zorunlu yeni pipeline olarak eklenmez; predicate korunur, kalite zorunlulugu WN58 kapilariyla sinirlidir ve kanit zorunlulugu 006 kapsaminda yoktur."
+    },
+    {
+      "legacy_id": "PRO40",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "PRO41",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN45"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN45 ile korunur."
+    },
+    {
+      "legacy_id": "PRO42",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "PRO43",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN22"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN22 ile korunur."
+    },
+    {
+      "legacy_id": "PRO44",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN25"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN25 ile korunur."
+    },
+    {
+      "legacy_id": "PRO45",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN23"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN23 ile korunur."
+    },
+    {
+      "legacy_id": "PRO46",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN40"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN40 ile korunur."
+    },
+    {
+      "legacy_id": "PRO47",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN11"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN11 ile korunur."
+    },
+    {
+      "legacy_id": "PRO48",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN52"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN52 ile korunur."
+    },
+    {
+      "legacy_id": "PRO49",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN38"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN38 ile korunur."
+    },
+    {
+      "legacy_id": "PRO50",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN78"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN78 ile korunur."
+    },
+    {
+      "legacy_id": "PRO51",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN58",
+        "WN59"
+      ],
+      "reason": "K10 geregi genis benchmark kampanyasi (BM01-BM12 corpus, private reference oracle/holdout) aktif yayin kapsamina tasinmaz; icindeki kucuk dogruluk/regresyon predicate'leri WN58/WN59 ile korunur. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "PRO52",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Canli kurumsal model benchmark kampanyasi (48+8 canli trial) K10 ve kullanici acik onayi siniriyla aktif kapsamda degildir; gercek model pilotu yalniz G1 onayiyla WN72'de sinirlidir. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "PRO53",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "PRO54",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN42"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN42 ile korunur."
+    },
+    {
+      "legacy_id": "PRO55",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN43"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN43 ile korunur."
+    },
+    {
+      "legacy_id": "PRO56",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "PRO57",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN77"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN77 ile korunur."
+    },
+    {
+      "legacy_id": "PRO58",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "PRO59",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN68"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN68 ile korunur."
+    },
+    {
+      "legacy_id": "PRO60",
+      "source": "AITE-RUNTIME-ACCEPTANCE-003-v2.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN80"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN80 ile korunur."
+    },
+    {
+      "legacy_id": "N01",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "N02",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN63"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN63 ile korunur."
+    },
+    {
+      "legacy_id": "N03",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N04",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "N05",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N06",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN64"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN64 ile korunur."
+    },
+    {
+      "legacy_id": "N07",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "N08",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N09",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN46"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN46 ile korunur."
+    },
+    {
+      "legacy_id": "N10",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "N11",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "N12",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "N13",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN49"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN49 ile korunur."
+    },
+    {
+      "legacy_id": "N14",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN50"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN50 ile korunur."
+    },
+    {
+      "legacy_id": "N15",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN48"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN48 ile korunur."
+    },
+    {
+      "legacy_id": "N16",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN43"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN43 ile korunur."
+    },
+    {
+      "legacy_id": "N17",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN74"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN74 ile korunur."
+    },
+    {
+      "legacy_id": "N18",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN17"
+      ],
+      "reason": "POSIX/Linux kolonu (POSIX literal backslash, Linux path davranisi) K01 ile cikarildi; Windows bosluk/Unicode/traversal/symlink/junction ve ADS sinirlari WN17 ile sinanir."
+    },
+    {
+      "legacy_id": "N19",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN68"
+      ],
+      "reason": "Container capability/egress probe (source-ro/output-rw/non-root/limit/egress kaniti) K02 ve 2026-10-12 kullanici karariyla emekli; probe eksikliginde false-success engeli WN68 evidence-level denetimiyle korunur. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "N20",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN19"
+      ],
+      "reason": "Docker egress/mirror siniri ve 'settings secret goremez' vaadi K02/K03 ile emekli; yerel onayli settings kullanilabilir. Secretin modele/rapora/public Git'e aktarilmamasi WN19 ile korunur. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "N21",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "N22",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "N23",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "N24",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN56"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN56 ile korunur."
+    },
+    {
+      "legacy_id": "N25",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "N26",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "N27",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "N28",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "N29",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "N30",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN50"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN50 ile korunur."
+    },
+    {
+      "legacy_id": "N31",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "N32",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "N33",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN39"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN39 ile korunur."
+    },
+    {
+      "legacy_id": "N34",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN40"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN40 ile korunur."
+    },
+    {
+      "legacy_id": "N35",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN38"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN38 ile korunur."
+    },
+    {
+      "legacy_id": "N36",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN36"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN36 ile korunur."
+    },
+    {
+      "legacy_id": "N37",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN22"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN22 ile korunur."
+    },
+    {
+      "legacy_id": "N38",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN73"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN73 ile korunur."
+    },
+    {
+      "legacy_id": "N39",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN67"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN67 ile korunur."
+    },
+    {
+      "legacy_id": "N40",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N41",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N42",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N43",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N44",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "N45",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN64"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN64 ile korunur."
+    },
+    {
+      "legacy_id": "N46",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN64"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN64 ile korunur."
+    },
+    {
+      "legacy_id": "N47",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN64"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN64 ile korunur."
+    },
+    {
+      "legacy_id": "N48",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN75"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN75 ile korunur."
+    },
+    {
+      "legacy_id": "N49",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "N50",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "N51",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "N52",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "N53",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN63"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN63 ile korunur."
+    },
+    {
+      "legacy_id": "N54",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN63"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN63 ile korunur."
+    },
+    {
+      "legacy_id": "N55",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "N56",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "N57",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN76"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN76 ile korunur."
+    },
+    {
+      "legacy_id": "N58",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN68"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN68 ile korunur."
+    },
+    {
+      "legacy_id": "N59",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN68"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN68 ile korunur."
+    },
+    {
+      "legacy_id": "N60",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN69"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN69 ile korunur."
+    },
+    {
+      "legacy_id": "N61",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "N62",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN66"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN66 ile korunur."
+    },
+    {
+      "legacy_id": "N63",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN69"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN69 ile korunur."
+    },
+    {
+      "legacy_id": "N64",
+      "source": "AITE-REPORT06-INTEGRATION-004-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN76"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN76 ile korunur."
+    },
+    {
+      "legacy_id": "PP01",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN67"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN67 ile korunur."
+    },
+    {
+      "legacy_id": "PP02",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN68"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN68 ile korunur."
+    },
+    {
+      "legacy_id": "PP03",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN77"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN77 ile korunur."
+    },
+    {
+      "legacy_id": "PP04",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN36"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN36 ile korunur."
+    },
+    {
+      "legacy_id": "PP05",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN37"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN37 ile korunur."
+    },
+    {
+      "legacy_id": "PP06",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN36"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN36 ile korunur."
+    },
+    {
+      "legacy_id": "PP07",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN36"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN36 ile korunur."
+    },
+    {
+      "legacy_id": "PP08",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN22",
+        "WN23"
+      ],
+      "reason": "K02 ile container gerekliligi kaldirildi; cancel/timeout sonrasi owned Maven/JVM surec sonlandirmasi ve gec sonuc pointer/lifecycle korumasi WN22/WN23 ile Windows'ta sinanir."
+    },
+    {
+      "legacy_id": "PP09",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN20",
+        "WN22"
+      ],
+      "reason": "Linux spawn failure ve 'taskkill Linux'ta cagrilmaz' kapsami K01 ile cikarildi; spawn error/timeout/cancel siniflandirmasi WN20, owned taskkill dogrulamasi WN22 ile Windows'ta sinanir."
+    },
+    {
+      "legacy_id": "PP10",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN39"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN39 ile korunur."
+    },
+    {
+      "legacy_id": "PP11",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN38"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN38 ile korunur."
+    },
+    {
+      "legacy_id": "PP12",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN38"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN38 ile korunur."
+    },
+    {
+      "legacy_id": "PP13",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN37"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN37 ile korunur."
+    },
+    {
+      "legacy_id": "PP14",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN11"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN11 ile korunur."
+    },
+    {
+      "legacy_id": "PP15",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN40"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN40 ile korunur."
+    },
+    {
+      "legacy_id": "PP16",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN14"
+      ],
+      "reason": "Docker izolasyon probe'u gecmeden customer job baslatma ve host fallback yasagi K02 ile emekli; normal MCP yolu windows_native varsayilaniyla WN14'te acik cozumlenir, gizli fallback yoktur."
+    },
+    {
+      "legacy_id": "PP17",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN19"
+      ],
+      "reason": "Yetkisiz egress/DNS/redirect yaptirimi gercek container network policy gerektirir ve host-disidir; 2026-10-12 kullanici karariyla kapsam disidir. Onayli dependency erisimi yerine yerel Maven settings kullanimi WN19 sinirlariyla korunur. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "PP18",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "OUT_OF_SCOPE_BY_USER",
+      "wn": [
+        "WN68"
+      ],
+      "reason": "Bos mirror/config, missing probe tool, stale probe output ve NO_CGROUP false-success senaryolari container/capability probe yapisinin parcasidir ve K02 ile emeklidir; degersiz/false kanit reddi WN68 ile korunur. Bu maddeye PASSED yazilmaz."
+    },
+    {
+      "legacy_id": "PP19",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN19"
+      ],
+      "reason": "'Customer execution host secret/settings credential'ini okuyamaz' vaadi K03 ve Bolum 5.1.6 ile geri cekildi; yerel onayli credential'li settings native Maven tarafindan kullanilabilir. Secretin modele/rapora/public Git'e aktarilmamasi WN19 ile korunur."
+    },
+    {
+      "legacy_id": "PP20",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN74"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN74 ile korunur."
+    },
+    {
+      "legacy_id": "PP21",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "PP22",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "PP23",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN53"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN53 ile korunur."
+    },
+    {
+      "legacy_id": "PP24",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN42"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN42 ile korunur."
+    },
+    {
+      "legacy_id": "PP25",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN72"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN72 ile korunur."
+    },
+    {
+      "legacy_id": "PP26",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN50"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN50 ile korunur."
+    },
+    {
+      "legacy_id": "PP27",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN56"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN56 ile korunur."
+    },
+    {
+      "legacy_id": "PP28",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "PP29",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN57"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN57 ile korunur."
+    },
+    {
+      "legacy_id": "PP30",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN55"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN55 ile korunur."
+    },
+    {
+      "legacy_id": "PP31",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN58"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN58 ile korunur."
+    },
+    {
+      "legacy_id": "PP32",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN59"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN59 ile korunur."
+    },
+    {
+      "legacy_id": "PP33",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN60"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN60 ile korunur."
+    },
+    {
+      "legacy_id": "PP34",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN61"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN61 ile korunur."
+    },
+    {
+      "legacy_id": "PP35",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN63"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN63 ile korunur."
+    },
+    {
+      "legacy_id": "PP36",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "PP37",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN62"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN62 ile korunur."
+    },
+    {
+      "legacy_id": "PP38",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN63"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN63 ile korunur."
+    },
+    {
+      "legacy_id": "PP39",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN64"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN64 ile korunur."
+    },
+    {
+      "legacy_id": "PP40",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN64"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN64 ile korunur."
+    },
+    {
+      "legacy_id": "PP41",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "PP42",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "REPLACED",
+      "wn": [
+        "WN17",
+        "WN33"
+      ],
+      "reason": "Linux/XDG platform kapsami K01 ile cikarildi; bosluk/Unicode path ve Windows path case/junction alias kurallari WN17/WN33 ile sinanir."
+    },
+    {
+      "legacy_id": "PP43",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN65"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN65 ile korunur."
+    },
+    {
+      "legacy_id": "PP44",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN66"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN66 ile korunur."
+    },
+    {
+      "legacy_id": "PP45",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN76"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN76 ile korunur."
+    },
+    {
+      "legacy_id": "PP46",
+      "source": "AITE-PRODUCTION-READINESS-005-v1.0",
+      "status": "RETAINED",
+      "wn": [
+        "WN71"
+      ],
+      "reason": "Gecerli platform-bagimsiz yukumluluk; Windows kapsaminda WN71 ile korunur."
+    }
+  ]
+}
