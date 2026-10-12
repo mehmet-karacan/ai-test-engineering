@@ -17,6 +17,7 @@ import { createBackup, restoreBackup, verifyBackup, sha256Data } from "../../src
 import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
 import { ArtifactStore } from "../../src/storage/artifact-store.js";
 import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
+import { Storage } from "../../src/storage/storage.js";
 
 type BlobEntry = { relative_path: string; sha256: string; bytes: number };
 const faults = vi.hoisted(() => ({ stageCopy: false, dbPublish: false, secondBlobPublish: false, linkCount: 0,
@@ -74,6 +75,122 @@ function makeBlob(artifactsRoot: string, text: string): BlobEntry {
 }
 
 describe("WN restore atomikligi", () => {
+  it.each(["./", "a/../", "a//", "a\\", "a:", "a. /"])("rejects noncanonical blob segment %s before backup publication", async (segment) => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-path-canonical-"));
+    let db: Database.Database | undefined;
+    try {
+      const dbPath = join(root, "source", "state.db");
+      mkdirSync(dirname(dbPath), { recursive: true });
+      db = new Database(dbPath);
+      db.exec(SCHEMA);
+      const blob = makeBlob(join(root, "source", "artifacts"), "canonical payload");
+      const alias = `blobs/sha256/${segment}${blob.sha256}`;
+      db.prepare("INSERT INTO artifacts (id, relative_store_path, sha256, bytes, status) VALUES ('alias', ?, ?, ?, 'READY')")
+        .run(alias, blob.sha256, blob.bytes);
+      await assert.rejects(createBackup(db, dbPath, join(root, "source", "artifacts"), join(root, "backups")),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "BACKUP_BLOB_PATH_INVALID");
+    } finally {
+      db?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a crafted manifest and snapshot with two aliases of one physical destination", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-duplicate-destination-"));
+    let db: Database.Database | undefined;
+    try {
+      const dbPath = join(root, "source", "state.db");
+      mkdirSync(dirname(dbPath), { recursive: true });
+      db = new Database(dbPath);
+      db.exec(SCHEMA);
+      const blob = makeBlob(join(root, "source", "artifacts"), "duplicate payload");
+      db.prepare("INSERT INTO artifacts (id, relative_store_path, sha256, bytes, status) VALUES ('first', ?, ?, ?, 'READY')")
+        .run(blob.relative_path, blob.sha256, blob.bytes);
+      const saved = await createBackup(db, dbPath, join(root, "source", "artifacts"), join(root, "backups"));
+      db.close(); db = undefined;
+      const alias = `blobs/sha256/a/../${blob.sha256}`;
+      const snapshot = new Database(join(saved.backup_dir, "state.db"));
+      snapshot.prepare("INSERT INTO artifacts (id, relative_store_path, sha256, bytes, status) VALUES ('second', ?, ?, ?, 'READY')")
+        .run(alias, blob.sha256, blob.bytes);
+      snapshot.close();
+      const manifestPath = join(saved.backup_dir, "blob-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { blobs: BlobEntry[] };
+      manifest.blobs.push({ ...blob, relative_path: alias });
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      assert.equal(verifyBackup(saved.backup_dir).valid, false);
+      const targetDbPath = join(root, "runtime", "state.db");
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")));
+      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      db?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a nonterminal target job before changing DB or journal", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-active-restore-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const saved = await createBackup(sourceDb, sourceDbPath, join(root, "source", "artifacts"), join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      mkdirSync(dirname(targetDbPath), { recursive: true });
+      const target = new Database(targetDbPath);
+      target.exec(SCHEMA);
+      target.prepare("INSERT INTO test_jobs VALUES ('active-job', 'RUNNING')").run();
+      target.close();
+      const baseline = sha256Data(readFileSync(targetDbPath));
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_ACTIVE_JOBS");
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects an open same-process Storage before moving live WAL or SHM", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-open-storage-"));
+    let sourceDb: Database.Database | undefined;
+    let live: Storage | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const saved = await createBackup(sourceDb, sourceDbPath, join(root, "source", "artifacts"), join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      live = new Storage({ dbPath: targetDbPath });
+      live.db.exec(SCHEMA);
+      const baseline = sha256Data(readFileSync(targetDbPath));
+      const walPath = `${targetDbPath}-wal`;
+      const shmPath = `${targetDbPath}-shm`;
+      const walBaseline = existsSync(walPath) ? sha256Data(readFileSync(walPath)) : null;
+      const shmBaseline = existsSync(shmPath) ? sha256Data(readFileSync(shmPath)) : null;
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_DB_OPEN");
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
+      assert.equal(existsSync(walPath), walBaseline !== null);
+      assert.equal(existsSync(shmPath), shmBaseline !== null);
+      if (walBaseline !== null) assert.equal(sha256Data(readFileSync(walPath)), walBaseline);
+      if (shmBaseline !== null) assert.equal(sha256Data(readFileSync(shmPath)), shmBaseline);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      live?.close();
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("backup refuses a source blob junction instead of following it", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-create-backup-junction-"));
     const dbPath = join(root, "state.db");

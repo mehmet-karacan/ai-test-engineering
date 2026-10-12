@@ -12,7 +12,7 @@ import Database from "better-sqlite3";
 import { createBackup, restoreBackup } from "../../src/storage/lifecycle-ops.js";
 
 const MINIMAL_SCHEMA = `
-CREATE TABLE test_jobs (id TEXT PRIMARY KEY);
+CREATE TABLE test_jobs (id TEXT PRIMARY KEY, lifecycle TEXT NOT NULL);
 CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
 CREATE TABLE artifacts (id TEXT PRIMARY KEY, relative_store_path TEXT, sha256 TEXT, bytes INTEGER, status TEXT);
 `;
@@ -29,7 +29,7 @@ describe("P08/PP44: restore stale WAL/SHM temizligi", () => {
       const seed = new Database(targetDb);
       seed.pragma("journal_mode = WAL");
       seed.exec(MINIMAL_SCHEMA);
-      seed.prepare("INSERT INTO test_jobs (id) VALUES ('good-job')").run();
+      seed.prepare("INSERT INTO test_jobs (id, lifecycle) VALUES ('good-job', 'COMPLETED')").run();
       seed.prepare("INSERT INTO schema_migrations (version) VALUES (7)").run();
       seed.close();
 
@@ -79,7 +79,7 @@ describe("P08/PP44: restore stale WAL/SHM temizligi", () => {
       const seed = new Database(targetDb);
       seed.pragma("journal_mode = WAL");
       seed.exec(MINIMAL_SCHEMA);
-      seed.prepare("INSERT INTO test_jobs (id) VALUES ('good-job')").run();
+      seed.prepare("INSERT INTO test_jobs (id, lifecycle) VALUES ('good-job', 'COMPLETED')").run();
       seed.close();
       const backupDb = new Database(targetDb);
       const backup = await createBackup(backupDb, targetDb, artifactRoot, join(dir, "backups"));

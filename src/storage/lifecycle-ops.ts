@@ -13,6 +13,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, journalPathForDb, type RestorePhase } from "./restore-journal.js";
+import { hasOpenStorageHandle } from "./storage.js";
 
 export interface BackupResult {
   backup_id: string;
@@ -65,6 +66,14 @@ interface SnapshotInspection {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isCanonicalRelativeBlobPath(path: string): boolean {
+  if (!path || path.startsWith("/") || /[\\:<>"|?*]/.test(path) ||
+      [...path].some((character) => character.charCodeAt(0) < 32)) return false;
+  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".."
+    && !/[. ]$/.test(segment)
+    && !/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(segment));
 }
 
 function isBackupBlob(value: unknown): value is BackupBlob {
@@ -131,6 +140,35 @@ function assertRestoreRootsDisjoint(backupDir: string, targetDbPath: string, tar
   }
 }
 
+function assertTargetRestoreQuiesced(targetDbPath: string): void {
+  if (hasOpenStorageHandle(targetDbPath)) {
+    throw new AppError("POLICY_VIOLATION", "Target Storage handle remains open", { reason_code: "RESTORE_DB_OPEN" });
+  }
+  if (!existsSync(targetDbPath)) return;
+  let target: BetterSqlite3.Database | undefined;
+  try {
+    target = new Database(targetDbPath, { readonly: true, fileMustExist: true });
+    const columns = target.prepare<[], { name: string }>("PRAGMA table_info(test_jobs)").all().map((column) => column.name);
+    if (!columns.includes("lifecycle")) throw new Error("Target test_jobs lifecycle unavailable");
+    const applying = columns.includes("apply_state") ? " OR apply_state = 'APPLYING'" : "";
+    const active = target.prepare<[], { id: string }>(
+      `SELECT id FROM test_jobs WHERE lifecycle IS NULL OR lifecycle NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')${applying} LIMIT 1`,
+    ).get();
+    if (active) {
+      throw new AppError("POLICY_VIOLATION", "Target DB contains a nonterminal job", {
+        reason_code: "RESTORE_ACTIVE_JOBS", job_id: active.id,
+      });
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError("STORAGE_ERROR", "Target DB could not be checked for active jobs", {
+      reason_code: "RESTORE_TARGET_DB_UNREADABLE",
+    });
+  } finally {
+    target?.close();
+  }
+}
+
 /** Canli DB degil, restore edilecek snapshot tek otoritedir. */
 function inspectBackupSnapshot(dbPath: string): SnapshotInspection {
   let checkDb: BetterSqlite3.Database | undefined;
@@ -152,6 +190,18 @@ function inspectBackupSnapshot(dbPath: string): SnapshotInspection {
       .prepare<[], { relative_store_path: string; sha256: string; bytes: number }>(
         "SELECT relative_store_path, sha256, bytes FROM artifacts WHERE status = 'READY'",
       ).all();
+    if (rows.some((row) => !isCanonicalRelativeBlobPath(row.relative_store_path))) {
+      return { schema_ok: true, integrity_ok: true, rows: [], reason: "BACKUP_BLOB_PATH_INVALID" };
+    }
+    const destinations = new Map<string, string>();
+    for (const row of rows) {
+      const key = row.relative_store_path.toLowerCase();
+      const previous = destinations.get(key);
+      if (previous !== undefined && previous !== row.relative_store_path) {
+        return { schema_ok: true, integrity_ok: true, rows: [], reason: "BACKUP_BLOB_PATH_INVALID" };
+      }
+      destinations.set(key, row.relative_store_path);
+    }
     if (rows.some((row) => !isBackupBlob({ relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes }))) {
       return { schema_ok: true, integrity_ok: true, rows: [], reason: "BACKUP_ARTIFACT_METADATA_INVALID" };
     }
@@ -279,6 +329,8 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   } catch {
     return invalid("BLOB_MANIFEST_BOZUK");
   }
+  const invalidPaths = manifest.blobs.filter((blob) => !isCanonicalRelativeBlobPath(blob.relative_path)).map((blob) => blob.relative_path);
+  if (invalidPaths.length > 0) return { ...invalid("BACKUP_BLOB_PATH_INVALID"), missing_blobs: invalidPaths };
   try {
     const marker: unknown = JSON.parse(readFileSync(completePath, "utf8"));
     if (!isRecord(marker) || marker["schema_version"] !== 1 || marker["complete"] !== true
@@ -299,6 +351,7 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   const expected = new Map<string, BackupBlob>();
   const declared = new Map<string, BackupBlob>();
   const missingBlobs = new Set<string>();
+  const physicalDestinations = new Map<string, string>();
   const indexBlob = (index: Map<string, BackupBlob>, blob: BackupBlob): void => {
     const previous = index.get(blob.relative_path);
     if (previous && (previous.sha256 !== blob.sha256 || previous.bytes !== blob.bytes)) {
@@ -310,6 +363,10 @@ export function verifyBackup(backupDir: string): RestoreVerification {
     indexBlob(expected, { relative_path: row.relative_store_path, sha256: row.sha256, bytes: row.bytes });
   }
   for (const blob of manifest.blobs) {
+    const key = blob.relative_path.toLowerCase();
+    const previous = physicalDestinations.get(key);
+    if (previous !== undefined && previous !== blob.relative_path) missingBlobs.add(blob.relative_path);
+    physicalDestinations.set(key, blob.relative_path);
     indexBlob(declared, blob);
   }
   for (const [path, blob] of expected) {
@@ -394,6 +451,7 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
   const releaseDb = acquireRestoreDbLock(targetDbPath);
   try {
   assertRestoreReadyBeforeOpen(targetDbPath);
+  assertTargetRestoreQuiesced(targetDbPath);
   const release = acquireMaintenanceLock(targetArtifactRoot, "restore");
   try {
   let manifestParsed: unknown;
@@ -403,6 +461,15 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
     throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: "BLOB_MANIFEST_BOZUK" });
   }
   const manifest = manifestParsed;
+  for (const blob of manifest.blobs) {
+    if (!isCanonicalRelativeBlobPath(blob.relative_path)) {
+      throw new AppError("POLICY_VIOLATION", "Restore blob path is not canonical", {
+        reason_code: /[:\\]/.test(blob.relative_path) || blob.relative_path.startsWith("/") || blob.relative_path.includes("..")
+          ? "PATH_ESCAPE" : "RESTORE_BLOB_PATH_INVALID",
+        relative_path: blob.relative_path,
+      });
+    }
+  }
   const backupBlobRoot = resolve(join(backupDir, "blobs"));
   const targetRoot = resolve(targetArtifactRoot);
   for (const blob of manifest.blobs) {
