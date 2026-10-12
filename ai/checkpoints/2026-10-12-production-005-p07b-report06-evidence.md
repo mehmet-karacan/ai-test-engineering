@@ -23,6 +23,8 @@
 
 - `npm.cmd run typecheck`: PASS.
 - Duzeltme sonrasi P07-B ve ilgili export/report suite: 6 dosya, 60/60 PASS.
+- Gercek MavenRunner + JaCoCo/Surefire evidence fixture: 1/1 PASS; Maven 3.9.16 ve JDK 21 ile runner'in `maven-stdout.log`/`maven-stderr.log` yollarinin collector'a baglandigi kanitlandi.
+- Stdio MCP fixture: 5/5 PASS; Docker capability yoklugunda customer job'un `BLOCKED_ISOLATION` ile fail-closed durdugu goruldu. Docker olmadigi icin normal customer dispatcher COMPLETED/Report06 runtime kosusu BLOCKED.
 - Degisen kaynak lint: 0 error, 2 onceki warning (`job-dispatcher.ts` unused type import).
 - `npm.cmd run build`: PASS.
 - Report06 referans: 257845 byte, SHA-256 `e3c8fd2da77000a0fd39ed88a00b3159e1100e4cf35146b0bbb83969eaef8c80`.
@@ -30,7 +32,7 @@
 
 ## Kalan
 
-- Gercek Maven fixture ile normal MCP end-to-end report/status/print/offline/DOM/link kabul kosusu; Maven ve Java mevcut, dispatcher runtime kabul kosusu henuz calistirilmadi.
+- Docker capability gerektiren normal MCP customer dispatcher report/status/print/offline/DOM/link kabul kosusu.
 - Release verifier testlerinin guncel P01 fail-closed sozlesmesiyle reconcile edilmesi.
 - P08 kurulum, P09 tam regression/release gate ve P10 handoff.
 
