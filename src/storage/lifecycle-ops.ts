@@ -285,48 +285,106 @@ export function verifyBackup(backupDir: string): RestoreVerification {
 /**
  * Dogrulanmis backup'i yeni runtime konumuna uygular. Hedef DB acik olmamali;
  * DB once temp dosyaya kopyalanir, sonra isim degisikligiyle yayinlanir.
+ * S01/WN restore preflight'u: blob hedefi HICBIR sey degistirilmeden
+ * once calisir; farkli baytli mevcut hedef blob'da restore durur (EEXIST benzeri),
+ * esit hash'li mevcut hedef blob yeniden kullanilir. Blob'lar staging dosyasina
+ * kopyalanip DB yayini oncesinde rename ile yayinlanir; yarim blob yazisi
+ * hedefi ezmez. Crash-safe journal/rollback ayri asamada tamamlanacaktir.
  */
 export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
   const verification = verifyBackup(backupDir);
   if (!verification.valid) {
     throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: verification.reason ?? "BACKUP_VERIFICATION_FAILED" });
   }
-  const manifest = JSON.parse(readFileSync(join(backupDir, "blob-manifest.json"), "utf8")) as { backup_id: string; blobs: Array<{ relative_path: string }> };
+  const manifestParsed: unknown = JSON.parse(readFileSync(join(backupDir, "blob-manifest.json"), "utf8"));
+  // verifyBackup ayni dosyayi dogruladi; TOCTOU penceresine karsi burada da tip kontrolu.
+  if (!isBackupManifest(manifestParsed)) {
+    throw new AppError("STORAGE_ERROR", "Backup restore dogrulamasi basarisiz", { reason_code: "BLOB_MANIFEST_BOZUK" });
+  }
+  const manifest = manifestParsed;
+  const backupBlobRoot = resolve(join(backupDir, "blobs"));
+  const targetRoot = resolve(targetArtifactRoot);
+
+  // Preflight: tum hedef blob yollari, aktif DB veya mevcut blob'lar
+  // degistirilmeden once cozulur ve dogrulanir.
+  const plan: Array<{ source: string; destination: string; stage: string; skip: boolean }> = [];
+  for (const blob of manifest.blobs) {
+    const rel = blob.relative_path.replace(/\//g, pathSep);
+    const source = resolve(backupBlobRoot, rel);
+    const destination = resolve(targetRoot, rel);
+    const destinationRel = relative(targetRoot, destination);
+    // PP39/PP42: capraz surucu hedefte relative() mutlak yol dondurur; isAbsolute eki zorunlu.
+    if (isAbsolute(destinationRel) || destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {
+      throw new AppError("POLICY_VIOLATION", "Backup blob yolu artifact kokunu asiyor", { reason_code: "PATH_ESCAPE" });
+    }
+    let skip = false;
+    if (existsSync(destination)) {
+      let conflict = true;
+      try {
+        const existing = readFileSync(destination);
+        // Esit hash + esit byte: mevcut hedef blob yeniden kullanilir (idempotent restore).
+        conflict = !(sha256Data(existing) === blob.sha256 && existing.byteLength === blob.bytes);
+      } catch {
+        // Okunamayan hedef (orn. dizin): fail-closed cakisma.
+        conflict = true;
+      }
+      if (conflict) {
+        throw new AppError("STORAGE_ERROR", `Restore hedef blob cakismasi: ${blob.relative_path} mevcut ve baytlari farkli`, {
+          reason_code: "RESTORE_BLOB_EXISTS_MISMATCH",
+          relative_path: blob.relative_path,
+        });
+      }
+      skip = true;
+    }
+    plan.push({ source, destination, stage: `${destination}.restore-${randomUUID()}.tmp`, skip });
+  }
+
   mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
   mkdirSync(targetArtifactRoot, { recursive: true });
   const tempDb = `${targetDbPath}.restore-${randomUUID()}`;
   copyFileSync(join(backupDir, "state.db"), tempDb);
   try {
-    if (existsSync(targetDbPath)) {
-      rmSync(targetDbPath, { force: true });
+    // Tum blob kopyalari ve olasi IO hatalari DB yayini oncesinde tamamlanir.
+    for (const item of plan) {
+      if (item.skip) continue;
+      mkdirSync(resolve(item.destination, ".."), { recursive: true });
+      copyFileSync(item.source, item.stage);
     }
-    // PP44: hedef DB yanindaki eski -wal/-shm dosyalari silinmezse sonraki acilista
-    // eski (crash/hard-kill sonrasi) WAL icerigi restore edilen DB'ye geri oynatilir ve
-    // backup'in birebir icerigi bozulur. Restore atomik yayini yan dosyalarla birlikte yapar.
+    for (const item of plan) {
+      if (item.skip) continue;
+      if (existsSync(item.destination)) {
+        // Preflight ile yayin arasinda olusan bir hedef sessizce ezilmez.
+        throw new AppError("STORAGE_ERROR", "Restore hedef blobu yayin sirasinda olustu", {
+          reason_code: "RESTORE_BLOB_RACE", destination: item.destination,
+        });
+      }
+      renameSync(item.stage, item.destination);
+    }
+    // Eski DB ve WAL/SHM, yeni DB yayini basarisiz olursa geri konmak uzere
+    // ayni volume'de tutulur. Crash-safe recovery journal sonraki asamadir.
     const staleWal = `${targetDbPath}-wal`;
     const staleShm = `${targetDbPath}-shm`;
-    if (existsSync(staleWal)) {
-      rmSync(staleWal, { force: true });
-    }
-    if (existsSync(staleShm)) {
-      rmSync(staleShm, { force: true });
-    }
-    renameSync(tempDb, targetDbPath);
-    const backupBlobRoot = resolve(join(backupDir, "blobs"));
-    const targetRoot = resolve(targetArtifactRoot);
-    for (const blob of manifest.blobs) {
-      const rel = blob.relative_path.replace(/\//g, pathSep);
-      const source = resolve(backupBlobRoot, rel);
-      const destination = resolve(targetRoot, rel);
-      const destinationRel = relative(targetRoot, destination);
-      // PP39/PP42: capraz surucu hedefte relative() mutlak yol dondurur; isAbsolute eki zorunlu.
-      if (isAbsolute(destinationRel) || destinationRel.startsWith(`..${pathSep}`) || destinationRel === "..") {
-        throw new AppError("POLICY_VIOLATION", "Backup blob yolu artifact kokunu asiyor", { reason_code: "PATH_ESCAPE" });
+    const oldSuffix = `.restore-old-${randomUUID()}`;
+    const preserved: Array<{ original: string; saved: string }> = [];
+    try {
+      for (const original of [targetDbPath, staleWal, staleShm]) {
+        if (!existsSync(original)) continue;
+        const saved = `${original}${oldSuffix}`;
+        renameSync(original, saved);
+        preserved.push({ original, saved });
       }
-      mkdirSync(resolve(destination, ".."), { recursive: true });
-      copyFileSync(source, destination);
+      renameSync(tempDb, targetDbPath);
+    } catch (error) {
+      for (const item of [...preserved].reverse()) {
+        if (existsSync(item.saved)) renameSync(item.saved, item.original);
+      }
+      throw error;
     }
+    for (const item of preserved) rmSync(item.saved, { force: true });
   } finally {
+    for (const item of plan) {
+      if (existsSync(item.stage)) rmSync(item.stage, { force: true });
+    }
     if (existsSync(tempDb)) {
       rmSync(tempDb, { force: true });
     }
