@@ -12,6 +12,7 @@
 - Onceki dogrulama: ilgili 9 test dosyasi/89 PASS, `npm.cmd run typecheck`, `npm.cmd run build` ve `npm.cmd run lint` exit 0; lintte 89 eski warning. Son native 11 noktali hard-kill probe exit 0, PREPARED/LINK/BLOBS_READY eski job'u gercek Storage acilisinda gordu; `--expect-recovery` tam kabul 7 bloke asama nedeniyle beklenen RED. Stdio entrypoint erken journal kontrolu kaldirildi; tek startup kapisi Storage'in recovery+fail-closed kontroludur.
 - DB/WAL/staged kimlik okumasinda buyuk dosyayi RAM'e alan `readFileSync` yerine sabit 1 MiB buffer ile streaming SHA-256 kullanilir; `fstat` boyut/mtime/ctime okumasi sirasinda degisirse fail-closed. Bu, raw dis yazari tum zamanlamalarda dislama kaniti degildir. Linked orphan blob ozellikle silinmez; mevcut eski DB'nin referanslari korunur, orphan temizligi ayri GC kanitina baglidir.
 - BLOBS_READY dilimi son dogrulama: ilgili 9 dosya/96 PASS; typecheck/build/lint exit 0, 89 eski lint warning. Native 11 kesitlik hard-kill probe exit 0; 3 erken kesit acildi, 7 tasima/yayin kesiti bloke kaldi, COMMITTED acildi. DB/WAL hash farki, SHM kaybi ve her preserved sidecar varligi negatif fixture'larda recovery'yi reddetti. `--expect-recovery` 7 engel nedeniyle beklenen RED exit 1.
+- Son probe guclendirmesi: 3 erken kesitte `test_jobs.old` var ve `artifacts.new` yok; COMMITTED kesitinde `artifacts.new` var ve `test_jobs.old` yok. Yedi aralikta gercek `Storage` acilisi `RESTORE_RECOVERY_REQUIRED` ile bloke. MOVE_DB/MOVE_WAL/MOVE_SHM kesitlerinde preserved DB hash'i eskiyle, staged DB hash'i v2 kaynakla es; WAL'in ve SHM yolunun hangi tarafta oldugu ayrica assert edilir. Bu dosya yerlesimi kaniti otomatik rename yetkisi vermez.
 - G1 GPU/model, G2 original checkout apply, G3 yayin kapali; bu probe yalniz owned Windows Temp fixture kullanir.
 - Tekrarlanabilir komut: `npm.cmd run build` ardindan `node scripts/probe-restore-hardkill.mjs`. Kabul icin kirmizi mod: `node scripts/probe-restore-hardkill.mjs --expect-recovery`; 11 kesilme noktasinin 3 erken durumunda eski DB acildi, 7 sonraki nonterminal noktada startup bloke kaldi, COMMITTED acildi. Bu nedenle tam recovery kabul modu beklenen exit 1 verdi.
 
@@ -31,7 +32,7 @@ Fixture her denemede ayri `os.tmpdir()` altinda backup, eski hedef DB ve yeni bl
 | yeni DB rename donusu | OLD_DB_PRESERVED | korunmus adla | RESTORE_RECOVERY_REQUIRED |
 | NEW_DB_PUBLISHED fsync | NEW_DB_PUBLISHED | korunmus adla | RESTORE_RECOVERY_REQUIRED |
 | VERIFIED fsync | VERIFIED | korunmus adla | RESTORE_RECOVERY_REQUIRED |
-| COMMITTED fsync | COMMITTED | korunmus adla | acilis serbest |
+| COMMITTED fsync | COMMITTED | korunmus adla | yeni `artifacts.new` acilir, eski `test_jobs.old` yok |
 
 Raw DB/WAL ek probe: ayri child `better-sqlite3` ile hedef DB'yi WAL modunda acik tutarken `restoreBackup` `EBUSY` verdi; deneme oncesi/sonrasi DB, WAL ve SHM hash'leri esitti, journal `ROLLED_BACK` oldu. Bu tek zamanlama ornegi, raw connection'in restore'un her aninda dislandigini kanitlamaz. Ayrica SQLite readonly preflight SHM icerigini degistirebildi; SHM hash'i kalici eski-generation kimligi olarak kullanilamaz.
 
@@ -57,12 +58,22 @@ Journal'in kendi checksum'i kazara bozulma saptar; kaynak veya hedef dosyanin im
 | Journal yok, eski hedef tam; PREPARED yok | Eskiyi ac | Korunmus eski kopya yok; staged dosya yalniz yetim kabul edilir. |
 | v2 PREPARED / ilk blob link araligi, eski hedef yerinde | Uygulandi: eskiyi ac ve generation'i terminal rollback yap | Restore oncesi eski DB mevcut, DB/WAL kimlikleri ve SHM varligi birebir, staged hash es, korunmus eski dosya yok; bloblar **silinmez**. |
 | v2 BLOBS_READY, eski DB/WAL/SHM henuz tasinmadi | Uygulandi: eskiyi ac ve generation'i terminal rollback yap | PREPARED ile ayni kimlikler; preserved DB/WAL/SHM dosyalarinin hicbiri yok; bloblar **silinmez**. |
-| DB/WAL/SHM tasima araligi | Eskiyi geri koy | Her eski dosya tam bir yerde (hedef veya korunmus), DB/WAL hash'i es; hedefteki rakip dosya yok veya kanitli yeni snapshot; raw DB connection yok. |
+| DB/WAL/SHM tasima araligi | Henuz NO_GO; eskiyi geri koyma aday karar | Her eski dosya tam bir yerde (hedef veya korunmus), DB/WAL hash'i es; hedefteki rakip dosya yok veya kanitli yeni snapshot; raw DB connection yok; alias/handle kimligi ve her rename adimi journal'da kanitli olmali. |
 | Yeni DB hedefte, eski korunmus | Dogrulanmis yeniyi commit et veya kanitli eskiye don | Yeni DB kaynak snapshot hash'i, SQLite integrity/FK ve tum blob hash/byte seti gecer; aksi durumda eski DB/WAL kimligi eksiksiz ve hedef rakipsiz. |
 | Iki generation da kanitlanamiyor, journal torn/bozuk, yol kimligi degismis, raw writer var | Fail-closed | `RESTORE_RECOVERY_REQUIRED`; otomatik unlink/rename yok. |
 | COMMITTED / ROLLED_BACK | Terminal yolu ac | Terminal kaydin checksum ve transition'i gecer; sonraki calismada DB/blob integrity ayri dogrulanir. |
 
 `BLOB_LINKED` kaydi, link sonrasi ama kayit oncesi kesintide sahipligi ispatlayamaz. Recovery bu blobu silmemelidir. Kayitli yeni blob da baska bir normal is tarafindan referanslanmis olabilir; recovery sirf journal'a bakarak blob silmemelidir. Yetim temizligi ancak sonradan, guncel DB ref/pin dogrulamasi ve kendi GC kabuluyla yapilabilir.
+
+### MOVE_DB / MOVE_WAL / MOVE_SHM salt-okunur karar siniri
+
+| Hard-kill kesiti | Fixture'da kanitlanan layout | Tek basina kanitlanmayan karar |
+| --- | --- | --- |
+| MOVE_DB | Hedef DB yok; preserved DB eski SHA-256 ile es; staged DB yeni kaynak SHA-256 ile es. | Eski DB'yi hedefe rename ederken baska raw connection/alias sahibinin araya giremeyecegi ve ikinci kesintide ayni karar kaydinin tekrar guvenle uygulanabilecegi. |
+| MOVE_WAL | DB ve WAL preserved adlarda eski hash'lerle es; hedef DB/WAL yok; eski SHM hedefte. | DB+WAL+SHM'nin birden fazla rename ile atomik eski generation'a donecegi; SHM icerigi kalici identity degil. |
+| MOVE_SHM | DB/WAL preserved hash'lerle es, SHM preserved adinda; hedef DB/WAL/SHM yok; staged yeni snapshot hash'i es. | Tum sidecar'lar geri tasinirken raw SQLite handle ve fiziksel alias yarisi dislanamaz. |
+
+Bu uc kesitte yeni DB henuz hedefte yayinlanmadi; staged snapshot hash'i tek basina yeni generation'in DB/blob referanslarini, butun blob sahipligini veya WAL izolasyonunu dogrulamaz. Eski nesle donus icin once OS duzeyinde acik handle/paylasim modu ve Windows final-path/file-ID alias karari, sonra per-move fsync'li journal ve ikinci hard-kill matrisi gerekir. Mevcut Node/better-sqlite3 kontrol kilidi dis raw SQLite handle'larini dislamaz; native bagimlilik/derleme veya API mimarisi karari gerekebilir. Bu karar verilmeden otomatik rename eklenmedi; 5 raw-process `EBUSY` ornek zamanlamasi evrensel kanit sayilmadi.
 
 ## NO_GO gerekcesi
 

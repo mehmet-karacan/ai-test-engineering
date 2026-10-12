@@ -118,6 +118,20 @@ try {
     const oldCopies = [targetDb, ...readdirSync(dirname(targetDb)).filter((name) => name.startsWith("state.db.restore-old-"))
       .map((name) => join(dirname(targetDb), name))].filter((path) => existsSync(path) && hashFile(path) === oldHash);
     assert.ok(oldCopies.length >= 1, `${mode}: old DB bytes lost`);
+    if (mode === "MOVE_DB" || mode === "MOVE_WAL" || mode === "MOVE_SHM") {
+      assert.equal(journal?.phase, "BLOBS_READY");
+      assert.equal(existsSync(targetDb), false, `${mode}: target DB must be absent after old DB move`);
+      assert.equal(hashFile(journal.preservedDbPath), oldHash, `${mode}: preserved old DB hash`);
+      assert.equal(hashFile(journal.stagedDbPath), journal.evidence.sourceDbSha256, `${mode}: staged new DB hash`);
+      if (mode === "MOVE_WAL" || mode === "MOVE_SHM") {
+        const oldWalHash = oldSidecarHashes.find((item) => item.suffix === "-wal")?.hash;
+        assert.ok(oldWalHash, `${mode}: fixture old WAL identity missing`);
+        assert.equal(existsSync(`${targetDb}-wal`), false);
+        assert.equal(hashFile(`${targetDb}-wal${journal.preservedDbPath.slice(targetDb.length)}`), oldWalHash);
+        assert.equal(existsSync(`${targetDb}-shm`), mode === "MOVE_WAL");
+        assert.equal(existsSync(`${targetDb}-shm${journal.preservedDbPath.slice(targetDb.length)}`), mode === "MOVE_SHM");
+      }
+    }
     for (const sidecar of oldSidecarHashes) {
       const copies = [`${targetDb}${sidecar.suffix}`, ...readdirSync(dirname(targetDb))
         .filter((name) => name.startsWith(`state.db${sidecar.suffix}.restore-old-`))
@@ -131,12 +145,22 @@ try {
       assert.ok(shmCopies.some(existsSync), `${mode}: old -shm path lost`);
     }
     let startupBlocked = false;
+    let openedGeneration = null;
     try {
       const reopened = new Storage({ dbPath: targetDb });
-      if (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
-        assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
+      try {
+        if (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+          assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
+          assert.equal(reopened.db.prepare("SELECT id FROM artifacts WHERE id = 'new'").get(), undefined);
+          openedGeneration = "old";
+        } else if (mode === "COMMITTED") {
+          assert.equal(reopened.db.prepare("SELECT id FROM artifacts WHERE id = 'new'").get()?.id, "new");
+          assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get(), undefined);
+          openedGeneration = "new";
+        }
+      } finally {
+        reopened.close();
       }
-      reopened.close();
     } catch (error) {
       startupBlocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED";
       if (!startupBlocked) throw error;
@@ -148,7 +172,7 @@ try {
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
     const releaseDb = acquireRestoreDbLock(targetDb); releaseDb();
     const releaseArtifact = acquireMaintenanceLock(targetArtifacts, "restore"); releaseArtifact();
-    results.push({ mode, journal_phase: journal?.phase, startup_blocked: startupBlocked,
+    results.push({ mode, journal_phase: journal?.phase, startup_blocked: startupBlocked, opened_generation: openedGeneration,
       old_db_copies: oldCopies.map((path) => path === targetDb ? "target" : "preserved"),
       new_blob_exists: existsSync(join(targetArtifacts, rel)) });
   }
