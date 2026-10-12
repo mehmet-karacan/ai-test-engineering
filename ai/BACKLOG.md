@@ -28,7 +28,7 @@ Onceki gorev AITE-RUNTIME-ACCEPTANCE-003 v2.0: FIN00-FIN15 IMPLEMENTATION_VERIFI
 | --- | --- | --- | --- |
 | P00 | Sozlesme devri, arsiv/hash ve baseline | VERIFIED | production-005-p00-baseline |
 | P01 | Fail-closed release gate ve evidence manifest dogrulamasi | LOCAL_VERIFIED | production-005-p01-gate; 25/25 |
-| P02 | Lease sahipligi, TTL/fencing, heartbeat, owned process ve checkpoint CAS | LOCAL_VERIFIED | production-005-p02-lease; 37/37 odak suite; Docker runtime BLOCKED |
+| P02 | Lease sahipligi, TTL/fencing, heartbeat, erken donus cleanup, owned process ve checkpoint CAS | LOCAL_VERIFIED | production-005-p02-dispatch-cleanup; cleanup 1/1 + onceki 37/37; Docker runtime BLOCKED |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | production-005-p03-checkpoint; P03/komsu suite 93/93 |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret/process siniri | LOCAL_VERIFIED | production-005-p04-isolation; P04 11/11 + security/contract 90 passed/10 skipped (Docker NOT_RUN) |
 | P05-A | Frozen concrete resolver, source-set, exact model ve deadline baglantisi | LOCAL_VERIFIED | production-005-p05a-target-resolver; 57/57 + typecheck |

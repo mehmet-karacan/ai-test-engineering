@@ -3,7 +3,7 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P05-B, P06-A, P06-B1, P06-B2 ve P09 yerel regresyonu tamamlandi; P07 runtime/P08/P10 dis kanitleri suruyor
+- Asama: P00-P05-B, P06-A, P06-B1, P06-B2, P09 ve P02 dispatch cleanup tamamlandi; P06/P07/P08/P10 dis kanitleri suruyor
 - Durum etiketi: `005_P08_P07B_IN_PROGRESS` (tam urun kabul: NOT_VERIFIED)
 - Son guncelleme: 2026-10-12
 - Onceki gorev: AITE-RUNTIME-ACCEPTANCE-003 v2.0 (arsiv; FIN00-FIN15 IMPLEMENTATION_VERIFIED kaydi asagida korunur)
@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | P00 | Aktif sozlesme devri, arsiv hash ve baseline | TAMAMLANDI | ai/checkpoints/2026-10-12-production-005-p00-baseline.md |
 | P01 | Fail-closed release gate, local/full ayrimi, evidence kimligi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p01-gate.md; P01 25/25 |
-| P02 | Lease, TTL, fencing, heartbeat ve CAS | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-lease.md; 37/37 odak suite; Docker runtime BLOCKED |
+| P02 | Lease, TTL, fencing, heartbeat, CAS ve erken donus cleanup | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p02-dispatch-cleanup.md; p02 cleanup 1/1 + onceki 37/37; Docker runtime BLOCKED |
 | P03 | Immutable contract/source/accepted blob, checkpoint CAS ve resume | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p03-checkpoint.md; P03/komsu suite 93/93; tam live/hard-kill NOT_RUN |
 | P04 | Zorunlu izolasyon, controlled provisioning, cache/secret siniri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p04-isolation.md; P04 11/11 + security/contract 90 passed/10 skipped(Docker NOT_RUN); Docker capability/egress tam kaniti NOT_RUN |
 | P05-A | Frozen concrete target resolver, source-set kimligi, exact model propagation, deadline | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05a-target-resolver.md; odak suite 57/57 + typecheck |

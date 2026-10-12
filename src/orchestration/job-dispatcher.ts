@@ -939,10 +939,6 @@ export class JobDispatcher {
 
       ownedRunners.delete(job.id);
       ownedWorkerServers.delete(job.id);
-      stopHeartbeat();
-      if (leaseAcquired) {
-        leases.release(job.id, ownerId);
-      }
 
       return { job_id: job.id, phases_completed: phases, final_outcome: reportOutcome, best_coverage: bestCoverage, error: null };
     } catch (error) {
@@ -951,10 +947,6 @@ export class JobDispatcher {
       // Hata/cancel yolunda bu dispatch'in owned kaynaklari kapanir; yeni
       // dispatcher instance'i da module registry uzerinden ayni job'u bulur.
       this.stopOwnedProcesses(job.id);
-      stopHeartbeat();
-      if (leaseAcquired) {
-        leases.release(job.id, ownerId);
-      }
       const currentJob = jobs.getJob(job.id);
       jobs.appendEvent({ job_id: job.id, event_type: "dispatch_failed", phase: (phases[phases.length - 1] as never) ?? "analysis", origin: "JobDispatcher" });
       try {
@@ -986,6 +978,13 @@ export class JobDispatcher {
         return { job_id: job.id, phases_completed: phases, final_outcome: currentJob.lifecycle, best_coverage: null, error: message };
       }
       return { job_id: job.id, phases_completed: phases, final_outcome: "FAILED", best_coverage: null, error: message };
+    } finally {
+      // Baseline/typed blocker yollarinda try icinden erken return olabilir;
+      // heartbeat ve lease her cikis yolunda mutlaka temizlenmelidir.
+      stopHeartbeat();
+      if (leaseAcquired) {
+        leases.release(job.id, ownerId);
+      }
     }
   }
 
