@@ -2,7 +2,7 @@
 
 ## Son durum
 
-- HEAD: `30318b8` (`gorev: p07 report_path PUBLISHED dogrulamasiyla kapat`); GLM commit'i `2eb2b1a` olarak cherry-pick edildi. Push sonrasi HEAD/origin esitlenecek.
+- HEAD ve `origin/main`: `fbcb606` (`gorev: p07 p08 entegrasyon kanitlarini guncelle`). Entegre GLM/Qwen commit'leri `2eb2b1a` ve `30318b8` olarak korunuyor.
 - Branch: `main`; tek untracked dosya kullaniciya ait ve korunuyor: `java-support/src/test/java/com/aitest/support/JavaMetadataScannerCoverageTest.java`.
 - Tam regresyon: 67 test dosyasi, 598/598 PASS.
 - Typecheck/build: PASS. Lint: 0 error, 89 warning.
