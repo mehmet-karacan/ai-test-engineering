@@ -34,12 +34,14 @@ export interface GcCandidate {
   created_at: number;
   reason: string;
   pinned: boolean;
+  snapshot?: { job_id: string | null; status: string; pin_reason: string | null; bytes: number };
 }
 
 export interface GcDryRunResult {
   candidates: GcCandidate[];
   pinned_count: number;
   total_bytes: number;
+  policy?: RetentionPolicy;
 }
 
 /**
@@ -49,8 +51,8 @@ export interface GcDryRunResult {
 export function gcDryRun(db: BetterSqlite3.Database, policy: RetentionPolicy): GcDryRunResult {
   const now = Date.now();
   const rows = db
-    .prepare<[], { id: string; job_id: string | null; kind: string; relative_store_path: string; sha256: string; created_at: number; status: string }>(
-      "SELECT id, job_id, kind, relative_store_path, sha256, created_at, status FROM artifacts",
+    .prepare<[], { id: string; job_id: string | null; kind: string; relative_store_path: string; sha256: string; bytes: number; created_at: number; status: string; pin_reason: string | null }>(
+      "SELECT id, job_id, kind, relative_store_path, sha256, bytes, created_at, status, pin_reason FROM artifacts",
     )
     .all();
 
@@ -61,10 +63,13 @@ export function gcDryRun(db: BetterSqlite3.Database, policy: RetentionPolicy): G
       .all()
       .map((r) => r.manifest_artifact_id),
   );
+  for (const row of db.prepare<[], { artifact_id: string }>("SELECT artifact_id FROM checkpoint_blobs").all()) {
+    pinnedArtifactIds.add(row.artifact_id);
+  }
   // aktif job'larin tum artifact'leri pin:
   const activeJobIds = new Set<string>(
     db
-      .prepare<[], { id: string }>("SELECT id FROM test_jobs WHERE lifecycle IN ('QUEUED', 'RUNNING', 'PAUSED', 'INTERRUPTED', 'APPLYING')")
+      .prepare<[], { id: string }>("SELECT id FROM test_jobs WHERE lifecycle IN ('QUEUED', 'RUNNING', 'WAITING_INPUT', 'PAUSED', 'INTERRUPTED') OR apply_state = 'APPLYING'")
       .all()
       .map((r) => r.id),
   );
@@ -73,21 +78,24 @@ export function gcDryRun(db: BetterSqlite3.Database, policy: RetentionPolicy): G
   let pinnedCount = 0;
   let totalBytes = 0;
   for (const row of rows) {
-    totalBytes += 0;
-    const isPinned = pinnedArtifactIds.has(row.id) || (row.job_id !== null && activeJobIds.has(row.job_id));
+    totalBytes += row.bytes;
+    const isPinned = row.pin_reason !== null || pinnedArtifactIds.has(row.id) || (row.job_id !== null && activeJobIds.has(row.job_id));
     if (isPinned) {
       pinnedCount++;
       continue;
     }
+    if (row.status !== "READY" && row.status !== "QUARANTINED") continue;
     const age = now - row.created_at;
     const reason =
       row.kind === "temp" ? (age > policy.temp_ttl_ms ? "TEMP_TTL_EXPIRED" : null) : age > policy.rejected_ttl_ms ? "REJECTED_TTL_EXPIRED" : null;
     if (reason === null) {
       continue;
     }
-    candidates.push({ artifact_id: row.id, kind: row.kind, relative_store_path: row.relative_store_path, sha256: row.sha256, created_at: row.created_at, reason, pinned: false });
+    candidates.push({ artifact_id: row.id, kind: row.kind, relative_store_path: row.relative_store_path, sha256: row.sha256,
+      created_at: row.created_at, reason, pinned: false,
+      snapshot: { job_id: row.job_id, status: row.status, pin_reason: row.pin_reason, bytes: row.bytes } });
   }
-  return { candidates, pinned_count: pinnedCount, total_bytes: totalBytes };
+  return { candidates, pinned_count: pinnedCount, total_bytes: totalBytes, policy: { ...policy } };
 }
 
 export interface GcSweepResult {
@@ -139,16 +147,46 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
     }
     return path;
   });
-  const swept: GcSweepResult["swept"] = [];
-  for (const [index, candidate] of dryRun.candidates.entries()) {
-    const blobPath = paths[index]!;
-    if (existsSync(blobPath)) {
-      rmSync(blobPath, { force: true });
-    }
-    db.prepare("UPDATE artifacts SET status = 'DELETED' WHERE id = ?").run(candidate.artifact_id);
-    swept.push({ artifact_id: candidate.artifact_id, relative_store_path: candidate.relative_store_path });
+  if (!dryRun.policy || dryRun.candidates.some((candidate) => !candidate.snapshot)) {
+    throw new AppError("POLICY_VIOLATION", "GC dry-run lacks a current identity snapshot", { reason_code: "GC_STALE_DRY_RUN" });
   }
-  return { swept, skipped_pinned: dryRun.pinned_count, artifact_root: artifactRoot };
+  const sweep = db.transaction((): GcSweepResult => {
+    // BEGIN IMMEDIATE prevents another DB writer from pinning/reassigning an artifact
+    // between this revalidation and file removal.
+    const fresh = gcDryRun(db, dryRun.policy!);
+    const current = new Map(fresh.candidates.map((candidate) => [candidate.artifact_id, candidate]));
+    const otherReference = db.prepare<[string, string], { id: string }>(
+      "SELECT id FROM artifacts WHERE relative_store_path = ? AND id <> ? AND status <> 'DELETED' LIMIT 1",
+    );
+    for (const candidate of dryRun.candidates) {
+      const now = current.get(candidate.artifact_id);
+      const old = candidate.snapshot!;
+      const next = now?.snapshot;
+      if (!now || !next || candidate.pinned || now.kind !== candidate.kind ||
+          now.relative_store_path !== candidate.relative_store_path || now.sha256 !== candidate.sha256 ||
+          now.created_at !== candidate.created_at || now.reason !== candidate.reason ||
+          next.job_id !== old.job_id || next.status !== old.status || next.pin_reason !== old.pin_reason ||
+          next.bytes !== old.bytes || otherReference.get(candidate.relative_store_path, candidate.artifact_id)) {
+        throw new AppError("POLICY_VIOLATION", "GC dry-run candidate changed or became pinned", {
+          reason_code: "GC_STALE_DRY_RUN", artifact_id: candidate.artifact_id,
+        });
+      }
+    }
+    const update = db.prepare<[string, string]>("UPDATE artifacts SET status = 'DELETED' WHERE id = ? AND status = ?");
+    const swept: GcSweepResult["swept"] = [];
+    for (const [index, candidate] of dryRun.candidates.entries()) {
+      if (update.run(candidate.artifact_id, candidate.snapshot!.status).changes !== 1) {
+        throw new AppError("POLICY_VIOLATION", "GC artifact status changed", {
+          reason_code: "GC_STALE_DRY_RUN", artifact_id: candidate.artifact_id,
+        });
+      }
+      const blobPath = paths[index]!;
+      if (existsSync(blobPath)) rmSync(blobPath, { force: true });
+      swept.push({ artifact_id: candidate.artifact_id, relative_store_path: candidate.relative_store_path });
+    }
+    return { swept, skipped_pinned: fresh.pinned_count, artifact_root: artifactRoot };
+  });
+  return sweep.immediate();
   } finally {
     release();
   }

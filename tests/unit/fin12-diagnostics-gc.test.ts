@@ -4,7 +4,8 @@
  * - GC iki asamali: dry-run -> onayli sweep; aktif/pinned ref silinmez (14.4/PRO26).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDiagnostics, type DiagnosticInput } from "../../src/application/diagnostics.js";
@@ -170,6 +171,58 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
     // DB satiri DELETED:
     const status = storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(oldArtifact.id)!.status;
     expect(status).toBe("DELETED");
+  });
+
+  it.each(["RUNNING", "WAITING_INPUT"])("sweep eski dry-run sonrasi %s olan job blob'unu korur", (lifecycle) => {
+    const job = jobs.createJob({ locationId, requestDigest: `digest-gc-race-${lifecycle}` });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "sonradan-aktif", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates.some((candidate) => candidate.artifact_id === artifact.id)).toBe(true);
+    storage.db.prepare("UPDATE test_jobs SET lifecycle = ? WHERE id = ?").run(lifecycle, job.id);
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep eski dry-run sonrasi checkpoint manifesti olan blob'u korur", () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-gc-checkpoint-race" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "sonradan-checkpoint", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates.some((candidate) => candidate.artifact_id === artifact.id)).toBe(true);
+    storage.db.prepare("INSERT INTO checkpoints (id, job_id, manifest_artifact_id, source_digest, generation, created_at) VALUES (?, ?, ?, ?, 0, ?)")
+      .run(randomUUID(), job.id, artifact.id, "e".repeat(64), Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it.each(["path", "hash", "pin"])("sweep eski dry-run sonrasi degisen %s kimligini reddeder", (change) => {
+    const job = jobs.createJob({ locationId, requestDigest: `digest-gc-identity-${change}` });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "kimlik-degisti", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates.some((candidate) => candidate.artifact_id === artifact.id)).toBe(true);
+    if (change === "path") storage.db.prepare("UPDATE artifacts SET relative_store_path = 'blobs/other' WHERE id = ?").run(artifact.id);
+    if (change === "hash") storage.db.prepare("UPDATE artifacts SET sha256 = ? WHERE id = ?").run("f".repeat(64), artifact.id);
+    if (change === "pin") storage.db.prepare("UPDATE artifacts SET pin_reason = 'release' WHERE id = ?").run(artifact.id);
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("sweep eski dry-run sonrasi ayni blob yoluna eklenen baska READY referansini korur", () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-gc-shared-path" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "paylasilan-blob", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    const path = dryRun.candidates.find((candidate) => candidate.artifact_id === artifact.id)!.relative_store_path;
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, 'report', ?, ?, 1, '1', 'internal', 'READY', ?)")
+      .run(randomUUID(), job.id, path, "f".repeat(64), Date.now());
+    expect(() => gcSweep(storage.db, dryRun, artifactRoot)).toThrow();
+    expect(existsSync(artifact.path)).toBe(true);
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
   });
 
   it("checkpoint manifest artifact'i her zaman pin (GC silinmez)", () => {
