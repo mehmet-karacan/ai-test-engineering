@@ -80,8 +80,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     };
   }
 
-  it("schema v6: coverage_snapshots + worker_attempts + candidate_attempts + benchmark_trials + checkpoint_blobs + job_target_concretes + test_run_provenance var", () => {
-    expect(storage.schemaVersion()).toBe(6);
+  it("schema v7: coverage_snapshots + worker_attempts + candidate_attempts + benchmark_trials + checkpoint_blobs + job_target_concretes + test_run_provenance var", () => {
+    expect(storage.schemaVersion()).toBe(7);
     const tables = storage.db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
@@ -119,6 +119,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
       test_inventory: [{ module_relative_path: "", name: "CalcTest", tests: 2, failures: 0, errors: 0, skipped: 0, test_names: ["CalcTest#one", "CalcTest#two"], skipped_test_names: [], failed_test_names: [] }],
       coverage_report_path: "C:/store/job/baseline/jacoco.xml",
       coverage_report_sha256: "a".repeat(64),
+      coverage_report_paths: [{ path: "C:/store/job/baseline/jacoco.xml", sha256: "a".repeat(64) }],
       started_at: 1000,
       finished_at: 1100,
     };
@@ -130,6 +131,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     expect(rows[0]!.stage).toBe("baseline");
     expect(rows[0]!.total_tests).toBe(2);
     expect(rows[0]!.command_digest).toHaveLength(64);
+    const reportList = storage.db.prepare<[string], { coverage_report_paths_json: string }>("SELECT coverage_report_paths_json FROM test_run_provenance WHERE id = ?").get(first);
+    expect(JSON.parse(reportList!.coverage_report_paths_json)).toHaveLength(1);
   });
 
   /** P03: manifest accepted_changes'i iceren publish icin immutable accepted blob. */
@@ -352,7 +355,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("migration idempotent: migrate tekrar cagrildiginda hata yok", () => {
     expect(() => storage.migrate()).not.toThrow();
-    expect(storage.schemaVersion()).toBe(6);
+    expect(storage.schemaVersion()).toBe(7);
   });
 
   it("future schema fail-closed: bilinmeyen yuksek version yazmayi durdurur", () => {

@@ -426,6 +426,10 @@ export class JobDispatcher {
           test_inventory: baselineEvidence.test_inventory,
           coverage_report_path: join(baselineEvidence.execution_root, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml"),
           coverage_report_sha256: fileSha256(join(baselineEvidence.execution_root, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml")),
+          coverage_report_paths: [...new Map(resolvedTargets.map((resolved) => {
+            const path = join(baselineEvidence!.execution_root, resolved.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml");
+            return [path, { path, sha256: fileSha256(path) }] as const;
+          })).values()],
           started_at: baselineEvidence.run_started_at,
           finished_at: baselineEvidence.run_finished_at,
         });
@@ -500,6 +504,7 @@ export class JobDispatcher {
               test_inventory: info.test_inventory,
               coverage_report_path: info.coverage_report_path,
               coverage_report_sha256: fileSha256(info.coverage_report_path),
+              coverage_report_paths: [{ path: info.coverage_report_path, sha256: fileSha256(info.coverage_report_path) }],
               started_at: info.started_at,
               finished_at: info.finished_at,
             });
@@ -641,6 +646,10 @@ export class JobDispatcher {
         test_inventory: finalReplay.test_inventory,
         coverage_report_path: join(finalReplay.workspace, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml"),
         coverage_report_sha256: fileSha256(join(finalReplay.workspace, resolvedTargets[0]!.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml")),
+        coverage_report_paths: [...new Map(resolvedTargets.map((resolved) => {
+          const path = join(finalReplay.workspace, resolved.module.module_relative_path, "target", "site", "jacoco", "jacoco.xml");
+          return [path, { path, sha256: fileSha256(path) }] as const;
+        })).values()],
         started_at: finalReplay.started_at,
         finished_at: finalReplay.finished_at,
       });

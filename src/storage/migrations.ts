@@ -451,6 +451,15 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
   CREATE INDEX IF NOT EXISTS idx_test_run_provenance_job ON test_run_provenance(job_id, stage, created_at);
   `,
     },
+    {
+      version: 7,
+      name: "test-run-coverage-report-listesi",
+      sql: `
+  -- P06/PP28: multi-module run'da tek coverage XML yolu authoritative degildir;
+  -- tum module report + digest listesi provenance icinde korunur.
+  ALTER TABLE test_run_provenance ADD COLUMN coverage_report_paths_json TEXT NOT NULL DEFAULT '[]';
+  `,
+    },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

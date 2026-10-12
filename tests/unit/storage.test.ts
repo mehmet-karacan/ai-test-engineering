@@ -24,10 +24,10 @@ describe("SQLite storage kalicilik", () => {
     }
   });
 
-  it("migration sonrasi schema version 6 olmali (P06: test run provenance tablosu dahil)", () => {
+  it("migration sonrasi schema version 7 olmali (P06: module coverage report listesi dahil)", () => {
     const storage = new Storage({ dbPath });
     storage.migrate();
-    expect(storage.schemaVersion()).toBe(6);
+    expect(storage.schemaVersion()).toBe(7);
     storage.close();
   });
 

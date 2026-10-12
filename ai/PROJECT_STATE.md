@@ -38,7 +38,7 @@
 | P05-B | Repair feedback/butcesi, shared target budget ve resume model provenance cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p05b-resume.md; 46/46 resume/storage + 2/2 handler zinciri + typecheck |
 | P06-A | Frozen baseline workspace ve customer checkout korumasi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06a-frozen-baseline.md; 10/10 W03 + 16/16 P05/accepted/Maven + typecheck |
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
-| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression ve source identity gate | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity; 88/88 odak + typecheck; module digest projection kalan |
+| P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity ve module report listesi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06b-provenance-core + p06b-run-links + p06b-inventory-gate + p06b-source-identity + p06b-module-reports; odak suite + typecheck |
 | P06-P10 | Effective Maven/JaCoCo provenance, kurulum, full gate ve handoff | TODO | aktif gorev sozlesmesi; P06-B2 kalan parcalari devam ediyor |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
@@ -92,6 +92,6 @@
 
 ## Sonraki somut is
 
-- P06-B kalan: JaCoCo module coverage digest projection'i; P06-B2 source-identity checkpoint'ini referans al
+- P06-B kalan: P06-B2 module report listesi tamamlandi; sonraki paketlerde kurulum/full gate ve Docker kanitina gec
 - Docker'li ortamda: docker-isolation + fin02 + p04 gercek capability/egress negatif testleri (PP16/PP17 tam kaniti)
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

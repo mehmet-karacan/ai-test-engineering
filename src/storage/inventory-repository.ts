@@ -35,6 +35,7 @@ export class InventoryRepository {
     test_inventory: Array<{ module_relative_path: string; name: string; tests: number; failures: number; errors: number; skipped: number; test_names: string[]; skipped_test_names: string[]; failed_test_names: string[] }>;
     coverage_report_path: string;
     coverage_report_sha256: string | null;
+    coverage_report_paths: Array<{ path: string; sha256: string | null }>;
     started_at: number;
     finished_at: number;
   }): string {
@@ -50,8 +51,9 @@ export class InventoryRepository {
     const failures = input.test_inventory.reduce((sum, suite) => sum + suite.failures, 0);
     const errors = input.test_inventory.reduce((sum, suite) => sum + suite.errors, 0);
     const skipped = input.test_inventory.reduce((sum, suite) => sum + suite.skipped, 0);
+    const placeholders = Array.from({ length: 24 }, () => "?").join(", ");
     this.db.prepare(
-      "INSERT INTO test_run_provenance (id, job_id, provenance_key, stage, attempt_ordinal, iteration_ordinal, execution_root, command_json, command_digest, stdout_log_path, stderr_log_path, exit_code, timed_out, total_tests, failures, errors, skipped, test_inventory_json, coverage_report_path, coverage_report_sha256, started_at, finished_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO test_run_provenance (id, job_id, provenance_key, stage, attempt_ordinal, iteration_ordinal, execution_root, command_json, command_digest, stdout_log_path, stderr_log_path, exit_code, timed_out, total_tests, failures, errors, skipped, test_inventory_json, coverage_report_path, coverage_report_sha256, coverage_report_paths_json, started_at, finished_at, created_at) VALUES (${placeholders})`,
     ).run(
       id,
       input.job_id,
@@ -73,6 +75,7 @@ export class InventoryRepository {
       inventoryJson,
       input.coverage_report_path,
       input.coverage_report_sha256,
+      JSON.stringify(input.coverage_report_paths),
       input.started_at,
       input.finished_at,
       Date.now(),
