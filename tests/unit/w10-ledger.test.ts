@@ -79,12 +79,12 @@ describe("W10/F17/N59-N60: verifier negatifleri + kabul ayrisimi", () => {
     const catalogText = readFileSync(join(repoRoot, "ai", "acceptance", "catalog.json"), "utf8");
     // previous_claims'te tarihsel beyanlar current_truth ile ayrilir:
     expect(catalogText).toContain("TARIHSEL_BEYAN");
-    // AKTIF_GOREV'de canli pilot durumu (005 sozlesmesi): pause ayrisimi korunur;
+    // Arsivdeki 005 sozlesmesinde canli pilot pause ayrisimi korunur;
     // FULL gate non-zero iken production NO_GO kalir (8.2). 004'un
     // FULL_PRODUCT_ACCEPTANCE_VERIFIED etiketi yerine guncel sozlesme isaretleri:
-    const aktif = readFileSync(join(repoRoot, "AKTIF_GOREV.md"), "utf8");
-    expect(aktif).toContain("PAUSED_BY_USER");
-    expect(aktif).toContain("NOT_PASSED");
-    expect(aktif).toContain("NO_GO");
+    const archive005 = readFileSync(join(repoRoot, "ai", "tasks", "archive", "AITE-PRODUCTION-READINESS-005-v1.0.md"), "utf8");
+    expect(archive005).toContain("PAUSED_BY_USER");
+    expect(archive005).toContain("NOT_PASSED");
+    expect(archive005).toContain("NO_GO");
   });
 });

@@ -35,6 +35,14 @@ Guvenli baseline logu `%LOCALAPPDATA%\Temp\aitest-006-s00\baseline-safe-vitest.l
 
 Tam `npm.cmd test` henuz calistirilmadi: suite manifestinde gercek Docker, Maven, browser ve OpenCode server kosulari var. S00 mapping/aktif suite karari olmadan pilot/dis bagimli testleri topluca baslatmama siniri korundu.
 
+## Ek girdi ve on kontrol
+
+- Kullanici `C:\Users\mkaracan\Downloads\AKTIF_GOREV_006_PAKETI.zip` yolunu bildirdi. Paket ozel temp konumuna path escape kontroluyle acildi; `SHA256SUMS.json` icindeki yedi dosyanin tum boyut/hash degerleri eslesti.
+- `girdiler/P08_BACKUP_DUZELTME.patch`: 24.889 bayt, SHA-256 `7cdf39c38da7046cf51122785b1830ea169e9c57b22f07e1714b15fb3160d68c`. Ic zip SHA-256 `99014ddf80a29d8703caef42a2772e84ae20de84f59d63cdccb8dceaae7f08cd`. Paket ve ham loglar public repoya alinmadi.
+- Patch mevcut `src/storage/lifecycle-ops.ts` blob'u `5f81be7a696516f48d1de0ef8c34c9dc32be1bfc` uzerinde `git apply --check` ile uyumlu. Bu uygulama/Windows kaniti degildir; restore publish-before-blobs kusuru patch kapsaminda hala aciktir.
+- Guvenli S01 on kontrolu: dort mevcut Vitest dosyasi / 13 test gecti; private log SHA-256 `37643f8966bf102ad77949300049c63807e0632d83bda8843bc45df2aab43ee3`. Yeni 19 senaryo ve hata atomik restore henuz test edilmedi.
+- Ilk iki model worktree'si 006 commit'inden once acilmisti; yazim baslamadan oturumlar durduruldu, dallar `0fb4685` commit'ine fast-forward edildi ve 006 sozlesmesiyle yeniden baslatildi. Eski task uzerinde degisiklik/commit yok.
+
 ## Devam
 
 1. GLM scope mapping ve Qwen suite degisikliklerini ayri commit/diff/test kanitiyla incele; birbirlerinin nihai reviewer'i olmalarini sagla.

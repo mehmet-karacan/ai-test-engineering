@@ -10,7 +10,9 @@
     "RG01-RG52": "52 x NOT_RUN (tarihsel 52/52 beyani gecersiz; tekil eslesme yeniden kurulacak)",
     "RT01-RT28": "28 x NOT_RUN (RT01/RT02/RT03/RT27 ozel testleri tarihsel; v2.0 execution contract ile yeniden degerlendirilecek)",
     "PRO01-PRO60": "60 x NOT_RUN (yeni kapsam)",
-    "n_obligations": 64
+    "n_obligations": 64,
+    "PP01-PP46": "46 x NOT_RUN (006 legacy mapping inventory; old gate excluded PP)",
+    "WN01-WN80": "80 x NOT_RUN (006 acceptance; implementation evidence pending)"
   },
   "groups": [
     {
@@ -1116,5 +1118,575 @@
       "proof": null
     }
   ],
-  "n_obligations_note": "AITE-REPORT06-INTEGRATION-004 v1.0 bolum 13: 64 davranis kabulu (N01-N64); tekil kayit; grup ozeti yalniz bunlardan turetilir"
+  "n_obligations_note": "AITE-REPORT06-INTEGRATION-004 v1.0 bolum 13: 64 davranis kabulu (N01-N64); tekil kayit; grup ozeti yalniz bunlardan turetilir",
+  "active_task": {
+    "id": "AITE-WINDOWS-SUBAGENT-PILOT-006",
+    "version": "1.0",
+    "contract": "AKTIF_GOREV.md",
+    "sha256": "59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989"
+  },
+  "wn_obligations": [
+    {
+      "requirement_id": "WN01",
+      "package": "S00",
+      "behavior": "005 görevi hash korunarak arşivlenir; kullanıcı dosyası ve mevcut branch değişiklikleri korunur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN02",
+      "package": "S00",
+      "behavior": "Docker/macOS/Linux özgül her legacy ID onaylı mapping taşır; geçerli genel korumalar replacement alır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN03",
+      "package": "S00",
+      "behavior": "PP01–PP46 dahil legacy ID envanteri tekildir; eksik/mükerrer/kanıtsız kapatma reddedilir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN04",
+      "package": "S00",
+      "behavior": "G0 olmadan uygulama, G1 olmadan müşteri Maven/model ve G2 olmadan apply başlatılmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN05",
+      "package": "S01",
+      "behavior": "Backup artifact listesi canlı DB değişse bile oluşmuş snapshot DB'nin READY setiyle eşleşir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN06",
+      "package": "S01",
+      "behavior": "Manifestten çıkarılan READY blob, yanlış hash/size ve çelişkili tekrar valid backup olamaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN07",
+      "package": "S01",
+      "behavior": "complete:false/bozuk JSON/wrong backup ID/unsupported schema, complete marker varlığıyla geçmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN08",
+      "package": "S01",
+      "behavior": "DB integrity ve FK hataları ayrı yakalanır; sorgu/okuma hatası başarılı sonuç üretmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN09",
+      "package": "S01",
+      "behavior": "Restore EEXIST blob çakışmasında önceki hedef DB içerik ve artifact'leri korunur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN10",
+      "package": "S01",
+      "behavior": "EPERM/disk-full/rename hata noktalarında eski generation korunur; yarım yeni state görünmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN11",
+      "package": "S01",
+      "behavior": "Restore journal'ın her kritik aşamasındaki hard-kill sonrası eski veya tümü doğrulanmış yeni generation açılır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN12",
+      "package": "S01",
+      "behavior": "Açık DB/aktif job restore'u bloke eder; stale WAL/SHM yeni DB'ye veri oynatamaz, canlı WAL silinmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN13",
+      "package": "S01",
+      "behavior": "Backup/restore path escape/junction/cross-drive/GC race, kullanıcı veya başka job verisini silemez/ezemez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN14",
+      "package": "S02",
+      "behavior": "Docker/WSL/PowerShell/bir Unix shell olmadan normal Windows MCP fixture'ı native Maven başlatır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN15",
+      "package": "S02",
+      "behavior": "Açık executable veya installed mvn.cmd seçimi doğru; wrapper tercihi ve JDK/Maven sürümleri kanıtlıdır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN16",
+      "package": "S02",
+      "behavior": "PowerShell gerektiren wrapper sessiz açılmaz; alternatif araç zinciri açık kullanıcı tercihiyle seçilir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN17",
+      "package": "S02",
+      "behavior": "Boşluk/Unicode/parantez/& path'leri bozulmaz; property/path injection sentinel'i çalışamaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN18",
+      "package": "S02",
+      "behavior": "PATH/Path, JAVA_HOME/toolchains/settings/profile farkı etkin run kimliğinde görünür; global env değişmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN19",
+      "package": "S02",
+      "behavior": "Native Maven onaylı yerel settings'i kullanabilir; secret model/rapor/public artifact'e taşınmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN20",
+      "package": "S02",
+      "behavior": "ENOENT/spawn error/nonzero exit/timeout/cancel ayrı sınıflanır; stdout/stderr close öncesi kabul yazılmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN21",
+      "package": "S02",
+      "behavior": "8 MiB üstü log bounded kalır; UTF-8 chunk sınırları korunur ve truncation açık kayıtlıdır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN22",
+      "package": "S02",
+      "behavior": "Cancel/timeout owned Maven/JVM çocuklarını kapatır, bağımsız IDE/Node/Java süreçlerine dokunmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN23",
+      "package": "S02",
+      "behavior": "Hard-kill/orphan/PID reuse'da yabancı süreç öldürülmez; geç gelen eski run sonucu trusted yapılmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN24",
+      "package": "S02",
+      "behavior": "Eski docker/host_dev_only config ve job, sessiz native fallback yapmaz; explicit migration/revision gerekir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN25",
+      "package": "S03",
+      "behavior": ".git/.mvn/node_modules/target/build/.env/hidden/binary dahil tam metadata envanteri vardır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN26",
+      "package": "S03",
+      "behavior": "Büyük veya desteklenmeyen dosya envanterde kalır; required build input hash'siz kabul edilmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN27",
+      "package": "S03",
+      "behavior": "Permission denied, junction loop ve dış kök reparse point partial/error olarak görünür; sahte tam scan yoktur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN28",
+      "package": "S03",
+      "behavior": "İlk scan yarıda kesilince cursor/generation üzerinden devam eder; duplicate kayıt üretmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN29",
+      "package": "S03",
+      "behavior": "Incremental scan rename/delete/content değişimini bulur; değişmeyen parser işi gereksiz tekrarlanmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN30",
+      "package": "S03",
+      "behavior": "Inventory digest ile source/build digest ayrıdır; gerekli .mvn girdisi snapshot'ta, eski target/.git yürütme dışında kalır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN31",
+      "package": "S03",
+      "behavior": "Model context'i ilgili bounded kesitlerle sınırlıdır; secret/binary/full inventory prompt'a taşınmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN32",
+      "package": "S04",
+      "behavior": "Aynı adlı farklı projeler ayrıdır; aynı remote farklı checkout'lar location bazında ayrılır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN33",
+      "package": "S04",
+      "behavior": "Windows path case/junction alias ve remote credentials normalize edilirken yanlış proje birleştirme yapılmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN34",
+      "package": "S04",
+      "behavior": "Eski DB migration'ı UUID/job/accepted geçmişini korur; belirsiz tarihsel identity reparent edilmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN35",
+      "package": "S04",
+      "behavior": "Project query/resume/artifact fetch wrong-project/location/job kimliklerini reddeder.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN36",
+      "package": "S04",
+      "behavior": "İki gerçek process aynı job/task için tek owner olur; kaybeden yaşayan owner'ı bozmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN37",
+      "package": "S04",
+      "behavior": "Expired lease renew/publish yapamaz; geç/iptal/stale generation sonucu best pointer'ı değiştiremez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN38",
+      "package": "S04",
+      "behavior": "Source/POM/profile/config/toolchain değişikliği resume'da yakalanır; old/new kanıt karışmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN39",
+      "package": "S04",
+      "behavior": "Accepted blob/hash/run/parent bozuksa trusted resume reddedilir; sağlam son set korunur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN40",
+      "package": "S04",
+      "behavior": "Kapanıp açılınca aynı job/target cursor/accepted set/kalan bütçe/task durumundan sürer; tamamlanmış iş tekrarlanmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN41",
+      "package": "S04",
+      "behavior": "Session kaybında aynı task altında yeni attempt izlenir; yeni job veya sahte aynı session id üretilmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN42",
+      "package": "S04",
+      "behavior": "Açık onaylı model değişimi aynı job'da revision/attempt lineage taşır; eski provenance değişmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN43",
+      "package": "S05",
+      "behavior": "Explorer/Architect/Developer/Reviewer ayrı gerçek session kimlikleri ve role binding ile yürür.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN44",
+      "package": "S05",
+      "behavior": "Kurulu OpenCode API/permission/structured-output alanları contract testle doğrulanır; bilinmeyen alan fallback gizlemez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN45",
+      "package": "S05",
+      "behavior": "Nested delegation, üçüncü izinsiz model isteği ve ikinci Maven run bütçe/scheduler tarafından engellenir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN46",
+      "package": "S05",
+      "behavior": "Input manifest task/job/source/role/model hash bağını taşır; başka session/task çıktısı reddedilir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN47",
+      "package": "S05",
+      "behavior": "Coordinator teslimatı max 6 KiB summary+ref'tir; tam test kodu artifact'te ve hash'i doğrulanabilir kalır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN48",
+      "package": "S05",
+      "behavior": "Tüm sohbet/context aktarılmaz; omitted/chunked bağlam açık görünür ve gerekli ek aralık kontrollü alınır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN49",
+      "package": "S05",
+      "behavior": "Empty final/intermediate tool/truncated JSON/provider error/real timeout/cancel farklı sonuçlardır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN50",
+      "package": "S05",
+      "behavior": "Retry/repair/model error istekleri durable attempt ve global bütçede sayılır; yeniden başlatma bütçeyi sıfırlamaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN51",
+      "package": "S05",
+      "behavior": "Runtime ajan genel shell/Git yazımı/diğer MCP'lere erişemez; only-scoped context ve changeset üretir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN52",
+      "package": "S05",
+      "behavior": "Reviewer developer'dan bağımsızdır; usage bilinmiyorsa null, fabricated cost/token yoktur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN53",
+      "package": "S06",
+      "behavior": "Single/multi-module, same FQCN, custom root ve inherited profile/JUnit/JaCoCo doğru concrete scope ile çalışır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN54",
+      "package": "S06",
+      "behavior": "Target-only test seçimi upstream build ile uyumludur; hedefte no-test global failIfNoTests gevşetmeyle saklanmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN55",
+      "package": "S06",
+      "behavior": "Framework yok/no-tests/all-skipped/baseline failed/unstable farklıdır; testsiz ama desteklenen projede ilk yeni test gerçekten çalışır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN56",
+      "package": "S06",
+      "behavior": "JaCoCo agent+run+report POM değişmeden çalışır veya açık blocker verir; argLine/başka agent/fork ayarı ezilmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN57",
+      "package": "S06",
+      "behavior": "Stale/wrong-module/source/class/run XML'i, malformed veya inconsistent sayaç geçersizdir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN58",
+      "package": "S06",
+      "behavior": "Anlamlı assertion/edge/exception/regresyon/duplicate ve SUT-shadow/private-reflection kapıları gerçek test koduna uygulanır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN59",
+      "package": "S06",
+      "behavior": "Ham counter threshold, branch-only gain, branch 0/0 ve missing metrik kararı loop/DB/raporda aynıdır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN60",
+      "package": "S06",
+      "behavior": "Final replay yalnız accepted setten gelir; hedef altında sonuç success değildir ve son sağlam kazanım korunur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN61",
+      "package": "S07",
+      "behavior": "Test/run/change sayıları non-zero gerçek fixture'da DB/JSON/HTML/status/summary'de eşleşir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN62",
+      "package": "S07",
+      "behavior": "Report06 reference/logo korunur; gerçek offline/print/DOM/link ve binary evidence testleri geçer.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN63",
+      "package": "S07",
+      "behavior": "Model narrative veya doğrulanmamış PASSED gate resmî rapor/JSON/print/summary'ye giremez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN64",
+      "package": "S07",
+      "behavior": "Export missing/hash/size/path/job/run/checkpoint/source uyuşmazlığı READY/COMPLETED'ı engeller.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN65",
+      "package": "S07",
+      "behavior": "Temiz Windows registered OpenCode entry doğru config/DB/role/native readiness ile çalışır; handshake tek başına hazır demek değildir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN66",
+      "package": "S07",
+      "behavior": "Upgrade/restore/uninstall kullanıcı config/store/blob'larını korur; ownership/hash dışı dosya silinmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN67",
+      "package": "S00/S09",
+      "behavior": "Yeni scope default full/local gate ayrımı açık; eski Docker/macOS maddeleri blocker değildir; bilinmeyen/değersiz CLI argümanı sessiz geçmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN68",
+      "package": "S00/S09",
+      "behavior": "Yetkisiz scope kaldırma, eksik replacement, duplicate/missing ID ve wrong evidence level reddedilir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN69",
+      "package": "S00/S09",
+      "behavior": "Partial manifest saklanır ama NOT_RUN/BLOCKED/FAILED required predicate varken full NO_GO'dur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN70",
+      "package": "S08",
+      "behavior": "GPU Fusion ilk scan sonucu gerçek root/modül/dosya sayısı ve error/partial bilgisiyle kullanıcıya sunulur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN71",
+      "package": "S08",
+      "behavior": "G1 onayındaki tek gerçek sınıf/model/bütçe dışına çıkılmaz; canlı DB/servis gerektiren iş açılmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN72",
+      "package": "S08",
+      "behavior": "Gerçek OpenCode → normal MCP → Windows Maven → JaCoCo → Report06 zinciri aynı job/run kimliğinde kanıtlanır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN73",
+      "package": "S08",
+      "behavior": "Pilot pause/oturum kesintisi sonrası aynı job'dan devam eder; model değişimi yalnız onaylı revision'dır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN74",
+      "package": "S08",
+      "behavior": "GPU original production/POM/mevcut test/dirty/untracked bytes ve Git durumu ürün tarafından değiştirilmez; commit/push yoktur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN75",
+      "package": "S08",
+      "behavior": "Kullanıcı gerçek test/coverage/rapor çıktısını inceler; onay/ret kayıtlıdır, otomatik kapsam büyütme/apply yoktur.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN76",
+      "package": "S09",
+      "behavior": "Son adayın full Windows suite/typecheck/build/lint ve bağımsız final review kanıtları günceldir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN77",
+      "package": "S09",
+      "behavior": "Wrong commit/tree/build/lockfile/toolchain/scope, sahte passed:true ve değişmiş hash/bytes kanıtı geçmez.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN78",
+      "package": "S09",
+      "behavior": "Test/log/identity içindeki secret ve customer code public Git'e taşınmaz; private raw evidence erişilebilir kalır.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN79",
+      "package": "S09",
+      "behavior": "Fixture smoke, pilot kazanımı, kullanıcı incelemesi ve full release sonucu ayrı statülerdir.",
+      "status": "NOT_RUN",
+      "proof": null
+    },
+    {
+      "requirement_id": "WN80",
+      "package": "S09",
+      "behavior": "GO yalnız bütün geçerli required predicate'ler kanıtlı ve P0/P1 release kusuru kapalıysa verilir; otomatik yayın yapılmaz.",
+      "status": "NOT_RUN",
+      "proof": null
+    }
+  ],
+  "legacy_mapping_ref": "ai/acceptance/legacy-to-006.json",
+  "wn_obligations_note": "AKTIF_GOREV.md v1.0 WN01-WN80; source text preserved, proof remains NOT_RUN until verified."
 }

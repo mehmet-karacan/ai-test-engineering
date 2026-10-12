@@ -8,8 +8,8 @@
  * - P09/PR01: dagitilacak build (dist), dosya mtime'i degil build stamp + digest zinciriyle
  *   kanitla baglanir; kabul run exit_code 0 degilse kanit sayilmaz; tanimli evidence level
  *   kumesi kabul ledger'inden (catalog) turetilir; kabul ledger'i (ai/acceptance) kaynak
- *   kimligina girer. Pozitif kontrol: tutarli tam manifest + clean kimlik zinciri GO uretir
- *   (schema kaniti; gercek kabul iddiasi DEGIL, kopya agac uzerinde sentetik tutarli zincir).
+ *   kimligina girer. 005'in tutarli 274-ID sentetik manifesti 006 full kabulune yetmez;
+ *   yeni Windows kanit zinciri tamamlanana kadar gate NO_GO kalir.
  * Testler yalniz gecici kopya ustunde negatif varyant kosar; gercek repo agacina yazmaz.
  */
 import { describe, it, expect } from "vitest";
@@ -533,9 +533,9 @@ describe("P01/N60: pilot pause kabul ayrisimi korunur", () => {
     const catalog = JSON.parse(readFileSync(join(repoRoot, "ai", "acceptance", "catalog.json"), "utf8"));
     const n60 = (catalog.n_obligations as Array<{ requirement_id: string; behavior: string }>).find((n) => n.requirement_id === "N60");
     expect(n60?.behavior).toContain("full non-zero");
-    const aktif = readFileSync(join(repoRoot, "AKTIF_GOREV.md"), "utf8");
-    expect(aktif).toContain("PAUSED_BY_USER");
-    expect(aktif).toContain("NOT_PASSED");
+    const archive005 = readFileSync(join(repoRoot, "ai", "tasks", "archive", "AITE-PRODUCTION-READINESS-005-v1.0.md"), "utf8");
+    expect(archive005).toContain("PAUSED_BY_USER");
+    expect(archive005).toContain("NOT_PASSED");
   });
 
   it("bare full gate canli pilot onayini uydurmaz; NO_GO ile ayrilir", () => {
@@ -742,8 +742,8 @@ describe("P09/PR01: kabul ledger'i kaynak kimligina girer; manifest dairesel ref
   });
 });
 
-describe("P01/PP01: pozitif kontrol - tutarli tam manifest full gate'i GO yapar (schema kaniti; gercek kabul iddiasi DEGIL)", () => {
-  it("274 zorunlu id + tutarli kimlik zinciri + PASSED pilot/platform = GO", () => {
+describe("P01/PP01: eski 274-ID manifest 006 full kabulune yetmez", () => {
+  it("274 zorunlu id + tutarli kimlik zinciri + PASSED pilot/platform bile 006 gate'inde NO_GO", () => {
     const dir = copyRepoForNegative();
     try {
       const obligations = allObligationEntries(dir, "job-p01-go", "run-p01-go");
@@ -753,8 +753,9 @@ describe("P01/PP01: pozitif kontrol - tutarli tam manifest full gate'i GO yapar 
         obligations,
       });
       const gate = runGate(dir, []);
-      expect(gate.status).toBe(0);
-      expect(gate.resultJson?.decision).toBe("GO");
+      expect(gate.status).not.toBe(0);
+      expect(gate.resultJson?.decision).toBe("NO_GO");
+      expect(gate.resultJson?.reasons?.some((reason: { code: string }) => reason.code === "WINDOWS_006_FULL_GATE_PENDING")).toBe(true);
       expect(gate.resultJson?.obligations?.mandatory).toBe(274);
       expect(gate.resultJson?.obligations?.verified).toBe(274);
       expect(gate.resultJson?.obligations?.missing).toBe(0);

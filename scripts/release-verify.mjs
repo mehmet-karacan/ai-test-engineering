@@ -37,11 +37,44 @@ const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), "..");
 
 const args = process.argv.slice(2);
-const printIdentity = args.includes("--print-identity");
-const localMode = args.includes("--local");
+const recognizedFlags = new Set(["--local", "--print-identity", "--manifest", "--scope"]);
+const argumentProblems = [];
+const singleFlags = new Set();
+let manifestPathArg;
+let requestedScope = "windows-native-v1";
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (!recognizedFlags.has(arg)) {
+    argumentProblems.push({ code: "BILINMEYEN_ARGUMAN", detail: String(arg) });
+    continue;
+  }
+  if (singleFlags.has(arg)) {
+    argumentProblems.push({ code: "MUKERRER_ARGUMAN", detail: arg });
+  }
+  singleFlags.add(arg);
+  if (arg === "--manifest" || arg === "--scope") {
+    const value = args[++i];
+    if (typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
+      argumentProblems.push({ code: "ARGUMAN_DEGERI_EKSIK", detail: arg });
+      i -= typeof value === "string" ? 1 : 0;
+      continue;
+    }
+    if (arg === "--manifest") manifestPathArg = value;
+    else requestedScope = value;
+  }
+}
+if (requestedScope !== "windows-native-v1") {
+  argumentProblems.push({ code: "BILINMEYEN_SCOPE", detail: requestedScope });
+}
+if (singleFlags.has("--local") && singleFlags.has("--print-identity")) {
+  argumentProblems.push({ code: "CELISEN_MODLAR", detail: "--local ve --print-identity" });
+}
+if (singleFlags.has("--print-identity") && singleFlags.has("--manifest")) {
+  argumentProblems.push({ code: "CELISEN_MODLAR", detail: "--print-identity ve --manifest" });
+}
+const printIdentity = singleFlags.has("--print-identity");
+const localMode = singleFlags.has("--local");
 const mode = localMode ? "local" : "full";
-const manifestIdx = args.indexOf("--manifest");
-const manifestPathArg = manifestIdx >= 0 && typeof args[manifestIdx + 1] === "string" ? args[manifestIdx + 1] : undefined;
 const EVIDENCE_MANIFEST_REL = "ai/acceptance/evidence-manifest.json";
 const evidenceManifestPath = manifestPathArg ? resolve(manifestPathArg) : join(repoRoot, EVIDENCE_MANIFEST_REL);
 
@@ -56,6 +89,8 @@ const MANDATORY_FILES = [
   "docs/security.md",
   "AKTIF_GOREV.md",
   "ai/acceptance/catalog.json",
+  "ai/acceptance/scope-windows-native-v1.json",
+  "ai/acceptance/legacy-to-006.json",
   "tests/benchmark/corpus.json",
 ];
 
@@ -93,6 +128,7 @@ const LIVE_PILOT_STATUSES = ["PASSED", "NOT_PASSED", "PAUSED_BY_USER", "NOT_RUN"
 
 const reasons = [];
 const warnings = [];
+reasons.push(...argumentProblems);
 
 function addReason(code, detail) {
   reasons.push({ code, detail });
@@ -229,6 +265,23 @@ function checkCatalogIntegrity() {
   }
   checkCatalogDuplicateIds(catalog.rt_obligations, "CATALOG_RT_DUPLICATE");
   checkCatalogDuplicateIds(catalog.n_obligations, "CATALOG_N_DUPLICATE");
+  if (catalog.active_task?.id !== "AITE-WINDOWS-SUBAGENT-PILOT-006"
+    || catalog.active_task?.version !== "1.0"
+    || catalog.active_task?.sha256 !== "59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989") {
+    addReason("CATALOG_AKTIF_GOREV_UYUSMAZ", "006 gorev kimligi veya sozlesme hash'i uyusmuyor");
+  }
+  const wnRows = Array.isArray(catalog.wn_obligations) ? catalog.wn_obligations : [];
+  const wnIds = new Set(wnRows.map((row) => row?.requirement_id));
+  const expectedWnIds = Array.from({ length: 80 }, (_, index) => `WN${String(index + 1).padStart(2, "0")}`);
+  if (wnRows.length !== 80 || wnIds.size !== 80 || expectedWnIds.some((id) => !wnIds.has(id))) {
+    addReason("CATALOG_WN_EKSIK", `WN01-WN80 tekil kayit olmali (bulunan: ${wnRows.length}, tekil: ${wnIds.size})`);
+  }
+  for (const row of wnRows) {
+    if (typeof row?.behavior !== "string" || row.behavior.length === 0 || typeof row?.package !== "string" || row.package.length === 0) {
+      addReason("CATALOG_WN_ALAN_EKSIK", row?.requirement_id ?? "?");
+    }
+  }
+  checkCatalogDuplicateIds(wnRows, "CATALOG_WN_DUPLICATE");
   return catalog;
 }
 
@@ -687,6 +740,10 @@ function printResultJson(result) {
 }
 
 function main() {
+  if (argumentProblems.length > 0) {
+    printResultJson({ schema_version: 1, tool: "release-verify", decision: "NO_GO", exit_code: 1, reasons: argumentProblems });
+    process.exit(1);
+  }
   const identity = computeSourceIdentity();
 
   if (printIdentity) {
@@ -703,6 +760,7 @@ function main() {
       schema_version: 1,
       tool: "release-verify",
       kind: "source_build_identity",
+      scope_id: requestedScope,
       source: { commit: identity.commit, dirty: identity.dirty, tree_digest: identity.tree_digest, file_count: identity.file_count },
       build: { lockfile_sha256: identity.lockfile_sha256, build_input_digest: identity.build_input_digest, dist_artifacts: identity.dist_artifacts },
       build_stamp: stamp,
@@ -729,6 +787,9 @@ function main() {
   let evidence = null;
 
   if (mode === "full") {
+    // S00: 005'in 274-ID verifier'i 006'nin WN ve PP kapsamini henüz
+    // degerlendiremez. S09 yeni evidence zincirini tamamlayana dek GO kapali.
+    addReason("WINDOWS_006_FULL_GATE_PENDING", "WN01-WN80 ve PP01-PP46 evidence gate'i S09'da tamamlanacak");
     evidence = verifyEvidenceManifest(identity, catalog, universe);
     for (const problem of evidence.problems) {
       reasons.push(problem);
@@ -743,6 +804,8 @@ function main() {
     tool: "release-verify",
     mode,
     scope: {
+      id: requestedScope,
+      manifest_path: "ai/acceptance/scope-windows-native-v1.json",
       structural_checks: ["mandatory_files", "build_stamp_dist_provenance", "catalog_integrity", "corpus_integrity", "security_doc", "secret_scan_release_inventory", "reference_html_integrity", "source_tree_digest"],
       obligation_universe: { count: universe.idList.length, groups: universe.groups },
       evidence_manifest_path: relative(repoRoot, evidenceManifestPath) || evidenceManifestPath,
