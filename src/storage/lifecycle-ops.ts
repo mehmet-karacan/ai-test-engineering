@@ -12,6 +12,7 @@ import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock } from "./maintenance-lock.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, journalPathForDb, type RestorePhase } from "./restore-journal.js";
 
 export interface BackupResult {
   backup_id: string;
@@ -286,6 +287,24 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   };
 }
 
+function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: BackupManifest): void {
+  const snapshot = inspectBackupSnapshot(dbPath);
+  if (snapshot.reason !== null || snapshot.rows.length !== manifest.blobs.length) {
+    throw new AppError("STORAGE_ERROR", "Published restore DB verification failed", { reason_code: "RESTORE_PUBLISHED_DB_INVALID" });
+  }
+  const rows = new Map(snapshot.rows.map((row) => [row.relative_store_path, row]));
+  for (const blob of manifest.blobs) {
+    const row = rows.get(blob.relative_path);
+    if (!row || row.sha256 !== blob.sha256 || row.bytes !== blob.bytes) {
+      throw new AppError("STORAGE_ERROR", "Published restore manifest mismatch", { reason_code: "RESTORE_PUBLISHED_SET_MISMATCH" });
+    }
+    const bytes = readFileSync(resolve(artifactRoot, blob.relative_path.replace(/\//g, pathSep)));
+    if (bytes.byteLength !== blob.bytes || sha256Data(bytes) !== blob.sha256) {
+      throw new AppError("STORAGE_ERROR", "Published restore blob mismatch", { reason_code: "RESTORE_PUBLISHED_BLOB_INVALID" });
+    }
+  }
+}
+
 /**
  * Dogrulanmis backup'i yeni runtime konumuna uygular. Hedef DB acik olmamali;
  * DB once temp dosyaya kopyalanir, sonra isim degisikligiyle yayinlanir.
@@ -296,6 +315,9 @@ export function verifyBackup(backupDir: string): RestoreVerification {
  * hedefi ezmez. Crash-safe journal/rollback ayri asamada tamamlanacaktir.
  */
 export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
+  targetDbPath = resolve(targetDbPath);
+  targetArtifactRoot = resolve(targetArtifactRoot);
+  assertRestoreReadyBeforeOpen(targetDbPath);
   const release = acquireMaintenanceLock(targetArtifactRoot, "restore");
   try {
   const verification = verifyBackup(backupDir);
@@ -313,7 +335,7 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
 
   // Preflight: tum hedef blob yollari, aktif DB veya mevcut blob'lar
   // degistirilmeden once cozulur ve dogrulanir.
-  const plan: Array<{ source: string; destination: string; stage: string; skip: boolean }> = [];
+  const plan: Array<{ source: string; destination: string; stage: string; sha256: string; skip: boolean }> = [];
   for (const blob of manifest.blobs) {
     const rel = blob.relative_path.replace(/\//g, pathSep);
     const source = resolve(backupBlobRoot, rel);
@@ -342,16 +364,32 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
       }
       skip = true;
     }
-    plan.push({ source, destination, stage: `${destination}.restore-${randomUUID()}.tmp`, skip });
+    plan.push({ source, destination, stage: `${destination}.restore-${randomUUID()}.tmp`, sha256: blob.sha256, skip });
   }
 
   mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
   mkdirSync(targetArtifactRoot, { recursive: true });
   const tempDb = `${targetDbPath}.restore-${randomUUID()}`;
+  const oldSuffix = `.restore-old-${randomUUID()}`;
+  const journalPath = journalPathForDb(targetDbPath);
+  const journalBase = {
+    generation: randomUUID(), targetDbPath, artifactRoot: targetArtifactRoot,
+    stagedDbPath: tempDb, preservedDbPath: `${targetDbPath}${oldSuffix}`,
+    publishedBlobs: plan.filter((item) => !item.skip).map((item) => ({ path: item.destination, sha256: item.sha256 })),
+  };
+  let journalStarted = false;
+  let journalTerminal = false;
+  const phase = (value: RestorePhase): void => {
+    appendRestorePhase(journalPath, { ...journalBase, phase: value });
+    journalStarted = true;
+    if (value === "COMMITTED" || value === "ROLLED_BACK") journalTerminal = true;
+  };
   copyFileSync(join(backupDir, "state.db"), tempDb);
   const publishedNew: string[] = [];
   let dbPublished = false;
+  let safeRollback = true;
   try {
+    phase("PREPARED");
     // Tum blob kopyalari ve olasi IO hatalari DB yayini oncesinde tamamlanir.
     for (const item of plan) {
       if (item.skip) continue;
@@ -365,11 +403,11 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
       linkSync(item.stage, item.destination);
       publishedNew.push(item.destination);
     }
+    phase("BLOBS_READY");
     // Eski DB ve WAL/SHM, yeni DB yayini basarisiz olursa geri konmak uzere
     // ayni volume'de tutulur. Crash-safe recovery journal sonraki asamadir.
     const staleWal = `${targetDbPath}-wal`;
     const staleShm = `${targetDbPath}-shm`;
-    const oldSuffix = `.restore-old-${randomUUID()}`;
     const preserved: Array<{ original: string; saved: string }> = [];
     try {
       for (const original of [targetDbPath, staleWal, staleShm]) {
@@ -378,20 +416,42 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
         renameSync(original, saved);
         preserved.push({ original, saved });
       }
+      phase("OLD_DB_PRESERVED");
       renameSync(tempDb, targetDbPath);
       dbPublished = true;
+      phase("NEW_DB_PUBLISHED");
+      verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest);
+      // Read-only SQLite dogrulamasi WAL/SHM yan dosyasi olusturabilir;
+      // baglanti kapandiktan sonra yeni generation yan dosyalari kaldirilir.
+      for (const sidecar of [staleWal, staleShm]) {
+        if (existsSync(sidecar)) rmSync(sidecar, { force: true });
+      }
+      phase("VERIFIED");
+      phase("COMMITTED");
     } catch (error) {
-      for (const item of [...preserved].reverse()) {
-        if (existsSync(item.saved)) renameSync(item.saved, item.original);
+      try {
+        if (dbPublished && existsSync(targetDbPath)) {
+          for (const sidecar of [staleWal, staleShm]) {
+            if (existsSync(sidecar)) rmSync(sidecar, { force: true });
+          }
+          renameSync(targetDbPath, tempDb);
+          dbPublished = false;
+        }
+        for (const item of [...preserved].reverse()) {
+          if (existsSync(item.saved)) renameSync(item.saved, item.original);
+        }
+      } catch {
+        safeRollback = false;
       }
       throw error;
     }
     // Eski generation, journal/retention karari olmadan otomatik silinmez.
   } catch (error) {
-    if (!dbPublished) {
+    if (safeRollback && !dbPublished) {
       for (const path of publishedNew.reverse()) {
         if (existsSync(path)) rmSync(path, { force: true });
       }
+      if (journalStarted && !journalTerminal) phase("ROLLED_BACK");
     }
     throw error;
   } finally {

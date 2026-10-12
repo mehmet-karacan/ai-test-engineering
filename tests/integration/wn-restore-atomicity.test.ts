@@ -14,6 +14,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { createBackup, restoreBackup, sha256Data } from "../../src/storage/lifecycle-ops.js";
+import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
 
 type BlobEntry = { relative_path: string; sha256: string; bytes: number };
 const faults = vi.hoisted(() => ({ stageCopy: false, dbPublish: false, secondBlobPublish: false, linkCount: 0 }));
@@ -175,6 +176,7 @@ describe("WN restore atomikligi", () => {
       faults.stageCopy = true;
       assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /ENOSPC/);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline, "copy failure must preserve active DB bytes");
+      assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "ROLLED_BACK");
     } finally {
       faults.stageCopy = false;
       sourceDb?.close();
@@ -204,6 +206,7 @@ describe("WN restore atomikligi", () => {
       faults.dbPublish = true;
       assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")), /EACCES/);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline, "publish failure must preserve old DB bytes");
+      assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "ROLLED_BACK");
     } finally {
       faults.dbPublish = false;
       sourceDb?.close();
