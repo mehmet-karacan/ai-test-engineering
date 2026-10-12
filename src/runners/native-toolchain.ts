@@ -1,6 +1,7 @@
 /** Windows native Maven selection and typed argument validation. No subprocess is started here. */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, join, resolve, delimiter } from "node:path";
 import { AppError } from "../domain/errors.js";
 
@@ -20,6 +21,9 @@ export interface NativeToolchainOptions {
   platform?: NodeJS.Platform;
   executable?: string;
   preferWrapper?: boolean;
+  settingsPath?: string;
+  toolchainsPath?: string;
+  profiles?: string[];
 }
 
 export interface NativeToolchainPlan {
@@ -77,6 +81,17 @@ function assertCmdFile(file: string): string {
   return file;
 }
 
+function fileDigest(path: string, explicitlyRequired: boolean): string | null {
+  if (!existsSync(path)) {
+    if (explicitlyRequired) throw new AppError("INVALID_PARAMETERS", "Configured Maven file does not exist");
+    return null;
+  }
+  if (!statSync(path).isFile()) {
+    throw new AppError("INVALID_PARAMETERS", "Configured Maven path is not a file");
+  }
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
 function wrapperPath(cwd: string): string {
   const script = assertCmdFile(join(cwd, "mvnw.cmd"));
   const wrapperDir = join(cwd, ".mvn", "wrapper");
@@ -119,7 +134,20 @@ export class NativeToolchainResolver {
     }
     const envIdentity = Object.fromEntries(["PATH", "JAVA_HOME", "MAVEN_OPTS", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS"]
       .map((key) => [key, createHash("sha256").update(key === "PATH" ? pathValue(options.env) : (options.env[key] ?? "")).digest("hex")]));
-    const identity = createHash("sha256").update(JSON.stringify({ cwd, executable, source, envIdentity })).digest("hex");
+    const settings = options.settingsPath ?? join(homedir(), ".m2", "settings.xml");
+    const toolchains = options.toolchainsPath ?? join(homedir(), ".m2", "toolchains.xml");
+    const localConfig = Object.fromEntries(["jvm.config", "maven.config", "extensions.xml"]
+      .map((name) => [name, fileDigest(join(cwd, ".mvn", name), false)]));
+    const profiles = options.profiles ?? [];
+    for (const profile of profiles) {
+      if (!SAFE_PROPERTY_KEY.test(profile)) throw new AppError("INVALID_PARAMETERS", "Invalid Maven profile");
+    }
+    const identity = createHash("sha256").update(JSON.stringify({
+      cwd, executable, executableDigest: fileDigest(executable, true), source, envIdentity, profiles,
+      settingsPath: settings, settingsDigest: fileDigest(settings, options.settingsPath !== undefined),
+      toolchainsPath: toolchains, toolchainsDigest: fileDigest(toolchains, options.toolchainsPath !== undefined),
+      localConfig,
+    })).digest("hex");
     return { executable, source, cwd, identity };
   }
 }

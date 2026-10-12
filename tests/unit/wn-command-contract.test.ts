@@ -44,4 +44,28 @@ describe("S02 native Maven command contract", () => {
       expect(() => NativeToolchainResolver.resolve({ cwd: root, env: {}, platform: "win32", preferWrapper: true })).toThrow();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it("changes identity when approved settings, toolchains or profiles change without exposing contents", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-identity-"));
+    try {
+      const bin = join(root, "bin");
+      mkdirSync(bin);
+      writeFileSync(join(bin, "mvn.cmd"), "@echo off\r\n");
+      const settings = join(root, "settings.xml");
+      const toolchains = join(root, "toolchains.xml");
+      writeFileSync(settings, "<server>SECRET_SENTINEL_A</server>");
+      writeFileSync(toolchains, "<jdk>17</jdk>");
+      const base = { cwd: root, env: { Path: bin }, platform: "win32" as const, settingsPath: settings, toolchainsPath: toolchains };
+      const first = NativeToolchainResolver.resolve({ ...base, profiles: ["unit"] });
+      writeFileSync(settings, "<server>SECRET_SENTINEL_B</server>");
+      const second = NativeToolchainResolver.resolve({ ...base, profiles: ["unit"] });
+      expect(second.identity).not.toBe(first.identity);
+      const third = NativeToolchainResolver.resolve({ ...base, profiles: ["coverage"] });
+      expect(third.identity).not.toBe(second.identity);
+      writeFileSync(toolchains, "<jdk>21</jdk>");
+      const fourth = NativeToolchainResolver.resolve({ ...base, profiles: ["coverage"] });
+      expect(fourth.identity).not.toBe(third.identity);
+      expect(JSON.stringify(fourth)).not.toContain("SECRET_SENTINEL");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
