@@ -83,11 +83,16 @@ export async function startWindowsRestoreRecoverySession(helper: WindowsFileHelp
         const root = journal.emptyBlobGuard.root;
         const parentId = journal.emptyBlobGuard.parents[0]!;
         const hexPath = (value: string) => Buffer.from(value, "utf16le").toString("hex");
-        const reply = await send(`EMPTY_GUARD\t${hexPath(journal.artifactRoot)}\t` +
+        const owned = journal.stageIntents[0]!.identity;
+        const command = owned ? "OWNED_GUARD" : "EMPTY_GUARD";
+        const reply = await send(`${command}\t${hexPath(journal.artifactRoot)}\t` +
           `${parentRelative ? hexPath(parentRelative) : "-"}\t${hexName(basename(destination))}\t` +
           `${hexName(basename(stage))}\t${root.volumeSerial}\t${root.fileId}\t` +
-          `${parentId.volumeSerial}\t${parentId.fileId}`);
-        if (reply.length !== 1 || reply[0] !== "EMPTY_GUARDED") throw protocolError("invalid empty guard receipt");
+          `${parentId.volumeSerial}\t${parentId.fileId}` +
+          (owned ? `\t${owned.volumeSerial}\t${owned.fileId}\t${owned.bytes}\t${owned.sha256}` : ""));
+        if (reply.length !== 1 || reply[0] !== (owned ? "OWNED_GUARDED" : "EMPTY_GUARDED")) {
+          throw protocolError("invalid blob guard receipt");
+        }
         emptyGuarded = true;
       },
       async commitEmptyRollback(journalPath, expected, line) {
