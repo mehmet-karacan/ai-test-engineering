@@ -9,8 +9,8 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | Paket | Is | Durum | Sonraki kanit |
 | --- | --- | --- | --- |
 | S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | LOCAL_VERIFIED | WN01-WN04 mapping/baseline; WN67-WN69 full evidence kapisi S09'da tamamlanir; S00 review checkpoint |
-| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; native fault/crash kaniti |
-| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; resume probe lease/registry kesiti ve verified digest native pin fixture 5/5 var; absent implicit config `pin_unavailable`, customer gate NO_GO |
+| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; native recovery iki hard-kill receipt kesitinde eski SQLite acilisi PASS; terminal/startup fence, native default ve 15-cut acik |
+| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; verified plan→helper pin ve resume ownership kesitleri PASS; absent implicit config `NATIVE_INPUT_PIN_UNAVAILABLE`, Maven/JDK dagitim baytlari acik, customer gate NO_GO |
 | S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; kalici native restore/recovery oturumu ve ayrik snapshot digest dilimleri var; S01 journal wire, sayfali scan persistence ve copy race kaniti acik |
 | S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42; S01 VERIFIED oncesi yalniz salt okunur tasarim/fixture checkpoint'i hazir |
 | S05 | Gercek subagent oturumlari ve context butcesi | TODO | WN43-WN52 |
