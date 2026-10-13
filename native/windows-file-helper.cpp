@@ -561,11 +561,152 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
   }
   return 2; // EOF before CLOSE is a failed session; journal recovery remains nonterminal.
 }
+
+// A fresh target has no old generation to pin. Keep its protocol separate from
+// the existing-target session so an absent old DB cannot weaken that contract.
+int freshRestoreSession(int argc, wchar_t** argv, bool recovering) {
+  if (argc != (recovering ? 7 : 6)) return 2;
+  std::wstring dbName, stagedName, preservedName;
+  if (!decodeName(argv[3], dbName) || !decodeName(argv[4], stagedName) ||
+      !uuidAtEnd(stagedName, dbName + L".restore-")) return 2;
+  if (recovering && (!decodeName(argv[5], preservedName) ||
+      !uuidAtEnd(preservedName, dbName + L".restore-old-"))) return 2;
+  const std::string generation = ascii(argv[recovering ? 6 : 5]);
+  if (generation.size() != 36) return 2;
+  for (char c : generation) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || c == '-')) return 2;
+  std::vector<Handle> root;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root)) return 2;
+  auto absent = [&](const std::wstring& name) -> bool {
+    NTSTATUS status = 0;
+    Handle observed;
+    return !openChild(root.back().value, name, false, false,
+      GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, observed, FILE_SHARE_READ, &status) &&
+      status == static_cast<NTSTATUS>(0xC0000034L);
+  };
+  if (!absent(dbName + L"-wal") || !absent(dbName + L"-shm") ||
+      (recovering && (!absent(preservedName) || !absent(dbName + L"-wal" + preservedName.substr(dbName.size())) ||
+        !absent(dbName + L"-shm" + preservedName.substr(dbName.size()))))) return 2;
+  SessionSlot staged{ "stagedDb", stagedName, Handle{} };
+  auto openAt = [&](const std::wstring& name) -> int {
+    NTSTATUS status = 0;
+    Handle held;
+    if (!openChild(root.back().value, name, false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, held, FILE_SHARE_READ, &status)) {
+      return status == static_cast<NTSTATUS>(0xC0000034L) ? 0 : -1;
+    }
+    Identity info;
+    unsigned char digest[32]{};
+    if (!snapshot(held.value, info, digest)) return -1;
+    staged.file = std::move(held);
+    staged.currentName = name;
+    staged.present = true;
+    return 1;
+  };
+  const int atStage = openAt(stagedName);
+  if (atStage < 0 || (atStage == 0 && (!recovering || openAt(dbName) != 1)) ||
+      (atStage == 1 && !absent(dbName)) || (atStage == 0 && !absent(stagedName))) return 2;
+  unsigned sequence = atStage == 0 ? 1U : 0U;
+  std::string readyField = "stagedDb=";
+  Identity initial;
+  unsigned char initialDigest[32]{};
+  if (!snapshot(staged.file.value, initial, initialDigest)) return 2;
+  char volume[17]{}, bytes[32]{};
+  std::snprintf(volume, sizeof(volume), "%016llx", initial.id.VolumeSerialNumber);
+  std::snprintf(bytes, sizeof(bytes), "%llu", initial.bytes);
+  readyField += encodeName(staged.currentName) + ":" + volume + ":" + ascii(fileIdHex(initial)) +
+    ":" + bytes + ":" + ascii(digestHex(initialDigest));
+  if (recovering) std::printf("RECOVERY_READY\t%s\t%u\toldDb=-\toldWal=-\toldShm=-\t%s\n",
+    generation.c_str(), sequence, readyField.c_str());
+  else {
+    std::printf("READY\t%s\toldDb=-\toldWal=-\toldShm=-\tstagedDb=", generation.c_str());
+    printSnapshot(staged.file.value);
+    std::printf("\n");
+  }
+  std::fflush(stdout);
+  bool accepted = !recovering;
+  std::string line;
+  while (std::getline(std::cin, line)) {
+    const auto fields = splitTabs(line);
+    if (!absent(dbName + L"-wal") || !absent(dbName + L"-shm")) return 2;
+    if (!accepted) {
+      if (fields.size() != 7 || fields[0] != "ACCEPT" || fields[1] != generation ||
+          fields[2] != std::to_string(sequence) || fields[3] != "oldDb=-" ||
+          fields[4] != "oldWal=-" || fields[5] != "oldShm=-" || fields[6] != readyField) return 2;
+      accepted = true;
+      std::printf("ACCEPTED\t%s\t%u\n", generation.c_str(), sequence);
+      std::fflush(stdout);
+      continue;
+    }
+    if (fields.size() == 1 && fields[0] == "CLOSE") {
+      if (!(staged.currentName == stagedName ||
+          (staged.currentName == dbName && staged.readGuard))) return 2;
+      if (staged.currentName == stagedName && !absent(dbName)) return 2;
+      std::printf("CLOSED\t%s\t%u\n", generation.c_str(), sequence);
+      std::fflush(stdout);
+      return 0;
+    }
+    if (fields.size() == 1 && fields[0] == "VERIFY") {
+      if (staged.currentName != dbName || staged.readGuard || !absent(stagedName)) return 2;
+      Handle reader;
+      if (!openChild(root.back().value, dbName, false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES, reader, FILE_SHARE_READ | FILE_SHARE_DELETE)) return 2;
+      Identity before, after;
+      unsigned char sourceDigest[32]{}, readerDigest[32]{};
+      if (!snapshot(staged.file.value, before, sourceDigest) || !snapshot(reader.value, after, readerDigest) ||
+          !sameIdentity(before, after) || std::memcmp(sourceDigest, readerDigest, 32) != 0) return 2;
+      staged.file = std::move(reader);
+      staged.readGuard = true;
+      std::printf("VERIFY_READY\t%s\t%u\t", generation.c_str(), sequence);
+      printSnapshot(staged.file.value);
+      std::printf("\n");
+      std::fflush(stdout);
+      continue;
+    }
+    if (fields.size() != 8 || fields[0] != "MOVE" || fields[1] != "stagedDb") return 2;
+    std::wstring fromName, toName;
+    if (!decodeName(std::wstring(fields[2].begin(), fields[2].end()), fromName) ||
+        !decodeName(std::wstring(fields[3].begin(), fields[3].end()), toName) ||
+        fromName != staged.currentName ||
+        !((fromName == stagedName && toName == dbName) || (fromName == dbName && toName == stagedName))) return 2;
+    if (staged.readGuard) {
+      Handle renameHandle;
+      if (!openChild(root.back().value, fromName, false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, renameHandle, FILE_SHARE_READ)) return 2;
+      Identity held, reopened;
+      if (!identity(staged.file.value, held) || !identity(renameHandle.value, reopened) ||
+          !sameIdentity(held, reopened)) return 2;
+      staged.file = std::move(renameHandle);
+      staged.readGuard = false;
+    }
+    Identity before, after;
+    unsigned char digest[32]{}, afterDigest[32]{};
+    if (!snapshot(staged.file.value, before, digest)) return 2;
+    char currentVolume[17]{};
+    std::snprintf(currentVolume, sizeof(currentVolume), "%016llx", before.id.VolumeSerialNumber);
+    if (fields[4] != currentVolume || fields[5] != ascii(fileIdHex(before)) ||
+        fields[6] != std::to_string(before.bytes) || fields[7] != ascii(digestHex(digest))) return 2;
+    if (!renameHeld(staged.file.value, root.back().value, toName) ||
+        !snapshot(staged.file.value, after, afterDigest) || !sameIdentity(before, after) ||
+        std::memcmp(digest, afterDigest, 32) != 0) return 2;
+    staged.currentName = toName;
+    ++sequence;
+    std::printf("MOVED\t%s\t%u\tstagedDb\t%s\t%s\t", generation.c_str(), sequence,
+      encodeName(fromName).c_str(), encodeName(toName).c_str());
+    printSnapshot(staged.file.value);
+    std::printf("\t");
+    printSnapshot(staged.file.value);
+    std::printf("\n");
+    std::fflush(stdout);
+  }
+  return 2;
+}
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"session") == 0) return restoreSession(argc, argv, false);
   if (argc > 1 && wcscmp(argv[1], L"recover-session") == 0) return restoreSession(argc, argv, true);
+  if (argc > 1 && wcscmp(argv[1], L"session-fresh") == 0) return freshRestoreSession(argc, argv, false);
+  if (argc > 1 && wcscmp(argv[1], L"recover-fresh") == 0) return freshRestoreSession(argc, argv, true);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
     std::vector<Handle> root;
