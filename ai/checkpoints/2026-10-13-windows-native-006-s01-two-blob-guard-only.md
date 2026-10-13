@@ -12,6 +12,8 @@ Bu helper `GUARD_READY` sonucunda **terminal journal yazmaz, owned dosyaya delet
 
 Regresyon: native bridge 25/25 PASS; restore odak bes dosya 54/54 PASS; `node scripts/probe-restore-hardkill.mjs --native` exit0 (15 kesit); iki-blob yedi kesit exit0 ve hepsi fail-closed. `npm run build`, helper provenance verify, lint (0 hata/89 mevcut uyari), `git diff --check` ve probe syntax check exit0. Uretim helper source/binary ve test-only fixture source/binary manifest SHA'lari yeniden uretildi. GUARD_READY canliyken iki owned dosyanin Node rename denemesi Windows'ta reddedildi; ikinci item foreign/alias/index hatasinda ilk owned bayti korundu ve negatif rezervasyon adlari temizlendi. Bu belirli fixture schedule'lari tum Windows race olasiliklarinin kaniti degildir.
 
+Bagimsiz inceleme ilk kod commitinde yeni P1 bulmadi; ikinci item SHA uyusmazligi, hardlink sayisi 2 ve 8192/1MiB girdi asimi icin negatif kanit istedi. Ek gercek Windows fixture bu dort kosulda helper exit2, ilk blob ve eski DB baytlari korunuyor; odak test yeniden exit0. ARM/disposition kapsamindaki kalan kosullar yine NO_GO.
+
 ## Kalan kabul engeli
 
 GUARD_READY tek basina kalici sahiplik/rollback karari degildir. N=2 disposition icin tum item guardlari sonrasinda ARM, ilk owned disposition sonrasi crash'te A absent/B owned uzlasmasi, iki parentin terminal fsync boyunca yeniden kimlik denetimi, ACK kaybi ve global ad/receipt semantigi ayri RED/GREEN ister. Ara parent zincirinin tarihsel FileId'si journal'da yoktur; transient swap-back genel WN13 kaniti degildir. Fresh, multi-blob genel GC ve S04 acilmaz; S01 VERIFIED/GO degil.
