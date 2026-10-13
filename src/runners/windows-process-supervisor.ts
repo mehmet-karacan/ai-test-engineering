@@ -1,9 +1,9 @@
 /** One Windows .cmd invocation through the owned Job Object helper. */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { copyFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -87,6 +87,39 @@ function cmdExecutable(env: NodeJS.ProcessEnv): string {
   return file;
 }
 
+/** Native helper compares these digests against no-follow handles before it starts cmd. */
+function collectPinnedFiles(plan: NativeProcessPlan): Array<{ path: string; sha256: string }> {
+  const paths = new Map<string, string>();
+  const add = (path: string, required: boolean): void => {
+    const absolute = resolve(path);
+    if (!isAbsolute(path) || !/^[a-z]:\\/iu.test(absolute)) {
+      throw new AppError("BLOCKED_ISOLATION", "Native pin requires an absolute drive path", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+    }
+    if (!existsSync(absolute)) {
+      if (required) throw new AppError("BLOCKED_ISOLATION", "Required native pin is missing", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+      return;
+    }
+    if (!statSync(absolute).isFile()) {
+      throw new AppError("BLOCKED_ISOLATION", "Native pin is not a file", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+    }
+    paths.set(absolute.toLowerCase(), absolute);
+  };
+  add(plan.executable, true);
+  for (let cursor = resolve(plan.cwd); ; cursor = dirname(cursor)) {
+    for (const name of ["jvm.config", "maven.config", "extensions.xml"]) add(join(cursor, ".mvn", name), false);
+    if (dirname(cursor) === cursor) break;
+  }
+  for (const name of ["settings.xml", "toolchains.xml"]) add(join(homedir(), ".m2", name), false);
+  for (let i = 0; i < plan.argv.length; i += 1) {
+    if (plan.argv[i] === "-s" || plan.argv[i] === "-t") add(plan.argv[++i] ?? "", true);
+  }
+  if (basename(plan.executable).toLowerCase() === "mvnw.cmd") {
+    add(join(dirname(plan.executable), ".mvn", "wrapper", "maven-wrapper.properties"), true);
+    add(join(dirname(plan.executable), ".mvn", "wrapper", "maven-wrapper.jar"), true);
+  }
+  return [...paths.values()].map((path) => ({ path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") }));
+}
+
 class BoundedOutput {
   private chunks: Buffer[] = [];
   private accepted = 0;
@@ -147,6 +180,7 @@ export class WindowsProcessSupervisor {
       throw new AppError("INVALID_PARAMETERS", "Invalid log budget");
     }
     const cmd = cmdExecutable(plan.env);
+    const pinnedFiles = collectPinnedFiles(plan);
     // /s removes only the outer pair. Every executable/argument remains quoted.
     const commandLine = `"${[plan.executable, ...plan.argv].map(quote).join(" ")}"`;
     const stdout = new BoundedOutput(budget);
@@ -179,7 +213,8 @@ export class WindowsProcessSupervisor {
     let child: ChildProcess;
     try {
       const nativeCommand = `"${cmd}" /d /s /v:off /c ${commandLine}`;
-      child = spawn(stagedHelper, [statusPath, plan.cwd, cmd, nativeCommand], {
+      child = spawn(stagedHelper, [statusPath, plan.cwd, cmd, nativeCommand,
+        ...pinnedFiles.flatMap(({ path, sha256 }) => [sha256, path])], {
         cwd: plan.cwd, env: plan.env, shell: false,
         windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
       });
