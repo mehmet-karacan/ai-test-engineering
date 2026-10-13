@@ -800,6 +800,12 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
         safeRollback = false;
         try { journalTerminal = readRestoreJournal(journalPath)?.phase === "COMMITTED"; }
         catch { /* A partial terminal write stays fail-closed. */ }
+        if (journalTerminal) {
+          throw new AppError("STORAGE_ERROR", "Restore committed; native acknowledgement was lost", {
+            reason_code: "RESTORE_COMMIT_ACK_UNCERTAIN",
+            generation: journalBase.generation,
+          });
+        }
         throw error;
       }
       try {

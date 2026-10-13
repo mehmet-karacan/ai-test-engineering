@@ -974,6 +974,10 @@ int blobVerifySession(int argc, wchar_t** argv) {
             &written, nullptr) || written != terminalLine.size() ||
           !FlushFileBuffers(journal.back().value)) return 2;
       committed = true;
+      // Deterministic Windows fixture: exit after durable commit and before stdout ACK.
+      wchar_t dropAck[2]{};
+      if (GetEnvironmentVariableW(L"AITEST_NATIVE_BLOB_COMMIT_DROP_ACK", dropAck, 2) == 1 &&
+          dropAck[0] == L'1') return 2;
       std::puts("COMMITTED"); std::fflush(stdout); continue;
     }
     if (fields[0] == "CLOSE" && fields.size() == 1 && committed) {
