@@ -38,7 +38,7 @@ try {
       process.stdout.write("KNOWN_BLOCK: fresh native restore stopped before mutation\n");
       process.exit(0);
     }
-    throw new Error(`RED: fresh native restore rejected: ${error?.details?.reason_code ?? error}`);
+    throw new Error(`RED: fresh native restore rejected: ${error?.details?.reason_code ?? error}`, { cause: error });
   }
   const restored = new Database(targetPath, { readonly: true });
   try { assert.equal(restored.prepare("SELECT COUNT(*) AS n FROM test_jobs").get().n, 1); }
