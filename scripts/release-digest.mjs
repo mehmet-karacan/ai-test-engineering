@@ -31,6 +31,7 @@ export const BUILD_INPUT_FILES = [
   "scripts/uninstall.mjs",
   "scripts/verify-install.mjs",
   "scripts/mcp-handshake-smoke.mjs",
+  "scripts/restore-recovery-worker.mjs",
 ];
 export const DIST_ARTIFACTS = ["dist/mcp/stdio-entry.js", "dist/index.js"];
 export const BUILD_STAMP_REL = "dist/build-stamp.json";

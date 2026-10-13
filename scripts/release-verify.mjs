@@ -86,6 +86,7 @@ const MANDATORY_FILES = [
   "scripts/uninstall.mjs",
   "scripts/verify-install.mjs",
   "scripts/mcp-handshake-smoke.mjs",
+  "scripts/restore-recovery-worker.mjs",
   "docs/security.md",
   "AKTIF_GOREV.md",
   "ai/acceptance/catalog.json",
