@@ -543,6 +543,47 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
   std::vector<TwoBlobGuardItem> twoBlobGuards;
   bool twoBlobGuardStarted = false;
   bool twoBlobGuardReady = false;
+#ifdef AITEST_FAULT_FIXTURE
+  bool twoBlobArmed = false;
+#endif
+  auto recheckTwoBlobGuards = [&]() -> bool {
+    for (auto& item : twoBlobGuards) {
+      std::vector<Handle> observedRoot, observedParent;
+      Identity observed;
+      if (!openAbsolute(item.rootPath, true, FILE_READ_ATTRIBUTES, observedRoot) ||
+          !identity(observedRoot.back().value, observed) || !sameFileId(observed, item.rootId)) return false;
+      HANDLE parent = observedRoot.back().value;
+      if (!item.parentRelative.empty()) {
+        std::wstring ignored;
+        std::vector<std::wstring> parts;
+        if (!splitPath(item.parentRelative, false, ignored, parts)) return false;
+        for (const auto& part : parts) {
+          Handle next;
+          if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return false;
+          observedParent.push_back(std::move(next));
+          parent = observedParent.back().value;
+        }
+      }
+      if (!identity(parent, observed) || !sameFileId(observed, item.parentId)) return false;
+      if (item.hasOwned) {
+        Identity owned;
+        unsigned char digest[32]{};
+        if (!snapshot(item.owned.value, owned, digest) || !sameIdentity(owned, item.ownedId) ||
+            std::memcmp(digest, item.ownedDigest, 32) != 0) return false;
+      }
+    }
+    for (auto& slot : slots) {
+      if (!slot.present) continue;
+      Handle current;
+      Identity pinned, observed;
+      unsigned char pinnedHash[32]{}, observedHash[32]{};
+      if (!openChild(root.back().value, slot.currentName, false, false,
+          GENERIC_READ | FILE_READ_ATTRIBUTES, current, FILE_SHARE_READ | FILE_SHARE_DELETE) ||
+          !snapshot(slot.file.value, pinned, pinnedHash) || !snapshot(current.value, observed, observedHash) ||
+          !sameIdentity(pinned, observed) || std::memcmp(pinnedHash, observedHash, 32) != 0) return false;
+    }
+    return true;
+  };
   std::string line;
   while (readSessionLine(line)) {
     const auto fields = splitTabs(line);
@@ -635,44 +676,36 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
     }
     if (twoBlobGuardStarted && fields.size() == 1 && fields[0] == "GUARD_FINAL" &&
         !twoBlobGuardReady && twoBlobGuards.size() == 2) {
-      for (auto& item : twoBlobGuards) {
-        std::vector<Handle> observedRoot, observedParent;
-        Identity observed;
-        if (!openAbsolute(item.rootPath, true, FILE_READ_ATTRIBUTES, observedRoot) ||
-            !identity(observedRoot.back().value, observed) || !sameFileId(observed, item.rootId)) return 2;
-        HANDLE parent = observedRoot.back().value;
-        if (!item.parentRelative.empty()) {
-          std::wstring ignored;
-          std::vector<std::wstring> parts;
-          if (!splitPath(item.parentRelative, false, ignored, parts)) return 2;
-          for (const auto& part : parts) {
-            Handle next;
-            if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return 2;
-            observedParent.push_back(std::move(next));
-            parent = observedParent.back().value;
-          }
-        }
-        if (!identity(parent, observed) || !sameFileId(observed, item.parentId)) return 2;
-        if (item.hasOwned) {
-          Identity owned;
-          unsigned char digest[32]{};
-          if (!snapshot(item.owned.value, owned, digest) || !sameIdentity(owned, item.ownedId) ||
-              std::memcmp(digest, item.ownedDigest, 32) != 0) return 2;
-        }
-      }
-      for (auto& slot : slots) {
-        if (!slot.present) continue;
-        Handle current;
-        Identity pinned, observed;
-        unsigned char pinnedHash[32]{}, observedHash[32]{};
-        if (!openChild(root.back().value, slot.currentName, false, false,
-            GENERIC_READ | FILE_READ_ATTRIBUTES, current, FILE_SHARE_READ | FILE_SHARE_DELETE) ||
-            !snapshot(slot.file.value, pinned, pinnedHash) || !snapshot(current.value, observed, observedHash) ||
-            !sameIdentity(pinned, observed) || std::memcmp(pinnedHash, observedHash, 32) != 0) return 2;
-      }
+      if (!recheckTwoBlobGuards()) return 2;
       twoBlobGuardReady = true;
       std::puts("GUARD_READY\t2"); std::fflush(stdout); continue;
     }
+#ifdef AITEST_FAULT_FIXTURE
+    if (twoBlobGuardStarted && fields.size() == 1 && fields[0] == "GUARD_ARM" &&
+        twoBlobGuardReady && !twoBlobArmed && !rollbackCommitted) {
+      if (!recheckTwoBlobGuards()) return 2;
+      for (size_t index = 0; index < twoBlobGuards.size(); ++index) {
+        auto& item = twoBlobGuards[index];
+        if (!item.hasOwned) continue;
+        FILE_DISPOSITION_INFO disposition{TRUE};
+        if (!SetFileInformationByHandle(item.owned.value, FileDispositionInfo,
+            &disposition, sizeof(disposition))) return 2;
+        wchar_t haltAt[2]{}, markerPath[32768]{};
+        if (GetEnvironmentVariableW(L"AITEST_NATIVE_TWO_BLOB_ARM_HALT_INDEX", haltAt, 2) == 1 &&
+            haltAt[0] == static_cast<wchar_t>(L'0' + index)) {
+          const DWORD length = GetEnvironmentVariableW(L"AITEST_NATIVE_TWO_BLOB_ARM_MARKER",
+            markerPath, static_cast<DWORD>(std::size(markerPath)));
+          if (length == 0 || length >= std::size(markerPath)) return 2;
+          Handle marker(CreateFileW(markerPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr));
+          if (marker.value == INVALID_HANDLE_VALUE || !FlushFileBuffers(marker.value)) return 2;
+          Sleep(INFINITE);
+        }
+      }
+      twoBlobArmed = true;
+      std::puts("GUARD_ARMED\t2"); std::fflush(stdout); continue;
+    }
+#endif
     if (twoBlobGuardStarted && (fields.size() != 1 || fields[0] != "CLOSE" || !twoBlobGuardReady)) return 2;
     const bool ownedGuard = fields[0] == "OWNED_GUARD";
     if ((fields[0] == "EMPTY_GUARD" || ownedGuard) && fields.size() == (ownedGuard ? 13 : 9) && recovering &&
@@ -832,6 +865,9 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
     }
     if (fields.size() == 1 && fields[0] == "CLOSE") {
       if (emptyGuarded && !rollbackCommitted) return 2;
+#ifdef AITEST_FAULT_FIXTURE
+      if (twoBlobArmed && !rollbackCommitted) return 2;
+#endif
       const bool sidecarsAtOrigin = (!slots[1].present || slots[1].currentName == dbName + L"-wal") &&
         (!slots[2].present || slots[2].currentName == dbName + L"-shm");
       const bool sidecarsPreserved = (!slots[1].present || slots[1].currentName == dbName + L"-wal" + preservedSuffix) &&
