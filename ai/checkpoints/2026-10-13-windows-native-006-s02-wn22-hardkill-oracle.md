@@ -1,0 +1,6 @@
+# S02 WN22 hard-kill fixture siniri - customer gate kapali
+
+- Koordinatorun birlesik 7 dosya kosusunda `wn-job-object` hard-kill fixture'i 3 saniyelik sabit PID yoklamasinda owned child'i canli gordu; bu kabul kaniti degildi.
+- Izole tani denemesinde `taskkill /F /PID <coordinator>` sonrasi ilk 100 ms ornekten itibaren parent/helper/owned uc PID de yoktu. Helper baslangicta reserve ettigi `status.json` 12 saniye boyunca bos kaldi. Bu olcum, helper terminal `owner_lost` yazisini parent hard-kill icin zorunlu oracle yapamayacagimizi gosterdi; ust Windows Job'un helper'i da kesmesi olasiligi ayrismadi.
+- Fixture artik parent `ChildProcess` kapanisini bekler, owned ve helper PID'lerinin cikisini ayri ve en cok 10 saniye gozler, ilgisiz foreign Node'un canli kaldigini dogrular. PID reuse burada yanlis kabul yaratmaz: sahip olunan surec halen calisiyorsa PID yeniden kullanilamaz; PID yoklugu bir an bile gozlenirse orijinal surec cikmistir. Yeniden kullanim en fazla konservatif test FAIL yaratabilir. Izole gercek Windows kosusu 1/1, tum `wn-job-object` dosyasi 6/6 PASS.
+- Bu test parent hard-kill sonrasi kendi agacinin ciktigini olcer; helper'in ust Job olmadan bagimsiz stdin EOF -> TerminateJobObject reaper yetenegini tek basina kanitlamaz. WN22/23 customer readiness ve G1/G2/G3 NO_GO kalir. Birlesik suite tekrari koordinator incelemesindedir.
