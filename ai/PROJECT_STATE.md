@@ -2,6 +2,7 @@
 
 ## Aktif gorev
 
+- Kullanici 2026-10-13 tarihinde "07:40 checkpoint ekle ve duraklat; devam et demeden devam etme" talimati verdi. Gelistirme duraklatildi; uc ajan durduruldu. Anlik durum, uncommitted worktree dosyalari ve devam sirasi `ai/checkpoints/2026-10-13-0740-pause.md` icinde. Kullanici devam demeden yeni is baslatilmaz.
 - Gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (sozlesme: `AKTIF_GOREV.md`, SHA-256 `59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989`). G0 kullanici uygulama talimatiyla acildi; G1/G2/G3 ayri onay bekler.
 - Asama: S00 LOCAL_VERIFIED (S09 full evidence gate acik). Onceki 005 gorevi byte/hash korunarak arsivlendi (SHA-256 `cc741769116cee3b2cd921256406a58560b0d65ad0a476c3471bb01ac378336f`). Windows native scope ve 320 tekil legacy mapping bagimsiz incelendi; full gate NO_GO kalir.
 - Calisma dali/worktree: `codex/windows-native-006`, `C:\Users\mkaracan\.codex\worktrees\windows-native-006\ai-test-engineering`; taban `3b1916ed6f35f0c674cc459b30ca9f5614af9b94`. Ana checkout'taki untracked `JavaMetadataScannerCoverageTest.java` korundu.
