@@ -36,3 +36,4 @@
 
 - Fresh native READY oncesi mevcut hedef WAL veya SHM dosyasi fixture'da baytlari korunarak reddedildi; hedef DB varligi da RED olarak reddedilir. `probe-restore-fresh-session.mjs` exit 0.
 - Gercek Windows SQLite fresh adapter fixture'inda VERIFY read guard altinda ayri `better-sqlite3` raw writer child islemi SqliteError ile reddedildi; readonly SELECT basariliydi. `wn-restore-session.test.ts` 5/5 PASS, typecheck exit 0. Bu bir ornek schedule'dir; raw writer ve root alias icin evrensel WN12/13 kaniti degildir.
+- Fresh `RECOVERY_READY` icin saf journal gate testi fiziksel count0/count1 kabulunu; uydurulmus oldDb, staged FileId degisimi ve count2 reddini dogruladi. `wn-restore-recovery-layout.test.ts` 4/4 PASS. Native ACCEPT komutu ancak bu gate'ten sonra uretilir.
