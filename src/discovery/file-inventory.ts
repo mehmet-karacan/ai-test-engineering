@@ -36,6 +36,26 @@ export interface FileInventoryPage {
   errors: Array<{ relativePath: string; code: string }>;
 }
 
+/** A digest for a complete single-page scan. Paged/generation-stable digests await S04 persistence. */
+export function inventoryDigestFromCompletePage(page: FileInventoryPage): string {
+  if (!page.complete || page.partial || page.nextCursor !== null || page.errors.length > 0 ||
+      page.entries.some((entry) => entry.readStatus !== "OK")) {
+    throw new AppError("POLICY_VIOLATION", "Incomplete inventory has no trusted digest");
+  }
+  const ordered = [...page.entries].sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0);
+  for (let index = 0; index < ordered.length; index++) {
+    const entry = ordered[index]!;
+    if (!entry.relativePath || entry.relativePath === "." || entry.relativePath.startsWith("/") ||
+        entry.relativePath.includes("\\") || entry.relativePath.split("/").includes("..") ||
+        (index > 0 && entry.relativePath === ordered[index - 1]!.relativePath)) {
+      throw new AppError("INVALID_PARAMETERS", "Invalid or duplicate inventory path");
+    }
+  }
+  const canonical = ordered.map(({ relativePath, kind, size, mtimeMs, hash, hashStatus, readStatus, linkTarget }) =>
+    [relativePath, kind, size, mtimeMs, hash, hashStatus, readStatus, linkTarget]);
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
 function errorCode(error: unknown): string {
   return (error as NodeJS.ErrnoException)?.code ?? "UNKNOWN";
 }

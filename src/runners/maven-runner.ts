@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { NativeToolchainResolver, buildNativeMavenArgv, verifyNativeToolchain, effectiveMavenEnvironment } from "./native-toolchain.js";
+import { NativeToolchainResolver, buildNativeMavenArgv, verifyNativeToolchain, effectiveMavenEnvironment, type VerifiedNativeToolchainPlan } from "./native-toolchain.js";
 import { WindowsProcessSupervisor, type NativeProcessLifecycle, type NativeProcessResult } from "./windows-process-supervisor.js";
 
 export interface RunResult {
@@ -50,7 +50,8 @@ export function strictTestExecutionProperties(): Record<string, string> {
 export class MavenRunner {
   private readonly running = new Set<AbortController>();
 
-  constructor(private readonly pinnedToolchainIdentity?: string, private readonly lifecycle?: NativeProcessLifecycle) {}
+  constructor(private readonly pinnedToolchainIdentity?: string, private readonly lifecycle?: NativeProcessLifecycle,
+    private readonly executionIdentityGuard?: (plan: VerifiedNativeToolchainPlan) => void) {}
 
   async run(options: MavenRunOptions): Promise<RunResult> {
     const env = effectiveMavenEnvironment(process.env, options.env);
@@ -87,6 +88,7 @@ export class MavenRunner {
           reason_code: "TOOLCHAIN_IDENTITY_CHANGED",
         });
       }
+      this.executionIdentityGuard?.(verified);
       mkdirSync(options.log_dir, { recursive: true });
       result = await new WindowsProcessSupervisor().run({
         executable: toolchain.executable, cwd: toolchain.cwd, argv,
