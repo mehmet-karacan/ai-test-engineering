@@ -12,6 +12,7 @@ import { createBackup, sha256Data } from "../dist/storage/lifecycle-ops.js";
 import { readRestoreJournal, journalPathForDb } from "../dist/storage/restore-journal.js";
 import { Storage } from "../dist/storage/storage.js";
 import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
+import { faultFixtureWindowsFileHelper } from "./windows-file-helper-fault-fixture.mjs";
 
 assert.equal(process.platform, "win32");
 const cuts = ["PREPARED", "RECEIPT_1", "LINK_1", "RECEIPT_2", "LINK_2", "PUBLISH_1", "PUBLISH_2"];
@@ -24,6 +25,9 @@ assert.ok(!reverseLayout || selected === "PUBLISH_1", "--reverse-layout needs PU
 const trace = process.argv.includes("--trace");
 const guardAfterCut = process.argv.includes("--guard-after-cut");
 assert.ok(!guardAfterCut || selected === "PUBLISH_1", "--guard-after-cut needs PUBLISH_1");
+const armCut = process.argv.find((value) => value.startsWith("--arm-cut="))?.slice(10);
+assert.ok(!armCut || ["first", "second"].includes(armCut));
+assert.ok(!armCut || guardAfterCut, "--arm-cut needs --guard-after-cut");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-two-blob-"));
 const hashFile = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const schema = `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
@@ -154,11 +158,16 @@ try {
       if (existsSync(destination)) assert.equal(hashFile(destination), journal.stageIntents[index].sha256);
     }
     if (guardAfterCut) {
-      const helper = packagedWindowsFileHelper();
+      const helper = armCut ? faultFixtureWindowsFileHelper() : packagedWindowsFileHelper();
       const hex = (value) => Buffer.from(value, "utf16le").toString("hex");
+      const armMarker = join(fixture, `arm-${armCut}.marker`);
       const native = spawn(helper.path, ["recover-session", dirname(targetDb), hex(basename(targetDb)),
         hex(basename(journal.stagedDbPath)), hex(basename(journal.preservedDbPath)), journal.generation],
-        { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        { stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+          env: armCut ? {
+            ...process.env, AITEST_NATIVE_TWO_BLOB_ARM_HALT_INDEX: armCut === "first" ? "0" : "1",
+            AITEST_NATIVE_TWO_BLOB_ARM_MARKER: armMarker,
+          } : process.env });
       const lines = createInterface({ input: native.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
       const next = async () => {
         const result = await lines.next();
@@ -191,6 +200,14 @@ try {
         }
         native.stdin.write("GUARD_FINAL\n");
         assert.equal(await next(), "GUARD_READY\t2");
+        if (armCut) {
+          native.stdin.write("GUARD_ARM\n");
+          for (let attempt = 0; attempt < 200 && !existsSync(armMarker); attempt++) {
+            if (native.exitCode !== null) break;
+            await new Promise((done) => setTimeout(done, 50));
+          }
+          assert.equal(existsSync(armMarker), true, `${armCut}: native disposition marker missing`);
+        }
         const killed = spawnSync("taskkill", ["/F", "/PID", String(native.pid)], { encoding: "utf8" });
         assert.equal(killed.status, 0, killed.stderr);
         if (native.exitCode === null) await new Promise((done) => native.once("exit", done));
@@ -200,10 +217,61 @@ try {
       for (let index = 0; index < 2; index++) {
         const stage = journal.stageIntents[index].path;
         const destination = journal.publishedBlobs[index].path;
-        assert.equal(existsSync(stage), expected[1][index] === "stage");
-        assert.equal(existsSync(destination), expected[1][index] === "destination");
+        const disposed = armCut === "second" || armCut === "first" && index === 0;
+        assert.equal(existsSync(stage), !disposed && expected[1][index] === "stage");
+        assert.equal(existsSync(destination), !disposed && expected[1][index] === "destination");
       }
       assert.equal(hashFile(targetDb), oldHash);
+      if (armCut) {
+        // A new production helper must pin the partial layout without trusting
+        // the previous killed child's in-memory handles or a path-only read.
+        const replayHelper = packagedWindowsFileHelper();
+        const replay = spawn(replayHelper.path, ["recover-session", dirname(targetDb), hex(basename(targetDb)),
+          hex(basename(journal.stagedDbPath)), hex(basename(journal.preservedDbPath)), journal.generation],
+          { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        const replayLines = createInterface({ input: replay.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+        const replayNext = async () => {
+          const result = await replayLines.next();
+          assert.equal(result.done, false, "partial layout replay helper closed");
+          return result.value;
+        };
+        try {
+          const ready = (await replayNext()).split("\t");
+          assert.deepEqual(ready.slice(0, 3), ["RECOVERY_READY", journal.generation, "0"]);
+          replay.stdin.write(["ACCEPT", journal.generation, "0", ...ready.slice(3)].join("\t") + "\n");
+          assert.equal(await replayNext(), `ACCEPTED\t${journal.generation}\t0`);
+          replay.stdin.write("GUARD_BEGIN\t2\n");
+          assert.equal(await replayNext(), "GUARD_BEGIN_OK\t2");
+          for (let index = 0; index < 2; index++) {
+            const intent = journal.stageIntents[index];
+            const destination = journal.publishedBlobs[index].path;
+            const parent = dirname(destination);
+            const parentRelative = parent.slice(journal.artifactRoot.length).replace(/^[/\\]/u, "");
+            const mode = existsSync(intent.path) ? "stage" : existsSync(destination) ? "destination" : "none";
+            const owned = intent.identity;
+            assert.ok(owned);
+            const rootId = journal.emptyBlobGuard.root;
+            const parentId = journal.emptyBlobGuard.parents[index];
+            assert.ok(parentId);
+            replay.stdin.write(["GUARD_ITEM", index, hex(journal.artifactRoot), hex(parentRelative),
+              hex(basename(destination)), hex(basename(intent.path)), rootId.volumeSerial, rootId.fileId,
+              parentId.volumeSerial, parentId.fileId, mode,
+              ...(mode === "none" ? ["-", "-", "-", "-"] :
+                [owned.volumeSerial, owned.fileId, owned.bytes, owned.sha256])].join("\t") + "\n");
+            assert.equal(await replayNext(), `GUARD_ITEM_OK\t${index}`);
+          }
+          replay.stdin.write("GUARD_FINAL\n");
+          assert.equal(await replayNext(), "GUARD_READY\t2");
+        } finally {
+          if (replay.exitCode === null && replay.pid) {
+            const killed = spawnSync("taskkill", ["/F", "/PID", String(replay.pid)], { encoding: "utf8" });
+            assert.equal(killed.status, 0, killed.stderr);
+          }
+          if (replay.exitCode === null) await new Promise((done) => replay.once("exit", done));
+        }
+        assert.equal(hashFile(targetDb), oldHash);
+        assert.equal(readRestoreJournal(journalPathForDb(targetDb)).phase, "PREPARED");
+      }
     }
     let blocked = false;
     try { const storage = new Storage({ dbPath: targetDb }); storage.close(); }
