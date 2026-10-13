@@ -7,6 +7,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { migrate, currentSchemaVersion } from "./migrations.js";
 import { assertRestoreReadyBeforeOpen, recoverIntactOldRestoreBeforeOpen } from "./restore-journal.js";
+import { acquireRestoreDbLock } from "./maintenance-lock.js";
 
 export interface StorageOptions {
   dbPath: string;
@@ -30,21 +31,34 @@ export class Storage {
 
   constructor(options: StorageOptions) {
     recoverIntactOldRestoreBeforeOpen(options.dbPath);
-    assertRestoreReadyBeforeOpen(options.dbPath);
-    this.dbPath = options.dbPath;
-    const parent = dirname(options.dbPath);
-    if (!existsSync(parent)) {
-      mkdirSync(parent, { recursive: true });
-    }
-    this.db = new Database(options.dbPath);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("foreign_keys = ON");
-    this.db.pragma("busy_timeout = 5000");
-    this.db.pragma("synchronous = FULL");
-    const key = storagePathKey(this.dbPath);
-    const handles = openStorageHandles.get(key) ?? new Set<Database.Database>();
-    handles.add(this.db);
-    openStorageHandles.set(key, handles);
+    // A competing restore must not move the DB between terminal journal check
+    // and SQLite taking its own file handle.
+    const release = acquireRestoreDbLock(options.dbPath);
+    let opened: Database.Database | undefined;
+    try {
+      assertRestoreReadyBeforeOpen(options.dbPath);
+      this.dbPath = options.dbPath;
+      const parent = dirname(options.dbPath);
+      if (!existsSync(parent)) {
+        mkdirSync(parent, { recursive: true });
+      }
+      opened = new Database(options.dbPath);
+      this.db = opened;
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("foreign_keys = ON");
+      this.db.pragma("busy_timeout = 5000");
+      this.db.pragma("synchronous = FULL");
+      const key = storagePathKey(this.dbPath);
+      const handles = openStorageHandles.get(key) ?? new Set<Database.Database>();
+      handles.add(this.db);
+      openStorageHandles.set(key, handles);
+    } catch (error) {
+      if (opened) {
+        openStorageHandles.get(storagePathKey(options.dbPath))?.delete(opened);
+        if (opened.open) opened.close();
+      }
+      throw error;
+    } finally { release(); }
   }
 
   migrate(): void {
