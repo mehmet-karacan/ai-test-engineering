@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -8,7 +8,9 @@ import { packagedWindowsFileHelper } from "../../src/discovery/windows-file-brid
 import { captureExpectedWindowsRestoreFile, startWindowsFreshRestoreMoveSession,
   startWindowsRestoreMoveSession } from "../../src/storage/windows-restore-session.js";
 import { createBackup, restoreBackup } from "../../src/storage/lifecycle-ops.js";
-import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
+import { captureRestoreEvidence, journalPathForDb, readRestoreJournal,
+  type RestoreJournalRecord } from "../../src/storage/restore-journal.js";
+import { startWindowsRestoreRecoverySession } from "../../src/storage/windows-restore-recovery-session.js";
 
 const SCHEMA = `
   CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
@@ -19,6 +21,49 @@ const SCHEMA = `
 `;
 
 describe("S01 native restore session adapter", () => {
+  it("accepts a journal-proven fresh physical publish and reverses only its staged FileId", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-native-fresh-recover-"));
+    const helper = packagedWindowsFileHelper();
+    const name = "state.db";
+    const stagedName = `${name}.restore-${randomUUID()}`;
+    const staged = join(root, stagedName);
+    const target = join(root, name);
+    const manifest = join(root, "manifest.json");
+    const generation = randomUUID();
+    const preservedSuffix = `.restore-old-${randomUUID()}`;
+    let session: Awaited<ReturnType<typeof startWindowsFreshRestoreMoveSession>> | undefined;
+    try {
+      const source = new Database(staged);
+      source.exec("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (43)");
+      source.close();
+      writeFileSync(manifest, "manifest");
+      const evidence = captureRestoreEvidence(target, staged, manifest, []);
+      const initial = captureExpectedWindowsRestoreFile(helper, staged);
+      session = await startWindowsFreshRestoreMoveSession(helper, { dbDirectory: root, dbName: name,
+        stagedName, preservedSuffix, generation,
+        expected: { oldDb: null, oldWal: null, oldShm: null, stagedDb: initial } });
+      const published = await session.renameOwned("stagedDb", name);
+      await session.enterReadVerify();
+      await session.close();
+      session = undefined;
+      const journal: RestoreJournalRecord = { formatVersion: 2, generation, phase: "NEW_DB_MOVED",
+        targetDbPath: target, artifactRoot: join(root, "artifacts"), stagedDbPath: staged,
+        preservedDbPath: join(root, `${name}${preservedSuffix}`), publishedBlobs: [],
+        nativeInitial: { oldDb: null, oldWal: null, oldShm: null, stagedDb: initial },
+        moveReceipts: [published], evidence };
+      const recovering = await startWindowsRestoreRecoverySession(helper, journal);
+      expect(recovering.remaining()).toBe(1);
+      const reversed = await recovering.rollbackOne();
+      expect(reversed.before).toEqual(initial);
+      await recovering.close();
+      expect(existsSync(target)).toBe(false);
+      expect(existsSync(staged)).toBe(true);
+    } finally {
+      await session?.close().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("uses the separate fresh session while retaining native identity and reverse receipts", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-native-fresh-session-"));
     const helper = packagedWindowsFileHelper();
