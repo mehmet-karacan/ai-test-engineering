@@ -10,9 +10,9 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | --- | --- | --- | --- |
 | S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | LOCAL_VERIFIED | WN01-WN04 mapping/baseline; WN67-WN69 full evidence kapisi S09'da tamamlanir; S00 review checkpoint |
 | S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; native fault/crash kaniti |
-| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; Job Object registry/restart fence ve frozen workspace kimligi sentetik fixture ile kanitli; resume probe lease/registry P1 acik, customer gate NO_GO |
+| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; resume probe lease/registry kesiti ve verified digest native pin fixture 5/5 var; absent implicit config `pin_unavailable`, customer gate NO_GO |
 | S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; kalici native restore/recovery oturumu ve ayrik snapshot digest dilimleri var; S01 journal wire, sayfali scan persistence ve copy race kaniti acik |
-| S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42 |
+| S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42; S01 VERIFIED oncesi yalniz salt okunur tasarim/fixture checkpoint'i hazir |
 | S05 | Gercek subagent oturumlari ve context butcesi | TODO | WN43-WN52 |
 | S06 | Native Maven/coverage/iteration | TODO | WN53-WN60 |
 | S07 | Report06, kurulum, readiness | TODO | WN61-WN66 |
