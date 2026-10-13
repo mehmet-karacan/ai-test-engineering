@@ -17,6 +17,7 @@ import { defaultApplyConfig } from "../reporting/test-apply.js";
 import { CustomerRunnerFactory, resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { verifyNativeToolchain } from "../runners/native-toolchain.js";
 import { NativeToolchainRecordStore } from "../orchestration/native-toolchain-record.js";
+import { NativeProcessRegistry } from "../orchestration/native-process-registry.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { ReportExporter } from "../reporting/report-generator.js";
@@ -78,6 +79,7 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     workspaceRoot: services.config.storage.root,
   });
   dispatcher.assertRecordedRunnerKind(storage, job);
+  let verifyNativeResume: ((fencingToken: number, ownerId: string) => Promise<void>) | null = null;
   if (runnerKind === "windows_native") {
     // Do not mark a resumed job RUNNING when customer process ownership is
     // still unavailable. The dispatcher will recheck before any Maven probe.
@@ -88,7 +90,10 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     if (options.cwd !== locationRoot || (parsed.project_root && canonicalProjectRoot(parsed.project_root) !== locationRoot)) {
       throw new AppError("POLICY_VIOLATION", "Native toolchain project root differs from job location", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
     }
-    await record.verify(job.id, options, verifyNativeToolchain);
+    verifyNativeResume = async (fencingToken, ownerId) => {
+      const registry = new NativeProcessRegistry(storage.db, job.id, ownerId, fencingToken);
+      await record.verify(job.id, options, (plan, env) => verifyNativeToolchain(plan, env, undefined, registry));
+    };
   }
 
   // Acquire a unique fenced owner before publishing RUNNING. A competing
@@ -97,6 +102,9 @@ export async function handleTestResume(input: unknown, services: Services): Prom
   const leaseManager = new LeaseManager(storage.db);
   const lease = leaseManager.acquire(job.id, leaseOwnerId, 300000, `resume-${process.pid}`).lease;
   try {
+    // Version probing is a real child process; it must run under this lease's
+    // durable Job Object registry, before publishing RUNNING.
+    if (verifyNativeResume) await verifyNativeResume(lease.fencing_token, leaseOwnerId);
     storage.db.transaction(() => {
       jobs.updateLifecycle(job.id, "RUNNING", job.row_version);
       jobs.appendEvent({ job_id: job.id, event_type: "test_resume_accepted", phase: job.phase, origin: "handleTestResume" });

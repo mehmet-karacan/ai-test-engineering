@@ -55,14 +55,15 @@ export class MavenRunner {
 
   async run(options: MavenRunOptions): Promise<RunResult> {
     const env = effectiveMavenEnvironment(process.env, options.env);
-    const toolchain = NativeToolchainResolver.resolve({
+    const resolveOptions = {
       cwd: options.working_dir, env,
       ...(options.executable !== undefined ? { executable: options.executable } : {}),
       ...(options.prefer_wrapper ? { preferWrapper: true } : {}),
       ...(options.settings_path !== undefined ? { settingsPath: options.settings_path } : {}),
       ...(options.toolchains_path !== undefined ? { toolchainsPath: options.toolchains_path } : {}),
       ...(options.profiles ? { profiles: options.profiles } : {}),
-    });
+    };
+    const toolchain = NativeToolchainResolver.resolve(resolveOptions);
     const argv = buildNativeMavenArgv({
       goals: options.goals,
       ...(options.profiles ? { profiles: options.profiles } : {}),
@@ -89,6 +90,16 @@ export class MavenRunner {
         });
       }
       this.executionIdentityGuard?.(verified);
+      // The guard can run after the -v probe while the selected .cmd or
+      // inherited .mvn/settings bytes change. Re-read every resolver input
+      // at the last JS boundary before asking the native helper to launch.
+      let launchPlan: ReturnType<typeof NativeToolchainResolver.resolve>;
+      try { launchPlan = NativeToolchainResolver.resolve(resolveOptions); }
+      catch { throw new AppError("BLOCKED_ISOLATION", "Maven launch inputs changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" }); }
+      if (launchPlan.identity !== verified.baseIdentity || launchPlan.executable !== verified.executable ||
+          launchPlan.cwd !== verified.cwd || launchPlan.source !== verified.source) {
+        throw new AppError("BLOCKED_ISOLATION", "Maven launch inputs changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
+      }
       mkdirSync(options.log_dir, { recursive: true });
       result = await new WindowsProcessSupervisor().run({
         executable: toolchain.executable, cwd: toolchain.cwd, argv,

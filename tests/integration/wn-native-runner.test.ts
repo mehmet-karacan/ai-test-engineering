@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MavenRunner } from "../../src/runners/maven-runner.js";
@@ -118,5 +118,37 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
       else process.env["AITEST_PRIVATE_SENTINEL"] = prior;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("rejects executable bytes changed by the execution identity guard before goals", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn runner guard-byte-"));
+    try {
+      const executable = join(dir, "mvn.cmd");
+      const sentinel = join(dir, "GOALS_RAN");
+      writeFileSync(executable, "@echo off\r\nif \"%~1\"==\"-v\" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\n");
+      const runner = new MavenRunner(undefined, undefined, () => {
+        writeFileSync(executable, `@echo off\r\nif "%~1"=="-v" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho ran>"${sentinel}"\r\n`);
+      });
+      await expect(runner.run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
+        log_dir: join(dir, "logs"), executable })).rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
+      expect(() => readFileSync(sentinel)).toThrow();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("rejects inherited .mvn bytes changed by the guard before goals", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn runner guard-config-"));
+    try {
+      const executable = join(dir, "mvn.cmd");
+      const sentinel = join(dir, "GOALS_RAN");
+      writeFileSync(executable, `@echo off\r\nif "%~1"=="-v" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho ran>"${sentinel}"\r\n`);
+      const configDir = join(dir, ".mvn");
+      mkdirSync(configDir);
+      const config = join(configDir, "maven.config");
+      writeFileSync(config, "-B");
+      const runner = new MavenRunner(undefined, undefined, () => writeFileSync(config, "-ntp"));
+      await expect(runner.run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
+        log_dir: join(dir, "logs"), executable })).rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
+      expect(() => readFileSync(sentinel)).toThrow();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

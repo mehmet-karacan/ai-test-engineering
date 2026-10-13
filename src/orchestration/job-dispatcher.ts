@@ -1218,8 +1218,11 @@ export class JobDispatcher {
       throw new AppError("INVALID_PARAMETERS", `Job icin proje koku cozumlenemedi: ${job.id}`);
     }
 
-    // No recovery lease, checkpoint event, accepted-file restore or state
-    // mutation may precede the current native ownership/toolchain check.
+    // Acquire ownership before any native -v child starts. Checkpoint events,
+    // accepted-file restore and lifecycle mutation still follow verification.
+    const recoveryOwnerId = ownerIdOverride ?? `resume-${process.pid}-${job.id}-${randomUUID()}`;
+    const acquired = leases.acquire(job.id, recoveryOwnerId, 300000, `recovery-${process.pid}`);
+    try {
     if (this.runnerKind === "windows_native") {
       new CustomerRunnerFactory().assertNativeCustomerReady();
       const record = new NativeToolchainRecordStore(storage.db, this.workspaceRoot);
@@ -1227,7 +1230,8 @@ export class JobDispatcher {
       if (options.cwd !== projectRoot) {
         throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
-      await record.verify(job.id, options, verifyNativeToolchain);
+      const registry = new NativeProcessRegistry(storage.db, job.id, recoveryOwnerId, acquired.lease.fencing_token);
+      await record.verify(job.id, options, (selected, env) => verifyNativeToolchain(selected, env, undefined, registry));
       // A native job that reached resume must retain its frozen baseline
       // identity. Dispatch recreates that workspace and compares the fresh
       // version/config identity before another Maven goal is launched.
@@ -1241,8 +1245,6 @@ export class JobDispatcher {
     const snapshot = new SourceSnapshot(projectRoot);
     const snapshotManifest = snapshot.buildManifest();
     const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
-    const recoveryOwnerId = ownerIdOverride ?? `resume-${process.pid}-${job.id}-${randomUUID()}`;
-    try {
     const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity });
     if (this.runnerKind === "windows_native" && plan.checkpoint_manifest) {
       const pinned = new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id);
