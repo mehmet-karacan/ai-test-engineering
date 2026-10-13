@@ -66,12 +66,22 @@ if (native) {
   const originalSpawn = childProcess.spawn;
   childProcess.spawn = (...args) => {
     const child = originalSpawn(...args);
-    if (args[1]?.[0] === "session") child.stdout.on("data", (data) => {
-      const line = data.toString();
-      const slot = mode === "MOVE_DB" ? "oldDb" : mode === "MOVE_WAL" ? "oldWal" :
-        mode === "MOVE_SHM" ? "oldShm" : mode === "PUBLISH_DB" ? "stagedDb" : "";
-      if (slot && line.includes("MOVED\\t") && line.includes("\\t" + slot + "\\t")) halt();
-    });
+    if (args[1]?.[0] === "session") {
+      let pending = "";
+      child.stdout.on("data", (data) => {
+        pending += data.toString();
+        if (pending.length > 8192) throw new Error("native probe line too long");
+        let end;
+        while ((end = pending.indexOf("\\n")) >= 0) {
+          const line = pending.slice(0, end);
+          pending = pending.slice(end + 1);
+          const slot = mode === "MOVE_DB" ? "oldDb" : mode === "MOVE_WAL" ? "oldWal" :
+            mode === "MOVE_SHM" ? "oldShm" : mode === "PUBLISH_DB" ? "stagedDb" : "";
+          const fields = line.split("\\t");
+          if (slot && fields[0] === "MOVED" && fields[3] === slot) halt();
+        }
+      });
+    }
     return child;
   };
 }
@@ -90,12 +100,15 @@ async function killAt(mode, backupDir, targetDb, artifacts) {
     native ? "native" : "legacy"],
     { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
+  let stdout = "";
   child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
   try {
     await new Promise((ok, fail) => {
       const timer = setTimeout(() => fail(new Error(`Timeout at ${mode}: ${stderr}`)), 45000);
       child.stdout.on("data", (chunk) => {
-        if (chunk.toString().includes(`HALT:${mode}`)) { clearTimeout(timer); ok(); }
+        stdout += chunk.toString();
+        if (stdout.length > 8192) { clearTimeout(timer); fail(new Error(`Probe output too long at ${mode}`)); }
+        if (stdout.includes(`HALT:${mode}\n`)) { clearTimeout(timer); ok(); }
       });
       child.once("exit", (code) => { clearTimeout(timer);
         const phase = readRestoreJournal(journalPathForDb(targetDb))?.phase;
@@ -119,6 +132,7 @@ async function killAt(mode, backupDir, targetDb, artifacts) {
 try {
   const results = [];
   const blockedRecoveries = [];
+  const walModes = new Set(["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"]);
   for (const mode of modes) {
     const fixture = join(root, mode.toLowerCase());
     const sourceDbPath = join(fixture, "source", "state.db");
@@ -140,15 +154,26 @@ try {
     const targetArtifacts = join(fixture, "runtime", "artifacts");
     mkdirSync(dirname(targetDb), { recursive: true });
     const old = new Database(targetDb);
-    if (["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) old.pragma("journal_mode = WAL");
+    if (walModes.has(mode)) old.pragma("journal_mode = WAL");
     old.exec(schema);
     old.prepare("INSERT INTO test_jobs (id, lifecycle) VALUES ('old', 'COMPLETED')").run();
-    old.close();
-    if (["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) {
-      const wal = Buffer.alloc(32, 0);
-      Buffer.from("377f0682", "hex").copy(wal, 0);
-      writeFileSync(`${targetDb}-wal`, wal);
-      writeFileSync(`${targetDb}-shm`, Buffer.alloc(32768, 0));
+    if (walModes.has(mode)) {
+      const dbBeforeSentinel = readFileSync(targetDb);
+      old.prepare("INSERT INTO test_jobs (id, lifecycle) VALUES ('wal-sentinel', 'COMPLETED')").run();
+      assert.ok(existsSync(`${targetDb}-wal`) && existsSync(`${targetDb}-shm`));
+      const dbBytes = readFileSync(targetDb);
+      assert.deepEqual(dbBytes, dbBeforeSentinel, `${mode}: sentinel must exist only in WAL`);
+      const walBytes = readFileSync(`${targetDb}-wal`);
+      const shmBytes = readFileSync(`${targetDb}-shm`);
+      assert.ok(walBytes.length > 32, `${mode}: real SQLite WAL frames required`);
+      old.close();
+      // SQLite's final close checkpoints/deletes WAL. Restore the captured
+      // coherent main+WAL+SHM snapshot so the row remains uncheckpointed.
+      writeFileSync(targetDb, dbBytes);
+      writeFileSync(`${targetDb}-wal`, walBytes);
+      writeFileSync(`${targetDb}-shm`, shmBytes);
+    } else {
+      old.close();
     }
     const oldHash = hashFile(targetDb);
     // SQLite may rewrite -shm while readonly preflight opens the WAL DB; it is an ephemeral index.
@@ -200,6 +225,10 @@ try {
       try {
         if ((native && mode !== "COMMITTED") || mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
           assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
+          if (walModes.has(mode)) {
+            assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
+              "wal-sentinel", `${mode}: uncheckpointed WAL row must survive`);
+          }
           assert.equal(reopened.db.prepare("SELECT id FROM artifacts WHERE id = 'new'").get(), undefined);
           openedGeneration = "old";
         } else if (mode === "COMMITTED") {
@@ -219,6 +248,7 @@ try {
       assert.equal(readRestoreJournal(journalPathForDb(targetDb))?.phase, "ROLLED_BACK");
     }
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
+    assert.equal(existsSync(join(targetArtifacts, rel)), mode !== "PREPARED", `${mode}: blob ownership/layout changed`);
     const releaseDb = acquireRestoreDbLock(targetDb); releaseDb();
     const releaseArtifact = acquireMaintenanceLock(targetArtifacts, "restore"); releaseArtifact();
     results.push({ mode, journal_phase: journal?.phase, startup_blocked: startupBlocked, opened_generation: openedGeneration,

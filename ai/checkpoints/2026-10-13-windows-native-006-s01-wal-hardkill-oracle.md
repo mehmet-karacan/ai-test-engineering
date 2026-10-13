@@ -1,0 +1,7 @@
+# S01 gercek WAL hard-kill oracle guclendirmesi
+
+- Tarih: 2026-10-13; dal: `codex/windows-native-006-s01`.
+- Dört WAL/SHM kesitinde onceki 32-byte sentetik WAL kaldirildi. Gercek better-sqlite3 WAL modunda `wal-sentinel` satiri commit edildi; main DB baytlari INSERT oncesi/sonrasi birebir ayni oldugu, WAL 32 byte header'dan buyuk oldugu dogrulandi. Acik baglantinin coherent DB/WAL/SHM snapshot'i alindi; final close checkpoint'inden sonra bu snapshot owned Temp hedefe geri kondu.
+- Her kesinti sonrasi eski `test_jobs.old` ve yalniz WAL'de bulunan `wal-sentinel` satiri gercek `Storage` acilisinda assert edildi. Eski WAL hash'i hedef veya preserved konumda, SHM path varligi ve yeni blob varligi/yoklugu ayrica assert edildi. Native `MOVED` ve parent `HALT` oracle'lari stdout chunk sinirindan bagimsiz bounded line buffer kullanir.
+- `node scripts/probe-restore-hardkill.mjs --native --expect-recovery`: gercek `taskkill /F` 15/15 exit 0; 14 kesit eski, COMMITTED yeni generation. Dort WAL kesiti tekil de exit 0. Son main-DB-byte assertion'i eklendikten sonra `OLD_SHM_MOVED` tekil exit 0; script eslint exit 0. Raw-open alt fixture'inda restore bloke, DB/WAL/SHM hash'leri ayni.
+- Bu probe bir Windows process-kill fixture'idir; power loss, arbitrary raw filesystem alias ve her eszamanli zamanlama kaniti degildir. Fresh native hedef RED, WN13 path/GC kanitlari acik; S01 VERIFIED halen NO_GO. G1/G2/G3 kapali.
