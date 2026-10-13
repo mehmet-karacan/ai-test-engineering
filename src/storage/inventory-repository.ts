@@ -73,9 +73,11 @@ export class InventoryRepository {
       schema_version: 1, run_id: id, job_id: input.job_id, stage: input.stage, ...truncation,
     }) : null;
     const pin = `run_output_truncation:${id}`;
-    const recordedArtifact = existing ? this.db.prepare<[string, string], { sha256: string; bytes: number; relative_store_path: string; status: string }>(
+    const recordedArtifacts = existing ? this.db.prepare<[string, string], { sha256: string; bytes: number; relative_store_path: string; status: string }>(
       "SELECT sha256, bytes, relative_store_path, status FROM artifacts WHERE kind = 'run_output_truncation' AND job_id = ? AND pin_reason = ?",
-    ).get(input.job_id, pin) : undefined;
+    ).all(input.job_id, pin) : [];
+    if (recordedArtifacts.length > 1) throw new AppError("STORAGE_ERROR", "Run output kesinti pin'i tekil degil");
+    const recordedArtifact = recordedArtifacts[0];
     if (existing && hasTruncation && !recordedArtifact) {
       throw new AppError("STORAGE_ERROR", "Eski run icin output kesinti kaniti sonradan eklenemez");
     }
@@ -122,9 +124,11 @@ export class InventoryRepository {
       Date.now(),
     );
     if (artifact) {
-      const row = this.db.prepare<[string, string], { job_id: string; sha256: string; bytes: number; relative_store_path: string; status: string }>(
+      const rows = this.db.prepare<[string, string], { job_id: string; sha256: string; bytes: number; relative_store_path: string; status: string }>(
         "SELECT job_id, sha256, bytes, relative_store_path, status FROM artifacts WHERE kind = 'run_output_truncation' AND job_id = ? AND pin_reason = ?",
-      ).get(input.job_id, pin);
+      ).all(input.job_id, pin);
+      if (rows.length > 1) throw new AppError("STORAGE_ERROR", "Run output kesinti pin'i tekil degil");
+      const row = rows[0];
       if (row) {
         if (row.sha256 !== artifact.sha256 || row.bytes !== artifact.bytes || row.relative_store_path !== artifact.relativeStorePath || row.status !== "READY") {
           throw new AppError("STORAGE_ERROR", "Run output kesinti kaydi degisti");

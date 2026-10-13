@@ -98,4 +98,12 @@ describe("WN21 durable run output truncation", () => {
     expect(storage.db.prepare<[string], { id: string }>("SELECT id FROM test_run_provenance WHERE job_id = ?").get(jobId)!.id).toBe(oldId);
     expect(storage.db.prepare("SELECT id FROM artifacts WHERE job_id = ? AND kind = 'run_output_truncation'").all(jobId)).toHaveLength(0);
   });
+
+  it("rejects two conflicting READY artifacts under one run pin", () => {
+    const runId = inventory.writeTestRunProvenance(input());
+    const conflicting = artifacts.publish("run_output_truncation", JSON.stringify({ schema_version: 1, run_id: runId, tampered: true }));
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, 'run_output_truncation', ?, ?, ?, '1', 'internal', 'READY', ?, ?)")
+      .run(conflicting.id, jobId, conflicting.relativeStorePath, conflicting.sha256, conflicting.bytes, `run_output_truncation:${runId}`, Date.now());
+    expect(() => inventory.writeTestRunProvenance(input())).toThrow();
+  });
 });
