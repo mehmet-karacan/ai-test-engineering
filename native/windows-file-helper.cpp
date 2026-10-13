@@ -173,7 +173,10 @@ void printIdentity(const Identity& item, const unsigned char* digest = nullptr) 
   std::printf("\n");
 }
 
-bool copyHeld(HANDLE source, HANDLE destination, unsigned char digest[32], unsigned long long& total) {
+enum class CopyFault { None, HaltAfterFirstWrite, FailAfterFirstWrite };
+
+bool copyHeld(HANDLE source, HANDLE destination, unsigned char digest[32], unsigned long long& total,
+  CopyFault fault = CopyFault::None) {
   BCRYPT_ALG_HANDLE alg = nullptr;
   BCRYPT_HASH_HANDLE hash = nullptr;
   if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
@@ -187,11 +190,37 @@ bool copyHeld(HANDLE source, HANDLE destination, unsigned char digest[32], unsig
     DWORD written = 0;
     if (!WriteFile(destination, buffer.get(), read, &written, nullptr) || written != read) { ok = false; break; }
     total += read;
+    if (fault != CopyFault::None) {
+      if (!FlushFileBuffers(destination)) { ok = false; break; }
+      std::printf("%s\t%llu\n", fault == CopyFault::HaltAfterFirstWrite ? "PARTIAL_WRITTEN" : "PARTIAL_FAILURE", total);
+      std::fflush(stdout);
+      if (fault == CopyFault::HaltAfterFirstWrite) Sleep(INFINITE);
+      ok = false;
+      break;
+    }
   }
   if (ok) ok = FlushFileBuffers(destination) != 0 && BCryptFinishHash(hash, digest, 32, 0) >= 0;
   if (hash) BCryptDestroyHash(hash);
   BCryptCloseAlgorithmProvider(alg, 0);
   return ok;
+}
+
+// Faults can only run in the owned Temp fixture, never on a customer data path.
+bool ownedStageFaultFixture(const wchar_t* targetRoot) {
+  wchar_t temp[MAX_PATH + 1]{};
+  const DWORD length = GetTempPathW(MAX_PATH + 1, temp);
+  if (length == 0 || length > MAX_PATH || _wcsnicmp(targetRoot, temp, length) != 0) return false;
+  const wchar_t* relative = targetRoot + length;
+  constexpr wchar_t prefix[] = L"aitest-stage-hardkill-";
+  const size_t prefixLength = (sizeof(prefix) / sizeof(prefix[0])) - 1;
+  if (_wcsnicmp(relative, prefix, prefixLength) != 0) return false;
+  const wchar_t* separator = wcschr(relative + prefixLength, L'\\');
+  return separator != nullptr && wcscmp(separator, L"\\target") == 0;
+}
+
+bool fixtureFaultRequested(const wchar_t* name, const wchar_t* targetRoot) {
+  wchar_t value[2]{};
+  return ownedStageFaultFixture(targetRoot) && GetEnvironmentVariableW(name, value, 2) == 1 && value[0] == L'1';
 }
 
 bool hashHeld(HANDLE file, unsigned char digest[32]) {
@@ -801,7 +830,9 @@ int copyOwned(int argc, wchar_t** argv) {
   unsigned char copiedDigest[32]{}, targetDigest[32]{};
   unsigned long long copied = 0;
   Identity targetId, sourceAfter;
-  if (!copyHeld(source.back().value, target.back().value, copiedDigest, copied) ||
+  const CopyFault oldFaultMode = fixtureFaultRequested(L"AITEST_NATIVE_OLD_COPY_HALT_AFTER_PARTIAL_WRITE", argv[4])
+    ? CopyFault::HaltAfterFirstWrite : CopyFault::None;
+  if (!copyHeld(source.back().value, target.back().value, copiedDigest, copied, oldFaultMode) ||
       !identity(target.back().value, targetId) || targetId.bytes != copied ||
       !identity(source.back().value, sourceAfter) || !sameIdentity(sourceBefore, sourceAfter) ||
       !hashHeld(target.back().value, targetDigest) ||
@@ -846,7 +877,12 @@ int copyStageSession(int argc, wchar_t** argv) {
   unsigned char copiedDigest[32]{}, pendingDigest[32]{};
   unsigned long long copied = 0;
   Identity pendingId, sourceAfter;
-  if (!copyHeld(source.back().value, pending.back().value, copiedDigest, copied) ||
+  const bool haltPartial = fixtureFaultRequested(L"AITEST_NATIVE_STAGE_HALT_AFTER_PARTIAL_WRITE", argv[4]);
+  const bool failPartial = fixtureFaultRequested(L"AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE", argv[4]);
+  if (haltPartial && failPartial) return 2;
+  const CopyFault stageFault = haltPartial ? CopyFault::HaltAfterFirstWrite :
+    failPartial ? CopyFault::FailAfterFirstWrite : CopyFault::None;
+  if (!copyHeld(source.back().value, pending.back().value, copiedDigest, copied, stageFault) ||
       !snapshot(pending.back().value, pendingId, pendingDigest) || pendingId.bytes != copied ||
       !identity(source.back().value, sourceAfter) || !sameIdentity(sourceBefore, sourceAfter) ||
       std::memcmp(copiedDigest, pendingDigest, 32) != 0) return 2;
