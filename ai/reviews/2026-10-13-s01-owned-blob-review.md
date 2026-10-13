@@ -1,0 +1,8 @@
+# S01 WN13 native blob islemleri bagimsiz inceleme
+
+- Tarih 2026-10-13. Salt okunur subagent review; commit `fe13938`. Reviewer kodu okudu, test calistirmadi, dosya degistirmedi. Coordinator merge sonrasi build PASS (265 source), odak 2 dosya/28 PASS, `probe-restore-blob-owned-swap.mjs` ve `probe-gc-delete-hardkill.mjs` exit0, local release gate LOCAL_PASS. Bu fixture'lar tam kabul degildir.
+- P1: `src/storage/lifecycle-ops.ts:736` `ROLLED_BACK` journal fsync yeni blob silmeden once. Silme `:752-764` arasinda; hard-kill/silme hatasi terminal journal ve yayimlanmis blob birakir. Journal FileId receipt tasimadigi icin startup nonterminal recovery bunu uzlastiramaz. Terminal karar fiziksel blob temizligi kanitlandiktan sonra yazilmali.
+- P1: ayni dosyada `:521-540` skip/reuse ve `:416-432` verify path/hash okur. Root FileId sabitken nested directory veya blob gecici swap-back ile degistirilirse baska fiziksel nesnenin dogru baytlariyla COMMITTED'a gidilebilir. Her skip/publish nesnesi icin pinli FileId ve commit oncesi ayni fiziksel nesne kaniti gerekli.
+- P2: `native/windows-file-helper.cpp:777` stage'i COPY komutundan sonra CREATE_NEW acar. OK receipt oncesi kill TS ownedBlobs haritasinda kimlik birakmaz; `lifecycle-ops.ts:620` rollback terminal olabilir ve stage orphan kalir. Kalici stage sahiplik makbuzu gerekir.
+- P2: `lifecycle-ops.ts:618` path tabanli mkdirSync iki root kontrolu arasinda. Gecici root veya nested path degisiminde replacement konumunda dizin yaratabilir; sonraki native pin onceki mutasyonu geri almaz.
+- Native copy/rename kendi pencelerinde root/FileId kaniti saglar; bu bulgular islemler arasindaki karar ve kesinti kesitleridir. S01 VERIFIED/GO degil; S01 ajanina RED fixture ve fail-closed duzeltme verildi.

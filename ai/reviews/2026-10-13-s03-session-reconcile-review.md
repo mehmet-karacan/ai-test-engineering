@@ -1,0 +1,6 @@
+# S03 WN30 snapshot session uzlastirma bagimsiz inceleme
+
+- Tarih 2026-10-13. Salt okunur subagent review; commit `12de56c`. Reviewer kodu okudu, test calistirmadi ve dosya degistirmedi. Coordinator merge sonrasi `npm.cmd run build` exit0; snapshot/file bridge 2 dosya/34 ve discovery 1 dosya/22 PASS, local release gate LOCAL_PASS.
+- P2: `src/discovery/source-snapshot.ts:246-259` yalniz `snapshot-manifest.json` adini rezerve ediyor. Kaynak `.aitest-snapshot-session` dosyasi manifestte kabul ediliyor, helper ayni hedef adi marker icin CREATE_NEW actigindan kopyalama cakisiyor. Ayrik negatif fixture ve acik reserved-name policy gerekli.
+- P2: `native/windows-snapshot-helper.cpp:335-352,384-395,431` marker source/target root FileId'lerini tasir, dosya/manifest FileId receipt tasimaz. Publish sonrasi ayni baytli farkli FileId replacement, hash/byte esitligiyle `ALREADY_COMPLETE` olabilir. Bu icerik uzlasmasidir; fiziksel sahiplik/otomatik cleanup yetkisi degildir. Mevcut test farkli baytli degisimi reddeder, ayni baytli replacement'i sinamaz.
+- Baska somut yanlis dosya mutasyonu bulunmadi. Partial session quarantine ve power-loss directory durability acik; WN30/S03 VERIFIED degil. Takip S03 ajanina atandi.

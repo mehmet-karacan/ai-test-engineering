@@ -1,6 +1,6 @@
 /** Windows native Maven selection and typed argument validation. No subprocess is started here. */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, dirname, delimiter } from "node:path";
 import { AppError } from "../domain/errors.js";
@@ -81,6 +81,8 @@ export interface NativeToolchainPlan {
   identity: string;
   /** Exact file snapshot that produced identity; null means verified absent. */
   pinnedInputs: ReadonlyArray<{ path: string; sha256: string | null }>;
+  /** Both selected standard installations were fully enumerated and hashed. */
+  distributionManifestComplete: boolean;
 }
 
 export interface NativeVersionEvidence {
@@ -103,14 +105,13 @@ export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: No
     executable: plan.executable, cwd: plan.cwd, argv: ["-v"], timeoutMs: 30000,
     maxLogBytes: 64 * 1024, env,
   };
-  // -v does not consume explicit -s/-t argv paths. Keep the exact expected
-  // digests for every file it can open, without taking a fresh hash here.
+  // Keep the complete approved installation snapshot for the version probe.
+  // The helper can hold all inputs through its bounded manifest transport.
   const required = lifecycle ? new Set(processPinPaths(basePlan).map((path) => path.toLowerCase())) : null;
-  const probePins = required ? plan.pinnedInputs.filter((input) => required.has(input.path.toLowerCase())) : [];
-  if (required && probePins.length !== required.size) {
+  if (required && required.size !== plan.pinnedInputs.filter((input) => required.has(input.path.toLowerCase())).length) {
     throw new AppError("BLOCKED_ISOLATION", "Maven probe snapshot incomplete", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
   }
-  const probePlan = { ...basePlan, ...(required ? { pinnedInputs: probePins } : {}) };
+  const probePlan = { ...basePlan, ...(required ? { pinnedInputs: plan.pinnedInputs } : {}) };
   const run = await new WindowsProcessSupervisor().run(probePlan, signal, lifecycle);
   if (run.errorCode === "pin_unavailable") {
     throw new AppError("BLOCKED_ISOLATION", "Maven input pinning unavailable", { reason_code: "NATIVE_INPUT_PIN_UNAVAILABLE" });
@@ -136,6 +137,11 @@ export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: No
 }
 
 export async function verifyNativeToolchain(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal, lifecycle?: import("./windows-process-supervisor.js").NativeProcessLifecycle): Promise<VerifiedNativeToolchainPlan> {
+  if (lifecycle && !plan.distributionManifestComplete) {
+    throw new AppError("BLOCKED_ISOLATION", "Complete installed Maven/JDK manifest required for owned native execution", {
+      reason_code: "TOOLCHAIN_DISTRIBUTION_UNVERIFIED",
+    });
+  }
   const version = await probeNativeMavenVersion(plan, env, signal, lifecycle);
   return {
     ...plan,
@@ -224,7 +230,54 @@ function fileDigest(path: string, explicitlyRequired: boolean): string | null {
   if (!statSync(path).isFile()) {
     throw new AppError("INVALID_PARAMETERS", "Configured Maven path is not a file");
   }
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  const hash = createHash("sha256");
+  const descriptor = openSync(path, "r");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    for (;;) {
+      const count = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      hash.update(buffer.subarray(0, count));
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  return hash.digest("hex");
+}
+
+function distributionFiles(executable: string, source: NativeToolchainPlan["source"], env: NodeJS.ProcessEnv): string[] | null {
+  if (source === "wrapper" || dirname(executable).split(/[\\/]/u).at(-1)?.toLowerCase() !== "bin") return null;
+  const mavenRoot = dirname(dirname(executable));
+  const javaHome = Object.entries(env).find(([key]) => key.toUpperCase() === "JAVA_HOME")?.[1];
+  if (!javaHome || !isAbsolute(javaHome)) return null;
+  const jdkRoot = resolve(javaHome);
+  const roots = [
+    ...["bin", "boot", "lib", "conf"].map((part) => join(mavenRoot, part)),
+    ...["bin", "lib", "conf"].map((part) => join(jdkRoot, part)),
+  ];
+  const release = join(jdkRoot, "release");
+  if (roots.some((path) => !existsSync(path) || !lstatSync(path).isDirectory() || lstatSync(path).isSymbolicLink()) ||
+      !existsSync(release) || !lstatSync(release).isFile() || lstatSync(release).isSymbolicLink()) return null;
+  const files = [release];
+  let totalBytes = lstatSync(release).size;
+  const visit = (directory: string, depth: number): void => {
+    if (depth > 16) throw new AppError("BLOCKED_ISOLATION", "Installed toolchain tree too deep", { reason_code: "TOOLCHAIN_DISTRIBUTION_UNVERIFIED" });
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(directory, entry.name);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw new AppError("BLOCKED_ISOLATION", "Installed toolchain contains reparse point", { reason_code: "TOOLCHAIN_DISTRIBUTION_UNVERIFIED" });
+      if (stat.isDirectory()) visit(path, depth + 1);
+      else if (stat.isFile()) {
+        files.push(path);
+        totalBytes += stat.size;
+        if (files.length > 4096 || totalBytes > 2 * 1024 * 1024 * 1024) {
+          throw new AppError("BLOCKED_ISOLATION", "Installed toolchain manifest budget exceeded", { reason_code: "TOOLCHAIN_DISTRIBUTION_UNVERIFIED" });
+        }
+      } else throw new AppError("BLOCKED_ISOLATION", "Installed toolchain contains unsupported entry", { reason_code: "TOOLCHAIN_DISTRIBUTION_UNVERIFIED" });
+    }
+  };
+  for (const root of roots) visit(root, 0);
+  return files;
 }
 
 function wrapperPath(cwd: string): string {
@@ -304,6 +357,8 @@ export class NativeToolchainResolver {
       pin(join(cwd, ".mvn", "wrapper", "maven-wrapper.properties"), true);
       pin(join(cwd, ".mvn", "wrapper", "maven-wrapper.jar"), true);
     }
+    const installedFiles = distributionFiles(executable, source, options.env);
+    for (const file of installedFiles ?? []) pin(file, true);
     const pinnedInputs = [...pins.values()];
     const profiles = options.profiles ?? [];
     for (const profile of profiles) {
@@ -311,7 +366,8 @@ export class NativeToolchainResolver {
     }
     const identity = createHash("sha256").update(JSON.stringify({
       cwd, executable, source, envIdentity, profiles, pinnedInputs,
+      distributionManifestComplete: installedFiles !== null,
     })).digest("hex");
-    return { executable, source, cwd, identity, pinnedInputs };
+    return { executable, source, cwd, identity, pinnedInputs, distributionManifestComplete: installedFiles !== null };
   }
 }

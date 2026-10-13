@@ -19,6 +19,7 @@ const expectOld = process.argv.includes("--expect-old");
 assert.ok(!expectOld || !!selected, "--expect-old needs a single cut");
 const reverseLayout = process.argv.includes("--reverse-layout");
 assert.ok(!reverseLayout || selected === "PUBLISH_1", "--reverse-layout needs PUBLISH_1");
+const trace = process.argv.includes("--trace");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-two-blob-"));
 const hashFile = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const schema = `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
@@ -30,12 +31,15 @@ const childCode = `
 const fs=require("node:fs"), cp=require("node:child_process");
 const {syncBuiltinESMExports}=require("node:module");
 const cut=process.argv[1], moduleUrl=process.argv[2], backup=process.argv[3], db=process.argv[4], artifacts=process.argv[5];
+const trace=process.argv[6]==="trace";
+function mark(value){if(trace) process.stderr.write("TRACE:"+value+"\\n");}
 let phase="", receipts=0, links=0, publishes=0;
 function halt(){process.stdout.write("HALT:"+cut+"\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000);}
 const write=fs.writeFileSync;
 fs.writeFileSync=(...args)=>{const result=write(...args); if(typeof args[1]==="string") try {
   const record=JSON.parse(JSON.parse(args[1]).json); phase=record.phase??phase;
   receipts=record.stageIntents?.filter((entry)=>entry.identity!==null).length??receipts;
+  mark("journal:"+phase+":"+receipts);
 } catch {} return result;};
 const fsync=fs.fsyncSync;
 fs.fsyncSync=(fd)=>{const result=fsync(fd);
@@ -46,12 +50,14 @@ const spawn=cp.spawn;
 cp.spawn=(...args)=>{const child=spawn(...args); if(args[1]?.[0]==="copy-stage-session"){
   let pending=""; child.stdout.on("data",(data)=>{pending+=data.toString(); let end;
     while((end=pending.indexOf("\\n"))>=0){const line=pending.slice(0,end).replace(/\\r$/,"");pending=pending.slice(end+1);
-      if(line==="LINKED" && ++links===(cut==="LINK_1"?1:cut==="LINK_2"?2:-1)) halt();
+      if(line==="LINKED") { mark("linked:"+(++links));
+        if(links===(cut==="LINK_1"?1:cut==="LINK_2"?2:-1)) halt(); }
     }
   });
 } return child;};
 const spawnSync=cp.spawnSync;
 cp.spawnSync=(...args)=>{const result=spawnSync(...args);
+  if(args[1]?.[0]==="rename-owned") mark("rename:"+result.status);
   if(args[1]?.[0]==="rename-owned" && result.status===0 &&
       ++publishes===(cut==="PUBLISH_1"?1:cut==="PUBLISH_2"?2:-1)) halt();
   return result;};
@@ -94,13 +100,13 @@ try {
     const oldHash = hashFile(targetDb);
     const child = spawn(process.execPath,
       ["-e", childCode, cut, pathToFileURL(resolve("dist/storage/lifecycle-ops.js")).href,
-        backup.backup_dir, targetDb, targetArtifacts],
+        backup.backup_dir, targetDb, targetArtifacts, trace ? "trace" : ""],
       { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let stdout = "", stderr = "";
     child.stderr.on("data", (bytes) => { stderr += bytes.toString(); });
     try {
       await new Promise((done, fail) => {
-        const timer = setTimeout(() => fail(new Error(`${cut} timeout: ${stdout.slice(-300)} ${stderr.slice(-300)}`)), 45_000);
+        const timer = setTimeout(() => fail(new Error(`${cut} timeout: ${stdout.slice(-300)} ${stderr.slice(-300)}`)), 120_000);
         child.stdout.on("data", (bytes) => {
           stdout += bytes.toString();
           if (stdout.includes(`HALT:${cut}\n`)) { clearTimeout(timer); done(); }

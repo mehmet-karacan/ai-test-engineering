@@ -46,6 +46,11 @@ export class CustomerRunnerFactory {
    * and actual Maven/Java versions to one typed identity before baseline. */
   async prepareNativeCustomerToolchain(options: NativeToolchainOptions, lifecycle?: NativeProcessLifecycle): Promise<VerifiedNativeToolchainPlan> {
     this.assertNativeCustomerReady();
+    if (!lifecycle) {
+      throw new AppError("BLOCKED_ISOLATION", "Owned native process lifecycle required for customer preflight", {
+        reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED",
+      });
+    }
     const env = effectiveMavenEnvironment(options.env);
     const selected = NativeToolchainResolver.resolve({ ...options, env });
     return verifyNativeToolchain(selected, env, undefined, lifecycle);

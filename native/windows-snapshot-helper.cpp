@@ -4,6 +4,7 @@
 #include <winternl.h>
 #include <bcrypt.h>
 #include <cstdio>
+#include <cstddef>
 #include <cstring>
 #include <cwctype>
 #include <iostream>
@@ -14,7 +15,11 @@
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "bcrypt.lib")
 
+extern "C" NTSYSAPI NTSTATUS NTAPI NtSetInformationFile(HANDLE file, PIO_STATUS_BLOCK io,
+  PVOID information, ULONG length, FILE_INFORMATION_CLASS kind);
+
 namespace {
+constexpr LONGLONG MAX_JOURNAL_BYTES = 64LL * 1024 * 1024;
 struct Handle {
   HANDLE value = INVALID_HANDLE_VALUE;
   explicit Handle(HANDLE h = INVALID_HANDLE_VALUE) : value(h) {}
@@ -184,6 +189,29 @@ bool markDelete(HANDLE h) {
   return SetFileInformationByHandle(h, FileDispositionInfo, &disposition, sizeof(disposition)) != 0;
 }
 
+std::wstring temporaryManifestName() {
+  unsigned char random[16]{};
+  if (BCryptGenRandom(nullptr, random, sizeof(random), BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return {};
+  static constexpr wchar_t digits[] = L"0123456789abcdef";
+  std::wstring name = L"snapshot-manifest.json.tmp-";
+  for (unsigned char byte : random) { name.push_back(digits[byte >> 4]); name.push_back(digits[byte & 15]); }
+  return name;
+}
+
+bool renameHeld(HANDLE source, HANDLE targetDirectory, const std::wstring& targetName) {
+  if (!component(targetName)) return false;
+  const size_t nameBytes = targetName.size() * sizeof(wchar_t);
+  std::vector<unsigned char> buffer(offsetof(FILE_RENAME_INFO, FileName) + nameBytes);
+  auto* info = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
+  info->ReplaceIfExists = FALSE;
+  info->RootDirectory = targetDirectory;
+  info->FileNameLength = static_cast<DWORD>(nameBytes);
+  std::memcpy(info->FileName, targetName.data(), nameBytes);
+  IO_STATUS_BLOCK io{};
+  return NtSetInformationFile(source, &io, info, static_cast<ULONG>(buffer.size()),
+    static_cast<FILE_INFORMATION_CLASS>(10)) >= 0;
+}
+
 struct Created {
   Handle file;
   Created() = default;
@@ -249,6 +277,16 @@ bool copyOne(HANDLE sourceRoot, HANDLE targetRoot, const std::wstring& relative,
   return true;
 }
 
+bool appendReceipt(HANDLE journal, const std::string& line) {
+  LARGE_INTEGER size{}, zero{};
+  if (!GetFileSizeEx(journal, &size) || size.QuadPart < 0 || size.QuadPart > MAX_JOURNAL_BYTES ||
+      line.size() > static_cast<size_t>(MAX_JOURNAL_BYTES - size.QuadPart) ||
+      !SetFilePointerEx(journal, zero, nullptr, FILE_END)) return false;
+  DWORD written = 0;
+  return line.size() <= MAXDWORD && WriteFile(journal, line.data(), static_cast<DWORD>(line.size()),
+    &written, nullptr) && written == line.size() && FlushFileBuffers(journal);
+}
+
 int run(int argc, wchar_t** argv) {
   if (argc != 6 || wcscmp(argv[1], L"snapshot") != 0) return 2;
   std::vector<Handle> sourceRoot, targetRoot;
@@ -261,15 +299,32 @@ int run(int argc, wchar_t** argv) {
   };
   if (sourceId.empty() || targetId.empty() || sourceId == targetId || sourceId != ascii(argv[4]) ||
       targetId != ascii(argv[5]) || sourceId.substr(0, 16) != targetId.substr(0, 16)) return 3;
+  const std::string receipt = "AITEST_SNAPSHOT_V1\n" + sourceId + "\n" + targetId + "\n";
+  Handle journal;
+  if (child(targetRoot.back().value, L".aitest-snapshot-session", false, true,
+      GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, journal, 0)) {
+    DWORD written = 0;
+    if (!WriteFile(journal.value, receipt.data(), static_cast<DWORD>(receipt.size()), &written, nullptr) ||
+        written != receipt.size() || !FlushFileBuffers(journal.value)) {
+      return markDelete(journal.value) ? 2 : 4;
+    }
+  } else {
+    // A target-local marker can be forged with matching bytes and FileIds.
+    // Without an independently trusted ownership claim, reopen never accepts it.
+    return 5;
+  }
   std::puts("READY");
   std::fflush(stdout);
   std::vector<Created> files;
   std::vector<CreatedDirectory> directories;
   bool completed = false;
   bool manifestSeen = false;
+  bool pauseAfterPublish = false;
+  size_t manifestIndex = 0;
   std::string line;
   while (std::getline(std::cin, line)) {
-    if (line == "END") { completed = manifestSeen; break; }
+    if (line == "END" || line == "END_PAUSE") { completed = manifestSeen; pauseAfterPublish = line == "END_PAUSE"; break; }
+    if (line == "BARRIER") { std::puts("BARRIER"); std::fflush(stdout); continue; }
     const size_t first = line.find('\t');
     if (first == std::string::npos) break;
     const std::string kind = line.substr(0, first);
@@ -286,20 +341,30 @@ int run(int argc, wchar_t** argv) {
       unsigned long long bytes = 0;
       try { bytes = std::stoull(count); } catch (...) { break; }
       if (!copyOne(sourceRoot.back().value, targetRoot.back().value, name, bytes, digest, files, directories)) break;
+      const std::string id = hexId(files.back().file.value);
+      if (id.empty() || !appendReceipt(journal.value,
+          "F\t" + line.substr(first + 1, second - first - 1) + "\t" + id + "\n")) break;
     } else if (kind == "MANIFEST") {
       if (manifestSeen) break;
       std::string body;
       if (!hexBytes(line.substr(first + 1), body) || body.empty()) break;
+      const std::wstring stagedName = temporaryManifestName();
+      if (stagedName.empty()) break;
       Handle output;
-      if (!child(targetRoot.back().value, L"snapshot-manifest.json", false, true,
+      if (!child(targetRoot.back().value, stagedName, false, true,
           GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, output, 0)) break;
+      manifestIndex = files.size();
       files.emplace_back(std::move(output));
       DWORD written = 0;
       if (body.size() > MAXDWORD || !WriteFile(files.back().file.value, body.data(), static_cast<DWORD>(body.size()),
           &written, nullptr) || written != body.size() || !FlushFileBuffers(files.back().file.value)) break;
+      const std::string id = hexId(files.back().file.value);
+      if (id.empty() || !appendReceipt(journal.value, "M\t" + id + "\n")) break;
       manifestSeen = true;
     } else break;
   }
+  if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
+  if (completed && !renameHeld(files[manifestIndex].file.value, targetRoot.back().value, L"snapshot-manifest.json")) completed = false;
   if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
   if (!completed) {
     bool cleaned = true;
@@ -310,7 +375,13 @@ int run(int argc, wchar_t** argv) {
       it->file = Handle{};
     }
     directories.clear();
+    cleaned = markDelete(journal.value) && cleaned;
     return cleaned ? 2 : 4;
+  }
+  if (pauseAfterPublish) {
+    std::puts("PUBLISHED");
+    std::fflush(stdout);
+    if (!std::getline(std::cin, line) || line != "ACK") return 2;
   }
   std::puts("OK");
   return 0;

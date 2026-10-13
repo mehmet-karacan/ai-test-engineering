@@ -70,7 +70,7 @@ describe("WN21 durable run output truncation", () => {
     expect(() => inventory.writeTestRunProvenance(input())).toThrow();
   });
 
-  it("leaves no trusted rows when SQLite rejects after blob publication", () => {
+  it("does not publish a blob when the durable receipt cannot be inserted", () => {
     const absentJob = randomUUID();
     let publishedHash: string | undefined;
     const original = artifacts.publish.bind(artifacts);
@@ -82,14 +82,30 @@ describe("WN21 durable run output truncation", () => {
     expect(() => inventory.writeTestRunProvenance(input(absentJob))).toThrow();
     expect(storage.db.prepare("SELECT id FROM test_run_provenance WHERE job_id = ?").all(absentJob)).toHaveLength(0);
     expect(storage.db.prepare("SELECT id FROM artifacts WHERE job_id = ?").all(absentJob)).toHaveLength(0);
-    expect(publishedHash && artifacts.verify(publishedHash)).toBe(true);
+    expect(publishedHash).toBeUndefined();
   });
 
-  it("rolls back the run row when artifact insertion fails after publish", () => {
+  it("does not publish when the PENDING receipt insert fails", () => {
     storage.db.exec("CREATE TRIGGER reject_truncation BEFORE INSERT ON artifacts WHEN NEW.kind = 'run_output_truncation' BEGIN SELECT RAISE(ABORT, 'fixture artifact insert failure'); END");
     expect(() => inventory.writeTestRunProvenance(input())).toThrow();
     expect(storage.db.prepare("SELECT id FROM test_run_provenance WHERE job_id = ?").all(jobId)).toHaveLength(0);
     expect(storage.db.prepare("SELECT id FROM artifacts WHERE job_id = ?").all(jobId)).toHaveLength(0);
+  });
+
+  it("leaves a non-trusted PENDING receipt when run insertion fails after publish", () => {
+    storage.db.exec("CREATE TRIGGER reject_run BEFORE INSERT ON test_run_provenance BEGIN SELECT RAISE(ABORT, 'fixture run insert failure'); END");
+    expect(() => inventory.writeTestRunProvenance(input())).toThrow();
+    expect(storage.db.prepare("SELECT id FROM test_run_provenance WHERE job_id = ?").all(jobId)).toHaveLength(0);
+    const row = storage.db.prepare<[string], { sha256: string; status: string }>(
+      "SELECT sha256, status FROM artifacts WHERE job_id = ? AND kind = 'run_output_truncation'",
+    ).get(jobId)!;
+    expect(row.status).toBe("PENDING");
+    expect(artifacts.verify(row.sha256)).toBe(true);
+    expect(() => inventory.writeTestRunProvenance({ ...input(), output_truncation: undefined }))
+      .toThrowError(/pending reconciliation/i);
+    storage.db.prepare("UPDATE artifacts SET sha256 = ? WHERE job_id = ? AND status = 'PENDING'")
+      .run("f".repeat(64), jobId);
+    expect(() => inventory.writeTestRunProvenance(input())).toThrowError(/pending reconciliation/i);
   });
 
   it("does not backfill truncation into a pre-existing run without evidence", () => {
@@ -97,5 +113,13 @@ describe("WN21 durable run output truncation", () => {
     expect(() => inventory.writeTestRunProvenance(input())).toThrow();
     expect(storage.db.prepare<[string], { id: string }>("SELECT id FROM test_run_provenance WHERE job_id = ?").get(jobId)!.id).toBe(oldId);
     expect(storage.db.prepare("SELECT id FROM artifacts WHERE job_id = ? AND kind = 'run_output_truncation'").all(jobId)).toHaveLength(0);
+  });
+
+  it("rejects two conflicting READY artifacts under one run pin", () => {
+    const runId = inventory.writeTestRunProvenance(input());
+    const conflicting = artifacts.publish("run_output_truncation", JSON.stringify({ schema_version: 1, run_id: runId, tampered: true }));
+    storage.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, 'run_output_truncation', ?, ?, ?, '1', 'internal', 'READY', ?, ?)")
+      .run(conflicting.id, jobId, conflicting.relativeStorePath, conflicting.sha256, conflicting.bytes, `run_output_truncation:${runId}`, Date.now());
+    expect(() => inventory.writeTestRunProvenance(input())).toThrow();
   });
 });

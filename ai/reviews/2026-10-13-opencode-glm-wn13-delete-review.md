@@ -1,0 +1,8 @@
+# OpenCode GLM WN13 pinli silme bagimsiz inceleme
+
+- Tarih 2026-10-13. Model `litellm/GLM-5.3-Flash-IT`, OpenCode `plan` ajaninda salt okunur `9a93e69` incelemesi. Kaynak/binary manifest SHA'si committed baytlarla eslesti. Model dosya degistirmedi, test calistirmadi. CLI tam raporu bastiktan sonra `The batch file cannot be found` ile exit1 dondu; bu nedenle inceleme aracinin basarili tamamlanmasi iddia edilmez, bulgular ayri coordinator incelemesiyle sinirlanir.
+- `src/discovery/windows-file-bridge.ts:104-108` `DELETE` girdisini spawn aninda otomatik gonderiyor. TS caller icin `DELETE_READY` iki fazli onay degil; native handle kontrolu asil sinir.
+- `native/windows-file-helper.cpp:738-741` disposition sonrasi, `DELETED` receipt oncesi kill belirsiz basari yaratir; tekrar deneme absent path ile yine uncertain. Gercek kill-cut fixture ve idempotent reconciliation acik.
+- Acik baska handle varken `DELETED` receipt sonrasi directory entry kaldirilmasi ertelenebilir; model bunu Windows semantics olarak bildirdi, fakat ayri gercek fixture sunmadi. `snapshot` sonrasi disposition oncesi hardlink/yazma yarisi da hipotez; P1 yazma paylasimi riski coordinator tarafindan ayrica saptandi ve S01 ajani daraltiyor.
+- TS bridge herhangi bir absolute root ve caller-supplied FileId/hash kabul eder. Uretim GC caller'i henuz yok; root yetkisi/DB row fiziksel sahiplik baglantisi kurulmadan primitive genel silme yetkisi sayilmaz. Mevcut no-follow handle zincirinde yanlis nesne silme kaniti bulunmadi.
+- Sonuc: WN13/S01 VERIFIED degil. S01 ajani FILE_SHARE_WRITE, raw writer, hardlink, kill-cut ve acik reader fixture'larina devam ediyor.
