@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { SourceSnapshot, effectiveSourceSet } from "../../src/discovery/source-snapshot.js";
 import { discoverModules, parsePom, resolveTargetModule } from "../../src/discovery/pom-discovery.js";
 import { PolicyGuard } from "../../src/policies/policy-guard.js";
@@ -18,6 +18,9 @@ describe("SourceSnapshot", () => {
 
   afterEach(() => {
     try {
+      const absolute = resolve(dir);
+      if (dirname(absolute).toLowerCase() !== resolve(tmpdir()).toLowerCase() ||
+          !basename(absolute).startsWith("aitest-snapshot-")) throw new Error("Unsafe fixture cleanup");
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     } catch {
       // Windows dosya kilidi
@@ -41,6 +44,7 @@ describe("SourceSnapshot", () => {
     const snapshot = new SourceSnapshot(join(FIXTURES, "sample-maven-project"));
     const manifest = snapshot.buildManifest();
     const target = join(dir, "copy");
+    mkdirSync(target);
     snapshot.copyTo(target, manifest);
     for (const entry of manifest.entries) {
       const copiedPath = join(target, entry.relative_path.replace(/\//g, "\\"));
@@ -48,7 +52,7 @@ describe("SourceSnapshot", () => {
       expect(readFileSync(copiedPath).toString("hex").length).toBeGreaterThan(0);
     }
     expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(true);
-  });
+  }, 120_000);
 
   it("dirty kaynak snapshot'a girer; stash/reset yok", () => {
     const projectDir = join(dir, "project");

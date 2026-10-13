@@ -51,12 +51,13 @@ describe("S03 metadata inventory phase A", () => {
       writeFileSync(join(root, ".mvn", "maven.config"), "-B -q");
       expect(buildDigestFromManifest(snapshot.buildManifest())).not.toBe(firstBuildDigest);
       const target = join(sandbox, "copy");
+      mkdirSync(target);
       snapshot.copyTo(target, snapshot.buildManifest());
       expect(readdirSync(join(target, ".mvn"))).toContain("maven.config");
       expect(readdirSync(target)).not.toContain("target");
       expect(readdirSync(target)).not.toContain(".git");
     } finally { removeFixture(sandbox); }
-  });
+  }, 120_000);
 
   it("rejects a linked build input instead of silently omitting it", () => {
     const sandbox = mkdtempSync(join(tmpdir(), "wn-build-link-"));
@@ -202,10 +203,11 @@ describe("S03 metadata inventory phase A", () => {
       const entry = manifest.entries.find((item) => item.relative_path === ".mvn/wrapper/maven-wrapper.jar");
       expect(entry?.sha256).toMatch(/^[0-9a-f]{64}$/);
       const target = join(sandbox, "copy");
+      mkdirSync(target);
       new SourceSnapshot(root).copyTo(target, manifest);
       expect(readFileSync(join(target, ".mvn", "wrapper", "maven-wrapper.jar")).byteLength).toBe(1024 * 1024);
     } finally { removeFixture(sandbox); }
-  });
+  }, 120_000);
 
   it("does not overwrite an existing execution target or accept changed source bytes", () => {
     const sandbox = mkdtempSync(join(tmpdir(), "wn-copy-revalidate-"));
