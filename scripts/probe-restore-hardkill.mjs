@@ -16,8 +16,9 @@ assert.equal(process.platform, "win32", "This probe requires native Windows task
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-hardkill-"));
 assert.ok(resolve(root).startsWith(resolve(tmpdir())));
 const expectRecovery = process.argv.includes("--expect-recovery");
-const modes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "MOVE_WAL", "MOVE_SHM", "OLD_DB_PRESERVED",
-  "PUBLISH_DB", "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
+const modes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED",
+  "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
+  "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
 const schema = `
   CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
   INSERT INTO schema_migrations VALUES (7);
@@ -98,11 +99,11 @@ try {
     const targetArtifacts = join(fixture, "runtime", "artifacts");
     mkdirSync(dirname(targetDb), { recursive: true });
     const old = new Database(targetDb);
-    if (mode === "MOVE_WAL" || mode === "MOVE_SHM") old.pragma("journal_mode = WAL");
+    if (["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) old.pragma("journal_mode = WAL");
     old.exec(schema);
     old.prepare("INSERT INTO test_jobs (id, lifecycle) VALUES ('old', 'COMPLETED')").run();
     old.close();
-    if (mode === "MOVE_WAL" || mode === "MOVE_SHM") {
+    if (["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) {
       const wal = Buffer.alloc(32, 0);
       Buffer.from("377f0682", "hex").copy(wal, 0);
       writeFileSync(`${targetDb}-wal`, wal);
@@ -118,19 +119,26 @@ try {
     const oldCopies = [targetDb, ...readdirSync(dirname(targetDb)).filter((name) => name.startsWith("state.db.restore-old-"))
       .map((name) => join(dirname(targetDb), name))].filter((path) => existsSync(path) && hashFile(path) === oldHash);
     assert.ok(oldCopies.length >= 1, `${mode}: old DB bytes lost`);
-    if (mode === "MOVE_DB" || mode === "MOVE_WAL" || mode === "MOVE_SHM") {
-      assert.equal(journal?.phase, "BLOBS_READY");
+    if (["MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) {
+      const expectedPhase = mode.startsWith("OLD_") ? mode : mode === "MOVE_DB" ? "BLOBS_READY" :
+        mode === "MOVE_WAL" ? "OLD_DB_MOVED" : "OLD_WAL_MOVED";
+      assert.equal(journal?.phase, expectedPhase);
       assert.equal(existsSync(targetDb), false, `${mode}: target DB must be absent after old DB move`);
       assert.equal(hashFile(journal.preservedDbPath), oldHash, `${mode}: preserved old DB hash`);
       assert.equal(hashFile(journal.stagedDbPath), journal.evidence.sourceDbSha256, `${mode}: staged new DB hash`);
-      if (mode === "MOVE_WAL" || mode === "MOVE_SHM") {
+      if (["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) {
         const oldWalHash = oldSidecarHashes.find((item) => item.suffix === "-wal")?.hash;
         assert.ok(oldWalHash, `${mode}: fixture old WAL identity missing`);
         assert.equal(existsSync(`${targetDb}-wal`), false);
         assert.equal(hashFile(`${targetDb}-wal${journal.preservedDbPath.slice(targetDb.length)}`), oldWalHash);
-        assert.equal(existsSync(`${targetDb}-shm`), mode === "MOVE_WAL");
-        assert.equal(existsSync(`${targetDb}-shm${journal.preservedDbPath.slice(targetDb.length)}`), mode === "MOVE_SHM");
+        assert.equal(existsSync(`${targetDb}-shm`), mode === "MOVE_WAL" || mode === "OLD_WAL_MOVED");
+        assert.equal(existsSync(`${targetDb}-shm${journal.preservedDbPath.slice(targetDb.length)}`), mode === "MOVE_SHM" || mode === "OLD_SHM_MOVED");
       }
+    }
+    if (mode === "NEW_DB_MOVED") {
+      assert.equal(journal?.phase, "NEW_DB_MOVED");
+      assert.equal(hashFile(targetDb), journal.evidence.sourceDbSha256);
+      assert.equal(hashFile(journal.preservedDbPath), oldHash);
     }
     for (const sidecar of oldSidecarHashes) {
       const copies = [`${targetDb}${sidecar.suffix}`, ...readdirSync(dirname(targetDb))

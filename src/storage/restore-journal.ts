@@ -5,7 +5,8 @@ import { basename, dirname, isAbsolute, parse, relative, resolve, sep } from "no
 import { AppError } from "../domain/errors.js";
 import { acquireRestoreDbLock } from "./maintenance-lock.js";
 
-export type RestorePhase = "PREPARED" | "BLOBS_READY" | "OLD_DB_PRESERVED" | "NEW_DB_PUBLISHED" | "VERIFIED" | "COMMITTED" | "ROLLED_BACK";
+export type RestorePhase = "PREPARED" | "BLOBS_READY" | "OLD_DB_MOVED" | "OLD_WAL_MOVED" | "OLD_SHM_MOVED" |
+  "OLD_DB_PRESERVED" | "NEW_DB_MOVED" | "NEW_DB_PUBLISHED" | "VERIFIED" | "COMMITTED" | "ROLLED_BACK";
 
 export interface RestoreJournalRecord {
   formatVersion?: 2;
@@ -28,12 +29,25 @@ export interface RestoreJournalRecord {
 
 const NEXT: Record<RestorePhase, RestorePhase[]> = {
   PREPARED: ["BLOBS_READY", "ROLLED_BACK"],
-  BLOBS_READY: ["OLD_DB_PRESERVED", "ROLLED_BACK"],
-  OLD_DB_PRESERVED: ["NEW_DB_PUBLISHED", "ROLLED_BACK"],
+  BLOBS_READY: ["OLD_DB_MOVED", "OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "ROLLED_BACK"],
+  OLD_DB_MOVED: ["OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "ROLLED_BACK"],
+  OLD_WAL_MOVED: ["OLD_SHM_MOVED", "OLD_DB_PRESERVED", "ROLLED_BACK"],
+  OLD_SHM_MOVED: ["OLD_DB_PRESERVED", "ROLLED_BACK"],
+  OLD_DB_PRESERVED: ["NEW_DB_MOVED", "ROLLED_BACK"],
+  NEW_DB_MOVED: ["NEW_DB_PUBLISHED", "ROLLED_BACK"],
   NEW_DB_PUBLISHED: ["VERIFIED", "ROLLED_BACK"],
   VERIFIED: ["COMMITTED", "ROLLED_BACK"],
   COMMITTED: [],
   ROLLED_BACK: [],
+};
+
+const LEGACY_NEXT: Partial<Record<RestorePhase, RestorePhase[]>> = {
+  PREPARED: ["BLOBS_READY", "ROLLED_BACK"],
+  BLOBS_READY: ["OLD_DB_PRESERVED", "ROLLED_BACK"],
+  OLD_DB_PRESERVED: ["NEW_DB_PUBLISHED", "ROLLED_BACK"],
+  NEW_DB_PUBLISHED: ["VERIFIED", "ROLLED_BACK"],
+  VERIFIED: ["COMMITTED", "ROLLED_BACK"],
+  COMMITTED: [], ROLLED_BACK: [],
 };
 
 function recoveryError(detail: string): AppError {
@@ -84,7 +98,7 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
     next.publishedBlobs.length === previous.publishedBlobs.length &&
     next.publishedBlobs.every((blob, index) => blob.path === previous.publishedBlobs[index]?.path &&
       blob.sha256 === previous.publishedBlobs[index]?.sha256) &&
-    NEXT[previous.phase].includes(next.phase);
+    (previous.formatVersion === 2 ? NEXT[previous.phase] : LEGACY_NEXT[previous.phase] ?? []).includes(next.phase);
 }
 
 function fileIdentity(path: string): { exists: boolean; bytes: number | null; sha256: string | null } {
