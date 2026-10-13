@@ -89,4 +89,26 @@ describe("S02 durable native process registry", () => {
     const registry = new NativeProcessRegistry(storage.db, jobId, "old", lease.fencing_token);
     expect(() => registry.beforeSpawn(plan)).toThrowError();
   });
+
+  it("native takeover preserves an expired legacy process marker for explicit migration", () => {
+    leases.acquire(jobId, "old", 300000, "dispatcher-123");
+    leases.release(jobId, "old");
+    const before = storage.db.prepare<[string], { process_identity: string }>(
+      "SELECT process_identity FROM job_leases WHERE job_id = ?",
+    ).get(jobId)!.process_identity;
+    expect(() => leases.acquireNative(jobId, "new", 300000)).toThrowError();
+    expect(storage.db.prepare<[string], { process_identity: string }>(
+      "SELECT process_identity FROM job_leases WHERE job_id = ?",
+    ).get(jobId)!.process_identity).toBe(before);
+  });
+
+  it("registry refuses a damaged marker even under its current lease", () => {
+    const lease = leases.acquireNative(jobId, "old", 300000).lease;
+    storage.db.prepare("UPDATE job_leases SET process_identity = ? WHERE job_id = ?").run("!damaged", jobId);
+    const registry = new NativeProcessRegistry(storage.db, jobId, "old", lease.fencing_token);
+    expect(() => registry.beforeSpawn(plan)).toThrowError();
+    expect(storage.db.prepare<[string], { process_identity: string }>(
+      "SELECT process_identity FROM job_leases WHERE job_id = ?",
+    ).get(jobId)!.process_identity).toBe("!damaged");
+  });
 });

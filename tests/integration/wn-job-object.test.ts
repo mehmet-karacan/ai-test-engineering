@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -72,8 +73,15 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
         const reused = JSON.stringify({ ...JSON.parse(identity), helper_pid: foreign.pid });
         reopened.db.prepare("UPDATE job_leases SET process_identity = ? WHERE job_id = ?").run(reused, jobId);
         leases.release(jobId, "hardkill-owner");
-        expect(() => leases.acquire(jobId, "new-owner", 300000)).toThrowError();
+        expect(() => leases.acquireNative(jobId, "new-owner", 300000)).toThrowError();
         expect(reopened.db.prepare<[string], { process_identity: string }>("SELECT process_identity FROM job_leases WHERE job_id = ?").get(jobId)!.process_identity).toBe(reused);
+        expect(foreign.pid && alive(foreign.pid)).toBe(true);
+        // A damaged durable record has no trustworthy PID/owner semantics.
+        // It must not be silently overwritten by a new lease acquisition.
+        const damaged = `!${reused.slice(1)}`;
+        reopened.db.prepare("UPDATE job_leases SET process_identity = ? WHERE job_id = ?").run(damaged, jobId);
+        expect(() => leases.acquireNative(jobId, "new-owner", 300000)).toThrowError();
+        expect(reopened.db.prepare<[string], { process_identity: string }>("SELECT process_identity FROM job_leases WHERE job_id = ?").get(jobId)!.process_identity).toBe(damaged);
         expect(foreign.pid && alive(foreign.pid)).toBe(true);
       } finally { reopened.close(); }
     } finally {
@@ -189,8 +197,9 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
       writeFileSync(childScript, `require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`);
       writeFileSync(batch, `@echo off\r\nstart "" /b "${process.execPath}" "${childScript}"\r\nexit /b 0\r\n`);
       const command = `"${cmd}" /d /s /v:off /c ""${batch}""`;
+      const batchSha = createHash("sha256").update(readFileSync(batch)).digest("hex");
       writeFileSync(parentScript, `const {spawn}=require('node:child_process'); const fs=require('node:fs');\n` +
-        `const child=spawn(${JSON.stringify(helper)},[${JSON.stringify(join(root, "status.json"))},${JSON.stringify(root)},${JSON.stringify(cmd)},${JSON.stringify(command)}],{stdio:['pipe','pipe','pipe']});\n` +
+        `const child=spawn(${JSON.stringify(helper)},[${JSON.stringify(join(root, "status.json"))},${JSON.stringify(root)},${JSON.stringify(cmd)},${JSON.stringify(command)},${JSON.stringify(batchSha)},${JSON.stringify(batch)}],{stdio:['pipe','pipe','pipe']});\n` +
         `fs.writeFileSync(${JSON.stringify(helperPidPath)},String(child.pid)); setInterval(()=>{},1000);\n`);
       const parent = spawn(process.execPath, [parentScript], { stdio: "ignore" });
       parentPid = parent.pid;

@@ -205,7 +205,9 @@ export class JobDispatcher {
     };
 
     try {
-      const acquired = leases.acquire(job.id, ownerId, leaseTtlMs, `dispatcher-${process.pid}`);
+      const acquired = this.runnerKind === "windows_native"
+        ? leases.acquireNative(job.id, ownerId, leaseTtlMs)
+        : leases.acquire(job.id, ownerId, leaseTtlMs, `dispatcher-${process.pid}`);
       if (acquired.previous_owner_alive) {
         throw new AppError("POLICY_VIOLATION", "Job baska aktif owner tarafindan calistiriliyor", { reason_code: "LEASE_HELD" });
       }
@@ -1221,7 +1223,9 @@ export class JobDispatcher {
     // Acquire ownership before any native -v child starts. Checkpoint events,
     // accepted-file restore and lifecycle mutation still follow verification.
     const recoveryOwnerId = ownerIdOverride ?? `resume-${process.pid}-${job.id}-${randomUUID()}`;
-    const acquired = leases.acquire(job.id, recoveryOwnerId, 300000, `recovery-${process.pid}`);
+    const acquired = this.runnerKind === "windows_native"
+      ? leases.acquireNative(job.id, recoveryOwnerId, 300000)
+      : leases.acquire(job.id, recoveryOwnerId, 300000, `recovery-${process.pid}`);
     try {
     if (this.runnerKind === "windows_native") {
       new CustomerRunnerFactory().assertNativeCustomerReady();

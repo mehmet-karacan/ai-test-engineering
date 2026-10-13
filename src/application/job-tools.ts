@@ -100,7 +100,9 @@ export async function handleTestResume(input: unknown, services: Services): Prom
   // resume must not mutate the state/event stream of the active owner.
   const leaseOwnerId = `resume-${process.pid}-${job.id}-${randomUUID()}`;
   const leaseManager = new LeaseManager(storage.db);
-  const lease = leaseManager.acquire(job.id, leaseOwnerId, 300000, `resume-${process.pid}`).lease;
+  const lease = runnerKind === "windows_native"
+    ? leaseManager.acquireNative(job.id, leaseOwnerId, 300000).lease
+    : leaseManager.acquire(job.id, leaseOwnerId, 300000, `resume-${process.pid}`).lease;
   try {
     // Version probing is a real child process; it must run under this lease's
     // durable Job Object registry, before publishing RUNNING.
