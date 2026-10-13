@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,6 +24,7 @@ const preparedNegative = process.argv.find((arg) => arg.startsWith("--prepared-n
 const preparedNativeCut = process.argv.find((arg) => arg.startsWith("--prepared-native-cut="))?.slice("--prepared-native-cut=".length);
 const precreateParent = process.argv.includes("--precreate-parent");
 const walSentinel = process.argv.includes("--wal-sentinel");
+const ownedNegative = process.argv.find((arg) => arg.startsWith("--owned-negative="))?.slice("--owned-negative=".length);
 const native = process.argv.includes("--native");
 assert.equal(native, true, "Production Windows restore is native-only; run this probe with --native");
 const timeoutArgs = process.argv.filter((arg) => arg.startsWith("--cut-timeout-ms="));
@@ -37,20 +38,25 @@ const allModes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", 
   "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
   "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
 const selected = process.argv.find((arg) => arg.startsWith("--mode="))?.slice("--mode=".length);
-assert.ok(!selected || allModes.includes(selected) || ["ROLLBACK_TERMINAL", "PREPARED_RECEIPT"].includes(selected),
+assert.ok(!selected || allModes.includes(selected) || ["ROLLBACK_TERMINAL", "PREPARED_RECEIPT", "PUBLISH_BLOB"].includes(selected),
   "Unknown probe mode");
 const modes = selected ? [selected] : allModes;
-assert.ok(!expectPreparedOld || selected === "PREPARED" || selected === "PREPARED_RECEIPT",
+assert.ok(!expectPreparedOld || ["PREPARED", "PREPARED_RECEIPT", "LINK", "PUBLISH_BLOB"].includes(selected),
   "--expect-prepared-old requires a PREPARED cut");
 assert.ok(!preparedNegative || ["PREPARED", "PREPARED_RECEIPT"].includes(selected) && expectPreparedOld &&
   ["occupied", "parent-swap", "stage-occupied", "pending-occupied"].includes(preparedNegative),
 "--prepared-negative requires --mode=PREPARED --expect-prepared-old");
-assert.ok(!preparedNativeCut || ["PREPARED", "PREPARED_RECEIPT"].includes(selected) && expectPreparedOld && !preparedNegative &&
-  ["guard", "terminal-flush"].includes(preparedNativeCut),
+assert.ok(!preparedNativeCut || ["PREPARED", "PREPARED_RECEIPT", "LINK", "PUBLISH_BLOB"].includes(selected) &&
+  expectPreparedOld && !preparedNegative && !ownedNegative &&
+  ["guard", "terminal-flush", "disposition"].includes(preparedNativeCut) &&
+  (preparedNativeCut !== "disposition" || selected === "LINK" || selected === "PUBLISH_BLOB"),
 "--prepared-native-cut requires --mode=PREPARED --expect-prepared-old");
 assert.ok(!precreateParent || selected === "LINK", "--precreate-parent requires --mode=LINK");
 assert.ok(!walSentinel || selected === "PREPARED_RECEIPT" && expectPreparedOld,
   "--wal-sentinel requires receipt recovery cut");
+assert.ok(!ownedNegative || ["LINK", "PUBLISH_BLOB"].includes(selected) && expectPreparedOld &&
+  ["foreign", "both-present", "alias", "pending-occupied", "parent-swap"].includes(ownedNegative),
+"--owned-negative requires LINK or PUBLISH_BLOB with expected old recovery");
 const schema = `
   CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
   INSERT INTO schema_migrations VALUES (7);
@@ -95,6 +101,12 @@ fs.renameSync = (from, to) => { const result = rename(from, to);
 if (native) {
   const childProcess = require("node:child_process");
   const originalSpawn = childProcess.spawn;
+  const originalSpawnSync = childProcess.spawnSync;
+  childProcess.spawnSync = (...args) => {
+    const result = originalSpawnSync(...args);
+    if (mode === "PUBLISH_BLOB" && args[1]?.[0] === "rename-owned" && result.status === 0) halt();
+    return result;
+  };
   childProcess.spawn = (...args) => {
     const child = originalSpawn(...args);
     if (["session", "copy-stage-session", "blob-verify-session"].includes(args[1]?.[0])) {
@@ -233,19 +245,42 @@ try {
       assert.equal(existsSync(`${journal.stageIntents[0].path}.pending`), false);
       assert.equal(existsSync(journal.publishedBlobs[0].path), false);
     }
-    if (mode === "LINK" && precreateParent) {
+    if ((mode === "LINK" || mode === "PUBLISH_BLOB") && expectPreparedOld ||
+        mode === "LINK" && precreateParent) {
       assert.equal(journal.phase, "PREPARED");
       assert.ok(journal.stageIntents?.[0]?.identity);
-      assert.equal(existsSync(journal.stageIntents[0].path), true);
+      assert.equal(existsSync(journal.stageIntents[0].path), mode === "LINK");
+      assert.equal(existsSync(journal.publishedBlobs[0].path), mode === "PUBLISH_BLOB");
+    }
+    if (ownedNegative) {
+      const ownedPath = mode === "LINK" ? journal.stageIntents[0].path : journal.publishedBlobs[0].path;
+      const otherPath = mode === "LINK" ? journal.publishedBlobs[0].path : journal.stageIntents[0].path;
+      if (ownedNegative === "foreign") {
+        renameSync(ownedPath, `${ownedPath}.saved`);
+        writeFileSync(ownedPath, "foreign bytes");
+      } else if (ownedNegative === "both-present") linkSync(ownedPath, otherPath);
+      else if (ownedNegative === "alias") linkSync(ownedPath, `${ownedPath}.alias`);
+      else if (ownedNegative === "pending-occupied") writeFileSync(`${journal.stageIntents[0].path}.pending`, "foreign pending");
+      else {
+        const parent = dirname(ownedPath);
+        renameSync(parent, `${parent}-moved`);
+        mkdirSync(parent);
+      }
     }
     if (preparedNativeCut) {
       const helper = faultFixtureWindowsFileHelper();
       const previousCut = process.env.AITEST_NATIVE_EMPTY_ROLLBACK_HALT_AFTER_FLUSH;
       const previousMarker = process.env.AITEST_NATIVE_EMPTY_ROLLBACK_FLUSH_MARKER;
+      const previousOwnedCut = process.env.AITEST_NATIVE_OWNED_HALT_AFTER_DISPOSITION;
+      const previousOwnedMarker = process.env.AITEST_NATIVE_OWNED_DISPOSITION_MARKER;
       const flushMarker = join(root, `${mode}-rollback-flushed.marker`);
       if (preparedNativeCut === "terminal-flush") {
         process.env.AITEST_NATIVE_EMPTY_ROLLBACK_HALT_AFTER_FLUSH = "1";
         process.env.AITEST_NATIVE_EMPTY_ROLLBACK_FLUSH_MARKER = flushMarker;
+      }
+      if (preparedNativeCut === "disposition") {
+        process.env.AITEST_NATIVE_OWNED_HALT_AFTER_DISPOSITION = "1";
+        process.env.AITEST_NATIVE_OWNED_DISPOSITION_MARKER = flushMarker;
       }
       let recovery;
       try {
@@ -255,19 +290,40 @@ try {
         else process.env.AITEST_NATIVE_EMPTY_ROLLBACK_HALT_AFTER_FLUSH = previousCut;
         if (previousMarker === undefined) delete process.env.AITEST_NATIVE_EMPTY_ROLLBACK_FLUSH_MARKER;
         else process.env.AITEST_NATIVE_EMPTY_ROLLBACK_FLUSH_MARKER = previousMarker;
+        if (previousOwnedCut === undefined) delete process.env.AITEST_NATIVE_OWNED_HALT_AFTER_DISPOSITION;
+        else process.env.AITEST_NATIVE_OWNED_HALT_AFTER_DISPOSITION = previousOwnedCut;
+        if (previousOwnedMarker === undefined) delete process.env.AITEST_NATIVE_OWNED_DISPOSITION_MARKER;
+        else process.env.AITEST_NATIVE_OWNED_DISPOSITION_MARKER = previousOwnedMarker;
       }
       try {
         assert.equal(recovery.remaining(), 0);
-        await recovery.guardEmptyBlob();
-        const journalPath = journalPathForDb(targetDb);
-        const line = prepareRestorePhaseLine(journalPath, { ...journal, phase: "ROLLED_BACK" });
-        const journalIdentity = captureExpectedWindowsRestoreFile(helper, journalPath);
-        if (preparedNativeCut === "guard") {
+        if (preparedNativeCut === "disposition") {
+          const guard = recovery.guardEmptyBlob();
+          let marked = false;
+          for (let attempt = 0; attempt < 100; attempt++) {
+            if (existsSync(flushMarker)) { marked = true; break; }
+            await new Promise((done) => setTimeout(done, 50));
+          }
+          assert.equal(marked, true, "fixture marker must follow owned delete disposition");
           const killed = spawnSync("taskkill", ["/F", "/PID", String(recovery.pid)], { encoding: "utf8" });
           assert.equal(killed.status, 0, killed.stderr);
+          await assert.rejects(guard);
+          assert.equal(readRestoreJournal(journalPathForDb(targetDb)).phase, "PREPARED");
+        } else await recovery.guardEmptyBlob();
+        const journalPath = journalPathForDb(targetDb);
+        if (preparedNativeCut === "disposition") {
+          const ownedPath = mode === "LINK" ? journal.stageIntents[0].path : journal.publishedBlobs[0].path;
+          assert.equal(existsSync(ownedPath), false);
+        } else if (preparedNativeCut === "guard") {
+          const killed = spawnSync("taskkill", ["/F", "/PID", String(recovery.pid)], { encoding: "utf8" });
+          assert.equal(killed.status, 0, killed.stderr);
+          const line = prepareRestorePhaseLine(journalPath, { ...journal, phase: "ROLLED_BACK" });
+          const journalIdentity = captureExpectedWindowsRestoreFile(helper, journalPath);
           await assert.rejects(recovery.commitEmptyRollback(journalPath, journalIdentity, line));
           assert.equal(readRestoreJournal(journalPath).phase, "PREPARED");
         } else {
+          const line = prepareRestorePhaseLine(journalPath, { ...journal, phase: "ROLLED_BACK" });
+          const journalIdentity = captureExpectedWindowsRestoreFile(helper, journalPath);
           const commit = recovery.commitEmptyRollback(journalPath, journalIdentity, line);
           let flushed = false;
           for (let attempt = 0; attempt < 100; attempt++) {
@@ -304,7 +360,7 @@ try {
       .map((name) => join(dirname(targetDb), name))].filter((path) => existsSync(path) && hashFile(path) === oldHash);
     assert.ok(oldCopies.length >= 1, `${mode}: old DB bytes lost`);
     const newAtTarget = ["PUBLISH_DB", "NEW_DB_MOVED", "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"].includes(mode);
-    const oldAtTarget = ["PREPARED", "PREPARED_RECEIPT", "LINK", "BLOBS_READY"].includes(mode);
+    const oldAtTarget = ["PREPARED", "PREPARED_RECEIPT", "LINK", "PUBLISH_BLOB", "BLOBS_READY"].includes(mode);
     assert.equal(existsSync(targetDb), newAtTarget || oldAtTarget, `${mode}: target DB physical layout`);
     assert.equal(existsSync(journal.stagedDbPath), !newAtTarget, `${mode}: staged DB physical layout`);
     assert.equal(hashFile(newAtTarget ? targetDb : journal.stagedDbPath), journal.evidence.sourceDbSha256,
@@ -349,7 +405,8 @@ try {
       const reopened = new Storage({ dbPath: targetDb });
       try {
         if ((!native && (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY")) ||
-            expectPreparedOld && !preparedNegative && (mode === "PREPARED" || mode === "PREPARED_RECEIPT")) {
+            expectPreparedOld && !preparedNegative && !ownedNegative &&
+              ["PREPARED", "PREPARED_RECEIPT", "LINK", "PUBLISH_BLOB"].includes(mode)) {
           assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
           if (walModes.has(mode)) {
             assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
@@ -369,16 +426,37 @@ try {
       startupBlocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED";
       if (!startupBlocked) throw error;
     }
-    assert.equal(startupBlocked, (!expectPreparedOld || !!preparedNegative) && mode !== "COMMITTED" && (native ||
+    assert.equal(startupBlocked, (!expectPreparedOld || !!preparedNegative || !!ownedNegative) && mode !== "COMMITTED" && (native ||
       mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY"), `${mode}: startup gate mismatch`);
     if (!native && (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") ||
-        expectPreparedOld && !preparedNegative) {
+        expectPreparedOld && !preparedNegative && !ownedNegative) {
       assert.equal(readRestoreJournal(journalPathForDb(targetDb))?.phase, "ROLLED_BACK");
     }
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
-    assert.equal(existsSync(join(targetArtifacts, rel)), preparedNegative === "occupied" ||
-      mode !== "PREPARED" && mode !== "PREPARED_RECEIPT" && mode !== "LINK",
-      `${mode}: blob ownership/layout changed`);
+    if (ownedNegative === "foreign") {
+      const ownedPath = mode === "LINK" ? journal.stageIntents[0].path : journal.publishedBlobs[0].path;
+      assert.equal(readFileSync(ownedPath, "utf8"), "foreign bytes");
+      assert.equal(hashFile(`${ownedPath}.saved`), journal.stageIntents[0].sha256);
+    } else if (ownedNegative) {
+      const ownedPath = mode === "LINK" ? journal.stageIntents[0].path : journal.publishedBlobs[0].path;
+      const physical = ownedNegative === "parent-swap" ?
+        join(`${dirname(ownedPath)}-moved`, ownedPath.slice(dirname(ownedPath).length + 1)) : ownedPath;
+      assert.equal(hashFile(physical), journal.stageIntents[0].sha256);
+      if (ownedNegative === "both-present") {
+        const other = mode === "LINK" ? journal.publishedBlobs[0].path : journal.stageIntents[0].path;
+        assert.equal(hashFile(other), journal.stageIntents[0].sha256);
+      } else if (ownedNegative === "alias") {
+        assert.equal(hashFile(`${ownedPath}.alias`), journal.stageIntents[0].sha256);
+      } else if (ownedNegative === "pending-occupied") {
+        assert.equal(readFileSync(`${journal.stageIntents[0].path}.pending`, "utf8"), "foreign pending");
+      }
+      assert.equal(readRestoreJournal(journalPathForDb(targetDb)).phase, "PREPARED");
+    } else if (!ownedNegative) {
+      assert.equal(existsSync(join(targetArtifacts, rel)), preparedNegative === "occupied" ||
+        !["PREPARED", "PREPARED_RECEIPT", "LINK"].includes(mode) &&
+          !(mode === "PUBLISH_BLOB" && expectPreparedOld),
+        `${mode}: blob ownership/layout changed`);
+    }
     const releaseDb = acquireRestoreDbLock(targetDb); releaseDb();
     const releaseArtifact = acquireMaintenanceLock(targetArtifacts, "restore"); releaseArtifact();
     results.push({ mode, journal_phase: journal?.phase, startup_blocked: startupBlocked, opened_generation: openedGeneration,

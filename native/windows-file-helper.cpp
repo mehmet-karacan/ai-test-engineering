@@ -527,7 +527,8 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
       std::fflush(stdout);
       continue;
     }
-    if (fields[0] == "EMPTY_GUARD" && fields.size() == 9 && recovering &&
+    const bool ownedGuard = fields[0] == "OWNED_GUARD";
+    if ((fields[0] == "EMPTY_GUARD" || ownedGuard) && fields.size() == (ownedGuard ? 13 : 9) && recovering &&
         sequence == 0 && !emptyGuarded && slots[0].present && slots[3].present &&
         slots[0].currentName == dbName && slots[3].currentName == stagedName) {
       std::wstring destination, stage;
@@ -561,15 +562,60 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
           !expectedRoot(blobParentId,
             std::wstring(fields[7].begin(), fields[7].end()).c_str(),
             std::wstring(fields[8].begin(), fields[8].end()).c_str())) return 2;
+      Handle owned;
+      std::wstring ownedName;
+      if (ownedGuard) {
+        constexpr NTSTATUS missing = static_cast<NTSTATUS>(0xc0000034L); // STATUS_OBJECT_NAME_NOT_FOUND
+        NTSTATUS status = 0;
+        if (openChild(parent, stage, false, false, GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE,
+            owned, 0, &status)) ownedName = stage;
+        else if (status != missing) return 2;
+        else if (openChild(parent, destination, false, false, GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE,
+            owned, 0, &status)) ownedName = destination;
+        else if (status != missing) return 2;
+        if (!ownedName.empty()) {
+          Identity found;
+          unsigned char digest[32]{};
+          char serial[17]{};
+          if (!snapshot(owned.value, found, digest) || found.links != 1) return 2;
+          std::snprintf(serial, sizeof(serial), "%016llx", found.id.VolumeSerialNumber);
+          if (fields[9] != serial || fields[10] != ascii(fileIdHex(found)) ||
+              fields[11] != std::to_string(found.bytes) || fields[12] != ascii(digestHex(digest))) return 2;
+        }
+      }
       for (const auto& name : { destination, stage, stage + L".pending" }) {
+        if (name == ownedName) continue;
         Handle reserved;
         if (!openChild(parent, name, false, true,
             GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE,
             reserved, 0, nullptr, FILE_DELETE_ON_CLOSE)) return 2;
         blobReservations.push_back(std::move(reserved));
       }
+      if (!ownedName.empty()) {
+        // No delete-on-close access was requested before FileId/hash/links and
+        // the other two names were checked. This held share-zero handle owns
+        // the exact verified name until the journal terminal flush or crash.
+        FILE_DISPOSITION_INFO disposition{TRUE};
+        if (!SetFileInformationByHandle(owned.value, FileDispositionInfo,
+            &disposition, sizeof(disposition))) return 2;
+        blobReservations.push_back(std::move(owned));
+#ifdef AITEST_FAULT_FIXTURE
+        wchar_t haltAfterDisposition[2]{};
+        if (GetEnvironmentVariableW(L"AITEST_NATIVE_OWNED_HALT_AFTER_DISPOSITION",
+            haltAfterDisposition, 2) == 1 && haltAfterDisposition[0] == L'1') {
+          wchar_t markerPath[32768]{};
+          const DWORD length = GetEnvironmentVariableW(L"AITEST_NATIVE_OWNED_DISPOSITION_MARKER",
+            markerPath, static_cast<DWORD>(std::size(markerPath)));
+          if (length == 0 || length >= std::size(markerPath)) return 2;
+          Handle marker(CreateFileW(markerPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr));
+          if (marker.value == INVALID_HANDLE_VALUE || !FlushFileBuffers(marker.value)) return 2;
+          Sleep(INFINITE);
+        }
+#endif
+      }
       emptyGuarded = true;
-      std::puts("EMPTY_GUARDED"); std::fflush(stdout); continue;
+      std::puts(ownedGuard ? "OWNED_GUARDED" : "EMPTY_GUARDED"); std::fflush(stdout); continue;
     }
     if (fields[0] == "ROLLBACK_COMMIT" && fields.size() == 7 && emptyGuarded &&
         !rollbackCommitted && sequence == 0) {
