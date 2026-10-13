@@ -6,6 +6,29 @@ import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidenc
 import { Storage } from "../../src/storage/storage.js";
 
 describe("S01 restore journal fail-closed", () => {
+  it("v2 per-move journal DB/WAL/SHM ve yeni DB yayin sirasi disina cikamaz", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-v2-move-order-"));
+    try {
+      const db = join(root, "state.db");
+      const stage = join(root, "state.db.stage");
+      const manifest = join(root, "manifest.json");
+      writeFileSync(db, "old-db-bytes");
+      writeFileSync(stage, "new-db-bytes");
+      writeFileSync(manifest, "new-manifest");
+      const base = { formatVersion: 2 as const, generation: "generation-v2-move-order", targetDbPath: db,
+        artifactRoot: join(root, "artifacts"), stagedDbPath: stage,
+        preservedDbPath: join(root, "state.db.restore-old-v2"), publishedBlobs: [],
+        evidence: captureRestoreEvidence(db, stage, manifest, []) };
+      const path = journalPathForDb(db);
+      for (const phase of ["PREPARED", "BLOBS_READY", "OLD_DB_MOVED", "OLD_WAL_MOVED", "OLD_SHM_MOVED",
+        "OLD_DB_PRESERVED", "NEW_DB_MOVED", "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"] as const) {
+        appendRestorePhase(path, { ...base, phase });
+      }
+      expect(readRestoreJournal(path)?.phase).toBe("COMMITTED");
+      expect(() => appendRestorePhase(path, { ...base, phase: "OLD_DB_MOVED" })).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("v2 BLOBS_READY eski DB/WAL hedefte ayniyken blob silmeden eskiyi acar", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-journal-v2-blobs-ready-"));
     try {

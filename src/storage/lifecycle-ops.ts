@@ -587,10 +587,12 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
         const saved = `${original}${oldSuffix}`;
         renameSync(original, saved);
         preserved.push({ original, saved });
+        phase(original === targetDbPath ? "OLD_DB_MOVED" : original === staleWal ? "OLD_WAL_MOVED" : "OLD_SHM_MOVED");
       }
       phase("OLD_DB_PRESERVED");
       renameSync(tempDb, targetDbPath);
       dbPublished = true;
+      phase("NEW_DB_MOVED");
       phase("NEW_DB_PUBLISHED");
       verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest);
       // Read-only SQLite dogrulamasi WAL/SHM yan dosyasi olusturabilir;
