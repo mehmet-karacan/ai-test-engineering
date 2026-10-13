@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
-import { captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession } from "../../src/storage/windows-restore-session.js";
+import { captureExpectedWindowsRestoreFile, startWindowsFreshRestoreMoveSession,
+  startWindowsRestoreMoveSession } from "../../src/storage/windows-restore-session.js";
 import { createBackup, restoreBackup } from "../../src/storage/lifecycle-ops.js";
 import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
 
@@ -18,6 +19,44 @@ const SCHEMA = `
 `;
 
 describe("S01 native restore session adapter", () => {
+  it("uses the separate fresh session while retaining native identity and reverse receipts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-native-fresh-session-"));
+    const helper = packagedWindowsFileHelper();
+    const name = "state.db";
+    const stagedName = `${name}.restore-${randomUUID()}`;
+    const staged = join(root, stagedName);
+    const target = join(root, name);
+    let session: Awaited<ReturnType<typeof startWindowsFreshRestoreMoveSession>> | undefined;
+    try {
+      const source = new Database(staged);
+      source.exec("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (42)");
+      source.close();
+      const initial = captureExpectedWindowsRestoreFile(helper, staged);
+      session = await startWindowsFreshRestoreMoveSession(helper, {
+        dbDirectory: root, dbName: name, stagedName,
+        preservedSuffix: `.restore-old-${randomUUID()}`, generation: randomUUID(),
+        expected: { oldDb: null, oldWal: null, oldShm: null, stagedDb: initial },
+      });
+      const published = await session.renameOwned("stagedDb", name);
+      expect(published.sequence).toBe(1);
+      expect(published.before).toEqual(initial);
+      await session.enterReadVerify();
+      const reader = new Database(target, { readonly: true });
+      try { expect(reader.prepare("SELECT x FROM t").get()).toEqual({ x: 42 }); }
+      finally { reader.close(); }
+      const reversed = await session.renameOwned("stagedDb", stagedName);
+      expect(reversed.before).toEqual(initial);
+      expect(reversed.sequence).toBe(2);
+      await session.close();
+      session = undefined;
+      expect(existsSync(target)).toBe(false);
+      expect(existsSync(staged)).toBe(true);
+    } finally {
+      await session?.close().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("rejects a fresh target before native restore mutation", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-native-fresh-block-"));
     let source: Database.Database | undefined;

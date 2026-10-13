@@ -16,6 +16,9 @@ export interface RestoreMoveOptions {
   expected: { oldDb: RestoreFileSnapshot; oldWal?: RestoreFileSnapshot | null;
     oldShm?: RestoreFileSnapshot | null; stagedDb: RestoreFileSnapshot };
 }
+export interface FreshRestoreMoveOptions extends Omit<RestoreMoveOptions, "expected"> {
+  expected: { oldDb: null; oldWal: null; oldShm: null; stagedDb: RestoreFileSnapshot };
+}
 export interface RestoreMoveSession {
   renameOwned(slot: RestoreFileSlot, toName: string): Promise<RestoreMoveReceipt>;
   enterReadVerify(): Promise<void>;
@@ -198,13 +201,14 @@ export class RestoreSessionLines {
   }
 }
 
-function assertOptions(options: RestoreMoveOptions): void {
+function assertOptions(options: RestoreMoveOptions | FreshRestoreMoveOptions, fresh: boolean): void {
   if (!isAbsolute(options.dbDirectory) || !component(options.dbName) || !component(options.stagedName) ||
       !options.preservedSuffix.startsWith(".restore-old-") || !component(`x${options.preservedSuffix}`) ||
       !/^[a-zA-Z0-9-]{1,128}$/u.test(options.generation)) throw protocolError("invalid session options");
   for (const slot of SLOTS) {
     const snapshot = options.expected[slot] ?? null;
-    if (((slot === "stagedDb" || slot === "oldDb") && !snapshot) || (snapshot && !sameSnapshot(parseRestoreSnapshot(
+    if (((slot === "stagedDb" || (!fresh && slot === "oldDb")) && !snapshot) ||
+        (fresh && slot !== "stagedDb" && snapshot !== null) || (snapshot && !sameSnapshot(parseRestoreSnapshot(
       `${snapshot.volumeSerial}:${snapshot.fileId}:${snapshot.bytes}:${snapshot.sha256}`), snapshot))) {
       throw protocolError("invalid expected snapshot");
     }
@@ -214,9 +218,20 @@ function assertOptions(options: RestoreMoveOptions): void {
 /** The child must retain its pinned handles until close; stdout receipts are checked but not themselves durable. */
 export async function startWindowsRestoreMoveSession(helper: WindowsFileHelperSpec,
   options: RestoreMoveOptions): Promise<RestoreMoveSession> {
-  assertOptions(options);
+  return startRestoreMoveSession(helper, options, false);
+}
+
+/** Fresh targets have an absent old generation and use a separate native command. */
+export async function startWindowsFreshRestoreMoveSession(helper: WindowsFileHelperSpec,
+  options: FreshRestoreMoveOptions): Promise<RestoreMoveSession> {
+  return startRestoreMoveSession(helper, options, true);
+}
+
+async function startRestoreMoveSession(helper: WindowsFileHelperSpec,
+  options: RestoreMoveOptions | FreshRestoreMoveOptions, fresh: boolean): Promise<RestoreMoveSession> {
+  assertOptions(options, fresh);
   assertTrustedWindowsFileHelper(helper);
-  const child = spawn(helper.path, ["session", options.dbDirectory, hexName(options.dbName),
+  const child = spawn(helper.path, [fresh ? "session-fresh" : "session", options.dbDirectory, hexName(options.dbName),
     hexName(options.stagedName), options.generation], { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true });
   const lines = new RestoreSessionLines(child);
   const current: Partial<Record<RestoreFileSlot, { name: string; identity: RestoreFileSnapshot }>> = {};

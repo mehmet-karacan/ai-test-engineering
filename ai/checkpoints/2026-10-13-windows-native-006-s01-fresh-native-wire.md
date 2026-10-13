@@ -5,3 +5,8 @@
 - RED: onceki helper'da `session-fresh` komutu yoktu ve kabul probe'u oldDb zorunlulugunda duruyordu. GREEN: `node scripts/probe-restore-fresh-session.mjs` exit 0; dolu hedef, READY sonrasi rakip create, yanlis kimlik, yayin + VERIFY, yayin sonrasi recover ters MOVE ve bos layout recover count0 dogrulandi. Tum fixture'lar sahipli Windows Temp altindadir.
 - `cmd /c scripts\\build-windows-file-helper.cmd native\\bin` exit 0. Source SHA `1f66a0755a7a0bf1e2900b108b4816619a4d6e0040b74a2c1a38306e5bc087ec`; binary SHA `0875bd1c18b9db83b54bebc53fc8d35a8d4bb9e8a6bdac5417b455e23e948495`. `node scripts/verify-windows-file-helper.mjs`, `npm run typecheck`, `npm run build`, 3 odak Vitest, `npm run lint` exit 0 (repo genelinde 89 warning, 0 error).
 - Sonraki is: TS fresh adapter; journal v2 oldDb=null icin eski kayit okunurlugu ve bos hedef acilis politikasi; her kritik kesitte hard-kill/SQLite WAL/raw owner kaniti. Bu kanit olmadan fresh native production'a baglanmayacak. WN11/12/13 ve S01 VERIFIED NO_GO; G1/G2/G3 kapali.
+
+## TS adapter dilimi
+
+- `startWindowsFreshRestoreMoveSession` yalniz `session-fresh` komutunu kullanir; eski hedef export'u `session` ile ayni kaldi. READY, MOVE, VERIFY ve CLOSE cevaplari mevcut kimlik/sequence denetiminden gecer.
+- Gercek Windows SQLite fixture'inda yeni DB yayinlandi, readonly SQL `42` gordu, ardindan ters MOVE ayni FileId/hash ile staged ada dondu. `npx vitest run tests/integration/wn-restore-session.test.ts --maxWorkers=1`: 4/4 PASS; `npm run typecheck`: exit 0. Bu adapter henuz `restoreBackup` veya journal'a bagli degildir.
