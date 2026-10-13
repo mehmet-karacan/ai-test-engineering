@@ -48,6 +48,8 @@ export interface RestoreJournalRecord {
   stagedDbPath: string;
   preservedDbPath: string;
   publishedBlobs: Array<{ path: string; sha256: string }>;
+  stageIntents?: Array<{ path: string; bytes: number; sha256: string;
+    identity: RestoreMoveReceipt["before"] | null }>;
   moveReceipts?: RestoreMoveReceipt[];
   nativeInitial?: RestoreNativeInitial;
   recoveryBaseCount?: number;
@@ -63,7 +65,7 @@ export interface RestoreJournalRecord {
 }
 
 const NEXT: Record<RestorePhase, RestorePhase[]> = {
-  PREPARED: ["BLOBS_READY", "RECOVERING", "ROLLED_BACK"],
+  PREPARED: ["PREPARED", "BLOBS_READY", "RECOVERING", "ROLLED_BACK"],
   BLOBS_READY: ["OLD_DB_MOVED", "OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED",
     "FRESH_TARGET_CONFIRMED", "RECOVERING", "ROLLED_BACK"],
   OLD_DB_MOVED: ["OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
@@ -189,6 +191,28 @@ function validate(record: RestoreJournalRecord): void {
     throw recoveryError("journal path or record invalid");
   }
   if (record.formatVersion !== undefined && record.formatVersion !== 2) throw recoveryError("journal version invalid");
+  if (record.stageIntents !== undefined) {
+    if (record.formatVersion !== 2 || !Array.isArray(record.stageIntents) ||
+        record.stageIntents.length !== record.publishedBlobs.length ||
+        record.stageIntents.some((stage, index) => {
+          const destination = record.publishedBlobs[index];
+          const identity = stage?.identity;
+          return !stage || !isAbsolute(stage.path) || !within(record.artifactRoot, stage.path) ||
+            !destination || !/^\.restore-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/u
+              .test(stage.path.slice(destination.path.length)) ||
+            !stage.path.startsWith(destination.path) ||
+            !Number.isSafeInteger(stage.bytes) || stage.bytes < 0 ||
+            !/^[a-f0-9]{64}$/u.test(stage.sha256) || stage.sha256 !== destination.sha256 ||
+            identity !== null && (!identity || !/^[a-f0-9]{16}$/u.test(identity.volumeSerial) ||
+              !/^[a-f0-9]{32}$/u.test(identity.fileId) || identity.bytes !== stage.bytes ||
+              identity.sha256 !== stage.sha256);
+        }) || new Set(record.stageIntents.map((stage) => stage.path.toLowerCase())).size !==
+          record.stageIntents.length ||
+        (record.phase !== "PREPARED" && record.phase !== "ROLLED_BACK" &&
+          record.stageIntents.some((stage) => stage.identity === null))) {
+      throw recoveryError("journal stage intent invalid");
+    }
+  }
   if (record.phase === "FRESH_TARGET_CONFIRMED" && record.nativeInitial?.oldDb !== null ||
       record.phase === "OLD_DB_PRESERVED" && record.nativeInitial?.oldDb === null) {
     throw recoveryError("journal generation phase contradicts initial target");
@@ -220,10 +244,13 @@ function validate(record: RestoreJournalRecord): void {
 }
 
 function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJournalRecord): boolean {
-  if (previous === null) return next.phase === "PREPARED" && (next.moveReceipts === undefined || next.moveReceipts.length === 0);
+  if (previous === null) return next.phase === "PREPARED" &&
+    (next.moveReceipts === undefined || next.moveReceipts.length === 0) &&
+    (next.stageIntents === undefined || next.stageIntents.every((stage) => stage.identity === null));
   if ((previous.phase === "COMMITTED" || previous.phase === "ROLLED_BACK") && next.phase === "PREPARED") {
     return next.generation !== previous.generation && next.targetDbPath === previous.targetDbPath &&
-      (next.moveReceipts === undefined || next.moveReceipts.length === 0);
+      (next.moveReceipts === undefined || next.moveReceipts.length === 0) &&
+      (next.stageIntents === undefined || next.stageIntents.every((stage) => stage.identity === null));
   }
   const priorMoves = previous.moveReceipts;
   const nextMoves = next.moveReceipts;
@@ -235,6 +262,19 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
     nextMoves.length === priorMoves.length + (moveSlot ? 1 : 0) &&
     priorMoves.every((receipt, index) => JSON.stringify(receipt) === JSON.stringify(nextMoves[index])) &&
     (!moveSlot || nextMoves.at(-1)?.slot === moveSlot);
+  const oldStages = previous.stageIntents;
+  const newStages = next.stageIntents;
+  const stageChanges = oldStages === undefined || newStages === undefined ? -1 :
+    oldStages.reduce((count, stage, index) => count +
+      (JSON.stringify(stage.identity) === JSON.stringify(newStages[index]?.identity) ? 0 : 1), 0);
+  const stagesValid = oldStages === undefined ? newStages === undefined :
+    newStages !== undefined && newStages.length === oldStages.length &&
+    oldStages.every((stage, index) => stage.path === newStages[index]?.path &&
+      stage.bytes === newStages[index]?.bytes && stage.sha256 === newStages[index]?.sha256 &&
+      (JSON.stringify(stage.identity) === JSON.stringify(newStages[index]?.identity) ||
+        previous.phase === "PREPARED" && next.phase === "PREPARED" &&
+        stage.identity === null && newStages[index]?.identity !== null)) &&
+    (previous.phase === "PREPARED" && next.phase === "PREPARED" ? stageChanges === 1 : stageChanges === 0);
   const priorRecovery = previous.recoveryReceipts;
   const nextRecovery = next.recoveryReceipts;
   const recoveryValid = next.phase === "RECOVERING" && previous.phase !== "RECOVERING"
@@ -250,7 +290,7 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
         : next.recoveryBaseCount === previous.recoveryBaseCount &&
           JSON.stringify(nextRecovery) === JSON.stringify(priorRecovery);
   return next.generation === previous.generation && next.targetDbPath === previous.targetDbPath &&
-    receiptsValid && recoveryValid &&
+    receiptsValid && recoveryValid && stagesValid &&
     next.formatVersion === previous.formatVersion &&
     JSON.stringify(next.evidence) === JSON.stringify(previous.evidence) &&
     JSON.stringify(next.nativeInitial) === JSON.stringify(previous.nativeInitial) &&
@@ -259,6 +299,8 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
     next.publishedBlobs.length === previous.publishedBlobs.length &&
     next.publishedBlobs.every((blob, index) => blob.path === previous.publishedBlobs[index]?.path &&
       blob.sha256 === previous.publishedBlobs[index]?.sha256) &&
+    (previous.phase !== "PREPARED" || next.phase !== "PREPARED" ||
+      oldStages !== undefined && stageChanges === 1) &&
     (previous.formatVersion === 2 ? NEXT[previous.phase] : LEGACY_NEXT[previous.phase] ?? []).includes(next.phase);
 }
 

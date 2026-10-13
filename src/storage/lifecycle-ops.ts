@@ -15,11 +15,12 @@ import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb,
   prepareRestorePhaseLine, readRestoreJournal, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
-import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile, verifyWindowsOwnedFile,
+import { deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile, verifyWindowsOwnedFile,
   type WindowsCopyResult, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 import { assertWindowsRestoreRootIdentity, captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession,
   type RestoreFileSlot, type RestoreMoveSession } from "./windows-restore-session.js";
 import { startWindowsBlobVerifySession, type BlobVerifySession } from "./windows-blob-verify-session.js";
+import { startWindowsBlobStageSession } from "./windows-blob-stage-session.js";
 import type { RestoreMoveReceipt, RestoreNativeInitial } from "./restore-journal.js";
 
 export interface BackupResult {
@@ -519,7 +520,8 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     });
   }
   const reusedBlobs = new Map<string, WindowsCopyResult>();
-  const plan: Array<{ source: string; destination: string; stage: string; sha256: string; skip: boolean }> = [];
+  const plan: Array<{ source: string; destination: string; stage: string; bytes: number;
+    sha256: string; skip: boolean }> = [];
   for (const blob of manifest.blobs) {
     const rel = blob.relative_path.replace(/\//g, pathSep);
     const source = resolve(backupBlobRoot, rel);
@@ -565,7 +567,8 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       }
       skip = true;
     }
-    plan.push({ source, destination, stage: `${destination}.restore-${randomUUID()}.tmp`, sha256: blob.sha256, skip });
+    plan.push({ source, destination, stage: `${destination}.restore-${randomUUID()}.tmp`,
+      bytes: blob.bytes, sha256: blob.sha256, skip });
   }
 
   mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
@@ -590,12 +593,17 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   const oldSuffix = `.restore-old-${randomUUID()}`;
   const journalPath = journalPathForDb(targetDbPath);
   const moveReceipts: RestoreMoveReceipt[] | undefined = options?.nativeHelper ? [] : undefined;
+  const stageIntents = options?.nativeHelper ? plan.filter((item) => !item.skip).map((item) => ({
+    path: item.stage, bytes: item.bytes, sha256: item.sha256,
+    identity: null as RestoreMoveReceipt["before"] | null,
+  })) : undefined;
   let nativeInitial: RestoreNativeInitial | undefined;
   const journalBase = {
     formatVersion: 2 as const, generation: randomUUID(), targetDbPath, artifactRoot: targetArtifactRoot,
     stagedDbPath: tempDb, preservedDbPath: `${targetDbPath}${oldSuffix}`,
     publishedBlobs: plan.filter((item) => !item.skip).map((item) => ({ path: item.destination, sha256: item.sha256 })),
     ...(moveReceipts ? { moveReceipts } : {}),
+    ...(stageIntents ? { stageIntents } : {}),
     evidence: captureRestoreEvidence(targetDbPath, join(backupDir, "state.db"), join(backupDir, "blob-manifest.json"),
       manifest.blobs.map((blob) => ({ path: resolve(targetRoot, blob.relative_path.replace(/\//g, pathSep)),
         sha256: blob.sha256, bytes: blob.bytes,
@@ -667,16 +675,29 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       if (!options?.nativeHelper) mkdirSync(resolve(item.destination, ".."), { recursive: true });
       assertArtifactRoot();
       if (options?.nativeHelper && initialArtifactRoot && initialBackupBlobRoot) {
-        const identity = copyWindowsOwnedFile(options.nativeHelper, backupBlobRoot,
+        const session = await startWindowsBlobStageSession(options.nativeHelper, backupBlobRoot,
           relative(backupBlobRoot, item.source), targetArtifactRoot, relative(targetRoot, item.stage),
           initialBackupBlobRoot, initialArtifactRoot);
-        if (identity.sha256 !== item.sha256) {
+        let receiptAttempted = false;
+        try {
+          const identity = await session.copy();
+          if (identity.sha256 !== item.sha256 || identity.bytes !== item.bytes) {
+            throw new AppError("STORAGE_ERROR", "Staged restore blob differs from verified backup", {
+              reason_code: "RESTORE_STAGED_BLOB_CHANGED",
+            });
+          }
+          const intent = stageIntents!.find((candidate) => candidate.path === item.stage)!;
+          intent.identity = { volumeSerial: identity.volumeSerial, fileId: identity.fileId,
+            bytes: identity.bytes, sha256: identity.sha256 };
+          receiptAttempted = true;
+          phase("PREPARED");
+          await session.link(identity);
           ownedBlobs.set(item.destination, { identity, published: false });
-          throw new AppError("STORAGE_ERROR", "Staged restore blob differs from verified backup", {
-            reason_code: "RESTORE_STAGED_BLOB_CHANGED",
-          });
+        } catch (error) {
+          if (receiptAttempted) safeRollback = false;
+          await session.abort();
+          throw error;
         }
-        ownedBlobs.set(item.destination, { identity, published: false });
       } else copyFileSync(item.source, item.stage);
       assertArtifactRoot();
     }
