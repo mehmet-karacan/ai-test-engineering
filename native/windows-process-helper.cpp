@@ -116,7 +116,13 @@ int wmain(int argc, wchar_t** argv) {
     CloseHandle(owned_job);
     return 96;
   }
-  if (!AssignProcessToJobObject(owned_job, process.hProcess)) {
+#ifdef AITEST_TEST_FORCE_ASSIGN_FAILURE
+  SetLastError(ERROR_ACCESS_DENIED);
+  const BOOL assigned = FALSE;
+#else
+  const BOOL assigned = AssignProcessToJobObject(owned_job, process.hProcess);
+#endif
+  if (!assigned) {
     const DWORD failure = GetLastError();
     TerminateProcess(process.hProcess, 1);
     WaitForSingleObject(process.hProcess, INFINITE);

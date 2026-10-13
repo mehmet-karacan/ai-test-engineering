@@ -34,6 +34,7 @@ import { collectAcceptedChangeEvidence, collectFinalReplayEvidence, type Evidenc
 import { defaultWorkerServerManager } from "../workers/opencode/worker-server-manager.js";
 import { buildFrozenTargetList, rebuildFrozenTargetDigest, type ConcreteTarget } from "../discovery/target-resolver.js";
 import { NativeToolchainRecordStore } from "./native-toolchain-record.js";
+import { NativeProcessRegistry } from "./native-process-registry.js";
 import { verifyNativeToolchain } from "../runners/native-toolchain.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
@@ -232,9 +233,14 @@ export class JobDispatcher {
         // Native process tree ownership and hard-kill recovery must be proven
         // before a customer Maven process can be launched.
         const nativeOptions = { cwd: projectRoot, env: process.env };
-        const toolchain = await runnerFactory.prepareNativeCustomerToolchain(nativeOptions);
+        const nativeRegistry = new NativeProcessRegistry(storage.db, job.id, ownerId, acquired.lease.fencing_token);
+        const toolchain = await runnerFactory.prepareNativeCustomerToolchain(nativeOptions, nativeRegistry);
         new NativeToolchainRecordStore(storage.db, this.workspaceRoot).pin(job.id, nativeOptions, toolchain);
         nativeToolchainIdentity = toolchain.identity;
+        // Each frozen workspace has a distinct path-bound identity. The
+        // source-root preflight identity cannot be reused as its digest.
+        hostRunner = new MavenRunner(undefined, nativeRegistry);
+        ownedRunners.set(job.id, hostRunner);
         jobs.appendEvent({
           job_id: job.id,
           event_type: "native_toolchain_verified",
@@ -271,7 +277,7 @@ export class JobDispatcher {
       let baselineRunId: string | null = null;
 
       // baseline: mevcut testler gercekten calisir (guvenli runner contract'indan)
-      if (this.runnerKind === "host_dev_only" && hostRunner) {
+      if ((this.runnerKind === "host_dev_only" || this.runnerKind === "windows_native") && hostRunner) {
         const baseline = await runBaseline(projectRoot, hostRunner, 600000, { workspace_root: baselineWorkspace, collect_coverage: true });
         baselineEvidence = baseline;
         baselineExecutionRoot = baseline.execution_root;
@@ -1138,7 +1144,7 @@ export class JobDispatcher {
    * Maven cache job'a ozel volume ile izole edilir (job A, job B cache'ini degistiremez).
    */
   private buildVerifiedLoopRunner(dockerRunner: DockerRunner | undefined, hostRunner: MavenRunner | undefined, projectRoot: string, jobId?: string, verifiedImage?: string): MavenRunner {
-    if (this.runnerKind === "host_dev_only" && hostRunner) {
+    if ((this.runnerKind === "host_dev_only" || this.runnerKind === "windows_native") && hostRunner) {
       return hostRunner;
     }
     if (dockerRunner) {

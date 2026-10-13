@@ -92,11 +92,11 @@ export interface VerifiedNativeToolchainPlan extends NativeToolchainPlan {
 }
 
 /** Probe the selected executable. The raw -v output stays local to this call. */
-export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<NativeVersionEvidence> {
+export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal, lifecycle?: import("./windows-process-supervisor.js").NativeProcessLifecycle): Promise<NativeVersionEvidence> {
   const run = await new WindowsProcessSupervisor().run({
     executable: plan.executable, cwd: plan.cwd, argv: ["-v"], timeoutMs: 10000,
     maxLogBytes: 64 * 1024, env,
-  }, signal);
+  }, signal, lifecycle);
   if (run.status !== "success" || run.stdoutTruncatedBytes > 0 || run.stderrTruncatedBytes > 0) {
     throw new AppError("BLOCKED_ISOLATION", "Maven version probe failed or truncated", { reason_code: "MAVEN_VERSION_UNVERIFIED" });
   }
@@ -114,8 +114,8 @@ export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: No
   };
 }
 
-export async function verifyNativeToolchain(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<VerifiedNativeToolchainPlan> {
-  const version = await probeNativeMavenVersion(plan, env, signal);
+export async function verifyNativeToolchain(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal, lifecycle?: import("./windows-process-supervisor.js").NativeProcessLifecycle): Promise<VerifiedNativeToolchainPlan> {
+  const version = await probeNativeMavenVersion(plan, env, signal, lifecycle);
   return {
     ...plan,
     baseIdentity: plan.identity,

@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { NativeToolchainResolver, buildNativeMavenArgv, verifyNativeToolchain, effectiveMavenEnvironment } from "./native-toolchain.js";
-import { WindowsProcessSupervisor, type NativeProcessResult } from "./windows-process-supervisor.js";
+import { WindowsProcessSupervisor, type NativeProcessLifecycle, type NativeProcessResult } from "./windows-process-supervisor.js";
 
 export interface RunResult {
   exit_code: number;
@@ -50,6 +50,8 @@ export function strictTestExecutionProperties(): Record<string, string> {
 export class MavenRunner {
   private readonly running = new Set<AbortController>();
 
+  constructor(private readonly pinnedToolchainIdentity?: string, private readonly lifecycle?: NativeProcessLifecycle) {}
+
   async run(options: MavenRunOptions): Promise<RunResult> {
     const env = effectiveMavenEnvironment(process.env, options.env);
     const toolchain = NativeToolchainResolver.resolve({
@@ -73,8 +75,13 @@ export class MavenRunner {
     let result: NativeProcessResult;
     let effectiveIdentity: string;
     try {
-      const verified = await verifyNativeToolchain(toolchain, env, controller.signal);
+      const verified = await verifyNativeToolchain(toolchain, env, controller.signal, this.lifecycle);
       effectiveIdentity = verified.identity;
+      if (this.pinnedToolchainIdentity !== undefined && this.pinnedToolchainIdentity !== effectiveIdentity) {
+        throw new AppError("BLOCKED_ISOLATION", "Maven/Java toolchain changed since customer preflight", {
+          reason_code: "TOOLCHAIN_IDENTITY_CHANGED",
+        });
+      }
       if (options.expected_toolchain_identity !== undefined && options.expected_toolchain_identity !== effectiveIdentity) {
         throw new AppError("BLOCKED_ISOLATION", "Maven/Java toolchain changed since the approved plan", {
           reason_code: "TOOLCHAIN_IDENTITY_CHANGED",
@@ -84,7 +91,7 @@ export class MavenRunner {
       result = await new WindowsProcessSupervisor().run({
         executable: toolchain.executable, cwd: toolchain.cwd, argv,
         timeoutMs: options.timeout_ms, env,
-      }, controller.signal);
+      }, controller.signal, this.lifecycle);
     } finally {
       this.running.delete(controller);
     }

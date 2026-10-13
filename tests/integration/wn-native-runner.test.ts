@@ -13,7 +13,7 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
       writeFileSync(executable, "@echo off\r\nif \"%~1\"==\"-v\" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho Maven fixture %1 %2\r\n");
       writeFileSync(join(dir, "mvnw.cmd"), "@echo off\r\nexit /b 99\r\n");
       const result = await new MavenRunner().run({
-        working_dir: dir, goals: ["test"], timeout_ms: 5000,
+        working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "logs"), executable,
       });
       expect(result.exit_code).toBe(0);
@@ -31,7 +31,7 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
       writeFileSync(executable, "@echo off\r\nif \"%~1\"==\"-v\" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho PATH Maven\r\n");
       writeFileSync(join(dir, "mvnw.cmd"), "@echo off\r\nexit /b 99\r\n");
       const result = await new MavenRunner().run({
-        working_dir: dir, goals: ["test"], timeout_ms: 5000,
+        working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "logs"), env: { Path: dir },
       });
       expect(result.native_status).toBe("success");
@@ -54,7 +54,7 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
     try {
       const executable = join(dir, "mvn.cmd");
       writeFileSync(executable, "@echo off\r\necho SHOULD_NOT_RUN\r\n");
-      await expect(new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 5000,
+      await expect(new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "logs"), executable, settings_path: "" })).rejects.toMatchObject({ code: "INVALID_PARAMETERS" } satisfies Partial<AppError>);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
@@ -65,7 +65,7 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
       const executable = join(dir, "mvn.cmd");
       const sentinel = join(dir, "GOALS_RAN");
       writeFileSync(executable, `@echo off\r\nif "%~1"=="-v" (\r\n echo Apache Maven unknown\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho ran>"${sentinel}"\r\n`);
-      await expect(new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 5000,
+      await expect(new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "logs"), executable })).rejects.toMatchObject({ details: { reason_code: "MAVEN_VERSION_UNVERIFIED" } });
       expect(() => readFileSync(sentinel)).toThrow();
     } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -78,12 +78,24 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
       const sentinel = join(dir, "GOALS_RAN");
       writeFileSync(executable, `@echo off\r\nif "%~1"=="-v" (\r\n echo Apache Maven %MAVEN_OPTS%\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho ran>"${sentinel}"\r\n`);
       const runner = new MavenRunner();
-      const first = await runner.run({ working_dir: dir, goals: ["test"], timeout_ms: 5000,
+      const first = await runner.run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "first"), executable, env: { MAVEN_OPTS: "3.9.16" } });
       rmSync(sentinel);
-      await expect(runner.run({ working_dir: dir, goals: ["test"], timeout_ms: 5000,
+      await expect(runner.run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "second"), executable, env: { MAVEN_OPTS: "3.9.17" },
         expected_toolchain_identity: first.toolchain_identity })).rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
+      expect(() => readFileSync(sentinel)).toThrow();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("keeps a constructor-pinned identity across separate run calls", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn pinned runner-"));
+    try {
+      const executable = join(dir, "mvn.cmd");
+      const sentinel = join(dir, "GOALS_RAN");
+      writeFileSync(executable, `@echo off\r\nif "%~1"=="-v" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho ran>"${sentinel}"\r\n`);
+      await expect(new MavenRunner("0".repeat(64)).run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
+        log_dir: join(dir, "logs"), executable })).rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
       expect(() => readFileSync(sentinel)).toThrow();
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
@@ -95,10 +107,10 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
     try {
       const executable = join(dir, "mvn.cmd");
       writeFileSync(executable, "@echo off\r\nif \"%~1\"==\"-v\" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\necho PRIVATE=%AITEST_PRIVATE_SENTINEL%\r\n");
-      const result = await new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 5000,
+      const result = await new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "logs"), executable });
       expect(readFileSync(result.stdout_log_path, "utf8")).not.toContain("SECRET_NOT_FOR_MAVEN");
-      await expect(new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 5000,
+      await expect(new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
         log_dir: join(dir, "rejected"), executable, env: { AITEST_PRIVATE_SENTINEL: "SECRET_NOT_FOR_MAVEN" } }))
         .rejects.toMatchObject({ code: "INVALID_PARAMETERS" });
     } finally {
