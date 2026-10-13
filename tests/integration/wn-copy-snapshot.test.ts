@@ -91,6 +91,25 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
     } finally { cleanup(sandbox); }
   });
 
+  it("rejects a source file reserved for the snapshot session marker", () => {
+    const sandbox = fixture();
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, ".aitest-snapshot-session"), "source data");
+      writeFileSync(join(target, "sentinel.txt"), "keep");
+      const snapshot = new SourceSnapshot(source);
+      const manifest = snapshot.buildManifest();
+      try { snapshot.copyTo(target, manifest); throw new Error("Accepted reserved marker name"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).code).toBe("POLICY_VIOLATION");
+      }
+      expect(readdirSync(target)).toEqual(["sentinel.txt"]);
+    } finally { cleanup(sandbox); }
+  });
+
   it("removes only files it created when a later source digest is wrong", () => {
     const sandbox = fixture();
     try {
@@ -430,15 +449,49 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       const snapshot = new SourceSnapshot(source);
       const manifest = snapshot.buildManifest();
       snapshot.copyTo(target, manifest);
+      const originalId = inspectWindowsPath(packagedWindowsFileHelper(), join(target, "pom.xml"));
+      expect(readFileSync(join(target, ".aitest-snapshot-session"), "utf8"))
+        .toContain(`F\t${Buffer.from("pom.xml", "utf16le").toString("hex")}\t${originalId.volumeSerial}${originalId.fileId}\n`);
       renameSync(join(target, "pom.xml"), join(target, "previous.xml"));
-      writeFileSync(join(target, "pom.xml"), "other user");
+      writeFileSync(join(target, "pom.xml"), "original");
+      const replacementId = inspectWindowsPath(packagedWindowsFileHelper(), join(target, "pom.xml"));
+      expect(replacementId.fileId).not.toBe(originalId.fileId);
       try { snapshot.copyTo(target, manifest); throw new Error("Accepted changed target file"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
         expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
       }
-      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("other user");
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
       expect(readFileSync(join(target, "previous.xml"), "utf8")).toBe("original");
+    } finally { cleanup(sandbox); }
+  });
+
+  it("quarantines a byte-identical replacement of the published manifest", () => {
+    const sandbox = fixture();
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const snapshot = new SourceSnapshot(source);
+      const manifest = snapshot.buildManifest();
+      snapshot.copyTo(target, manifest);
+      const published = join(target, "snapshot-manifest.json");
+      const body = readFileSync(published);
+      const originalId = inspectWindowsPath(packagedWindowsFileHelper(), published);
+      expect(readFileSync(join(target, ".aitest-snapshot-session"), "utf8"))
+        .toContain(`M\t${originalId.volumeSerial}${originalId.fileId}\n`);
+      renameSync(published, join(target, "previous-manifest.json"));
+      writeFileSync(published, body);
+      const replacementId = inspectWindowsPath(packagedWindowsFileHelper(), published);
+      expect(replacementId.fileId).not.toBe(originalId.fileId);
+      try { snapshot.copyTo(target, manifest); throw new Error("Accepted replacement manifest"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+      }
+      expect(readFileSync(published)).toEqual(body);
+      expect(readFileSync(join(target, "previous-manifest.json"))).toEqual(body);
     } finally { cleanup(sandbox); }
   });
 });
