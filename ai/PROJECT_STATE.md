@@ -1,5 +1,7 @@
 # PROJECT_STATE - Gelistirme Durumu
 
+- 2026-10-13 entegrasyon 25: S03 WN28 mutable tree pagination cursor drift RED fixture merge edildi. Ilk sayfa 00-a silinince ayni generation/cursor sonraki sayfada 10-b'yi atlayip 20-c getiriyor; bagimsiz Temp probe dogruladi. it.fails tani kanitidir, kabul kapisi degil; S04 immutable generation bagimliligi acik. S01/S02/S03 VERIFIED degil; S04 migration ve G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-25.md`.
+
 - 2026-10-13 entegrasyon 24: S01 iki blob farkli parent icin bounded native GUARD-only kaniti merge edildi. Coordinator build PASS, bridge 25/25, PUBLISH_1 guard-after-cut exit0/old DB/startup blocked, local gate LOCAL_PASS. Bagimsiz reviewer P1/P2 bulmadi; 8192 valid ITEM boundary kaniti acik. N=2 disposition/terminal/auto-open hala NO_GO; S01/S02/S03 VERIFIED degil; S04 migration, G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-24.md`.
 
 - 2026-10-13 entegrasyon 23: S02 WN23 parent/helper/child/grandchild Job topology RED tanisi merge edildi. Coordinator gercek Windows probe exit1: parent kill kabul, dort owned cikti, foreign canli, helper `status.json` bos; any-Job uyeligi ayni Job kimligi kaniti degil. `wn-job-object` 7/7 PASS. WN23 ust Job disi owner_lost NOT_VERIFIED; S01/S02/S03 VERIFIED degil, S04 migration ve G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-23.md`.
