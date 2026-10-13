@@ -1,0 +1,8 @@
+# S01 native recovery bagimsiz inceleme
+
+- Gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0; incelenen dilim `eff33aa` + `5a45588`, coordinator terminal-order dahil HEAD `8a0f293`. Reviewer S03 uygulamasindan ayri salt okunur calisti; kod degistirmedi.
+- **P1 - worker terminal guard:** `scripts/restore-recovery-worker.mjs` eski DB/WAL kimligini kontrol ettikten sonra native session'i kapatiyor, `ROLLED_BACK` kaydini daha sonra fsync ediyor. Bu arada raw SQLite writer eski generation'i degistirebilir. Production `COMMITTED` sirasi `bc460d9` ile duzeldi; worker yolu halen acik. `ROLLED_BACK` fsync aninda rakip raw writer fixture'i gerekli.
+- **P1 - startup handoff:** `src/storage/restore-journal.ts` worker exit sonrasi JS identity kontrolu yapiyor; `Storage` SQLite handle acmadan once lock/guard birakilmis durumda. Ikinci process yarisi icin gercek Windows fixture ve kesintisiz handoff kaniti gerekli.
+- **P2 - WAL oracle:** `scripts/probe-restore-hardkill.mjs` WAL modlarinda yapay 32-byte WAL/bos SHM kullaniyor ve recovery sonrasi yalniz main DB row'unu sorguluyor. Gecerli uncheckpointed WAL frame'lerinde bulunan ayri sentinel row ile gercek WAL replay/koruma kaniti gerekli.
+- **P2 - probe determinism/artifact oracle:** Probe `MOVED`/`HALT` pipe data chunk'ina bagli; satir bolunmesi yanlis timeout verebilir. Satir parser'i gerekli. `new_blob_exists` sonuc alanina yaziliyor fakat assert edilmiyor; eski referansli blob byte/hash oracle'i eklenmeli.
+- Journal receipt prefix, native `RECOVERY_READY` FileId/SHA ve slot layout incelemesinde bunlar disinda somut yeni P1 bulunmadi. WN11/12/13 ve S01 VERIFIED halen NO_GO. G1/G2/G3 kapali.
