@@ -3,6 +3,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+native/bin/*.obj
 
 # Runtime veri (asla Git'e gitmez)
 *.db
