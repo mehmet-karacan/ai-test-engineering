@@ -32,10 +32,24 @@ assert.ok(!armCut || guardAfterCut, "--arm-cut needs --guard-after-cut");
 const walSentinel = process.argv.includes("--wal-sentinel");
 assert.ok(!walSentinel || !!armCut, "--wal-sentinel needs a partial ARM cut");
 const terminalCut = process.argv.find((value) => value.startsWith("--terminal-cut="))?.slice(15);
-assert.ok(!terminalCut || ["before", "after", "ack"].includes(terminalCut));
+assert.ok(!terminalCut || ["before", "partial", "flush-fail", "after", "ack"].includes(terminalCut));
 assert.ok(!terminalCut || !!armCut, "--terminal-cut needs a partial ARM cut");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-two-blob-"));
 const hashFile = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
+const assertDispositionReceipt = (path, journal, index, mode) => {
+  const line = readFileSync(path, "utf8");
+  assert.equal(line.endsWith("\n"), true, "receipt needs a complete line");
+  const fields = line.slice(0, -1).split("\t");
+  assert.equal(fields.length, 13);
+  const item = journal.stageIntents[index];
+  const root = journal.emptyBlobGuard.root;
+  const parent = journal.emptyBlobGuard.parents[index];
+  assert.deepEqual(fields.slice(0, 4), ["AITE6_DISPOSITION_RECEIPT_V1", journal.generation, String(index), mode]);
+  assert.deepEqual(fields.slice(4, 12), [root.volumeSerial, root.fileId, parent.volumeSerial,
+    parent.fileId, item.identity.volumeSerial, item.identity.fileId, String(item.identity.bytes), item.identity.sha256]);
+  assert.equal(fields[12], Buffer.from(basename(mode === "stage" ? item.path :
+    journal.publishedBlobs[index].path), "utf16le").toString("hex"));
+};
 const schema = `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
   INSERT INTO schema_migrations VALUES (7);
   CREATE TABLE test_jobs (id TEXT PRIMARY KEY, lifecycle TEXT NOT NULL);
@@ -238,6 +252,9 @@ try {
       } finally {
         if (native.exitCode === null && native.pid) spawnSync("taskkill", ["/F", "/PID", String(native.pid)]);
       }
+      if (armCut) for (let index = 0; index < (armCut === "first" ? 1 : 2); index++) {
+        assertDispositionReceipt(`${armMarker}.receipt-${index}`, journal, index, expected[1][index]);
+      }
       for (let index = 0; index < 2; index++) {
         const stage = journal.stageIntents[index].path;
         const destination = journal.publishedBlobs[index].path;
@@ -254,11 +271,13 @@ try {
         // the previous killed child's in-memory handles or a path-only read.
         const replayHelper = terminalCut ? faultFixtureWindowsFileHelper() : packagedWindowsFileHelper();
         const terminalMarker = join(fixture, `terminal-${terminalCut}.marker`);
+        const replayArmMarker = join(fixture, `replay-arm-${terminalCut}.marker`);
         const replay = spawn(replayHelper.path, ["recover-session", dirname(targetDb), hex(basename(targetDb)),
           hex(basename(journal.stagedDbPath)), hex(basename(journal.preservedDbPath)), journal.generation],
           { stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
             env: terminalCut ? { ...process.env, AITEST_NATIVE_TWO_BLOB_TERMINAL_CUT: terminalCut,
-              AITEST_NATIVE_TWO_BLOB_TERMINAL_MARKER: terminalMarker } : process.env });
+              AITEST_NATIVE_TWO_BLOB_TERMINAL_MARKER: terminalMarker,
+              AITEST_NATIVE_TWO_BLOB_ARM_MARKER: replayArmMarker } : process.env });
         const replayLines = createInterface({ input: replay.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
         const replayNext = async () => {
           const result = await replayLines.next();
@@ -314,7 +333,7 @@ try {
             const timer = setTimeout(() => { replay.kill(); fail(new Error("N=2 terminal command hung")); }, 10_000);
             replay.once("exit", (code) => { clearTimeout(timer); done(code); });
           }) : replay.exitCode;
-          if (terminalCut === "before" || terminalCut === "after") assert.notEqual(exitCode, 0);
+          if (terminalCut && terminalCut !== "ack") assert.notEqual(exitCode, 0);
           else assert.equal(exitCode, 2, "N=2 terminal command must fail closed or lose ACK");
           if (terminalCut === "ack") {
             const response = await replayLines.next();
@@ -327,6 +346,7 @@ try {
           }
           if (replay.exitCode === null) await new Promise((done) => replay.once("exit", done));
         }
+        if (terminalCut) assertDispositionReceipt(`${replayArmMarker}.receipt-1`, journal, 1, expected[1][1]);
         assert.equal(hashFile(targetDb), oldHash);
         if (walSentinel) {
           assert.equal(hashFile(`${targetDb}-wal`), oldWalHash, "old WAL bytes changed");
@@ -346,11 +366,16 @@ try {
         }
         assert.equal(readFileSync(journalPath).equals(journalBeforeGuard),
           !terminalCut || terminalCut === "before", "N=2 terminal journal boundary mismatch");
-        const after = readRestoreJournal(journalPath);
-        assert.equal(after.phase, terminalCut === "after" || terminalCut === "ack" ? "ROLLED_BACK" : "PREPARED");
-        assert.equal(after.moveReceipts.length, 0);
-        assert.equal(after.recoveryReceipts, undefined);
-        assert.equal(after.stageIntents.filter((item) => item.identity !== null).length, 2);
+        let after;
+        if (terminalCut === "partial") {
+          assert.throws(() => readRestoreJournal(journalPath), "truncated terminal line must not parse");
+        } else {
+          after = readRestoreJournal(journalPath);
+          assert.equal(after.phase, ["after", "ack", "flush-fail"].includes(terminalCut) ? "ROLLED_BACK" : "PREPARED");
+          assert.equal(after.moveReceipts.length, 0);
+          assert.equal(after.recoveryReceipts, undefined);
+          assert.equal(after.stageIntents.filter((item) => item.identity !== null).length, 2);
+        }
         if (terminalCut) {
           for (let index = 0; index < 2; index++) {
             const stage = journal.stageIntents[index].path;
@@ -366,23 +391,28 @@ try {
     try {
       const storage = new Storage({ dbPath: targetDb });
       try {
-        if (terminalCut === "after" || terminalCut === "ack") {
+        if (["after", "ack", "flush-fail"].includes(terminalCut)) {
           assert.equal(storage.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
           if (walSentinel) assert.equal(storage.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
             "wal-sentinel");
         }
       } finally { storage.close(); }
     }
-    catch (error) { blocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED"; if (!blocked) throw error; }
-    assert.equal(blocked, !(expectOld || terminalCut === "after" || terminalCut === "ack"),
+    catch (error) { blocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED" ||
+      terminalCut === "partial" && /journal|checksum|JSON|parse/iu.test(String(error)); if (!blocked) throw error; }
+    assert.equal(blocked, !(expectOld || ["after", "ack", "flush-fail"].includes(terminalCut)),
       `${cut}: startup generation outcome`);
     results.push({ cut, receipts: expected[0], physical: expected[1],
       ...(armCut ? { armCut, postArmPhysical: [0, 1].map((index) => armCut === "second" ||
         armCut === "first" && index === 0 ? "none" : expected[1][index]),
         terminalCut: terminalCut ?? null, terminalRejected: !terminalCut,
+        ...(terminalCut === "flush-fail" ? { redConfirmed: true, durableSealObserved: false } : {}),
         ...(terminalCut ? { finalPhysical: ["none", "none"] } : {}) } : {}), blocked });
   }
   process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+} catch (error) {
+  process.stderr.write(`PROBE_ASSERTION: ${error?.stack ?? error}\n`);
+  throw error;
 } finally {
   const ownedRoot = resolve(root);
   assert.equal(dirname(ownedRoot).toLowerCase(), resolve(tmpdir()).toLowerCase());
