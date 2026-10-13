@@ -70,7 +70,7 @@ describe("P08/PP44: restore stale WAL/SHM temizligi", () => {
     }
   });
 
-  it("restore: farkli konuma restore stale yan dosyalarla etkilenmez; hedef dosyalar temiz", async () => {
+  it("restore: baska mevcut hedefe restore stale yan dosyalarla etkilenmez; hedef dosyalar temiz", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-p08-freshrestore-"));
     try {
       const targetDb = join(dir, "state.db");
@@ -86,7 +86,12 @@ describe("P08/PP44: restore stale WAL/SHM temizligi", () => {
       backupDb.close();
 
       const freshDb = join(dir, "restored", "state.db");
-      await restoreBackup(backup.backup_dir, freshDb, join(dir, "restored", "artifacts"));
+      const restoredArtifacts = join(dir, "restored", "artifacts");
+      mkdirSync(restoredArtifacts, { recursive: true });
+      const existing = new Database(freshDb);
+      existing.exec(MINIMAL_SCHEMA);
+      existing.close();
+      await restoreBackup(backup.backup_dir, freshDb, restoredArtifacts);
       expect(existsSync(`${freshDb}-wal`)).toBe(false);
       expect(existsSync(`${freshDb}-shm`)).toBe(false);
       const reopened = new Database(freshDb);

@@ -68,6 +68,10 @@ describe("P08: backup snapshot authority", () => {
     assert.equal(verifyBackup(saved.backup_dir).valid, true);
     const target = join(f.root, "restored", "state.db");
     const targetArtifacts = join(f.root, "restored", "artifacts");
+    mkdirSync(targetArtifacts, { recursive: true });
+    const existing = new Database(target);
+    existing.exec("CREATE TABLE test_jobs (id TEXT PRIMARY KEY, lifecycle TEXT NOT NULL)");
+    existing.close();
     await restoreBackup(saved.backup_dir, target, targetArtifacts);
     const restored = new Database(target, { readonly: true });
     try {

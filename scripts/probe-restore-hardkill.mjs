@@ -11,13 +11,13 @@ import { createBackup, restoreBackup, sha256Data } from "../dist/storage/lifecyc
 import { journalPathForDb, readRestoreJournal } from "../dist/storage/restore-journal.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "../dist/storage/maintenance-lock.js";
 import { Storage } from "../dist/storage/storage.js";
-import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 
 assert.equal(process.platform, "win32", "This probe requires native Windows taskkill");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-hardkill-"));
 assert.ok(resolve(root).startsWith(resolve(tmpdir())));
 const expectRecovery = process.argv.includes("--expect-recovery");
 const native = process.argv.includes("--native");
+assert.equal(native, true, "Production Windows restore is native-only; run this probe with --native");
 const allModes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED",
   "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
   "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
@@ -35,7 +35,7 @@ const hashFile = (path) => createHash("sha256").update(readFileSync(path)).diges
 const childCode = `
 const fs = require("node:fs");
 const { syncBuiltinESMExports } = require("node:module");
-const mode = process.argv[1], moduleUrl = process.argv[2], helperUrl = process.argv[3], backupDir = process.argv[4], targetDb = process.argv[5], artifacts = process.argv[6], native = process.argv[7] === "native";
+const mode = process.argv[1], moduleUrl = process.argv[2], backupDir = process.argv[3], targetDb = process.argv[4], artifacts = process.argv[5], native = process.argv[6] === "native";
 let lastPhase = "";
 function halt() { process.stdout.write("HALT:" + mode + "\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000); }
 const write = fs.writeFileSync;
@@ -66,18 +66,20 @@ if (native) {
   const originalSpawn = childProcess.spawn;
   childProcess.spawn = (...args) => {
     const child = originalSpawn(...args);
-    if (args[1]?.[0] === "session") {
+    if (["session", "copy-stage-session", "blob-verify-session"].includes(args[1]?.[0])) {
       let pending = "";
       child.stdout.on("data", (data) => {
         pending += data.toString();
         if (pending.length > 8192) throw new Error("native probe line too long");
         let end;
         while ((end = pending.indexOf("\\n")) >= 0) {
-          const line = pending.slice(0, end);
+          const line = pending.slice(0, end).replace(/\\r$/, "");
           pending = pending.slice(end + 1);
           const slot = mode === "MOVE_DB" ? "oldDb" : mode === "MOVE_WAL" ? "oldWal" :
             mode === "MOVE_SHM" ? "oldShm" : mode === "PUBLISH_DB" ? "stagedDb" : "";
           const fields = line.split("\\t");
+          if (mode === "LINK" && args[1]?.[0] === "copy-stage-session" && fields[0] === "LINKED") halt();
+          if (mode === "COMMITTED" && args[1]?.[0] === "blob-verify-session" && fields[0] === "COMMITTED") halt();
           if (slot && fields[0] === "MOVED" && fields[3] === slot) halt();
         }
       });
@@ -86,8 +88,8 @@ if (native) {
   };
 }
 syncBuiltinESMExports();
-Promise.all([import(moduleUrl), import(helperUrl)]).then(async ([module, bridge]) => {
-  await module.restoreBackup(backupDir, targetDb, artifacts, native ? { nativeHelper: bridge.packagedWindowsFileHelper() } : undefined);
+import(moduleUrl).then(async (module) => {
+  await module.restoreBackup(backupDir, targetDb, artifacts);
   process.exitCode = 43;
 })
   .catch((error) => { process.stderr.write(String(error?.stack ?? error)); process.exitCode = 44; });
@@ -95,8 +97,7 @@ Promise.all([import(moduleUrl), import(helperUrl)]).then(async ([module, bridge]
 
 async function killAt(mode, backupDir, targetDb, artifacts) {
   const moduleUrl = pathToFileURL(resolve("dist/storage/lifecycle-ops.js")).href;
-  const helperUrl = pathToFileURL(resolve("dist/discovery/windows-file-bridge.js")).href;
-  const child = spawn(process.execPath, ["-e", childCode, mode, moduleUrl, helperUrl, backupDir, targetDb, artifacts,
+  const child = spawn(process.execPath, ["-e", childCode, mode, moduleUrl, backupDir, targetDb, artifacts,
     native ? "native" : "legacy"],
     { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
@@ -153,6 +154,7 @@ try {
     const targetDb = join(fixture, "runtime", "state.db");
     const targetArtifacts = join(fixture, "runtime", "artifacts");
     mkdirSync(dirname(targetDb), { recursive: true });
+    mkdirSync(targetArtifacts, { recursive: true });
     const old = new Database(targetDb);
     if (walModes.has(mode)) old.pragma("journal_mode = WAL");
     old.exec(schema);
@@ -185,6 +187,13 @@ try {
     const oldCopies = [targetDb, ...readdirSync(dirname(targetDb)).filter((name) => name.startsWith("state.db.restore-old-"))
       .map((name) => join(dirname(targetDb), name))].filter((path) => existsSync(path) && hashFile(path) === oldHash);
     assert.ok(oldCopies.length >= 1, `${mode}: old DB bytes lost`);
+    const newAtTarget = ["PUBLISH_DB", "NEW_DB_MOVED", "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"].includes(mode);
+    const oldAtTarget = ["PREPARED", "LINK", "BLOBS_READY"].includes(mode);
+    assert.equal(existsSync(targetDb), newAtTarget || oldAtTarget, `${mode}: target DB physical layout`);
+    assert.equal(existsSync(journal.stagedDbPath), !newAtTarget, `${mode}: staged DB physical layout`);
+    assert.equal(hashFile(newAtTarget ? targetDb : journal.stagedDbPath), journal.evidence.sourceDbSha256,
+      `${mode}: physical new DB hash`);
+    if (oldAtTarget) assert.equal(hashFile(targetDb), oldHash, `${mode}: old target DB hash`);
     if (["MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) {
       const expectedPhase = mode.startsWith("OLD_") ? mode : mode === "MOVE_DB" ? "BLOBS_READY" :
         mode === "MOVE_WAL" ? "OLD_DB_MOVED" : "OLD_WAL_MOVED";
@@ -223,7 +232,7 @@ try {
     try {
       const reopened = new Storage({ dbPath: targetDb });
       try {
-        if ((native && mode !== "COMMITTED") || mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+        if (!native && (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY")) {
           assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
           if (walModes.has(mode)) {
             assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
@@ -243,12 +252,14 @@ try {
       startupBlocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED";
       if (!startupBlocked) throw error;
     }
-    assert.equal(startupBlocked, !native && mode !== "COMMITTED" && mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY", `${mode}: startup gate mismatch`);
-    if ((native && mode !== "COMMITTED") || mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+    assert.equal(startupBlocked, mode !== "COMMITTED" && (native ||
+      mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY"), `${mode}: startup gate mismatch`);
+    if (!native && (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY")) {
       assert.equal(readRestoreJournal(journalPathForDb(targetDb))?.phase, "ROLLED_BACK");
     }
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
-    assert.equal(existsSync(join(targetArtifacts, rel)), mode !== "PREPARED", `${mode}: blob ownership/layout changed`);
+    assert.equal(existsSync(join(targetArtifacts, rel)), mode !== "PREPARED" && mode !== "LINK",
+      `${mode}: blob ownership/layout changed`);
     const releaseDb = acquireRestoreDbLock(targetDb); releaseDb();
     const releaseArtifact = acquireMaintenanceLock(targetArtifacts, "restore"); releaseArtifact();
     results.push({ mode, journal_phase: journal?.phase, startup_blocked: startupBlocked, opened_generation: openedGeneration,
@@ -266,6 +277,7 @@ try {
   rawSource.close();
   const rawTargetPath = join(rawRoot, "runtime", "state.db");
   mkdirSync(dirname(rawTargetPath), { recursive: true });
+  mkdirSync(join(rawRoot, "runtime", "artifacts"), { recursive: true });
   const rawTarget = new Database(rawTargetPath);
   rawTarget.pragma("journal_mode = WAL");
   rawTarget.exec(schema);
@@ -285,8 +297,7 @@ try {
     const before = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);
     let outcome = "RESTORED";
-    try { await restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts"),
-      native ? { nativeHelper: packagedWindowsFileHelper() } : undefined); }
+    try { await restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts")); }
     catch (error) { outcome = error?.details?.reason_code ?? error?.code ?? String(error); }
     const after = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);

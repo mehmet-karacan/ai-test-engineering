@@ -20,49 +20,55 @@ import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 import { Storage } from "../../src/storage/storage.js";
 
 type BlobEntry = { relative_path: string; sha256: string; bytes: number };
-const faults = vi.hoisted(() => ({ stageCopy: false, tamperStagedDb: false, tamperStagedBlob: false,
-  dbPublish: false, secondBlobPublish: false, linkCount: 0, observedLinks: 0,
+const faults = vi.hoisted(() => ({ tamperStagedDb: false, afterDbStageCopy: null as null | (() => void),
+  dbPublish: false, secondBlobPublish: false, linkCount: 0,
   afterFirstLink: null as null | (() => void) }));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   const copyFileSync: typeof actual.copyFileSync = (src, dest, mode) => {
-    if (faults.stageCopy && String(dest).includes(".restore-") && String(src).includes("blobs")) {
-      const error: NodeJS.ErrnoException = new Error("ENOSPC: staged blob copy failed");
-      error.code = "ENOSPC";
-      throw error;
-    }
     const copied = actual.copyFileSync(src, dest, mode);
     if (faults.tamperStagedDb && String(src).endsWith("state.db") && String(dest).includes(".restore-")) {
       const staged = new Database(String(dest));
       try { staged.prepare("INSERT INTO test_jobs VALUES ('untrusted-copy', 'COMPLETED')").run(); }
       finally { staged.close(); }
     }
-    if (faults.tamperStagedBlob && String(src).includes("blobs") && String(dest).includes(".restore-")) {
-      actual.writeFileSync(dest, "tampered staged blob");
-    }
+    if (String(src).endsWith("state.db") && String(dest).includes(".restore-")) faults.afterDbStageCopy?.();
     return copied;
   };
-  const linkSync: typeof actual.linkSync = (existingPath, newPath) => {
-    faults.observedLinks++;
+  return { ...actual, copyFileSync };
+});
+
+vi.mock("../../src/discovery/windows-file-bridge.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/discovery/windows-file-bridge.js")>();
+  return { ...actual, renameWindowsOwnedFile: (...args: Parameters<typeof actual.renameWindowsOwnedFile>) => {
     if (faults.secondBlobPublish && ++faults.linkCount === 2) {
-      const error: NodeJS.ErrnoException = new Error("EACCES: second blob publish failed");
+      const error: NodeJS.ErrnoException = new Error("EACCES: second native blob publish denied");
       error.code = "EACCES";
       throw error;
     }
-    const result = actual.linkSync(existingPath, newPath);
+    const receipt = actual.renameWindowsOwnedFile(...args);
     if (faults.secondBlobPublish && faults.linkCount === 1) faults.afterFirstLink?.();
-    return result;
-  };
-  const renameSync: typeof actual.renameSync = (oldPath, newPath) => {
-    if (faults.dbPublish && String(oldPath).includes(".restore-") && !String(oldPath).includes(".restore-old-") && String(newPath).endsWith("state.db")) {
-      const error: NodeJS.ErrnoException = new Error("EACCES: database publish failed");
-      error.code = "EACCES";
-      throw error;
-    }
-    return actual.renameSync(oldPath, newPath);
-  };
-  return { ...actual, copyFileSync, renameSync, linkSync };
+    return receipt;
+  } };
+});
+
+vi.mock("../../src/storage/windows-restore-session.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/storage/windows-restore-session.js")>();
+  return { ...actual, startWindowsRestoreMoveSession: async (...args: Parameters<typeof actual.startWindowsRestoreMoveSession>) => {
+    const session = await actual.startWindowsRestoreMoveSession(...args);
+    return new Proxy(session, { get(target, key, receiver) {
+      if (key !== "renameOwned") return Reflect.get(target, key, receiver);
+      return async (...moveArgs: Parameters<typeof session.renameOwned>) => {
+        if (faults.dbPublish && moveArgs[0] === "stagedDb") {
+          const error: NodeJS.ErrnoException = new Error("EACCES: native database publish denied");
+          error.code = "EACCES";
+          throw error;
+        }
+        return session.renameOwned(...moveArgs);
+      };
+    } });
+  } };
 });
 
 const SCHEMA = `
@@ -83,6 +89,15 @@ function makeBlob(artifactsRoot: string, text: string): BlobEntry {
   mkdirSync(dirname(destination), { recursive: true });
   writeFileSync(destination, text);
   return { relative_path, sha256, bytes: Buffer.byteLength(text) };
+}
+
+function seedTarget(dbPath: string, artifactsRoot: string): string {
+  mkdirSync(dirname(dbPath), { recursive: true });
+  mkdirSync(artifactsRoot, { recursive: true });
+  const db = new Database(dbPath);
+  try { db.exec(SCHEMA); }
+  finally { db.close(); }
+  return sha256Data(readFileSync(dbPath));
 }
 
 describe("WN restore atomikligi", () => {
@@ -152,6 +167,7 @@ describe("WN restore atomikligi", () => {
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
       mkdirSync(dirname(targetDbPath), { recursive: true });
+      mkdirSync(join(root, "runtime", "artifacts"), { recursive: true });
       const target = new Database(targetDbPath);
       target.exec(SCHEMA);
       target.prepare("INSERT INTO test_jobs VALUES ('active-job', 'RUNNING')").run();
@@ -180,6 +196,7 @@ describe("WN restore atomikligi", () => {
       sourceDb.close();
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
+      mkdirSync(join(root, "runtime", "artifacts"), { recursive: true });
       live = new Storage({ dbPath: targetDbPath });
       live.db.exec(SCHEMA);
       const baseline = sha256Data(readFileSync(targetDbPath));
@@ -264,13 +281,14 @@ describe("WN restore atomikligi", () => {
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
       const targetArtifacts = join(root, "runtime", "artifacts");
+      const baseline = seedTarget(targetDbPath, targetArtifacts);
       const outside = join(root, "outside");
       mkdirSync(outside, { recursive: true });
       mkdirSync(targetArtifacts, { recursive: true });
       symlinkSync(outside, join(targetArtifacts, "blobs"), "junction");
       await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_REPARSE_POINT");
-      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
       assert.equal(existsSync(join(outside, "sha256", blob.sha256)), false);
     } finally {
@@ -300,9 +318,10 @@ describe("WN restore atomikligi", () => {
       symlinkSync(outside, backupSegment, "junction");
       assert.equal(verifyBackup(saved.backup_dir).valid, false);
       const targetDbPath = join(root, "runtime", "state.db");
+      const baseline = seedTarget(targetDbPath, join(root, "runtime", "artifacts"));
       await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_REPARSE_POINT");
-      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
     } finally {
       sourceDb?.close();
@@ -329,9 +348,10 @@ describe("WN restore atomikligi", () => {
       sourceDb.close();
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
+      const baseline = seedTarget(targetDbPath, dirname(targetDbPath));
       await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, dirname(targetDbPath)),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PATH_COLLISION");
-      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
     } finally {
       sourceDb?.close();
@@ -360,9 +380,10 @@ describe("WN restore atomikligi", () => {
       manifest.blobs[0]!.relative_path = `${otherDrive}:\\outside\\blob`;
       writeFileSync(manifestPath, JSON.stringify(manifest));
       const targetDbPath = join(root, "runtime", "state.db");
+      const baseline = seedTarget(targetDbPath, join(root, "runtime", "artifacts"));
       await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "PATH_ESCAPE");
-      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
     } finally {
       sourceDb?.close();
@@ -387,11 +408,11 @@ describe("WN restore atomikligi", () => {
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
       const targetArtifacts = join(root, "runtime", "artifacts");
-      mkdirSync(targetArtifacts, { recursive: true });
+      const baseline = seedTarget(targetDbPath, targetArtifacts);
       writeFileSync(join(targetArtifacts, "blobs"), "keep me");
       await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PARENT_NOT_DIRECTORY");
-      assert.equal(existsSync(targetDbPath), false);
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
       assert.equal(readFileSync(join(targetArtifacts, "blobs"), "utf8"), "keep me");
     } finally {
@@ -419,6 +440,7 @@ describe("WN restore atomikligi", () => {
       active.close();
       const baseline = sha256Data(readFileSync(targetDbPath));
       const releaseDb = acquireRestoreDbLock(targetDbPath);
+      mkdirSync(join(root, "other-artifacts"), { recursive: true });
       try {
         await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "other-artifacts")),
           (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "MAINTENANCE_BUSY_OR_STALE");
@@ -509,7 +531,7 @@ describe("WN restore atomikligi", () => {
     }
   });
 
-  it("staged blob copy fails before the active database is published", async () => {
+  it("native staged blob copy fails when the verified source disappears", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-io-"));
     let sourceDb: Database.Database | undefined;
     try {
@@ -529,18 +551,20 @@ describe("WN restore atomikligi", () => {
       const targetDbPath = join(root, "runtime", "state.db");
       const targetArtifacts = join(root, "runtime", "artifacts");
       mkdirSync(dirname(targetDbPath), { recursive: true });
+      mkdirSync(targetArtifacts, { recursive: true });
       const active = new Database(targetDbPath);
       active.exec(SCHEMA);
       active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
       active.close();
       const baseline = sha256Data(readFileSync(targetDbPath));
 
-      faults.stageCopy = true;
-      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /ENOSPC/);
+      faults.afterDbStageCopy = () => { rmSync(join(saved.backup_dir, "blobs", blob.relative_path), { force: true }); };
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts));
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline, "copy failure must preserve active DB bytes");
-      assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "ROLLED_BACK");
+      assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "PREPARED");
+      assert.equal(existsSync(join(targetArtifacts, blob.relative_path)), false);
     } finally {
-      faults.stageCopy = false;
+      faults.afterDbStageCopy = null;
       sourceDb?.close();
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
@@ -560,6 +584,7 @@ describe("WN restore atomikligi", () => {
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
       mkdirSync(dirname(targetDbPath), { recursive: true });
+      mkdirSync(join(root, "runtime", "artifacts"), { recursive: true });
       const active = new Database(targetDbPath);
       active.exec(SCHEMA);
       active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
@@ -577,7 +602,7 @@ describe("WN restore atomikligi", () => {
     }
   });
 
-  it("rejects a changed staged blob before publishing any target blob", async () => {
+  it("rejects a changed native staged blob before publishing any target blob", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-stage-blob-"));
     let sourceDb: Database.Database | undefined;
     try {
@@ -595,21 +620,19 @@ describe("WN restore atomikligi", () => {
       const targetDbPath = join(root, "runtime", "state.db");
       const targetArtifacts = join(root, "runtime", "artifacts");
       mkdirSync(dirname(targetDbPath), { recursive: true });
+      mkdirSync(targetArtifacts, { recursive: true });
       const active = new Database(targetDbPath);
       active.exec(SCHEMA);
       active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
       active.close();
       const baseline = sha256Data(readFileSync(targetDbPath));
-      faults.observedLinks = 0;
-      faults.tamperStagedBlob = true;
+      faults.afterDbStageCopy = () => { writeFileSync(join(saved.backup_dir, "blobs", blob.relative_path), "tampered backup blob"); };
       await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_STAGED_BLOB_CHANGED");
-      assert.equal(faults.observedLinks, 0);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(join(targetArtifacts, blob.relative_path)), false);
     } finally {
-      faults.tamperStagedBlob = false;
-      faults.observedLinks = 0;
+      faults.afterDbStageCopy = null;
       sourceDb?.close();
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
@@ -629,6 +652,7 @@ describe("WN restore atomikligi", () => {
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
       mkdirSync(dirname(targetDbPath), { recursive: true });
+      mkdirSync(join(root, "runtime", "artifacts"), { recursive: true });
       const active = new Database(targetDbPath);
       active.exec(SCHEMA);
       active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
@@ -645,7 +669,7 @@ describe("WN restore atomikligi", () => {
     }
   });
 
-  it("second blob publish failure removes the first new blob and preserves old DB", async () => {
+  it("second native blob publish denial preserves old DB and retains first blob under journal", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-link-"));
     let sourceDb: Database.Database | undefined;
     try {
@@ -666,6 +690,7 @@ describe("WN restore atomikligi", () => {
       const targetDbPath = join(root, "runtime", "state.db");
       const targetArtifacts = join(root, "runtime", "artifacts");
       mkdirSync(dirname(targetDbPath), { recursive: true });
+      mkdirSync(targetArtifacts, { recursive: true });
       const active = new Database(targetDbPath);
       active.exec(SCHEMA);
       active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
@@ -675,7 +700,9 @@ describe("WN restore atomikligi", () => {
       faults.linkCount = 0;
       await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /EACCES/);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
-      for (const blob of blobs) assert.equal(existsSync(join(targetArtifacts, blob.relative_path)), false);
+      assert.equal(readFileSync(join(targetArtifacts, blobs[0]!.relative_path), "utf8"), "new payload one");
+      assert.equal(existsSync(join(targetArtifacts, blobs[1]!.relative_path)), false);
+      assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "PREPARED");
     } finally {
       faults.secondBlobPublish = false;
       faults.linkCount = 0;
@@ -708,6 +735,7 @@ describe("WN restore atomikligi", () => {
       const targetDbPath = join(root, "runtime", "state.db");
       const targetArtifacts = join(root, "runtime", "artifacts");
       const runtimeStore = new ArtifactStore({ root: targetArtifacts });
+      seedTarget(targetDbPath, targetArtifacts);
       let publishSucceeded = false;
       let publishError: unknown;
       faults.secondBlobPublish = true;

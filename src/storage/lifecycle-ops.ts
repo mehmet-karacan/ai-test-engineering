@@ -15,7 +15,7 @@ import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb,
   prepareRestorePhaseLine, readRestoreJournal, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
-import { deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile, verifyWindowsOwnedFile,
+import { deleteWindowsOwnedFile, inspectWindowsPath, packagedWindowsFileHelper, renameWindowsOwnedFile, verifyWindowsOwnedFile,
   type WindowsCopyResult, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 import { assertWindowsRestoreRootIdentity, captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession,
   type RestoreFileSlot, type RestoreMoveSession } from "./windows-restore-session.js";
@@ -448,6 +448,9 @@ async function verifyPublishedRestore(dbPath: string, artifactRoot: string, mani
  */
 export async function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string,
   options?: { nativeHelper?: WindowsFileHelperSpec }): Promise<RestoreResult> {
+  // Windows restore always uses the packaged native owner. An absent caller option
+  // cannot select the legacy path-based mutation branch in production.
+  if (process.platform === "win32") options = { nativeHelper: options?.nativeHelper ?? packagedWindowsFileHelper() };
   targetDbPath = resolve(targetDbPath);
   targetArtifactRoot = resolve(targetArtifactRoot);
   backupDir = resolve(backupDir);
