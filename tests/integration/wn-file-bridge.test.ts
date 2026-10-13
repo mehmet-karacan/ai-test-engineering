@@ -8,7 +8,8 @@ import { once } from "node:events";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import Database from "better-sqlite3";
-import { inspectWindowsPath, copyWindowsFile, copyWindowsOwnedFile, renameWindowsOwnedFile, deleteWindowsOwnedFile,
+import { inspectWindowsPath, copyWindowsFile, copyWindowsOwnedFile, renameWindowsOwnedFile, verifyWindowsOwnedFile,
+  deleteWindowsOwnedFile,
   packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
 
 function stdoutLineReader(stdout: Readable): () => Promise<string> {
@@ -100,6 +101,27 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
       targetIdentity, copied);
     expect(published.fileId).toBe(copied.fileId);
     expect(readFileSync(join(targetRoot, "blobs", "x.bin"), "utf8")).toBe("verified source");
+  });
+
+  it("pins skip and final verification to the same physical blob ID across nested swaps", () => {
+    const root = join(sandbox, `verify-${randomUUID()}`);
+    const nested = join(root, "blobs");
+    const moved = join(root, "blobs-moved");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(nested, "x.bin"), "expected bytes");
+    const rootId = inspectWindowsPath(helper, root);
+    const original = verifyWindowsOwnedFile(helper, root, "blobs\\x.bin", rootId,
+      { bytes: 14, sha256: createHash("sha256").update("expected bytes").digest("hex") });
+    renameSync(nested, moved);
+    mkdirSync(nested);
+    writeFileSync(join(nested, "x.bin"), "expected bytes");
+    expect(inspectWindowsPath(helper, root).fileId).toBe(rootId.fileId);
+    expect(() => verifyWindowsOwnedFile(helper, root, "blobs\\x.bin", rootId,
+      { bytes: 14, sha256: original.sha256, identity: original })).toThrow();
+    rmSync(nested, { recursive: true });
+    renameSync(moved, nested);
+    expect(verifyWindowsOwnedFile(helper, root, "blobs\\x.bin", rootId,
+      { bytes: 14, sha256: original.sha256, identity: original }).fileId).toBe(original.fileId);
   });
 
   it("uses volume and file ID to recognize hardlink and case aliases", () => {

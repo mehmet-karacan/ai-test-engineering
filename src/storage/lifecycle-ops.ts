@@ -14,7 +14,7 @@ import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
-import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile,
+import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile, verifyWindowsOwnedFile,
   type WindowsCopyResult, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 import { assertWindowsRestoreRootIdentity, captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession,
   type RestoreFileSlot, type RestoreMoveSession } from "./windows-restore-session.js";
@@ -413,7 +413,8 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   };
 }
 
-function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: BackupManifest): void {
+function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: BackupManifest,
+  verifyBlob?: (blob: BackupBlob) => void): void {
   const snapshot = inspectBackupSnapshot(dbPath);
   if (snapshot.reason !== null || snapshot.rows.length !== manifest.blobs.length) {
     throw new AppError("STORAGE_ERROR", "Published restore DB verification failed", { reason_code: "RESTORE_PUBLISHED_DB_INVALID" });
@@ -424,6 +425,7 @@ function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: 
     if (!row || row.sha256 !== blob.sha256 || row.bytes !== blob.bytes) {
       throw new AppError("STORAGE_ERROR", "Published restore manifest mismatch", { reason_code: "RESTORE_PUBLISHED_SET_MISMATCH" });
     }
+    if (verifyBlob) { verifyBlob(blob); continue; }
     const bytes = readFileSync(resolve(artifactRoot, blob.relative_path.replace(/\//g, pathSep)));
     if (bytes.byteLength !== blob.bytes || sha256Data(bytes) !== blob.sha256) {
       throw new AppError("STORAGE_ERROR", "Published restore blob mismatch", { reason_code: "RESTORE_PUBLISHED_BLOB_INVALID" });
@@ -454,6 +456,16 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   assertSafePathComponents(join(backupDir, "blobs"), "directory");
   assertSafePathComponents(targetDbPath, "file");
   assertSafePathComponents(targetArtifactRoot, "directory");
+  if (options?.nativeHelper && !existsSync(targetDbPath)) {
+    throw new AppError("BLOCKED_ISOLATION", "Native restore session requires an existing target database", {
+      reason_code: "WINDOWS_RESTORE_FRESH_TARGET_UNSUPPORTED",
+    });
+  }
+  if (options?.nativeHelper && !existsSync(targetArtifactRoot)) {
+    throw new AppError("BLOCKED_ISOLATION", "Native blob restore requires an existing artifact root", {
+      reason_code: "RESTORE_ARTIFACT_ROOT_REQUIRED",
+    });
+  }
   const releaseDb = acquireRestoreDbLock(targetDbPath);
   try {
   assertRestoreReadyBeforeOpen(targetDbPath);
@@ -497,6 +509,14 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
 
   // Preflight: tum hedef blob yollari, aktif DB veya mevcut blob'lar
   // degistirilmeden once cozulur ve dogrulanir.
+  const preflightArtifactRoot = options?.nativeHelper && existsSync(targetArtifactRoot)
+    ? inspectWindowsPath(options.nativeHelper, targetArtifactRoot) : null;
+  if (options?.nativeHelper && manifest.blobs.length > 0 && !preflightArtifactRoot) {
+    throw new AppError("BLOCKED_ISOLATION", "Native blob restore requires an existing artifact root", {
+      reason_code: "RESTORE_ARTIFACT_ROOT_REQUIRED",
+    });
+  }
+  const reusedBlobs = new Map<string, WindowsCopyResult>();
   const plan: Array<{ source: string; destination: string; stage: string; sha256: string; skip: boolean }> = [];
   for (const blob of manifest.blobs) {
     const rel = blob.relative_path.replace(/\//g, pathSep);
@@ -522,9 +542,15 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     if (existsSync(destination)) {
       let conflict = true;
       try {
-        const existing = readFileSync(destination);
-        // Esit hash + esit byte: mevcut hedef blob yeniden kullanilir (idempotent restore).
-        conflict = !(sha256Data(existing) === blob.sha256 && existing.byteLength === blob.bytes);
+        if (options?.nativeHelper && preflightArtifactRoot) {
+          reusedBlobs.set(destination, verifyWindowsOwnedFile(options.nativeHelper, targetArtifactRoot, rel,
+            preflightArtifactRoot, { bytes: blob.bytes, sha256: blob.sha256 }));
+          conflict = false;
+        } else {
+          const existing = readFileSync(destination);
+          // Esit hash + esit byte: mevcut hedef blob yeniden kullanilir (idempotent restore).
+          conflict = !(sha256Data(existing) === blob.sha256 && existing.byteLength === blob.bytes);
+        }
       } catch {
         // Okunamayan hedef (orn. dizin): fail-closed cakisma.
         conflict = true;
@@ -541,8 +567,15 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   }
 
   mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
-  mkdirSync(targetArtifactRoot, { recursive: true });
+  if (!options?.nativeHelper || manifest.blobs.length === 0) mkdirSync(targetArtifactRoot, { recursive: true });
   const initialArtifactRoot = options?.nativeHelper ? inspectWindowsPath(options.nativeHelper, targetArtifactRoot) : null;
+  if (preflightArtifactRoot && initialArtifactRoot &&
+      (preflightArtifactRoot.volumeSerial !== initialArtifactRoot.volumeSerial ||
+       preflightArtifactRoot.fileId !== initialArtifactRoot.fileId)) {
+    throw new AppError("BLOCKED_ISOLATION", "Artifact root changed after blob preflight", {
+      reason_code: "RESTORE_ARTIFACT_ROOT_CHANGED",
+    });
+  }
   const initialBackupBlobRoot = options?.nativeHelper && manifest.blobs.length > 0
     ? inspectWindowsPath(options.nativeHelper, backupBlobRoot) : null;
   let artifactRootChanged = false;
@@ -607,6 +640,18 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   }
   const publishedNew: string[] = [];
   const ownedBlobs = new Map<string, { identity: WindowsCopyResult; published: boolean }>();
+  const cleanupOwnedBlobs = (): void => {
+    if (!options?.nativeHelper || !initialArtifactRoot) return;
+    for (const item of [...plan].reverse()) {
+      const owned = ownedBlobs.get(item.destination);
+      if (!owned) continue;
+      deleteWindowsOwnedFile(options.nativeHelper, targetArtifactRoot,
+        relative(targetRoot, owned.published ? item.destination : item.stage),
+        initialArtifactRoot, owned.identity);
+      ownedBlobs.delete(item.destination);
+    }
+    publishedNew.length = 0;
+  };
   let dbPublished = false;
   let safeRollback = true;
   try {
@@ -615,7 +660,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     for (const item of plan) {
       if (item.skip) continue;
       assertArtifactRoot();
-      mkdirSync(resolve(item.destination, ".."), { recursive: true });
+      if (!options?.nativeHelper) mkdirSync(resolve(item.destination, ".."), { recursive: true });
       assertArtifactRoot();
       if (options?.nativeHelper && initialArtifactRoot && initialBackupBlobRoot) {
         const identity = copyWindowsOwnedFile(options.nativeHelper, backupBlobRoot,
@@ -688,7 +733,17 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       phase("NEW_DB_PUBLISHED");
       assertArtifactRoot();
       if (nativeSession) await nativeSession.enterReadVerify();
-      verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest);
+      verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest,
+        options?.nativeHelper && initialArtifactRoot ? (blob) => {
+          const destination = resolve(targetRoot, blob.relative_path.replace(/\//g, pathSep));
+          const expected = ownedBlobs.get(destination)?.identity ?? reusedBlobs.get(destination);
+          if (!expected) throw new AppError("BLOCKED_ISOLATION", "Published blob identity missing", {
+            reason_code: "RESTORE_OWNED_BLOB_MISSING",
+          });
+          verifyWindowsOwnedFile(options.nativeHelper!, targetArtifactRoot,
+            relative(targetRoot, destination), initialArtifactRoot,
+            { bytes: blob.bytes, sha256: blob.sha256, identity: expected });
+        } : undefined);
       // Read-only SQLite dogrulamasi WAL/SHM yan dosyasi olusturabilir;
       // baglanti kapandiktan sonra yeni generation yan dosyalari kaldirilir.
       for (const sidecar of [staleWal, staleShm]) {
@@ -732,7 +787,9 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
         }
         if (nativeSession) {
           // The final reverse MOVE receipt is still held by the native owner.
-          // Seal the old-generation decision before releasing its raw-writer guard.
+          // Remove captured new blob FileIds before sealing the old generation.
+          // A delete failure leaves the journal nonterminal and startup blocked.
+          cleanupOwnedBlobs();
           phase("ROLLED_BACK");
           await nativeSession.close();
           nativeSession = undefined;
@@ -751,31 +808,16 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     }
     if (safeRollback && !dbPublished) {
       assertArtifactRoot();
-      for (const path of publishedNew.reverse()) {
-        if (options?.nativeHelper && initialArtifactRoot) {
-          const owned = ownedBlobs.get(path);
-          if (!owned) throw new AppError("BLOCKED_ISOLATION", "Published blob identity missing", { reason_code: "RESTORE_OWNED_BLOB_MISSING" });
-          deleteWindowsOwnedFile(options.nativeHelper, targetArtifactRoot, relative(targetRoot, path),
-            initialArtifactRoot, owned.identity);
-          owned.published = false;
-          ownedBlobs.delete(path);
-        } else if (existsSync(path)) rmSync(path, { force: true });
-      }
+      if (options?.nativeHelper) cleanupOwnedBlobs();
+      else for (const path of publishedNew.reverse()) if (existsSync(path)) rmSync(path, { force: true });
       if (journalStarted && !journalTerminal) phase("ROLLED_BACK");
     }
     throw error;
   } finally {
     if (safeRollback && !artifactRootChanged) {
       assertArtifactRoot();
-      for (const item of plan) {
-        if (options?.nativeHelper && initialArtifactRoot) {
-          const owned = ownedBlobs.get(item.destination);
-          if (owned && !owned.published) {
-            deleteWindowsOwnedFile(options.nativeHelper, targetArtifactRoot, relative(targetRoot, item.stage),
-              initialArtifactRoot, owned.identity);
-            ownedBlobs.delete(item.destination);
-          }
-        } else if (existsSync(item.stage)) rmSync(item.stage, { force: true });
+      if (!options?.nativeHelper) for (const item of plan) {
+        if (existsSync(item.stage)) rmSync(item.stage, { force: true });
       }
       if (existsSync(tempDb)) rmSync(tempDb, { force: true });
     }

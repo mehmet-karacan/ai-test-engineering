@@ -828,6 +828,26 @@ int renameOwned(int argc, wchar_t** argv) {
   printIdentity(after, afterDigest);
   return 0;
 }
+
+int verifyOwned(int argc, wchar_t** argv) {
+  if (argc != 10) return 2;
+  std::vector<Handle> root, file;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root)) return 2;
+  Identity rootId;
+  if (!identity(root.back().value, rootId) || !expectedRoot(rootId, argv[4], argv[5]) ||
+      !openRelative(root.back().value, argv[3], false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES, file, false, FILE_SHARE_READ | FILE_SHARE_DELETE)) return 2;
+  Identity found;
+  unsigned char digest[32]{};
+  if (!snapshot(file.back().value, found, digest)) return 2;
+  char serial[17]{};
+  std::snprintf(serial, sizeof(serial), "%016llx", found.id.VolumeSerialNumber);
+  if ((wcscmp(argv[6], L"-") != 0 && ascii(argv[6]) != serial) ||
+      (wcscmp(argv[7], L"-") != 0 && ascii(argv[7]) != ascii(fileIdHex(found))) ||
+      ascii(argv[8]) != std::to_string(found.bytes) || ascii(argv[9]) != ascii(digestHex(digest))) return 2;
+  printIdentity(found, digest);
+  return 0;
+}
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -839,6 +859,7 @@ int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"delete-owned-probe") == 0) return deleteOwnedSession(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"copy-owned") == 0) return copyOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"rename-owned") == 0) return renameOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"verify-owned") == 0) return verifyOwned(argc, argv);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
     std::vector<Handle> root;

@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
+import { inspectWindowsPath, packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
 import { captureExpectedWindowsRestoreFile, startWindowsFreshRestoreMoveSession,
   startWindowsRestoreMoveSession } from "../../src/storage/windows-restore-session.js";
 import { createBackup, restoreBackup } from "../../src/storage/lifecycle-ops.js";
@@ -45,10 +45,21 @@ describe("S01 native restore session adapter", () => {
       old.prepare("INSERT INTO test_jobs VALUES ('old', 'COMPLETED')").run();
       old.close();
       const targetArtifacts = join(root, "runtime", "artifacts");
+      await expect(restoreBackup(backup.backup_dir, target, targetArtifacts,
+        { nativeHelper: packagedWindowsFileHelper() })).rejects.toMatchObject({
+        details: { reason_code: "RESTORE_ARTIFACT_ROOT_REQUIRED" },
+      });
+      expect(existsSync(journalPathForDb(target))).toBe(false);
+      mkdirSync(targetArtifacts, { recursive: true });
       await restoreBackup(backup.backup_dir, target, targetArtifacts,
         { nativeHelper: packagedWindowsFileHelper() });
       expect(readFileSync(join(targetArtifacts, "blobs", "x.bin"), "utf8")).toBe("new blob bytes");
       expect(readRestoreJournal(journalPathForDb(target))?.phase).toBe("COMMITTED");
+      const originalBlobId = inspectWindowsPath(packagedWindowsFileHelper(), join(targetArtifacts, "blobs", "x.bin")).fileId;
+      await restoreBackup(backup.backup_dir, target, targetArtifacts,
+        { nativeHelper: packagedWindowsFileHelper() });
+      expect(inspectWindowsPath(packagedWindowsFileHelper(), join(targetArtifacts, "blobs", "x.bin")).fileId)
+        .toBe(originalBlobId);
     } finally {
       source?.close();
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
@@ -180,6 +191,7 @@ describe("S01 native restore session adapter", () => {
       old.exec(SCHEMA);
       old.prepare("INSERT INTO test_jobs VALUES ('old', 'COMPLETED')").run();
       old.close();
+      mkdirSync(join(root, "runtime", "artifacts"), { recursive: true });
       await restoreBackup(backup.backup_dir, target, join(root, "runtime", "artifacts"),
         { nativeHelper: packagedWindowsFileHelper() });
       const journal = readRestoreJournal(journalPathForDb(target));
