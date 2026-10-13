@@ -10,3 +10,8 @@
 
 - `startWindowsFreshRestoreMoveSession` yalniz `session-fresh` komutunu kullanir; eski hedef export'u `session` ile ayni kaldi. READY, MOVE, VERIFY ve CLOSE cevaplari mevcut kimlik/sequence denetiminden gecer.
 - Gercek Windows SQLite fixture'inda yeni DB yayinlandi, readonly SQL `42` gordu, ardindan ters MOVE ayni FileId/hash ile staged ada dondu. `npx vitest run tests/integration/wn-restore-session.test.ts --maxWorkers=1`: 4/4 PASS; `npm run typecheck`: exit 0. Bu adapter henuz `restoreBackup` veya journal'a bagli degildir.
+
+## Journal v2 bos eski nesil
+
+- `nativeInitial.oldDb=null`, yalnız oldWal/oldShm da null ve evidence.oldDb.exists=false ise kabul edilir. Yeni `FRESH_TARGET_CONFIRMED` fazi eski `OLD_DB_PRESERVED` anlami degistirilmeden bos layout'u ayirt eder. Eski v2 ve legacy journal okuyucu testleri 23/23 PASS.
+- Fresh ROLLED_BACK kaydindan sonra genel Storage acilisi bos SQLite DB yaratmadan `RESTORE_RECOVERY_REQUIRED` ile durur. Yalniz ilerideki explicit restore retry icin `allowFreshRollbackForRestore` secenegi vardir; henuz restoreBackup bu secenegi kullanmiyor. Bu dilim fresh production publish'i acmaz.
