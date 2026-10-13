@@ -1,0 +1,13 @@
+# S01 native restore lifecycle and WN11 evidence slice
+
+- Branch: `codex/windows-native-006-s01`. The packaged S03 helper is used only when `restoreBackup` receives `nativeHelper`; ordinary calls still use the legacy path. Fresh targets are explicitly rejected on the native path because the current helper requires an existing old DB. This is a partial integration, not S01 acceptance.
+- Native READY pins old DB/WAL/SHM and staged DB. S01 captures volume serial, FileId, byte count and SHA in immutable journal `nativeInitial` before PREPARED. Each forward MOVE receipt is appended with the corresponding journal phase and fsync before the next MOVE. Read verification uses helper `VERIFY` guard. `nativeInitial` also cross-checks the prior DB/WAL hash and staged snapshot hash in v2 evidence.
+- Real Windows native `taskkill` probe after `nativeInitial` covered 15 cuts with exit 0: PREPARED/LINK/BLOBS_READY opened old; 11 intermediate cuts retained old DB bytes but startup returned `RESTORE_RECOVERY_REQUIRED`; COMMITTED opened the new job/blob content. Each cut asserted durable receipt prefix and initial FileId/SHA evidence. Raw open SQLite blocked the helper, and DB/WAL/SHM hashes remained equal. This is a RED WN11 recovery result; `--expect-recovery` is not satisfied.
+- A synthetic child `exit` before final stdout drain reproduced an adapter race: a complete `CLOSED` response was discarded. The adapter now waits for `close`, preserving complete queued lines; the focused RED then GREEN test proves this ordering. An isolated native adapter run is also required before integration.
+- Focused integration/journal tests passed 20/20 serially; response-drain/journal unit tests passed 19/19 after the race fix. Typecheck and build passed. Lint exited 0 with 89 warnings elsewhere in the repo. A simultaneous native fixture run timed out at 30 seconds under the long hard-kill probe; the same focused suite passed serially.
+
+## Remaining WN11-13 blockers
+
+- Eleven nonterminal crash cuts must automatically open a proven old or fully verified new generation. Native `recover-session` must compare the pinned physical layout with journal `nativeInitial` and forward receipt prefix before ACCEPT; it is not yet integrated here. Reverse MOVE crash cuts need durable rollback receipts/fence.
+- Current `session.close()` precedes COMMITTED fsync, leaving a raw-writer gap. Reordering alone is insufficient: committed startup must revalidate the pinned DB/sidecar generation and blobs, with a durable seal or equivalent protocol.
+- Native helper is optional at production restore call sites; fallback remains. Fresh target support and comprehensive no-follow blob publish/delete/GC race evidence remain open. No WN11/WN12/WN13 VERIFIED claim.

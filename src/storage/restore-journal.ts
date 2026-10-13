@@ -19,6 +19,13 @@ export interface RestoreMoveReceipt {
   after: { volumeSerial: string; fileId: string; bytes: number; sha256: string };
 }
 
+export type RestoreNativeInitial = {
+  oldDb: RestoreMoveReceipt["before"];
+  oldWal: RestoreMoveReceipt["before"] | null;
+  oldShm: RestoreMoveReceipt["before"] | null;
+  stagedDb: RestoreMoveReceipt["before"];
+};
+
 export interface RestoreJournalRecord {
   formatVersion?: 2;
   generation: string;
@@ -29,6 +36,7 @@ export interface RestoreJournalRecord {
   preservedDbPath: string;
   publishedBlobs: Array<{ path: string; sha256: string }>;
   moveReceipts?: RestoreMoveReceipt[];
+  nativeInitial?: RestoreNativeInitial;
   evidence?: {
     oldDb: { exists: boolean; bytes: number | null; sha256: string | null };
     oldWal: { exists: boolean; bytes: number | null; sha256: string | null };
@@ -105,12 +113,26 @@ function validMoveReceipts(record: RestoreJournalRecord): boolean {
   });
 }
 
+function validNativeInitial(record: RestoreJournalRecord): boolean {
+  const initial = record.nativeInitial;
+  if (initial === undefined) return true;
+  const valid = (value: RestoreMoveReceipt["before"] | null): boolean => value === null ||
+    !!value && /^[a-f0-9]{16}$/.test(value.volumeSerial) && /^[a-f0-9]{32}$/.test(value.fileId) &&
+    Number.isSafeInteger(value.bytes) && value.bytes >= 0 && /^[a-f0-9]{64}$/.test(value.sha256);
+  return record.formatVersion === 2 && valid(initial.oldDb) && valid(initial.oldWal) &&
+    valid(initial.oldShm) && valid(initial.stagedDb) && initial.oldDb !== null && initial.stagedDb !== null &&
+    (record.moveReceipts === undefined || record.moveReceipts.every((receipt) => {
+      const snapshot = initial[receipt.slot];
+      return !!snapshot && JSON.stringify(snapshot) === JSON.stringify(receipt.before);
+    }));
+}
+
 function validate(record: RestoreJournalRecord): void {
   if (!record.generation || !Object.hasOwn(NEXT, record.phase) || !isAbsolute(record.targetDbPath) ||
       !isAbsolute(record.artifactRoot) || !isAbsolute(record.stagedDbPath) || !isAbsolute(record.preservedDbPath) ||
       !within(dirname(record.targetDbPath), record.stagedDbPath) || !within(dirname(record.targetDbPath), record.preservedDbPath) ||
       record.stagedDbPath === record.targetDbPath || record.preservedDbPath === record.targetDbPath ||
-      !validMoveReceipts(record) || !Array.isArray(record.publishedBlobs) || record.publishedBlobs.some((blob) =>
+      !validMoveReceipts(record) || !validNativeInitial(record) || !Array.isArray(record.publishedBlobs) || record.publishedBlobs.some((blob) =>
         !isAbsolute(blob.path) || !within(record.artifactRoot, blob.path) || !/^[a-f0-9]{64}$/.test(blob.sha256))) {
     throw recoveryError("journal path or record invalid");
   }
@@ -127,6 +149,15 @@ function validate(record: RestoreJournalRecord): void {
           !within(record.artifactRoot, blob.path) || !/^[a-f0-9]{64}$/.test(blob.sha256) ||
           !Number.isSafeInteger(blob.bytes) || blob.bytes < 0 || typeof blob.existedBefore !== "boolean")) {
       throw recoveryError("journal v2 evidence invalid");
+    }
+    if (record.nativeInitial && (record.nativeInitial.oldDb.bytes !== e.oldDb.bytes ||
+        record.nativeInitial.oldDb.sha256 !== e.oldDb.sha256 ||
+        (record.nativeInitial.oldWal === null) !== !e.oldWal.exists ||
+        (record.nativeInitial.oldWal && (record.nativeInitial.oldWal.bytes !== e.oldWal.bytes ||
+          record.nativeInitial.oldWal.sha256 !== e.oldWal.sha256)) ||
+        (record.nativeInitial.oldShm !== null) !== e.oldShmExists ||
+        record.nativeInitial.stagedDb.sha256 !== e.sourceDbSha256)) {
+      throw recoveryError("journal native initial identity contradicts evidence");
     }
   } else if (record.evidence !== undefined) throw recoveryError("journal version missing");
 }
@@ -151,6 +182,7 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
     receiptsValid &&
     next.formatVersion === previous.formatVersion &&
     JSON.stringify(next.evidence) === JSON.stringify(previous.evidence) &&
+    JSON.stringify(next.nativeInitial) === JSON.stringify(previous.nativeInitial) &&
     next.artifactRoot === previous.artifactRoot && next.stagedDbPath === previous.stagedDbPath &&
     next.preservedDbPath === previous.preservedDbPath &&
     next.publishedBlobs.length === previous.publishedBlobs.length &&
