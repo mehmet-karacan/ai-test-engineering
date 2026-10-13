@@ -48,3 +48,9 @@
 
 - `hold-read` komutu DB dosyasini canli handle uzerinde `GENERIC_READ` + `FILE_SHARE_READ` ile tutar, stdin EOF'ta birakir. Gercek Windows Temp better-sqlite3 WAL fixture'inda bu sirada read-only `SELECT` basarili, ayni surec writer `INSERT` hata veriyor, ayri raw Node/better-sqlite3 writer child exit nonzero. `npm.cmd exec -- vitest run tests/integration/wn-file-bridge.test.ts`: 1 dosya/5 PASS.
 - Bu yalniz guard paylasim modu kanitidir. Mevcut hedef DB'den staged DB'ye guard'in kesintisiz aktarimi, WAL/SHM sidecar'lari, rename/delete receipt dayanimi ve hard-kill recovery henüz yok. `verifyPublishedRestore` ile birlikte WN12 PASSED sayilmaz.
+
+## Phase G - rename handle ve bosluksuz guard devri (2026-10-13, partial)
+
+- `hold-rename`: `GENERIC_READ|DELETE`, share READ ile acik handle ayni WAL fixture'inda SQLite read-only acilisini bloke etti. Bu RED sonuc, Phase F read-only handle kanitinin rename-capable handle'a dogrudan genellenemeyecegini gosterir.
+- `hold-transition`: rename-capable handle canliyken ayni DB'ye ikinci `GENERIC_READ`, share READ|DELETE handle acildi; volume/file ID, link count, byte ve mtime esligi dogrulandi. Ilk DELETE handle'i ikinci handle kapanmadan birakildi. Yeni guard boyunca better-sqlite3 read-only `SELECT` basarili, ayri raw writer child basarisiz. Bu yalniz tek DB dosyasinda, restore move/yayin olmadan guard paylasim modu kanitidir.
+- `npm.cmd exec -- vitest run tests/integration/wn-file-bridge.test.ts`: 1 dosya/5 PASS. WAL/SHM guard'i, gercek rename/no-replace, receipt+journal kill araligi ve baslangicta acik raw reader/writer durumlari ayri kanit ister. WN12 halen NO_GO.
