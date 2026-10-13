@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -29,7 +30,11 @@ const expectedIds = families.flatMap(([family, count]) =>
 const expectedSet = new Set(expectedIds);
 
 // --- Validator fixture yardimcilari (WN68 negatifleri) ---
-const fixtureRoot = join(repoRoot, "tests", "fixtures", "wn-scope-tmp");
+// Scratch fixture'lar repo agacinin DISINDA (os tmp) tutulur. release-verify.mjs
+// kaynak agacini rekursoz tarar (source_tree_digest); repo icindeki gecici
+// dizin, paralel vitest kosularinda o tarama ile yarisa girip ENOENT uretir
+// (p01-release-gate live-repo gate testleri). Tmp dizin agacin disindadir.
+const fixtureRoot = join(tmpdir(), "aitest-wn-scope-tmp");
 function runValidator(dir) {
   try {
     const stdout = execFileSync(process.execPath, [join(repoRoot, "scripts", "validate-windows-scope.mjs"), dir], {
