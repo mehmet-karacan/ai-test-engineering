@@ -368,12 +368,12 @@ export function captureRestoreEvidence(dbPath: string, sourceDbPath: string, man
   };
 }
 
-/** Only one unstarted native blob, with a pinned parent known before PREPARED. */
-export function canRecoverPreparedEmptyBlob(record: RestoreJournalRecord): boolean {
+/** One planned new blob with a known parent; native recovery must prove all current names absent. */
+export function canRecoverPreparedAbsentBlobNames(record: RestoreJournalRecord): boolean {
   return record.formatVersion === 2 && record.phase === "PREPARED" &&
     record.nativeInitial?.oldDb !== null && record.nativeInitial !== undefined &&
     record.moveReceipts?.length === 0 && record.publishedBlobs.length === 1 &&
-    record.stageIntents?.length === 1 && record.stageIntents[0]?.identity === null &&
+    record.stageIntents?.length === 1 &&
     record.emptyBlobGuard?.parents.length === 1 && record.emptyBlobGuard.parents[0] !== null &&
     record.evidence?.expectedBlobs.length === 1 &&
     record.evidence.expectedBlobs[0]?.path === record.publishedBlobs[0]?.path &&
@@ -386,7 +386,7 @@ export function recoverIntactOldRestoreBeforeOpen(dbPath: string): void {
   const path = journalPathForDb(dbPath);
   const first = readRestoreJournal(path);
   if (first && first.phase !== "COMMITTED" && first.phase !== "ROLLED_BACK" &&
-      first.publishedBlobs.length > 0 && !canRecoverPreparedEmptyBlob(first)) {
+      first.publishedBlobs.length > 0 && !canRecoverPreparedAbsentBlobNames(first)) {
     throw recoveryError("blob ownership receipts unavailable for automatic recovery");
   }
   if (first?.nativeInitial && first.phase !== "COMMITTED" && first.phase !== "ROLLED_BACK") {
