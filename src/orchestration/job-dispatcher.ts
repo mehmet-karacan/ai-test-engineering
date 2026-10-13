@@ -10,7 +10,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "../application/services.js";
 import type { JobRow } from "../storage/job-repository.js";
-import { InventoryRepository } from "../storage/inventory-repository.js";
+import { InventoryRepository, type RunOutputTruncation } from "../storage/inventory-repository.js";
 import { LeaseManager } from "./lease-manager.js";
 import { CheckpointStore, resumeBudgetFromManifest, type AcceptedBlob } from "./checkpoint-store.js";
 import { RecoveryManager } from "./recovery-manager.js";
@@ -20,7 +20,7 @@ import { CandidateLoop, readCoverageAfterRun, readCoverageEvidenceAfterRun, basi
 import { compareTestInventory, runBaseline, summarizeTestReports, type BaselineResult } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
-import { MavenRunner } from "../runners/maven-runner.js";
+import { MavenRunner, type RunResult } from "../runners/maven-runner.js";
 import { DockerRunner, DockerMavenRunner, scanMavenSettingsForSecrets } from "../runners/docker-runner.js";
 import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric } from "../coverage/coverage-math.js";
@@ -105,6 +105,19 @@ function fileSha256(path: string): string | null {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+function runOutputTruncation(run: RunResult): RunOutputTruncation | undefined {
+  if (run.stdout_truncated_bytes === undefined && run.stderr_truncated_bytes === undefined &&
+      run.stdout_rendered_truncated_bytes === undefined && run.stderr_rendered_truncated_bytes === undefined) return undefined;
+  return {
+    stdout_raw_dropped_bytes: run.stdout_truncated_bytes ?? 0,
+    stderr_raw_dropped_bytes: run.stderr_truncated_bytes ?? 0,
+    stdout_rendered_dropped_bytes: run.stdout_rendered_truncated_bytes ?? 0,
+    stderr_rendered_dropped_bytes: run.stderr_rendered_truncated_bytes ?? 0,
+    stdout_reason: run.stdout_truncation_reason ?? null,
+    stderr_reason: run.stderr_truncation_reason ?? null,
+  };
+}
+
 export class JobDispatcher {
   private readonly services: Services;
   private readonly runnerKind: RunnerKind;
@@ -162,7 +175,7 @@ export class JobDispatcher {
     }
     const leases = new LeaseManager(storage.db);
     const checkpoints = new CheckpointStore(storage.db, this.workspaceRoot);
-    const inventory = new InventoryRepository(storage.db);
+    const inventory = new InventoryRepository(storage.db, this.services.artifacts);
     const ownerId = executionOwnerId ?? `dispatch-${process.pid}-${job.id}`;
     const leaseTtlMs = 300000;
     let leaseAcquired = false;
@@ -470,6 +483,7 @@ export class JobDispatcher {
           })).values()],
           started_at: baselineEvidence.run_started_at,
           finished_at: baselineEvidence.run_finished_at,
+          output_truncation: runOutputTruncation(baselineEvidence.run),
         });
       }
       phases.push("analysis_ok");
@@ -546,6 +560,7 @@ export class JobDispatcher {
               coverage_report_paths: [{ path: info.coverage_report_path, sha256: fileSha256(info.coverage_report_path) }],
               started_at: info.started_at,
               finished_at: info.finished_at,
+              output_truncation: runOutputTruncation(info.run),
             });
             // on_accepted ayni callback zincirinde hemen sonra calisir; son
             // kosunun id'si gecici olarak tutulur, yalniz accepted olursa
@@ -692,6 +707,7 @@ export class JobDispatcher {
         })).values()],
         started_at: finalReplay.started_at,
         finished_at: finalReplay.finished_at,
+        output_truncation: runOutputTruncation(finalReplay.run),
       });
       const finalReports = summarizeTestReports(finalReplay.workspace, [...new Set(resolvedTargets.map((target) => target.module.module_relative_path))]);
       const finalInventoryRegression = compareTestInventory(
