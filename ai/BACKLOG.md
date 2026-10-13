@@ -9,9 +9,9 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | Paket | Is | Durum | Sonraki kanit |
 | --- | --- | --- | --- |
 | S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | LOCAL_VERIFIED | WN01-WN04 mapping/baseline; WN67-WN69 full evidence kapisi S09'da tamamlanir; S00 review checkpoint |
-| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; mevcut hedef 15-cut gercek WAL PASS, fresh direct native 5-cut PASS; full restoreBackup fresh baglantisi, root alias/artifact/GC kaniti acik |
-| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; bozuk identity fence, verified pin/resume, WN21 yazili 8MiB PASS; pinned kesinti artifact'i basarili run'da var, basarisiz baseline erken return P1 acik; blob orphan GC, tam Maven/JDK pin, ust Job disi hard-kill ve customer gate acik |
-| S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; tek oturumlu pinned native snapshot 48 PASS; transient swap-back, kill partial cleanup, sayfali scan persistence ve S04 schema acik |
+| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; mevcut hedef 15-cut gercek WAL PASS, fresh direct native 5-cut PASS, kalici root alias guard PASS; gecici swap-back ve GC nested path race RED, native pinli delete henuz uretimde degil |
+| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; verified pin/resume, WN21 yazili 8MiB ve basarisiz baseline/terminal kesinti artifact'i PASS; blob orphan GC, tam Maven/JDK pin, ust Job disi hard-kill ve customer gate acik |
+| S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; tek oturumlu pinned snapshot ve final manifest yayini odak 52 PASS; kill partial cleanup/sahiplik, sayfali scan persistence ve S04 schema acik |
 | S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42; S01 VERIFIED oncesi yalniz salt okunur tasarim/fixture checkpoint'i hazir |
 | S05 | Gercek subagent oturumlari ve context butcesi | TODO | WN43-WN52 |
 | S06 | Native Maven/coverage/iteration | TODO | WN53-WN60 |
