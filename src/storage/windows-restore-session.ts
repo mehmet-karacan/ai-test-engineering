@@ -2,7 +2,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { basename, isAbsolute } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { assertTrustedWindowsFileHelper, inspectWindowsPath, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
+import { assertTrustedWindowsFileHelper, inspectWindowsPath, type WindowsFileHelperSpec,
+  type WindowsFileIdentity } from "../discovery/windows-file-bridge.js";
 import { fileIdentity, type RestoreJournalRecord, type RestoreMoveReceipt } from "./restore-journal.js";
 
 export type RestoreFileSlot = RestoreMoveReceipt["slot"];
@@ -131,6 +132,18 @@ export function captureExpectedWindowsRestoreFile(helper: WindowsFileHelperSpec,
       after.linkCount !== 1 || before.volumeSerial !== after.volumeSerial || before.fileId !== after.fileId ||
       before.bytes !== digest.bytes || after.bytes !== digest.bytes) throw protocolError("preflight file identity changed");
   return { volumeSerial: before.volumeSerial, fileId: before.fileId, bytes: digest.bytes, sha256: digest.sha256 };
+}
+
+/** Detect persistent root replacement before a path-based blob mutation. This is not a transient-swap lock. */
+export function assertWindowsRestoreRootIdentity(helper: WindowsFileHelperSpec, root: string,
+  expected: WindowsFileIdentity): void {
+  try {
+    const current = inspectWindowsPath(helper, root);
+    if (current.volumeSerial === expected.volumeSerial && current.fileId === expected.fileId) return;
+  } catch { /* Missing or reparse root is also a changed root. */ }
+  throw new AppError("BLOCKED_ISOLATION", "Restore artifact root identity changed", {
+    reason_code: "RESTORE_ARTIFACT_ROOT_CHANGED",
+  });
 }
 
 export class RestoreSessionLines {
