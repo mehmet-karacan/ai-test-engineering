@@ -115,13 +115,15 @@ async function* walk(root: string, relativePath: string, context: WalkContext): 
   }
 }
 
-function cursorState(cursor: string | null | undefined, root: string, generation: number): { index: number; partial: boolean } {
+function cursorState(cursor: string | null | undefined, root: string, generation: number,
+    requiredDigest: string): { index: number; partial: boolean } {
   if (!cursor) return { index: 0, partial: false };
   try {
     const value: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
     if (typeof value !== "object" || value === null) throw new Error("bad cursor");
     const parsed = value as Record<string, unknown>;
-    if (parsed["v"] !== 1 || parsed["root"] !== root || parsed["generation"] !== generation ||
+    if (parsed["v"] !== 2 || parsed["root"] !== root || parsed["generation"] !== generation ||
+      parsed["requiredDigest"] !== requiredDigest ||
       !Number.isSafeInteger(parsed["index"]) || (parsed["index"] as number) < 0 || typeof parsed["partial"] !== "boolean") throw new Error("bad cursor");
     return { index: parsed["index"] as number, partial: parsed["partial"] as boolean };
   } catch {
@@ -139,9 +141,16 @@ export async function scanFileInventory(rootPath: string, options: FileInventory
   if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 1000 || !Number.isSafeInteger(generation) || generation < 1) {
     throw new AppError("INVALID_PARAMETERS", "Invalid inventory page size or generation");
   }
-  const previous = cursorState(options.cursor, root, generation);
+  const requiredPaths = options.requiredHashPaths ?? [];
+  if (!Array.isArray(requiredPaths) || requiredPaths.some((path) => typeof path !== "string" || !path ||
+      path.includes("\\") || path.startsWith("/") || path.split("/").some((part) => !part || part === "." || part === ".."))) {
+    throw new AppError("INVALID_PARAMETERS", "Invalid required inventory path");
+  }
+  const required = new Set(requiredPaths);
+  const requiredDigest = createHash("sha256").update(JSON.stringify([...required].sort())).digest("hex");
+  const previous = cursorState(options.cursor, root, generation, requiredDigest);
   const start = previous.index;
-  const required = new Set(options.requiredHashPaths ?? []);
+  const requiredSeen = new Set<string>();
   const readDir = options.readDir ?? ((path: string) => readdirSync(path, { withFileTypes: true }));
   const entries: FileInventoryEntry[] = [];
   const errors: FileInventoryPage["errors"] = [];
@@ -155,13 +164,22 @@ export async function scanFileInventory(rootPath: string, options: FileInventory
   for (const child of top) {
     for await (const entry of walk(root, child.name, { required, readDir })) {
       if (entry.readStatus !== "OK") errors.push({ relativePath: entry.relativePath, code: entry.readStatus });
+      if (required.has(entry.relativePath)) {
+        requiredSeen.add(entry.relativePath);
+        if (entry.kind !== "file") errors.push({ relativePath: entry.relativePath, code: "REQUIRED_INPUT_UNSUPPORTED" });
+        else if (entry.hashStatus !== "COMPUTED") errors.push({ relativePath: entry.relativePath, code: "REQUIRED_INPUT_UNHASHED" });
+      }
       if (seen++ < start) continue;
       if (entries.length >= pageSize) { hasNext = true; break; }
       entries.push(entry);
     }
     if (hasNext) break;
   }
+  if (!hasNext) for (const path of required) {
+    if (!requiredSeen.has(path)) errors.push({ relativePath: path, code: "REQUIRED_INPUT_MISSING" });
+  }
   const partial = previous.partial || errors.length > 0;
-  const nextCursor = hasNext ? Buffer.from(JSON.stringify({ v: 1, root, generation, index: start + entries.length, partial })).toString("base64url") : null;
+  const nextCursor = hasNext ? Buffer.from(JSON.stringify({ v: 2, root, generation, requiredDigest,
+    index: start + entries.length, partial })).toString("base64url") : null;
   return { entries, nextCursor, complete: !hasNext && !partial, partial, errors };
 }

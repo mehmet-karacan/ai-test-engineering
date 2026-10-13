@@ -315,7 +315,7 @@ export class SourceSnapshot {
     return entries;
   }
 
-  buildManifest(options?: { maxFiles?: number; maxFileBytes?: number }): SnapshotManifest {
+  buildManifest(options?: { maxFiles?: number; maxFileBytes?: number; requiredBuildInputPaths?: string[] }): SnapshotManifest {
     const maxFiles = options?.maxFiles ?? 200000;
     const maxFileBytes = options?.maxFileBytes ?? 64 * 1024 * 1024;
     const files = this.walk();
@@ -349,6 +349,15 @@ export class SourceSnapshot {
         classification: classify(rel),
         source_location: file,
       });
+    }
+
+    for (const required of options?.requiredBuildInputPaths ?? []) {
+      if (typeof required !== "string" || !required || required.includes("\\") || isAbsolute(required) ||
+          required.split("/").some((part) => !part || part === "." || part === "..") ||
+          !entries.some((entry) => entry.relative_path === required && entry.classification === "build_config" &&
+            /^[0-9a-f]{64}$/u.test(entry.sha256))) {
+        throw new AppError("POLICY_VIOLATION", `Required build input missing or unhashed: ${required}`);
+      }
     }
 
     return {

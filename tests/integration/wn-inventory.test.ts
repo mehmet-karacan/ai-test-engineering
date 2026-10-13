@@ -199,7 +199,8 @@ describe("S03 metadata inventory phase A", () => {
       const metadata = await scanFileInventory(root, { requiredHashPaths: [".mvn/wrapper/maven-wrapper.jar"], pageSize: 100 });
       expect(metadata.entries.find((entry) => entry.relativePath === ".mvn/wrapper/maven-wrapper.jar")?.hashStatus).toBe("COMPUTED");
       expect(() => new SourceSnapshot(root).buildManifest({ maxFileBytes: 1024 })).toThrow();
-      const manifest = new SourceSnapshot(root).buildManifest({ maxFileBytes: 2 * 1024 * 1024 });
+      const manifest = new SourceSnapshot(root).buildManifest({ maxFileBytes: 2 * 1024 * 1024,
+        requiredBuildInputPaths: [".mvn/wrapper/maven-wrapper.jar"] });
       const entry = manifest.entries.find((item) => item.relative_path === ".mvn/wrapper/maven-wrapper.jar");
       expect(entry?.sha256).toMatch(/^[0-9a-f]{64}$/);
       const target = join(sandbox, "copy");
@@ -208,6 +209,59 @@ describe("S03 metadata inventory phase A", () => {
       expect(readFileSync(join(target, ".mvn", "wrapper", "maven-wrapper.jar")).byteLength).toBe(1024 * 1024);
     } finally { removeFixture(sandbox); }
   }, 120_000);
+
+  it("marks an absent required build input incomplete while retaining large metadata", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-required-missing-"));
+    try {
+      const root = join(sandbox, "root");
+      mkdirSync(join(root, ".mvn", "wrapper"), { recursive: true });
+      const fd = openSync(join(root, "large.bin"), "w");
+      ftruncateSync(fd, 65 * 1024 * 1024);
+      closeSync(fd);
+      const pages = [];
+      let cursor: string | null = null;
+      do {
+        const page = await scanFileInventory(root, {
+          cursor, requiredHashPaths: [".mvn/wrapper/maven-wrapper.jar"], pageSize: 1,
+        });
+        pages.push(page);
+        cursor = page.nextCursor;
+      } while (cursor);
+      const page = pages.at(-1)!;
+      expect(pages.flatMap((item) => item.entries).find((entry) => entry.relativePath === "large.bin")?.hashStatus)
+        .toBe("NOT_COMPUTED");
+      expect(pages[0]?.partial).toBe(false);
+      expect(page.complete).toBe(false);
+      expect(page.partial).toBe(true);
+      expect(page.errors).toContainEqual({ relativePath: ".mvn/wrapper/maven-wrapper.jar", code: "REQUIRED_INPUT_MISSING" });
+      expect(() => inventoryDigestFromCompletePage(page)).toThrow();
+      expect(() => new SourceSnapshot(root).buildManifest({
+        maxFileBytes: 128 * 1024 * 1024,
+        requiredBuildInputPaths: [".mvn/wrapper/maven-wrapper.jar"],
+      })).toThrow();
+    } finally { removeFixture(sandbox); }
+  });
+
+  it("rejects a required reparse entry and keeps the required set fixed across pages", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-required-link-"));
+    try {
+      const root = join(sandbox, "root");
+      const outside = join(sandbox, "outside");
+      mkdirSync(root); mkdirSync(outside);
+      writeFileSync(join(root, "a.txt"), "a");
+      symlinkSync(outside, join(root, ".mvn"), process.platform === "win32" ? "junction" : "dir");
+      const first = await scanFileInventory(root, { requiredHashPaths: [".mvn"], pageSize: 1 });
+      expect(first.entries[0]?.kind).toBe("symlink");
+      expect(first.partial).toBe(true);
+      expect(first.errors).toContainEqual({ relativePath: ".mvn", code: "REQUIRED_INPUT_UNSUPPORTED" });
+      expect(first.nextCursor).not.toBeNull();
+      await expect(scanFileInventory(root, { cursor: first.nextCursor, pageSize: 1 }))
+        .rejects.toMatchObject({ code: "INVALID_PARAMETERS" });
+      const second = await scanFileInventory(root, { cursor: first.nextCursor, requiredHashPaths: [".mvn"], pageSize: 1 });
+      expect(second.complete).toBe(false);
+      expect(second.partial).toBe(true);
+    } finally { removeFixture(sandbox); }
+  });
 
   it("does not overwrite an existing execution target or accept changed source bytes", () => {
     const sandbox = mkdtempSync(join(tmpdir(), "wn-copy-revalidate-"));
