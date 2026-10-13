@@ -12,7 +12,7 @@ Bu helper `GUARD_READY` sonucunda **terminal journal yazmaz, owned dosyaya delet
 
 Regresyon: native bridge 25/25 PASS; restore odak bes dosya 54/54 PASS; `node scripts/probe-restore-hardkill.mjs --native` exit0 (15 kesit); iki-blob yedi kesit exit0 ve hepsi fail-closed. `npm run build`, helper provenance verify, lint (0 hata/89 mevcut uyari), `git diff --check` ve probe syntax check exit0. Uretim helper source/binary ve test-only fixture source/binary manifest SHA'lari yeniden uretildi. GUARD_READY canliyken iki owned dosyanin Node rename denemesi Windows'ta reddedildi; ikinci item foreign/alias/index hatasinda ilk owned bayti korundu ve negatif rezervasyon adlari temizlendi. Bu belirli fixture schedule'lari tum Windows race olasiliklarinin kaniti degildir.
 
-Bagimsiz inceleme ilk kod commitinde yeni P1 bulmadi; ikinci item SHA uyusmazligi, hardlink sayisi 2 ve 8192/1MiB girdi asimi icin negatif kanit istedi. Ek gercek Windows fixture bu dort kosulda helper exit2, ilk blob ve eski DB baytlari korunuyor; odak test yeniden exit0. ARM/disposition kapsamindaki kalan kosullar yine NO_GO.
+Bagimsiz inceleme ilk kod commitinde yeni P1 bulmadi; ikinci item SHA uyusmazligi ve hardlink sayisi 2 icin negatif kanit istedi. Ek gercek Windows fixture bu iki kosulda helper exit2, ilk blob ve eski DB baytlari korunuyor. 1MiB ustu newline'siz komut, EOF beklenmeden 10 saniyelik sinir icinde exit2; bu global line cap'inin davranis kanitidir. 8192 byte `GUARD_ITEM` cap'i kodda mevcut, fakat aksi halde gecerli ve bu siniri asan path/item fixture'i yoktur; bu boundary icin ayrica negatif kabul gerekir. ARM/disposition kapsamindaki kalan kosullar yine NO_GO.
 
 ## Kalan kabul engeli
 
