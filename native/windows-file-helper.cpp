@@ -364,6 +364,7 @@ struct TwoBlobGuardItem {
   std::vector<Handle> reserved;
   Handle owned;
   bool hasOwned = false;
+  int ownedIndex = -1;
   Identity rootId, parentId, ownedId;
   unsigned char ownedDigest[32]{};
 };
@@ -662,6 +663,7 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
             fields[13] != std::to_string(item.ownedId.bytes) ||
             fields[14] != ascii(digestHex(item.ownedDigest))) return 2;
         item.hasOwned = true;
+        item.ownedIndex = stageOwned ? 1 : 0;
       } else if (fields[11] != "-" || fields[12] != "-" || fields[13] != "-" || fields[14] != "-") return 2;
       for (size_t i = 0; i < 3; ++i) {
         if ((stageOwned && i == 1) || (destinationOwned && i == 0)) continue;
@@ -690,6 +692,29 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
         FILE_DISPOSITION_INFO disposition{TRUE};
         if (!SetFileInformationByHandle(item.owned.value, FileDispositionInfo,
             &disposition, sizeof(disposition))) return 2;
+        wchar_t receiptBase[32768]{};
+        const DWORD receiptBaseLength = GetEnvironmentVariableW(L"AITEST_NATIVE_TWO_BLOB_ARM_MARKER",
+          receiptBase, static_cast<DWORD>(std::size(receiptBase)));
+        if (receiptBaseLength == 0 || receiptBaseLength >= std::size(receiptBase)) return 2;
+        std::wstring receiptPath(receiptBase);
+        receiptPath += L".receipt-" + std::to_wstring(index);
+        char rootVolume[17]{}, parentVolume[17]{}, blobVolume[17]{};
+        std::snprintf(rootVolume, sizeof(rootVolume), "%016llx", item.rootId.id.VolumeSerialNumber);
+        std::snprintf(parentVolume, sizeof(parentVolume), "%016llx", item.parentId.id.VolumeSerialNumber);
+        std::snprintf(blobVolume, sizeof(blobVolume), "%016llx", item.ownedId.id.VolumeSerialNumber);
+        const std::string receipt = "AITE6_DISPOSITION_RECEIPT_V1\t" + generation + "\t" +
+          std::to_string(index) + "\t" + (item.ownedIndex == 1 ? "stage" : "destination") + "\t" +
+          rootVolume + "\t" + ascii(fileIdHex(item.rootId)) + "\t" + parentVolume + "\t" +
+          ascii(fileIdHex(item.parentId)) + "\t" + blobVolume + "\t" +
+          ascii(fileIdHex(item.ownedId)) + "\t" + std::to_string(item.ownedId.bytes) + "\t" +
+          ascii(digestHex(item.ownedDigest)) + "\t" + encodeName(item.names[item.ownedIndex]) + "\n";
+        Handle receiptFile(CreateFileW(receiptPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+          FILE_ATTRIBUTE_NORMAL, nullptr));
+        DWORD receiptWritten = 0;
+        if (receiptFile.value == INVALID_HANDLE_VALUE ||
+            !WriteFile(receiptFile.value, receipt.data(), static_cast<DWORD>(receipt.size()),
+              &receiptWritten, nullptr) || receiptWritten != receipt.size() ||
+            !FlushFileBuffers(receiptFile.value)) return 2;
         wchar_t haltAt[2]{}, markerPath[32768]{};
         if (GetEnvironmentVariableW(L"AITEST_NATIVE_TWO_BLOB_ARM_HALT_INDEX", haltAt, 2) == 1 &&
             haltAt[0] == static_cast<wchar_t>(L'0' + index)) {
@@ -875,6 +900,19 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
       if (!haltTwoBlobTerminal(L"before")) return 2;
 #endif
       DWORD written = 0;
+#ifdef AITEST_FAULT_FIXTURE
+      if (twoBlobTestCommit && std::wcscmp(twoBlobTerminalCut, L"partial") == 0) {
+        const DWORD partialLength = static_cast<DWORD>(terminalLine.size() / 2);
+        if (!WriteFile(journal.back().value, terminalLine.data(), partialLength, &written, nullptr) ||
+            written != partialLength || !FlushFileBuffers(journal.back().value) ||
+            !haltTwoBlobTerminal(L"partial")) return 2;
+      }
+      if (twoBlobTestCommit && std::wcscmp(twoBlobTerminalCut, L"flush-fail") == 0) {
+        if (!WriteFile(journal.back().value, terminalLine.data(), static_cast<DWORD>(terminalLine.size()),
+              &written, nullptr) || written != terminalLine.size() ||
+            !haltTwoBlobTerminal(L"flush-fail")) return 2;
+      }
+#endif
       if (!WriteFile(journal.back().value, terminalLine.data(), static_cast<DWORD>(terminalLine.size()),
             &written, nullptr) || written != terminalLine.size() ||
           !FlushFileBuffers(journal.back().value)) return 2;
