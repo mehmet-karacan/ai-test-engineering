@@ -30,7 +30,12 @@ export class LeaseManager {
     this.db = db;
   }
 
-  acquire(jobId: string, ownerId: string, ttlMs: number, processIdentity?: string): LeaseAcquireResult {
+  /** Native launches never overwrite any durable process marker, including damaged legacy bytes. */
+  acquireNative(jobId: string, ownerId: string, ttlMs: number): LeaseAcquireResult {
+    return this.acquire(jobId, ownerId, ttlMs, undefined, true);
+  }
+
+  acquire(jobId: string, ownerId: string, ttlMs: number, processIdentity?: string, strictNative = false): LeaseAcquireResult {
     const tx = this.db.transaction((): LeaseAcquireResult => {
       const now = Date.now();
       const existing = this.db
@@ -42,7 +47,8 @@ export class LeaseManager {
       // Even an apparently healthy lease is not a safe new invocation while
       // a native helper launch is still recorded. renew() remains available
       // to its current owner without changing the process record.
-      if (existing && isUnresolvedNativeProcessIdentity(existing.process_identity)) {
+      if (existing && (strictNative ? isUnresolvedNativeProcessIdentity(existing.process_identity)
+        : !!existing.process_identity && existing.process_identity.trimStart().startsWith("{"))) {
         throw new AppError("BLOCKED_ISOLATION", "Prior native process ownership is unresolved", {
           reason_code: "NATIVE_PROCESS_UNRESOLVED",
         });

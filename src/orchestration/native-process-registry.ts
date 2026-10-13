@@ -26,7 +26,9 @@ interface RecordV1 {
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 
 export function isUnresolvedNativeProcessIdentity(value: string | null): boolean {
-  return !!value && value.trimStart().startsWith("{"); // legacy dispatcher identity is not a native process
+  // A non-null legacy, damaged or native record can still represent a live
+  // process. Its format is not authority to discard the durable owner fence.
+  return value !== null;
 }
 
 export class NativeProcessRegistry implements NativeProcessLifecycle {
