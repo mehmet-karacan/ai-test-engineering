@@ -9,8 +9,8 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | Paket | Is | Durum | Sonraki kanit |
 | --- | --- | --- | --- |
 | S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | LOCAL_VERIFIED | WN01-WN04 mapping/baseline; WN67-WN69 full evidence kapisi S09'da tamamlanir; S00 review checkpoint |
-| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; mevcut hedef 15-cut gercek WAL PASS, fresh direct native 5-cut PASS, kalici root alias guard PASS; gecici swap-back ve GC nested path race RED, native pinli delete henuz uretimde degil |
-| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; verified pin/resume, WN21 kesinti artifact'i, installed Maven/JDK mevcut dosya pin manifesti odak 17 PASS; yeni kurulum dosyasi, 22 absent config, complete manifest/lifecycle, orphan GC, ust Job disi hard-kill ve customer gate acik |
+| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; mevcut hedef 15-cut gercek WAL, fresh direct native 5-cut, pinli blob copy/publish odak 28 PASS; erken terminal rollback ve kimliksiz skip/verify P1, COPY stage orphan/path mkdir P2, GC DB yetkisi acik |
+| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; WN21 kesinti artifact'i, installed Maven/JDK pin manifesti, complete/lifecycle preflight odak 26 PASS; yeni kurulum JAR yaratimi RED, 22 absent config, orphan GC, ust Job disi hard-kill ve customer gate acik |
 | S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; pinli snapshot session receipt/quarantine/ALREADY_COMPLETE odak 55 PASS; reserved marker kaynak adi, same-byte FileId sahipligi, partial cleanup, sayfali scan persistence ve S04 schema acik |
 | S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42; S01 VERIFIED oncesi yalniz salt okunur tasarim/fixture checkpoint'i hazir |
 | S05 | Gercek subagent oturumlari ve context butcesi | TODO | WN43-WN52 |
