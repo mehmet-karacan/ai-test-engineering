@@ -6,6 +6,7 @@ import { Storage } from "../../src/storage/storage.js";
 import { JobRepository } from "../../src/storage/job-repository.js";
 import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { ArtifactStore } from "../../src/storage/artifact-store.js";
+import Database from "better-sqlite3";
 
 describe("SQLite storage kalicilik", () => {
   let dir: string;
@@ -104,6 +105,27 @@ describe("SQLite storage kalicilik", () => {
     storage.migrate();
     expect(storage.db.pragma("foreign_keys", { simple: true })).toBe(1);
     storage.close();
+  });
+
+  it("acilis PRAGMA hatasinda SQLite handle'ini kapatir", () => {
+    const pragma = Database.prototype.pragma;
+    const close = Database.prototype.close;
+    let targetClosed = false;
+    Database.prototype.pragma = function (this: Database.Database, statement: string, options?: { simple?: boolean }) {
+      if (this.name === dbPath && statement === "journal_mode = WAL") throw new Error("fixture pragma fault");
+      return pragma.call(this, statement, options);
+    } as typeof pragma;
+    Database.prototype.close = function (this: Database.Database) {
+      if (this.name === dbPath) targetClosed = true;
+      return close.call(this);
+    };
+    try {
+      expect(() => new Storage({ dbPath })).toThrow("fixture pragma fault");
+      expect(targetClosed).toBe(true);
+    } finally {
+      Database.prototype.pragma = pragma;
+      Database.prototype.close = close;
+    }
   });
 });
 

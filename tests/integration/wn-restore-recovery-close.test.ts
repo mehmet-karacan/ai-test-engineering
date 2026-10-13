@@ -13,10 +13,11 @@ import { startWindowsRestoreRecoverySession } from "../../src/storage/windows-re
 import { appendRestorePhase, captureRestoreEvidence, journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
 import type { RestoreJournalRecord } from "../../src/storage/restore-journal.js";
 import { Storage } from "../../src/storage/storage.js";
+import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 import Database from "better-sqlite3";
 
 describe.skipIf(process.platform !== "win32")("S01 native recovery close", () => {
-  it.each(["forward-unreceipted", "reverse-unreceipted", "terminal-fsync"])("reopens old SQLite after %s move", async (cut) => {
+  it.each(["forward-unreceipted", "reverse-unreceipted", "terminal-fsync", "startup-lock"])("reopens old SQLite after %s move", async (cut) => {
     const root = mkdtempSync(join(tmpdir(), "wn-restore-recovery-startup-"));
     const targetDbPath = join(root, "state.db");
     const stagedDbPath = `${targetDbPath}.restore-${randomUUID()}`;
@@ -77,6 +78,34 @@ describe.skipIf(process.platform !== "win32")("S01 native recovery close", () =>
         } finally {
           if (worker.exitCode === null && worker.pid) spawnSync("taskkill", ["/F", "/PID", String(worker.pid)]);
           if (worker.exitCode === null) await once(worker, "exit").catch(() => undefined);
+        }
+      }
+      if (cut === "startup-lock") {
+        const pausePath = join(root, "pause-startup.cjs");
+        writeFileSync(pausePath, `const fs=require("node:fs"); const {syncBuiltinESMExports}=require("node:module");
+          let terminalReads=0; const read=fs.readFileSync; fs.readFileSync=(path,...args)=>{
+            const result=read(path,...args);
+            if(typeof path==="string" && path.endsWith(".restore-journal.jsonl") &&
+               result.toString().includes("ROLLED_BACK") && ++terminalReads===2){
+              process.stdout.write("HALT\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000)}
+            return result}; syncBuiltinESMExports();`);
+        const storageUrl = new URL("../../dist/storage/storage.js", import.meta.url).href;
+        const startup = spawn(process.execPath, ["--require", pausePath, "-e",
+          `import(process.argv[1]).then(({Storage})=>{const s=new Storage({dbPath:process.argv[2]});s.close()})`,
+          storageUrl, targetDbPath], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+        let stderr = "";
+        startup.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+        try {
+          await new Promise<void>((done, fail) => {
+            const timer = setTimeout(() => fail(new Error(`startup fence timeout: ${stderr}`)), 30_000);
+            startup.stdout.on("data", (chunk) => { if (chunk.toString().includes("HALT")) { clearTimeout(timer); done(); } });
+            startup.once("exit", (code) => { clearTimeout(timer); fail(new Error(`startup exited ${code}: ${stderr}`)); });
+          });
+          expect(() => { const release = acquireRestoreDbLock(targetDbPath); release(); })
+            .toThrow(expect.objectContaining({ details: expect.objectContaining({ reason_code: "MAINTENANCE_BUSY_OR_STALE" }) }));
+        } finally {
+          if (startup.exitCode === null && startup.pid) spawnSync("taskkill", ["/F", "/PID", String(startup.pid)]);
+          if (startup.exitCode === null) await once(startup, "exit").catch(() => undefined);
         }
       }
       opened = new Storage({ dbPath: targetDbPath });
