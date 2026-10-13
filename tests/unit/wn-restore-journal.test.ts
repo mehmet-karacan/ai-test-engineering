@@ -7,6 +7,34 @@ import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidenc
 import { Storage } from "../../src/storage/storage.js";
 
 describe("S01 restore journal fail-closed", () => {
+  it("records a fresh native generation without silently opening an empty rollback", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-native-fresh-"));
+    try {
+      const db = join(root, "state.db");
+      const stage = join(root, "state.db.restore-00000000-0000-0000-0000-000000000001");
+      const manifest = join(root, "manifest.json");
+      writeFileSync(stage, "new-db-bytes");
+      writeFileSync(manifest, "manifest");
+      const evidence = captureRestoreEvidence(db, stage, manifest, []);
+      const stagedDb = { volumeSerial: "a".repeat(16), fileId: "b".repeat(32),
+        bytes: 12, sha256: evidence.sourceDbSha256 };
+      const base = { formatVersion: 2 as const, generation: "native-fresh-generation", targetDbPath: db,
+        artifactRoot: join(root, "artifacts"), stagedDbPath: stage,
+        preservedDbPath: join(root, "state.db.restore-old-00000000-0000-0000-0000-000000000001"),
+        publishedBlobs: [], evidence, nativeInitial: { oldDb: null, oldWal: null, oldShm: null, stagedDb },
+        moveReceipts: [] as RestoreMoveReceipt[] };
+      const path = journalPathForDb(db);
+      appendRestorePhase(path, { ...base, phase: "PREPARED" });
+      appendRestorePhase(path, { ...base, phase: "BLOBS_READY" });
+      appendRestorePhase(path, { ...base, phase: "FRESH_TARGET_CONFIRMED" });
+      expect(readRestoreJournal(path)?.nativeInitial?.oldDb).toBeNull();
+      appendRestorePhase(path, { ...base, phase: "ROLLED_BACK" });
+      expect(() => assertRestoreReadyBeforeOpen(db)).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      expect(() => assertRestoreReadyBeforeOpen(db, { allowFreshRollbackForRestore: true })).not.toThrow();
+      expect(existsSync(db)).toBe(false);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("fsyncs a reverse recovery receipt before terminal rollback", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-journal-native-reverse-"));
     try {

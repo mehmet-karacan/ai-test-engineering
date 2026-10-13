@@ -579,7 +579,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   if (options?.nativeHelper) {
     try {
       const helper = options.nativeHelper;
-      const expected: RestoreNativeInitial = {
+      const expected: RestoreNativeInitial & { oldDb: NonNullable<RestoreNativeInitial["oldDb"]> } = {
         oldDb: captureExpectedWindowsRestoreFile(helper, targetDbPath),
         oldWal: existsSync(`${targetDbPath}-wal`) ? captureExpectedWindowsRestoreFile(helper, `${targetDbPath}-wal`) : null,
         oldShm: existsSync(`${targetDbPath}-shm`) ? captureExpectedWindowsRestoreFile(helper, `${targetDbPath}-shm`) : null,

@@ -8,7 +8,8 @@ import { AppError } from "../domain/errors.js";
 import { acquireRestoreDbLock } from "./maintenance-lock.js";
 
 export type RestorePhase = "PREPARED" | "BLOBS_READY" | "OLD_DB_MOVED" | "OLD_WAL_MOVED" | "OLD_SHM_MOVED" |
-  "OLD_DB_PRESERVED" | "NEW_DB_MOVED" | "NEW_DB_PUBLISHED" | "VERIFIED" | "RECOVERING" | "COMMITTED" | "ROLLED_BACK";
+  "OLD_DB_PRESERVED" | "FRESH_TARGET_CONFIRMED" | "NEW_DB_MOVED" | "NEW_DB_PUBLISHED" |
+  "VERIFIED" | "RECOVERING" | "COMMITTED" | "ROLLED_BACK";
 
 export interface RestoreMoveReceipt {
   generation: string;
@@ -22,7 +23,7 @@ export interface RestoreMoveReceipt {
 }
 
 export type RestoreNativeInitial = {
-  oldDb: RestoreMoveReceipt["before"];
+  oldDb: RestoreMoveReceipt["before"] | null;
   oldWal: RestoreMoveReceipt["before"] | null;
   oldShm: RestoreMoveReceipt["before"] | null;
   stagedDb: RestoreMoveReceipt["before"];
@@ -63,11 +64,13 @@ export interface RestoreJournalRecord {
 
 const NEXT: Record<RestorePhase, RestorePhase[]> = {
   PREPARED: ["BLOBS_READY", "RECOVERING", "ROLLED_BACK"],
-  BLOBS_READY: ["OLD_DB_MOVED", "OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
+  BLOBS_READY: ["OLD_DB_MOVED", "OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED",
+    "FRESH_TARGET_CONFIRMED", "RECOVERING", "ROLLED_BACK"],
   OLD_DB_MOVED: ["OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
   OLD_WAL_MOVED: ["OLD_SHM_MOVED", "OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
   OLD_SHM_MOVED: ["OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
   OLD_DB_PRESERVED: ["NEW_DB_MOVED", "RECOVERING", "ROLLED_BACK"],
+  FRESH_TARGET_CONFIRMED: ["NEW_DB_MOVED", "RECOVERING", "ROLLED_BACK"],
   NEW_DB_MOVED: ["NEW_DB_PUBLISHED", "RECOVERING", "ROLLED_BACK"],
   NEW_DB_PUBLISHED: ["VERIFIED", "RECOVERING", "ROLLED_BACK"],
   VERIFIED: ["COMMITTED", "RECOVERING", "ROLLED_BACK"],
@@ -135,7 +138,8 @@ function validNativeInitial(record: RestoreJournalRecord): boolean {
     !!value && /^[a-f0-9]{16}$/.test(value.volumeSerial) && /^[a-f0-9]{32}$/.test(value.fileId) &&
     Number.isSafeInteger(value.bytes) && value.bytes >= 0 && /^[a-f0-9]{64}$/.test(value.sha256);
   return record.formatVersion === 2 && valid(initial.oldDb) && valid(initial.oldWal) &&
-    valid(initial.oldShm) && valid(initial.stagedDb) && initial.oldDb !== null && initial.stagedDb !== null &&
+    valid(initial.oldShm) && valid(initial.stagedDb) && initial.stagedDb !== null &&
+    (initial.oldDb !== null || (initial.oldWal === null && initial.oldShm === null)) &&
     (record.moveReceipts === undefined || record.moveReceipts.every((receipt) => {
       const snapshot = initial[receipt.slot];
       return !!snapshot && JSON.stringify(snapshot) === JSON.stringify(receipt.before);
@@ -185,6 +189,10 @@ function validate(record: RestoreJournalRecord): void {
     throw recoveryError("journal path or record invalid");
   }
   if (record.formatVersion !== undefined && record.formatVersion !== 2) throw recoveryError("journal version invalid");
+  if (record.phase === "FRESH_TARGET_CONFIRMED" && record.nativeInitial?.oldDb !== null ||
+      record.phase === "OLD_DB_PRESERVED" && record.nativeInitial?.oldDb === null) {
+    throw recoveryError("journal generation phase contradicts initial target");
+  }
   if (record.formatVersion === 2) {
     const e = record.evidence;
     const validFile = (file: { exists: boolean; bytes: number | null; sha256: string | null } | undefined): boolean =>
@@ -198,8 +206,9 @@ function validate(record: RestoreJournalRecord): void {
           !Number.isSafeInteger(blob.bytes) || blob.bytes < 0 || typeof blob.existedBefore !== "boolean")) {
       throw recoveryError("journal v2 evidence invalid");
     }
-    if (record.nativeInitial && (record.nativeInitial.oldDb.bytes !== e.oldDb.bytes ||
-        record.nativeInitial.oldDb.sha256 !== e.oldDb.sha256 ||
+    if (record.nativeInitial && ((record.nativeInitial.oldDb === null) !== !e.oldDb.exists ||
+        (record.nativeInitial.oldDb !== null && (record.nativeInitial.oldDb.bytes !== e.oldDb.bytes ||
+          record.nativeInitial.oldDb.sha256 !== e.oldDb.sha256)) ||
         (record.nativeInitial.oldWal === null) !== !e.oldWal.exists ||
         (record.nativeInitial.oldWal && (record.nativeInitial.oldWal.bytes !== e.oldWal.bytes ||
           record.nativeInitial.oldWal.sha256 !== e.oldWal.sha256)) ||
@@ -394,7 +403,8 @@ export function appendRestorePhase(path: string, record: RestoreJournalRecord): 
 }
 
 /** Called before SQLite can create/open state.db; incomplete restore is a hard blocker. */
-export function assertRestoreReadyBeforeOpen(dbPath: string): void {
+export function assertRestoreReadyBeforeOpen(dbPath: string,
+  options?: { allowFreshRollbackForRestore?: boolean }): void {
   const last = readRestoreJournal(journalPathForDb(dbPath));
   if (last === null) {
     try {
@@ -408,5 +418,9 @@ export function assertRestoreReadyBeforeOpen(dbPath: string): void {
   }
   if (last && last.phase !== "COMMITTED" && last.phase !== "ROLLED_BACK") {
     throw recoveryError(`unfinished generation ${last.generation}, phase ${last.phase}`);
+  }
+  if (last?.phase === "ROLLED_BACK" && last.nativeInitial?.oldDb === null &&
+      !options?.allowFreshRollbackForRestore) {
+    throw recoveryError("fresh restore rolled back to an empty target; explicit restore required");
   }
 }
