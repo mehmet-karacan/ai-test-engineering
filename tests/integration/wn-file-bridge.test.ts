@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, linkSync, copyFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, linkSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -374,6 +374,151 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
     } finally {
       if (child.exitCode === null) child.kill();
     }
+  });
+
+  it("pins an absent-target recovery layout before accepting journal evidence", async () => {
+    const root = join(sandbox, "recover-layout-root");
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    mkdirSync(root);
+    writeFileSync(join(root, "state.db"), "old-generation");
+    writeFileSync(join(root, stagedName), "new-generation");
+    renameSync(join(root, "state.db"), join(root, preservedName));
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    const child = spawn(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName), hex(preservedName), randomUUID()],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const nextLine = stdoutLineReader(child.stdout);
+    try {
+      const ready = (await nextLine()).split("\t");
+      expect(ready[0]).toBe("RECOVERY_READY");
+      expect(ready[2]).toBe("1");
+      expect(ready.find((field) => field.startsWith("oldDb="))).toContain(hex(preservedName));
+      expect(ready.find((field) => field.startsWith("stagedDb="))).toContain(hex(stagedName));
+      child.stdin.write("VERIFY\n");
+      const [code] = await once(child, "exit") as [number];
+      expect(code).toBe(2);
+      expect(readFileSync(join(root, preservedName), "utf8")).toBe("old-generation");
+      expect(readFileSync(join(root, stagedName), "utf8")).toBe("new-generation");
+      expect(existsSync(join(root, "state.db"))).toBe(false);
+    } finally { if (child.exitCode === null) child.kill(); }
+  });
+
+  it("rolls a pinned partial move back only after an exact recovery acceptance", async () => {
+    const root = join(sandbox, "recover-rollback-root");
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    mkdirSync(root);
+    writeFileSync(join(root, "state.db"), "old-generation");
+    writeFileSync(join(root, stagedName), "new-generation");
+    renameSync(join(root, "state.db"), join(root, preservedName));
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    const generation = randomUUID();
+    const child = spawn(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName), hex(preservedName), generation],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const nextLine = stdoutLineReader(child.stdout);
+    try {
+      const ready = (await nextLine()).split("\t");
+      expect(ready.slice(0, 3)).toEqual(["RECOVERY_READY", generation, "1"]);
+      child.stdin.write(["ACCEPT", generation, "1", ...ready.slice(3)].join("\t") + "\n");
+      expect((await nextLine()).split("\t")).toEqual(["ACCEPTED", generation, "1"]);
+      const old = ready.find((field) => field.startsWith("oldDb="))!.split(":").slice(1);
+      child.stdin.write(["MOVE", "oldDb", hex(preservedName), hex("state.db"), ...old].join("\t") + "\n");
+      expect((await nextLine()).split("\t").slice(0, 4)).toEqual(["MOVED", generation, "2", "oldDb"]);
+      child.stdin.write("CLOSE\n");
+      expect((await nextLine()).split("\t")).toEqual(["CLOSED", generation, "2"]);
+      const [code] = await once(child, "exit") as [number];
+      expect(code).toBe(0);
+      expect(readFileSync(join(root, "state.db"), "utf8")).toBe("old-generation");
+      expect(readFileSync(join(root, stagedName), "utf8")).toBe("new-generation");
+    } finally { if (child.exitCode === null) child.kill(); }
+  });
+
+  it("rejects an ambiguous recovery target before READY", () => {
+    const root = join(sandbox, "recover-ambiguous-root");
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    mkdirSync(root);
+    writeFileSync(join(root, preservedName), "old-generation");
+    writeFileSync(join(root, stagedName), "new-generation");
+    writeFileSync(join(root, "state.db"), "unowned");
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    const result = spawnSync(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName), hex(preservedName), randomUUID()],
+      { input: "", encoding: "utf8", windowsHide: true });
+    expect(result.status).toBe(2);
+    expect(result.stdout).not.toContain("RECOVERY_READY");
+    expect(readFileSync(join(root, "state.db"), "utf8")).toBe("unowned");
+  });
+
+  it("refuses recovery READY while a raw SQLite owner holds the preserved DB", () => {
+    const root = join(sandbox, "recover-raw-owner-root");
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    mkdirSync(root);
+    const db = new Database(join(root, preservedName));
+    db.exec("CREATE TABLE t(x INTEGER)");
+    writeFileSync(join(root, stagedName), "new-generation");
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    try {
+      const result = spawnSync(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName), hex(preservedName), randomUUID()],
+        { input: "", encoding: "utf8", windowsHide: true, timeout: 5000 });
+      expect(result.status).toBe(2);
+      expect(result.stdout).not.toContain("RECOVERY_READY");
+      expect(db.prepare("SELECT COUNT(*) AS n FROM t").get()).toMatchObject({ n: 0 });
+    } finally { db.close(); }
+  });
+
+  it("refuses duplicated original and preserved WAL identities", () => {
+    const root = join(sandbox, "recover-sidecar-duplicate-root");
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    const suffix = preservedName.slice("state.db".length);
+    mkdirSync(root);
+    writeFileSync(join(root, preservedName), "old-generation");
+    writeFileSync(join(root, stagedName), "new-generation");
+    writeFileSync(join(root, `state.db-wal${suffix}`), "old-wal");
+    writeFileSync(join(root, "state.db-wal"), "unowned-wal");
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    const result = spawnSync(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName), hex(preservedName), randomUUID()],
+      { input: "", encoding: "utf8", windowsHide: true });
+    expect(result.status).toBe(2);
+    expect(result.stdout).not.toContain("RECOVERY_READY");
+    expect(readFileSync(join(root, "state.db-wal"), "utf8")).toBe("unowned-wal");
+  });
+
+  it("pins a published new DB and permits read verification after journal acceptance", async () => {
+    const root = join(sandbox, "recover-published-root");
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    mkdirSync(root);
+    const oldDb = new Database(join(root, "state.db"));
+    oldDb.exec("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (1)");
+    oldDb.close();
+    const stagedDb = new Database(join(root, stagedName));
+    stagedDb.exec("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (2)");
+    stagedDb.close();
+    renameSync(join(root, "state.db"), join(root, preservedName));
+    renameSync(join(root, stagedName), join(root, "state.db"));
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    const generation = randomUUID();
+    const child = spawn(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName), hex(preservedName), generation],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const nextLine = stdoutLineReader(child.stdout);
+    try {
+      const ready = (await nextLine()).split("\t");
+      expect(ready.slice(0, 3)).toEqual(["RECOVERY_READY", generation, "2"]);
+      child.stdin.write(["ACCEPT", generation, "2", ...ready.slice(3)].join("\t") + "\n");
+      expect(await nextLine()).toBe(`ACCEPTED\t${generation}\t2`);
+      child.stdin.write("VERIFY\n");
+      expect((await nextLine()).split("\t")[0]).toBe("VERIFY_READY");
+      const readonly = new Database(join(root, "state.db"), { readonly: true });
+      try { expect(readonly.prepare("SELECT x FROM t").get()).toMatchObject({ x: 2 }); }
+      finally { readonly.close(); }
+      child.stdin.write("CLOSE\n");
+      expect(await nextLine()).toBe(`CLOSED\t${generation}\t2`);
+      const [code] = await once(child, "exit") as [number];
+      expect(code).toBe(0);
+      expect(readFileSync(join(root, preservedName)).byteLength).toBeGreaterThan(0);
+    } finally { if (child.exitCode === null) child.kill(); }
   });
 
   it("rejects a MOVE outside the restore-owned name sequence", async () => {
