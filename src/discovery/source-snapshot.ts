@@ -4,7 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync, mkdirSync, copyFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, openSync, readSync, closeSync, mkdirSync, copyFileSync, writeFileSync, constants } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
 
@@ -49,7 +49,25 @@ const JAVA_DIRS = new Set(["java"]);
 const CLASSIFICATION_EXTS = new Set([".java", ".xml", ".properties", ".gradle", ".kts", ".json", ".yaml", ".yml"]);
 
 export function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  const before = lstatSync(path);
+  if (!before.isFile() || before.isSymbolicLink()) {
+    throw new AppError("POLICY_VIOLATION", `Hash girdisi duzenli dosya degil: ${path}`);
+  }
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  const fd = openSync(path, "r");
+  try {
+    let bytesRead: number;
+    while ((bytesRead = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, bytesRead));
+  } finally {
+    closeSync(fd);
+  }
+  const after = lstatSync(path);
+  if (!after.isFile() || after.isSymbolicLink() || before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+      before.dev !== after.dev || before.ino !== after.ino) {
+    throw new AppError("POLICY_VIOLATION", `Hash sirasinda dosya degisti: ${path}`);
+  }
+  return hash.digest("hex");
 }
 
 export function sha256Data(data: Buffer | string): string {
@@ -306,7 +324,8 @@ export class SourceSnapshot {
       assertNoLinks(this.root, sourcePath);
       assertNoLinks(absTarget, targetPath);
       mkdirSync(join(targetPath, ".."), { recursive: true });
-      copyFileSync(sourcePath, targetPath);
+      assertNoLinks(absTarget, targetPath);
+      copyFileSync(sourcePath, targetPath, constants.COPYFILE_EXCL);
       const copiedHash = sha256File(targetPath);
       if (copiedHash !== entry.sha256) {
         throw new AppError("STORAGE_ERROR", `Snapshot kopya hash uyusmazligi: ${entry.relative_path}`);

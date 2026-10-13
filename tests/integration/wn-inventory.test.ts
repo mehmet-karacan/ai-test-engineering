@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { closeSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { scanFileInventory } from "../../src/discovery/file-inventory.js";
-import { SourceSnapshot, buildDigestFromManifest } from "../../src/discovery/source-snapshot.js";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import { inventoryDigestFromCompletePage, scanFileInventory } from "../../src/discovery/file-inventory.js";
+import { SourceSnapshot, buildDigestFromManifest, sourceDigestFromManifest } from "../../src/discovery/source-snapshot.js";
+
+function removeFixture(path: string): void {
+  const absolute = resolve(path);
+  if (dirname(absolute).toLowerCase() !== resolve(tmpdir()).toLowerCase() || !basename(absolute).startsWith("wn-")) {
+    throw new Error(`Unsafe fixture cleanup: ${absolute}`);
+  }
+  rmSync(absolute, { recursive: true, force: true });
+}
+
+function removeFixtureChild(sandbox: string, path: string): void {
+  const absolute = resolve(path);
+  const base = resolve(sandbox);
+  if (dirname(base).toLowerCase() !== resolve(tmpdir()).toLowerCase() ||
+      !basename(base).startsWith("wn-") || !absolute.toLowerCase().startsWith(`${base.toLowerCase()}${sep}`)) {
+    throw new Error(`Unsafe fixture child cleanup: ${absolute}`);
+  }
+  rmSync(absolute, { recursive: true });
+}
 
 describe("S03 metadata inventory phase A", () => {
   it("keeps Maven wrapper inputs in a separate build snapshot and excludes old outputs", () => {
@@ -37,7 +55,7 @@ describe("S03 metadata inventory phase A", () => {
       expect(readdirSync(join(target, ".mvn"))).toContain("maven.config");
       expect(readdirSync(target)).not.toContain("target");
       expect(readdirSync(target)).not.toContain(".git");
-    } finally { rmSync(sandbox, { recursive: true, force: true }); }
+    } finally { removeFixture(sandbox); }
   });
 
   it("rejects a linked build input instead of silently omitting it", () => {
@@ -51,7 +69,7 @@ describe("S03 metadata inventory phase A", () => {
       writeFileSync(join(external, "maven.config"), "-B");
       symlinkSync(external, join(root, ".mvn"), process.platform === "win32" ? "junction" : "dir");
       expect(() => new SourceSnapshot(root).buildManifest()).toThrow();
-    } finally { rmSync(sandbox, { recursive: true, force: true }); }
+    } finally { removeFixture(sandbox); }
   });
 
   it("rejects a source or destination junction introduced after the manifest", () => {
@@ -71,10 +89,10 @@ describe("S03 metadata inventory phase A", () => {
       expect(() => snapshot.copyTo(target, manifest)).toThrow();
       expect(readdirSync(external)).toEqual(["maven.config"]);
       rmSync(join(target, ".mvn"));
-      rmSync(join(root, ".mvn"), { recursive: true });
+      removeFixtureChild(sandbox, join(root, ".mvn"));
       symlinkSync(external, join(root, ".mvn"), process.platform === "win32" ? "junction" : "dir");
       expect(() => snapshot.copyTo(join(sandbox, "copy2"), manifest)).toThrow();
-    } finally { rmSync(sandbox, { recursive: true, force: true }); }
+    } finally { removeFixture(sandbox); }
   });
   it("lists hidden, build, binary and large entries without following a junction", async () => {
     const sandbox = mkdtempSync(join(tmpdir(), "wn-inventory-"));
@@ -112,7 +130,7 @@ describe("S03 metadata inventory phase A", () => {
         expect(all.find((entry) => entry.relativePath === "outside-link")?.kind).toBe("symlink");
         expect(paths).not.toContain("outside-link/outside.txt");
       }
-    } finally { rmSync(sandbox, { recursive: true, force: true }); }
+    } finally { removeFixture(sandbox); }
   });
 
   it("reports an unreadable directory as partial without guessing its contents", async () => {
@@ -138,6 +156,74 @@ describe("S03 metadata inventory phase A", () => {
       const last = await scanFileInventory(root, { readDir, pageSize: 1, cursor: page.nextCursor });
       expect(last.partial).toBe(true);
       expect(last.complete).toBe(false);
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    } finally { removeFixture(root); }
+  });
+
+  it("keeps complete metadata digest separate from execution source and build digests", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-digest-separation-"));
+    try {
+      const root = join(sandbox, "root");
+      for (const path of [".git", "target", ".mvn", "src/main/java"]) mkdirSync(join(root, path), { recursive: true });
+      writeFileSync(join(root, ".git", "config"), "old");
+      writeFileSync(join(root, "target", "old.class"), "old");
+      writeFileSync(join(root, ".mvn", "maven.config"), "-B");
+      writeFileSync(join(root, "pom.xml"), "<project/>");
+      writeFileSync(join(root, "src", "main", "java", "A.java"), "class A {}");
+      const snapshot = new SourceSnapshot(root);
+      const firstManifest = snapshot.buildManifest();
+      const firstPage = await scanFileInventory(root, { pageSize: 100 });
+      const firstInventoryDigest = inventoryDigestFromCompletePage(firstPage);
+      writeFileSync(join(root, ".git", "config"), "changed");
+      writeFileSync(join(root, "target", "old.class"), "changed");
+      const secondManifest = snapshot.buildManifest();
+      const secondPage = await scanFileInventory(root, { pageSize: 100 });
+      expect(inventoryDigestFromCompletePage(secondPage)).not.toBe(firstInventoryDigest);
+      expect(sourceDigestFromManifest(secondManifest)).toBe(sourceDigestFromManifest(firstManifest));
+      expect(buildDigestFromManifest(secondManifest)).toBe(buildDigestFromManifest(firstManifest));
+      expect(() => inventoryDigestFromCompletePage({ ...firstPage, complete: false, partial: true })).toThrow();
+      expect(() => inventoryDigestFromCompletePage({ ...firstPage, entries: [...firstPage.entries, firstPage.entries[0]!] })).toThrow();
+    } finally { removeFixture(sandbox); }
+  });
+
+  it("hashes a large required input for inventory and refuses an untrusted execution manifest", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-large-required-"));
+    try {
+      const root = join(sandbox, "root");
+      mkdirSync(join(root, ".mvn", "wrapper"), { recursive: true });
+      writeFileSync(join(root, "pom.xml"), "<project/>");
+      const required = join(root, ".mvn", "wrapper", "maven-wrapper.jar");
+      const fd = openSync(required, "w");
+      ftruncateSync(fd, 1024 * 1024);
+      closeSync(fd);
+      const metadata = await scanFileInventory(root, { requiredHashPaths: [".mvn/wrapper/maven-wrapper.jar"], pageSize: 100 });
+      expect(metadata.entries.find((entry) => entry.relativePath === ".mvn/wrapper/maven-wrapper.jar")?.hashStatus).toBe("COMPUTED");
+      expect(() => new SourceSnapshot(root).buildManifest({ maxFileBytes: 1024 })).toThrow();
+      const manifest = new SourceSnapshot(root).buildManifest({ maxFileBytes: 2 * 1024 * 1024 });
+      const entry = manifest.entries.find((item) => item.relative_path === ".mvn/wrapper/maven-wrapper.jar");
+      expect(entry?.sha256).toMatch(/^[0-9a-f]{64}$/);
+      const target = join(sandbox, "copy");
+      new SourceSnapshot(root).copyTo(target, manifest);
+      expect(readFileSync(join(target, ".mvn", "wrapper", "maven-wrapper.jar")).byteLength).toBe(1024 * 1024);
+    } finally { removeFixture(sandbox); }
+  });
+
+  it("does not overwrite an existing execution target or accept changed source bytes", () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-copy-revalidate-"));
+    try {
+      const root = join(sandbox, "root");
+      const target = join(sandbox, "copy");
+      mkdirSync(root);
+      mkdirSync(target);
+      writeFileSync(join(root, "pom.xml"), "<project/>");
+      const snapshot = new SourceSnapshot(root);
+      const manifest = snapshot.buildManifest();
+      writeFileSync(join(target, "pom.xml"), "owned");
+      expect(() => snapshot.copyTo(target, manifest)).toThrow();
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("owned");
+      rmSync(join(target, "pom.xml"));
+      writeFileSync(join(root, "pom.xml"), "changed");
+      expect(() => snapshot.copyTo(target, manifest)).toThrow();
+      expect(readdirSync(target)).not.toContain("snapshot-manifest.json");
+    } finally { removeFixture(sandbox); }
   });
 });
