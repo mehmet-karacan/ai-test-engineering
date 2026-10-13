@@ -276,6 +276,50 @@ bool copyOne(HANDLE sourceRoot, HANDLE targetRoot, const std::wstring& relative,
   return true;
 }
 
+bool verifyOne(HANDLE root, const std::wstring& relative, unsigned long long expectedBytes,
+    const std::string& expectedHash, std::vector<Handle>& pinned) {
+  std::wstring ignored;
+  std::vector<std::wstring> parts;
+  if (!split(relative, false, ignored, parts)) return false;
+  std::vector<Handle> directories;
+  HANDLE parent = root;
+  for (size_t i = 0; i + 1 < parts.size(); ++i) {
+    Handle next;
+    if (!child(parent, parts[i], true, false, FILE_READ_ATTRIBUTES, next)) return false;
+    parent = next.value;
+    directories.push_back(std::move(next));
+  }
+  Handle input;
+  if (!child(parent, parts.back(), false, false, GENERIC_READ | FILE_READ_ATTRIBUTES, input, FILE_SHARE_READ)) return false;
+  BY_HANDLE_FILE_INFORMATION before{}, after{};
+  if (!GetFileInformationByHandle(input.value, &before) || before.nNumberOfLinks != 1) return false;
+  std::string digest;
+  unsigned long long bytes = 0;
+  if (!sha256(input.value, nullptr, digest, bytes) || bytes != expectedBytes || digest != expectedHash ||
+      !GetFileInformationByHandle(input.value, &after) || before.nFileIndexHigh != after.nFileIndexHigh ||
+      before.nFileIndexLow != after.nFileIndexLow || before.nFileSizeHigh != after.nFileSizeHigh ||
+      before.nFileSizeLow != after.nFileSizeLow ||
+      CompareFileTime(&before.ftLastWriteTime, &after.ftLastWriteTime) != 0) return false;
+  pinned.push_back(std::move(input));
+  return true;
+}
+
+bool readEqual(HANDLE file, const std::string& expected) {
+  LARGE_INTEGER size{};
+  if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 ||
+      static_cast<unsigned long long>(size.QuadPart) != expected.size()) return false;
+  char buffer[65536];
+  size_t offset = 0;
+  while (offset < expected.size()) {
+    DWORD got = 0;
+    const DWORD want = static_cast<DWORD>(expected.size() - offset < sizeof(buffer) ? expected.size() - offset : sizeof(buffer));
+    if (!ReadFile(file, buffer, want, &got, nullptr) || got != want ||
+        std::memcmp(buffer, expected.data() + offset, got) != 0) return false;
+    offset += got;
+  }
+  return true;
+}
+
 int run(int argc, wchar_t** argv) {
   if (argc != 6 || wcscmp(argv[1], L"snapshot") != 0) return 2;
   std::vector<Handle> sourceRoot, targetRoot;
@@ -288,16 +332,37 @@ int run(int argc, wchar_t** argv) {
   };
   if (sourceId.empty() || targetId.empty() || sourceId == targetId || sourceId != ascii(argv[4]) ||
       targetId != ascii(argv[5]) || sourceId.substr(0, 16) != targetId.substr(0, 16)) return 3;
+  const std::string receipt = "AITEST_SNAPSHOT_V1\n" + sourceId + "\n" + targetId + "\n";
+  Handle journal;
+  bool journalOwned = false;
+  if (child(targetRoot.back().value, L".aitest-snapshot-session", false, true,
+      GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, journal, 0)) {
+    journalOwned = true;
+    DWORD written = 0;
+    if (!WriteFile(journal.value, receipt.data(), static_cast<DWORD>(receipt.size()), &written, nullptr) ||
+        written != receipt.size() || !FlushFileBuffers(journal.value)) {
+      markDelete(journal.value);
+      return 2;
+    }
+  } else {
+    if (!child(targetRoot.back().value, L".aitest-snapshot-session", false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES, journal, FILE_SHARE_READ) || !readEqual(journal.value, receipt)) return 5;
+    Handle finalManifest;
+    if (!child(targetRoot.back().value, L"snapshot-manifest.json", false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES, finalManifest, FILE_SHARE_READ)) return 5;
+  }
   std::puts("READY");
   std::fflush(stdout);
   std::vector<Created> files;
   std::vector<CreatedDirectory> directories;
+  std::vector<Handle> verifiedFiles;
   bool completed = false;
   bool manifestSeen = false;
+  bool pauseAfterPublish = false;
   size_t manifestIndex = 0;
   std::string line;
   while (std::getline(std::cin, line)) {
-    if (line == "END") { completed = manifestSeen; break; }
+    if (line == "END" || line == "END_PAUSE") { completed = manifestSeen; pauseAfterPublish = line == "END_PAUSE"; break; }
     if (line == "BARRIER") { std::puts("BARRIER"); std::fflush(stdout); continue; }
     const size_t first = line.find('\t');
     if (first == std::string::npos) break;
@@ -314,11 +379,22 @@ int run(int argc, wchar_t** argv) {
           digest.find_first_not_of("0123456789abcdef") != std::string::npos) break;
       unsigned long long bytes = 0;
       try { bytes = std::stoull(count); } catch (...) { break; }
-      if (!copyOne(sourceRoot.back().value, targetRoot.back().value, name, bytes, digest, files, directories)) break;
+      if (journalOwned) {
+        if (!copyOne(sourceRoot.back().value, targetRoot.back().value, name, bytes, digest, files, directories)) break;
+      } else if (!verifyOne(sourceRoot.back().value, name, bytes, digest, verifiedFiles) ||
+                 !verifyOne(targetRoot.back().value, name, bytes, digest, verifiedFiles)) break;
     } else if (kind == "MANIFEST") {
       if (manifestSeen) break;
       std::string body;
       if (!hexBytes(line.substr(first + 1), body) || body.empty()) break;
+      if (!journalOwned) {
+        Handle finalManifest;
+        if (!child(targetRoot.back().value, L"snapshot-manifest.json", false, false,
+            GENERIC_READ | FILE_READ_ATTRIBUTES, finalManifest, FILE_SHARE_READ) || !readEqual(finalManifest.value, body)) break;
+        verifiedFiles.push_back(std::move(finalManifest));
+        manifestSeen = true;
+        continue;
+      }
       const std::wstring stagedName = temporaryManifestName();
       if (stagedName.empty()) break;
       Handle output;
@@ -333,7 +409,7 @@ int run(int argc, wchar_t** argv) {
     } else break;
   }
   if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
-  if (completed && !renameHeld(files[manifestIndex].file.value, targetRoot.back().value, L"snapshot-manifest.json")) completed = false;
+  if (completed && journalOwned && !renameHeld(files[manifestIndex].file.value, targetRoot.back().value, L"snapshot-manifest.json")) completed = false;
   if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
   if (!completed) {
     bool cleaned = true;
@@ -344,9 +420,15 @@ int run(int argc, wchar_t** argv) {
       it->file = Handle{};
     }
     directories.clear();
-    return cleaned ? 2 : 4;
+    if (journalOwned) cleaned = markDelete(journal.value) && cleaned;
+    return journalOwned ? (cleaned ? 2 : 4) : 5;
   }
-  std::puts("OK");
+  if (pauseAfterPublish) {
+    std::puts("PUBLISHED");
+    std::fflush(stdout);
+    if (!std::getline(std::cin, line) || line != "ACK") return 2;
+  }
+  std::puts(journalOwned ? "OK" : "ALREADY_COMPLETE");
   return 0;
 }
 }  // namespace

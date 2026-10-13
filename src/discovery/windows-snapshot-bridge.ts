@@ -49,9 +49,11 @@ export function publishWindowsSnapshot(sourceRoot: string, targetRoot: string, s
   const run = spawnSync(helper, ["snapshot", sourceRoot, targetRoot, rootId(sourceRootIdentity), rootId(targetRootIdentity)], {
     shell: false, windowsHide: true, encoding: "utf8", input, timeout: 10 * 60_000, maxBuffer: 64 * 1024,
   });
-  if (run.error || run.status !== 0 || run.signal || run.stdout.replace(/\r\n/gu, "\n") !== "READY\nOK\n") {
+  const response = run.stdout.replace(/\r\n/gu, "\n");
+  if (run.error || run.status !== 0 || run.signal || (response !== "READY\nOK\n" && response !== "READY\nALREADY_COMPLETE\n")) {
     throw new AppError("BLOCKED_ISOLATION", "Windows snapshot copy failed", {
-      reason_code: run.status === 4 ? "SNAPSHOT_PARTIAL_CLEANUP_FAILED" : "SNAPSHOT_COPY_FAILED",
+      reason_code: run.status === 5 ? "SNAPSHOT_RECOVERY_QUARANTINED" :
+        run.status === 4 ? "SNAPSHOT_PARTIAL_CLEANUP_FAILED" : "SNAPSHOT_COPY_FAILED",
       exit_code: run.status, signal: run.signal,
     });
   }

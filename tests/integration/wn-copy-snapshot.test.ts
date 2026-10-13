@@ -152,24 +152,20 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       const closed = once(child, "close") as Promise<[number]>;
       expect((await lines.next()).value).toBe("READY");
       expect(child.exitCode).toBe(null);
-      // Both roots are open, but no target file exists yet. Windows may rename
-      // the pathname; all later opens must remain anchored to the old handles.
+      // Source root can move; the durable target journal also blocks target rename.
       const movedSource = join(sandbox, "source-moved");
       const movedTarget = join(sandbox, "target-moved");
       renameSync(source, movedSource);
-      renameSync(target, movedTarget);
+      expect(() => renameSync(target, movedTarget)).toThrow();
       mkdirSync(source);
-      mkdirSync(target);
       writeFileSync(join(source, "pom.xml"), "replacement source");
-      writeFileSync(join(target, "sentinel.txt"), "replacement target");
       const fileLine = `FILE\t${Buffer.from(entry.relative_path, "utf16le").toString("hex")}\t${entry.bytes}\t${entry.sha256}\n`;
       const publicManifest = JSON.stringify({ ...manifest,
         entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) });
       child.stdin.end(fileLine + `MANIFEST\t${Buffer.from(publicManifest, "utf8").toString("hex")}\nEND\n`);
       expect((await closed)[0]).toBe(2);
       expect(existsSync(join(movedTarget, "snapshot-manifest.json"))).toBe(false);
-      expect(existsSync(join(movedTarget, "pom.xml"))).toBe(false);
-      expect(readFileSync(join(target, "sentinel.txt"), "utf8")).toBe("replacement target");
+      expect(existsSync(join(target, "pom.xml"))).toBe(false);
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
@@ -224,7 +220,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
     }
   }, 30_000);
 
-  it("prevents or safely handles a target root swap-back after a copied file", async () => {
+  it("blocks target root rename while the session journal is held", async () => {
     const sandbox = fixture();
     let child: ChildProcessWithoutNullStreams | undefined;
     try {
@@ -244,30 +240,17 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       const closed = once(child, "close") as Promise<[number]>;
       expect((await lines.next()).value).toBe("READY");
       const movedTarget = join(sandbox, "target-moved");
-      const replacement = join(sandbox, "target-replacement");
-      renameSync(target, movedTarget);
-      mkdirSync(target);
-      writeFileSync(join(target, "sentinel.txt"), "replacement");
+      expect(() => renameSync(target, movedTarget)).toThrow();
       child.stdin.write(`FILE\t${Buffer.from(entry.relative_path, "utf16le").toString("hex")}\t${entry.bytes}\t${entry.sha256}\nBARRIER\n`);
       expect((await lines.next()).value).toBe("BARRIER");
-      renameSync(target, replacement);
-      let restored = false;
-      try { renameSync(movedTarget, target); restored = true; }
-      catch (error) { expect((error as NodeJS.ErrnoException).code).toMatch(/^(EPERM|EACCES|EBUSY)$/u); }
-      expect(restored).toBe(false);
+      expect(() => renameSync(target, movedTarget)).toThrow();
       const publicManifest = JSON.stringify({ ...manifest,
         entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) });
       child.stdin.end(`MANIFEST\t${Buffer.from(publicManifest, "utf8").toString("hex")}\nEND\n`);
-      expect((await closed)[0]).toBe(restored ? 0 : 2);
-      if (restored) {
-        expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
-        expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(true);
-      } else {
-        expect(existsSync(join(movedTarget, "pom.xml"))).toBe(false);
-        expect(existsSync(join(movedTarget, "snapshot-manifest.json"))).toBe(false);
-      }
-      expect(readFileSync(join(replacement, "sentinel.txt"), "utf8")).toBe("replacement");
-      expect(existsSync(join(replacement, "snapshot-manifest.json"))).toBe(false);
+      expect((await closed)[0]).toBe(0);
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+      expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(true);
+      expect(existsSync(movedTarget)).toBe(false);
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
         child.stdin.destroy(); child.kill(); await once(child, "close");
@@ -302,8 +285,14 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       expect((await closed)[0]).toBe(null);
       expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
-      expect(() => new SourceSnapshot(source).copyTo(target, manifest)).toThrow();
-      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+      renameSync(join(target, "pom.xml"), join(target, "orphaned-original.xml"));
+      writeFileSync(join(target, "pom.xml"), "other user");
+      try { new SourceSnapshot(source).copyTo(target, manifest); throw new Error("Recovered an incomplete session"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+      }
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("other user");
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
@@ -342,6 +331,12 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       expect((await closed)[0]).toBe(null);
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
       expect(readdirSync(target).some((name) => name.startsWith("snapshot-manifest.json.tmp-"))).toBe(true);
+      try { new SourceSnapshot(source).copyTo(target, manifest); throw new Error("Accepted staged manifest"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+      }
+      expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
         child.stdin.destroy(); child.kill(); await once(child, "close");
@@ -349,4 +344,101 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       cleanup(sandbox);
     }
   }, 30_000);
+
+  it("quarantines a session killed at READY before retry writes", async () => {
+    const sandbox = fixture();
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const snapshot = new SourceSnapshot(source);
+      const manifest = snapshot.buildManifest();
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      child = spawn(packagedSnapshotHelper(), ["snapshot", source, target,
+        sourceId.volumeSerial + sourceId.fileId, targetId.volumeSerial + targetId.fileId],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const closed = once(child, "close") as Promise<[number]>;
+      expect((await lines.next()).value).toBe("READY");
+      expect(child.kill()).toBe(true);
+      expect((await closed)[0]).toBe(null);
+      try { snapshot.copyTo(target, manifest); throw new Error("Recovered READY-only session"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+      }
+      expect(existsSync(join(target, "pom.xml"))).toBe(false);
+      expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
+      expect(existsSync(join(target, ".aitest-snapshot-session"))).toBe(true);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.stdin.destroy(); child.kill(); await once(child, "close");
+      }
+      cleanup(sandbox);
+    }
+  }, 30_000);
+
+  it("reconciles a verified final manifest after publish-before-OK hard kill", async () => {
+    const sandbox = fixture();
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const snapshot = new SourceSnapshot(source);
+      const manifest = snapshot.buildManifest();
+      const entry = manifest.entries[0]!;
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      child = spawn(packagedSnapshotHelper(), ["snapshot", source, target,
+        sourceId.volumeSerial + sourceId.fileId, targetId.volumeSerial + targetId.fileId],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const closed = once(child, "close") as Promise<[number]>;
+      expect((await lines.next()).value).toBe("READY");
+      const publicManifest = JSON.stringify({ ...manifest,
+        entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) }, null, 2);
+      child.stdin.write(`FILE\t${Buffer.from(entry.relative_path, "utf16le").toString("hex")}\t${entry.bytes}\t${entry.sha256}\n` +
+        `MANIFEST\t${Buffer.from(publicManifest, "utf8").toString("hex")}\nEND_PAUSE\n`);
+      expect((await lines.next()).value).toBe("PUBLISHED");
+      expect(child.kill()).toBe(true);
+      expect((await closed)[0]).toBe(null);
+      expect(readFileSync(join(target, "snapshot-manifest.json"), "utf8")).toBe(publicManifest);
+      expect(() => snapshot.copyTo(target, manifest)).not.toThrow();
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.stdin.destroy(); child.kill(); await once(child, "close");
+      }
+      cleanup(sandbox);
+    }
+  }, 30_000);
+
+  it("does not accept or delete a changed file during read-only reconciliation", () => {
+    const sandbox = fixture();
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const snapshot = new SourceSnapshot(source);
+      const manifest = snapshot.buildManifest();
+      snapshot.copyTo(target, manifest);
+      renameSync(join(target, "pom.xml"), join(target, "previous.xml"));
+      writeFileSync(join(target, "pom.xml"), "other user");
+      try { snapshot.copyTo(target, manifest); throw new Error("Accepted changed target file"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+      }
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("other user");
+      expect(readFileSync(join(target, "previous.xml"), "utf8")).toBe("original");
+    } finally { cleanup(sandbox); }
+  });
 });
