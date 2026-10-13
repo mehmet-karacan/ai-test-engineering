@@ -64,6 +64,8 @@ export interface NativeProcessResult {
   stderr: string;
   stdoutTruncatedBytes: number;
   stderrTruncatedBytes: number;
+  stdoutTruncationReason?: "BYTE_BUDGET_EXCEEDED";
+  stderrTruncationReason?: "BYTE_BUDGET_EXCEEDED";
   durationMs: number;
   errorCode?: string;
   /** Set only after the helper proves an empty Job Object or pre-spawn refusal. */
@@ -301,6 +303,8 @@ export class WindowsProcessSupervisor {
     const result: NativeProcessResult = {
       status, exitCode: validExit ? helperStatus?.exit_code ?? null : null, stdout: stdout.text(), stderr: stderr.text(),
       stdoutTruncatedBytes: stdout.dropped, stderrTruncatedBytes: stderr.dropped,
+      ...(stdout.dropped > 0 ? { stdoutTruncationReason: "BYTE_BUDGET_EXCEEDED" as const } : {}),
+      ...(stderr.dropped > 0 ? { stderrTruncationReason: "BYTE_BUDGET_EXCEEDED" as const } : {}),
       durationMs: Date.now() - started,
       ownedTreeDrained: preSpawnNoChild || (status !== "spawn_error" && (validExit || validCancelled)),
       preSpawnNoChild,

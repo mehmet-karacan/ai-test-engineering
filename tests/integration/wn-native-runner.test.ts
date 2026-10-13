@@ -50,6 +50,26 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  it("retains truncation counts and reasons in a failed native run", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn runner truncated-failure-"));
+    try {
+      const executable = join(dir, "mvn.cmd");
+      writeFileSync(executable, "@echo off\r\n");
+      const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run").mockImplementation(async (plan) =>
+        plan.argv[0] === "-v"
+          ? { status: "success", exitCode: 0, stdout: "Apache Maven 3.9.16\nJava version: 25.0.3, vendor: Fixture\n", stderr: "",
+            stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: 1 }
+          : { status: "timeout", exitCode: null, stdout: "bounded", stderr: "", stdoutTruncatedBytes: 17,
+            stderrTruncatedBytes: 0, stdoutTruncationReason: "BYTE_BUDGET_EXCEEDED", durationMs: 1 });
+      try {
+        await expect(new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
+          log_dir: join(dir, "logs"), executable })).rejects.toMatchObject({ details: {
+          stdout_truncated_bytes: 17, stdout_truncation_reason: "BYTE_BUDGET_EXCEEDED",
+        } });
+      } finally { processRun.mockRestore(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it("rejects an explicit empty settings path before Maven starts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wn runner settings-"));
     try {
@@ -165,16 +185,18 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
           stdout: "Apache Maven 3.9.16\nJava version: 25.0.3, vendor: Fixture\n", stderr: "",
           stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: 1, ownedTreeDrained: true };
         goalPins = (plan as typeof plan & { pinnedInputs?: typeof verifiedPins }).pinnedInputs;
-        return { status: "success", exitCode: 0, stdout: "", stderr: "", stdoutTruncatedBytes: 0,
-          stderrTruncatedBytes: 0, durationMs: 1, ownedTreeDrained: true };
+        return { status: "success", exitCode: 0, stdout: "bounded", stderr: "", stdoutTruncatedBytes: 17,
+          stderrTruncatedBytes: 0, stdoutTruncationReason: "BYTE_BUDGET_EXCEEDED", durationMs: 1, ownedTreeDrained: true };
       });
       try {
         const lifecycle = { beforeSpawn: () => undefined, afterSpawn: () => undefined, afterTerminal: () => undefined };
-        await new MavenRunner(undefined, lifecycle, (verified) => { verifiedPins = verified.pinnedInputs; }).run({
+        const result = await new MavenRunner(undefined, lifecycle, (verified) => { verifiedPins = verified.pinnedInputs; }).run({
           working_dir: dir, goals: ["test"], timeout_ms: 15000, log_dir: join(dir, "logs"), executable,
         });
         expect(verifiedPins).toBeDefined();
         expect(goalPins).toEqual(verifiedPins);
+        expect(result.stdout_truncated_bytes).toBe(17);
+        expect(result.stdout_truncation_reason).toBe("BYTE_BUDGET_EXCEEDED");
       } finally { processRun.mockRestore(); }
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

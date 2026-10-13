@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
 
 describe.skipIf(process.platform !== "win32")("S02 Windows process supervisor", () => {
@@ -29,6 +29,33 @@ describe.skipIf(process.platform !== "win32")("S02 Windows process supervisor", 
       expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(8);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it("bounds both real Windows streams above 8 MiB and records the budget reason", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn-process-8mib-"));
+    const limit = 8 * 1024 * 1024;
+    try {
+      const producer = join(dir, "producer.js");
+      const script = join(dir, "fixture.cmd");
+      writeFileSync(producer, `process.stdout.write(Buffer.alloc(${limit + 17}, 65));process.stderr.write(Buffer.alloc(${limit + 31}, 66));`);
+      writeFileSync(script, `@echo off\r\n"${process.execPath}" "${producer}"\r\nexit /b %errorlevel%\r\n`);
+      const result = await new WindowsProcessSupervisor().run({ executable: script, cwd: dir, argv: [], timeoutMs: 30000, env: process.env });
+      expect(result.status).toBe("success");
+      expect(Buffer.byteLength(result.stdout)).toBe(limit);
+      expect(Buffer.byteLength(result.stderr)).toBe(limit);
+      expect(result.stdoutTruncatedBytes).toBe(17);
+      expect(result.stderrTruncatedBytes).toBe(31);
+      expect(result.stdoutTruncationReason).toBe("BYTE_BUDGET_EXCEEDED");
+      expect(result.stderrTruncationReason).toBe("BYTE_BUDGET_EXCEEDED");
+    } finally {
+      const target = resolve(dir);
+      const inside = relative(resolve(tmpdir()), target);
+      if (inside && !inside.startsWith("..") && !isAbsolute(inside) && basename(target).startsWith("wn-process-8mib-")) {
+        rmSync(target, { recursive: true, force: true });
+      } else {
+        process.stderr.write("Refusing fixture cleanup outside owned Temp root\n");
+      }
+    }
+  }, 45000);
 
   it("distinguishes nonzero exit and timeout", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wn-process-"));
