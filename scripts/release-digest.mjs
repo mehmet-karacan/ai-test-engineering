@@ -16,7 +16,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
-export const TREE_DIGEST_DIRS = ["src", "scripts", "tests", "docs", "ai/acceptance"];
+export const TREE_DIGEST_DIRS = ["src", "scripts", "native", "tests", "docs", "ai/acceptance"];
 export const TREE_DIGEST_ROOT_FILES = ["package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts", "eslint.config.mjs"];
 export const BUILD_INPUT_FILES = [
   "package.json",
@@ -32,6 +32,18 @@ export const BUILD_INPUT_FILES = [
   "scripts/verify-install.mjs",
   "scripts/mcp-handshake-smoke.mjs",
   "scripts/restore-recovery-worker.mjs",
+  "scripts/verify-windows-process-helper.mjs",
+  "scripts/verify-windows-file-helper.mjs",
+  "scripts/verify-windows-snapshot-helper.mjs",
+  "native/windows-process-helper.cpp",
+  "native/windows-process-helper.manifest.json",
+  "native/bin/windows-process-helper.exe",
+  "native/windows-file-helper.cpp",
+  "native/windows-file-helper.manifest.json",
+  "native/bin/windows-file-helper.exe",
+  "native/windows-snapshot-helper.cpp",
+  "native/windows-snapshot-helper.manifest.json",
+  "native/bin/windows-snapshot-helper.exe",
 ];
 export const DIST_ARTIFACTS = ["dist/mcp/stdio-entry.js", "dist/index.js"];
 export const BUILD_STAMP_REL = "dist/build-stamp.json";
