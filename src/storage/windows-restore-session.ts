@@ -36,12 +36,12 @@ function component(name: string): boolean {
     !/[. ]$/u.test(name);
 }
 
-function hexName(name: string): string {
+export function hexName(name: string): string {
   if (!component(name)) throw protocolError("invalid file name");
   return Buffer.from(name, "utf16le").toString("hex");
 }
 
-function decodeName(hex: string): string {
+export function decodeName(hex: string): string {
   if (!/^(?:[a-f0-9]{4})+$/u.test(hex)) throw protocolError("invalid UTF-16LE file name");
   const name = Buffer.from(hex, "hex").toString("utf16le");
   if (hexName(name) !== hex) throw protocolError("noncanonical UTF-16LE file name");
@@ -58,7 +58,7 @@ export function parseRestoreSnapshot(value: string): RestoreFileSnapshot {
   return { volumeSerial: fields[0]!, fileId: fields[1]!, bytes, sha256: fields[3]! };
 }
 
-function sameSnapshot(a: RestoreFileSnapshot, b: RestoreFileSnapshot): boolean {
+export function sameSnapshot(a: RestoreFileSnapshot, b: RestoreFileSnapshot): boolean {
   return a.volumeSerial === b.volumeSerial && a.fileId === b.fileId && a.bytes === b.bytes && a.sha256 === b.sha256;
 }
 
@@ -87,8 +87,12 @@ export function validateRestoreRecoveryReady(line: string, journal: RestoreJourn
     stagedDb: [basename(journal.stagedDbPath), dbName],
   } as const;
   const present = SLOTS.filter((slot) => initial[slot] !== null);
-  if ((journal.phase === "PREPARED" && count !== 0) || count > present.length ||
-      receipts.length > count || count > receipts.length + 1 ||
+  const progressValid = journal.phase === "RECOVERING"
+    ? journal.recoveryBaseCount !== undefined && !!journal.recoveryReceipts &&
+      count <= journal.recoveryBaseCount - journal.recoveryReceipts.length &&
+      count >= journal.recoveryBaseCount - journal.recoveryReceipts.length - 1
+    : receipts.length <= count && count <= receipts.length + 1;
+  if ((journal.phase === "PREPARED" && count !== 0) || count > present.length || !progressValid ||
       receipts.some((receipt, index) => receipt.slot !== present[index] ||
         !sameSnapshot(receipt.before, initial[receipt.slot]!))) throw protocolError("recovery receipt prefix mismatch");
   const files: RestoreRecoveryReady["files"] = {};

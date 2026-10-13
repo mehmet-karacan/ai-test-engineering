@@ -7,6 +7,49 @@ import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidenc
 import { Storage } from "../../src/storage/storage.js";
 
 describe("S01 restore journal fail-closed", () => {
+  it("fsyncs a reverse recovery receipt before terminal rollback", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-native-reverse-"));
+    try {
+      const db = join(root, "state.db");
+      const stage = join(root, "state.db.restore-stage");
+      const manifest = join(root, "manifest.json");
+      const preserved = join(root, "state.db.restore-old-generation");
+      writeFileSync(db, "old-db-bytes");
+      writeFileSync(stage, "new-db-bytes");
+      writeFileSync(manifest, "manifest");
+      const evidence = captureRestoreEvidence(db, stage, manifest, []);
+      const oldDb = { volumeSerial: "a".repeat(16), fileId: "b".repeat(32),
+        bytes: evidence.oldDb.bytes!, sha256: evidence.oldDb.sha256! };
+      const stagedDb = { volumeSerial: "a".repeat(16), fileId: "c".repeat(32),
+        bytes: evidence.oldDb.bytes!, sha256: evidence.sourceDbSha256 };
+      const generation = "native-reverse-generation";
+      const receipt: RestoreMoveReceipt = { generation, sequence: 1, operation: "rename", slot: "oldDb",
+        fromName: "state.db", toName: "state.db.restore-old-generation", before: oldDb, after: oldDb };
+      const base = { formatVersion: 2 as const, generation, targetDbPath: db,
+        artifactRoot: join(root, "artifacts"), stagedDbPath: stage, preservedDbPath: preserved,
+        publishedBlobs: [], evidence, nativeInitial: { oldDb, oldWal: null, oldShm: null, stagedDb } };
+      const path = journalPathForDb(db);
+      appendRestorePhase(path, { ...base, phase: "PREPARED", moveReceipts: [] });
+      appendRestorePhase(path, { ...base, phase: "BLOBS_READY", moveReceipts: [] });
+      appendRestorePhase(path, { ...base, phase: "OLD_DB_MOVED", moveReceipts: [receipt] });
+      appendRestorePhase(path, { ...base, phase: "RECOVERING", moveReceipts: [receipt],
+        recoveryBaseCount: 1, recoveryReceipts: [] });
+      const reverse = { generation, step: 1, slot: "oldDb" as const,
+        fromName: "state.db.restore-old-generation", toName: "state.db", identity: oldDb,
+        evidence: "MOVED" as const };
+      expect(() => appendRestorePhase(path, { ...base, phase: "ROLLED_BACK", moveReceipts: [receipt],
+        recoveryBaseCount: 1, recoveryReceipts: [] })).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      appendRestorePhase(path, { ...base, phase: "RECOVERING", moveReceipts: [receipt],
+        recoveryBaseCount: 1, recoveryReceipts: [reverse] });
+      expect(() => appendRestorePhase(path, { ...base, phase: "ROLLED_BACK", moveReceipts: [receipt],
+        recoveryBaseCount: 1, recoveryReceipts: [{ ...reverse, identity: { ...oldDb, fileId: "d".repeat(32) } }] }))
+        .toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      appendRestorePhase(path, { ...base, phase: "ROLLED_BACK", moveReceipts: [receipt],
+        recoveryBaseCount: 1, recoveryReceipts: [reverse] });
+      expect(readRestoreJournal(path)?.phase).toBe("ROLLED_BACK");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("freezes native FileId snapshots from PREPARED through the journal", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-journal-native-initial-"));
     try {

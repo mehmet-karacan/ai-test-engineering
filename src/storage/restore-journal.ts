@@ -1,12 +1,14 @@
 /** Append-only restore journal. File fsync is used; Windows directory fsync is unavailable here. */
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, parse, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AppError } from "../domain/errors.js";
 import { acquireRestoreDbLock } from "./maintenance-lock.js";
 
 export type RestorePhase = "PREPARED" | "BLOBS_READY" | "OLD_DB_MOVED" | "OLD_WAL_MOVED" | "OLD_SHM_MOVED" |
-  "OLD_DB_PRESERVED" | "NEW_DB_MOVED" | "NEW_DB_PUBLISHED" | "VERIFIED" | "COMMITTED" | "ROLLED_BACK";
+  "OLD_DB_PRESERVED" | "NEW_DB_MOVED" | "NEW_DB_PUBLISHED" | "VERIFIED" | "RECOVERING" | "COMMITTED" | "ROLLED_BACK";
 
 export interface RestoreMoveReceipt {
   generation: string;
@@ -26,6 +28,16 @@ export type RestoreNativeInitial = {
   stagedDb: RestoreMoveReceipt["before"];
 };
 
+export interface RestoreRecoveryReceipt {
+  generation: string;
+  step: number;
+  slot: RestoreMoveReceipt["slot"];
+  fromName: string;
+  toName: string;
+  identity: RestoreMoveReceipt["before"];
+  evidence: "MOVED" | "RECOVERY_READY";
+}
+
 export interface RestoreJournalRecord {
   formatVersion?: 2;
   generation: string;
@@ -37,6 +49,8 @@ export interface RestoreJournalRecord {
   publishedBlobs: Array<{ path: string; sha256: string }>;
   moveReceipts?: RestoreMoveReceipt[];
   nativeInitial?: RestoreNativeInitial;
+  recoveryBaseCount?: number;
+  recoveryReceipts?: RestoreRecoveryReceipt[];
   evidence?: {
     oldDb: { exists: boolean; bytes: number | null; sha256: string | null };
     oldWal: { exists: boolean; bytes: number | null; sha256: string | null };
@@ -48,15 +62,16 @@ export interface RestoreJournalRecord {
 }
 
 const NEXT: Record<RestorePhase, RestorePhase[]> = {
-  PREPARED: ["BLOBS_READY", "ROLLED_BACK"],
-  BLOBS_READY: ["OLD_DB_MOVED", "OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "ROLLED_BACK"],
-  OLD_DB_MOVED: ["OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "ROLLED_BACK"],
-  OLD_WAL_MOVED: ["OLD_SHM_MOVED", "OLD_DB_PRESERVED", "ROLLED_BACK"],
-  OLD_SHM_MOVED: ["OLD_DB_PRESERVED", "ROLLED_BACK"],
-  OLD_DB_PRESERVED: ["NEW_DB_MOVED", "ROLLED_BACK"],
-  NEW_DB_MOVED: ["NEW_DB_PUBLISHED", "ROLLED_BACK"],
-  NEW_DB_PUBLISHED: ["VERIFIED", "ROLLED_BACK"],
-  VERIFIED: ["COMMITTED", "ROLLED_BACK"],
+  PREPARED: ["BLOBS_READY", "RECOVERING", "ROLLED_BACK"],
+  BLOBS_READY: ["OLD_DB_MOVED", "OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
+  OLD_DB_MOVED: ["OLD_WAL_MOVED", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
+  OLD_WAL_MOVED: ["OLD_SHM_MOVED", "OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
+  OLD_SHM_MOVED: ["OLD_DB_PRESERVED", "RECOVERING", "ROLLED_BACK"],
+  OLD_DB_PRESERVED: ["NEW_DB_MOVED", "RECOVERING", "ROLLED_BACK"],
+  NEW_DB_MOVED: ["NEW_DB_PUBLISHED", "RECOVERING", "ROLLED_BACK"],
+  NEW_DB_PUBLISHED: ["VERIFIED", "RECOVERING", "ROLLED_BACK"],
+  VERIFIED: ["COMMITTED", "RECOVERING", "ROLLED_BACK"],
+  RECOVERING: ["RECOVERING", "ROLLED_BACK"],
   COMMITTED: [],
   ROLLED_BACK: [],
 };
@@ -127,12 +142,45 @@ function validNativeInitial(record: RestoreJournalRecord): boolean {
     }));
 }
 
+function validRecoveryProgress(record: RestoreJournalRecord): boolean {
+  if (record.recoveryBaseCount === undefined && record.recoveryReceipts === undefined) {
+    return record.phase !== "RECOVERING";
+  }
+  const initial = record.nativeInitial;
+  const receipts = record.moveReceipts;
+  const base = record.recoveryBaseCount;
+  const reversed = record.recoveryReceipts;
+  if (!initial || !receipts || !Number.isSafeInteger(base) || base! < 0 || !Array.isArray(reversed) ||
+      (record.phase !== "RECOVERING" && record.phase !== "ROLLED_BACK")) return false;
+  const forward = (["oldDb", "oldWal", "oldShm", "stagedDb"] as const)
+    .filter((slot) => initial[slot] !== null);
+  if (base! > forward.length || receipts.length > base! || base! > receipts.length + 1 ||
+      reversed.length > base! || (record.phase === "ROLLED_BACK" && reversed.length !== base)) return false;
+  const dbName = basename(record.targetDbPath);
+  const suffix = basename(record.preservedDbPath).slice(dbName.length);
+  const forwardNames = {
+    oldDb: `${dbName}${suffix}`, oldWal: `${dbName}-wal${suffix}`,
+    oldShm: `${dbName}-shm${suffix}`, stagedDb: dbName,
+  };
+  const initialNames = { oldDb: dbName, oldWal: `${dbName}-wal`,
+    oldShm: `${dbName}-shm`, stagedDb: basename(record.stagedDbPath) };
+  return reversed.every((receipt, index) => {
+    const slot = forward[base! - index - 1];
+    return !!receipt && receipt.generation === record.generation && receipt.step === index + 1 &&
+      receipt.slot === slot && receipt.fromName === forwardNames[slot!] &&
+      receipt.toName === initialNames[slot!] &&
+      JSON.stringify(receipt.identity) === JSON.stringify(initial[slot!]) &&
+      (receipt.evidence === "MOVED" || receipt.evidence === "RECOVERY_READY");
+  });
+}
+
 function validate(record: RestoreJournalRecord): void {
   if (!record.generation || !Object.hasOwn(NEXT, record.phase) || !isAbsolute(record.targetDbPath) ||
       !isAbsolute(record.artifactRoot) || !isAbsolute(record.stagedDbPath) || !isAbsolute(record.preservedDbPath) ||
       !within(dirname(record.targetDbPath), record.stagedDbPath) || !within(dirname(record.targetDbPath), record.preservedDbPath) ||
       record.stagedDbPath === record.targetDbPath || record.preservedDbPath === record.targetDbPath ||
-      !validMoveReceipts(record) || !validNativeInitial(record) || !Array.isArray(record.publishedBlobs) || record.publishedBlobs.some((blob) =>
+      !validMoveReceipts(record) || !validNativeInitial(record) || !validRecoveryProgress(record) ||
+      !Array.isArray(record.publishedBlobs) || record.publishedBlobs.some((blob) =>
         !isAbsolute(blob.path) || !within(record.artifactRoot, blob.path) || !/^[a-f0-9]{64}$/.test(blob.sha256))) {
     throw recoveryError("journal path or record invalid");
   }
@@ -178,8 +226,22 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
     nextMoves.length === priorMoves.length + (moveSlot ? 1 : 0) &&
     priorMoves.every((receipt, index) => JSON.stringify(receipt) === JSON.stringify(nextMoves[index])) &&
     (!moveSlot || nextMoves.at(-1)?.slot === moveSlot);
+  const priorRecovery = previous.recoveryReceipts;
+  const nextRecovery = next.recoveryReceipts;
+  const recoveryValid = next.phase === "RECOVERING" && previous.phase !== "RECOVERING"
+    ? previous.recoveryBaseCount === undefined && priorRecovery === undefined &&
+      next.recoveryBaseCount !== undefined && nextRecovery?.length === 0
+    : previous.phase === "RECOVERING" && next.phase === "RECOVERING"
+      ? next.recoveryBaseCount === previous.recoveryBaseCount && priorRecovery !== undefined &&
+        nextRecovery?.length === priorRecovery.length + 1 &&
+        priorRecovery.every((receipt, index) => JSON.stringify(receipt) === JSON.stringify(nextRecovery[index]))
+      : previous.phase === "RECOVERING" && next.phase === "ROLLED_BACK"
+        ? next.recoveryBaseCount === previous.recoveryBaseCount && priorRecovery !== undefined &&
+          JSON.stringify(nextRecovery) === JSON.stringify(priorRecovery)
+        : next.recoveryBaseCount === previous.recoveryBaseCount &&
+          JSON.stringify(nextRecovery) === JSON.stringify(priorRecovery);
   return next.generation === previous.generation && next.targetDbPath === previous.targetDbPath &&
-    receiptsValid &&
+    receiptsValid && recoveryValid &&
     next.formatVersion === previous.formatVersion &&
     JSON.stringify(next.evidence) === JSON.stringify(previous.evidence) &&
     JSON.stringify(next.nativeInitial) === JSON.stringify(previous.nativeInitial) &&
@@ -245,6 +307,26 @@ export function recoverIntactOldRestoreBeforeOpen(dbPath: string): void {
   dbPath = resolve(dbPath);
   const path = journalPathForDb(dbPath);
   const first = readRestoreJournal(path);
+  if (first?.nativeInitial && first.phase !== "COMMITTED" && first.phase !== "ROLLED_BACK") {
+    for (const check of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, path, first.stagedDbPath,
+      first.preservedDbPath, `${dbPath}-wal${first.preservedDbPath.slice(dbPath.length)}`,
+      `${dbPath}-shm${first.preservedDbPath.slice(dbPath.length)}`]) assertNoReparseComponents(check);
+    const worker = fileURLToPath(new URL("../../scripts/restore-recovery-worker.mjs", import.meta.url));
+    const result = spawnSync(process.execPath, [worker, dbPath], {
+      encoding: "utf8", windowsHide: true, timeout: 120_000, maxBuffer: 8192,
+    });
+    if (result.status !== 0 || result.stdout !== "RECOVERED_OLD\n") {
+      throw recoveryError(`native old-generation recovery failed (${result.status ?? result.signal ?? "unknown"})`);
+    }
+    const last = readRestoreJournal(path);
+    if (!last || last.generation !== first.generation || last.phase !== "ROLLED_BACK" ||
+        JSON.stringify(fileIdentity(dbPath)) !== JSON.stringify(last.evidence?.oldDb) ||
+        JSON.stringify(fileIdentity(`${dbPath}-wal`)) !== JSON.stringify(last.evidence?.oldWal) ||
+        fileIdentity(last.stagedDbPath).sha256 !== last.evidence?.sourceDbSha256) {
+      throw recoveryError("native old generation uncertain after worker exit");
+    }
+    return;
+  }
   if (first?.formatVersion !== 2 || (first.phase !== "PREPARED" && first.phase !== "BLOBS_READY")) return;
   const release = acquireRestoreDbLock(dbPath);
   try {

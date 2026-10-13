@@ -42,4 +42,16 @@ describe("Windows restore recovery READY reconciliation", () => {
     expect(() => validateRestoreRecoveryReady(ready(3, preservedName, dbName), journal)).toThrow();
     expect(() => validateRestoreRecoveryReady(ready(1, dbName, dbName), journal)).toThrow();
   });
+
+  it("accepts one reverse MOVE ahead of durable recovery receipts", () => {
+    const journal = record();
+    journal.phase = "RECOVERING";
+    journal.recoveryBaseCount = 2;
+    journal.recoveryReceipts = [];
+    expect(validateRestoreRecoveryReady(ready(1, preservedName, stageName), journal).physicalForwardCount).toBe(1);
+    journal.recoveryReceipts = [{ generation: journal.generation, step: 1, slot: "stagedDb",
+      fromName: dbName, toName: stageName, identity: stagedDb, evidence: "RECOVERY_READY" }];
+    expect(validateRestoreRecoveryReady(ready(0, dbName, stageName), journal).physicalForwardCount).toBe(0);
+    expect(() => validateRestoreRecoveryReady(ready(2, preservedName, dbName), journal)).toThrow();
+  });
 });
