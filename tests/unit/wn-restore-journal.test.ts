@@ -7,6 +7,36 @@ import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidenc
 import { Storage } from "../../src/storage/storage.js";
 
 describe("S01 restore journal fail-closed", () => {
+  it("freezes native FileId snapshots from PREPARED through the journal", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-native-initial-"));
+    try {
+      const db = join(root, "state.db");
+      const stage = join(root, "state.db.restore-00000000-0000-0000-0000-000000000001");
+      const manifest = join(root, "manifest.json");
+      writeFileSync(db, "old-db-bytes");
+      writeFileSync(stage, "new-db-bytes");
+      writeFileSync(manifest, "manifest");
+      const evidence = captureRestoreEvidence(db, stage, manifest, []);
+      const snapshot = (fileId: string, bytes: number, sha256: string) =>
+        ({ volumeSerial: "a".repeat(16), fileId, bytes, sha256 });
+      const nativeInitial = {
+        oldDb: snapshot("b".repeat(32), evidence.oldDb.bytes!, evidence.oldDb.sha256!),
+        oldWal: null, oldShm: null,
+        stagedDb: snapshot("c".repeat(32), evidence.oldDb.bytes!, evidence.sourceDbSha256),
+      };
+      const base = { formatVersion: 2 as const, generation: "native-initial-generation", targetDbPath: db,
+        artifactRoot: join(root, "artifacts"), stagedDbPath: stage,
+        preservedDbPath: join(root, "state.db.restore-old-00000000-0000-0000-0000-000000000001"),
+        publishedBlobs: [], evidence, nativeInitial, moveReceipts: [] };
+      const path = journalPathForDb(db);
+      appendRestorePhase(path, { ...base, phase: "PREPARED" });
+      expect(() => appendRestorePhase(path, { ...base, phase: "BLOBS_READY",
+        nativeInitial: { ...nativeInitial, oldDb: { ...nativeInitial.oldDb, fileId: "d".repeat(32) } } }))
+        .toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      appendRestorePhase(path, { ...base, phase: "BLOBS_READY" });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("receipt-enabled v2 journal rejects a move without receipt and changed receipt history", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-journal-receipt-order-"));
     try {

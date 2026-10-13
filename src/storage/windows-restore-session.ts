@@ -73,7 +73,7 @@ export function captureExpectedWindowsRestoreFile(helper: WindowsFileHelperSpec,
   return { volumeSerial: before.volumeSerial, fileId: before.fileId, bytes: digest.bytes, sha256: digest.sha256 };
 }
 
-class Lines {
+export class RestoreSessionLines {
   private buffer = "";
   private readonly ready: string[] = [];
   private waiting: { resolve: (line: string) => void; reject: (error: Error) => void } | null = null;
@@ -99,14 +99,24 @@ class Lines {
       }
     });
     child.on("error", (error) => this.fail(error));
-    child.on("exit", (code, signal) => this.fail(protocolError(`child exited ${code ?? signal ?? "unknown"}`)));
+    // Node can emit exit before the final stdout data event. Only close means
+    // the pipe has drained, so preserve complete queued receipts until then.
+    child.on("close", (code, signal) => {
+      this.end(protocolError(this.buffer.length > 0 ? "truncated child response" :
+        `child closed ${code ?? signal ?? "unknown"}`));
+    });
     child.stderr.on("data", () => { /* Drain diagnostic pipe; never trust it as a protocol response. */ });
   }
 
   private fail(error: Error): void {
-    this.ended = error;
+    this.end(error);
     this.ready.length = 0;
     this.child.kill();
+  }
+
+  private end(error: Error): void {
+    if (this.ended) return;
+    this.ended = error;
     if (this.waiting) {
       const waiting = this.waiting;
       this.waiting = null;
@@ -115,8 +125,8 @@ class Lines {
   }
 
   async next(): Promise<string> {
-    if (this.ended) throw this.ended;
     if (this.ready.length > 0) return this.ready.shift()!;
+    if (this.ended) throw this.ended;
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiting = null;
@@ -151,7 +161,7 @@ export async function startWindowsRestoreMoveSession(helper: WindowsFileHelperSp
   assertTrustedWindowsFileHelper(helper);
   const child = spawn(helper.path, ["session", options.dbDirectory, hexName(options.dbName),
     hexName(options.stagedName), options.generation], { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true });
-  const lines = new Lines(child);
+  const lines = new RestoreSessionLines(child);
   const current: Partial<Record<RestoreFileSlot, { name: string; identity: RestoreFileSnapshot }>> = {};
   let sequence = 0;
   let busy = false;
