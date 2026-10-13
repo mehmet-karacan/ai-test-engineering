@@ -243,6 +243,9 @@ function assertManifestPaths(manifest: SnapshotManifest, root: string): void {
     throw new AppError("POLICY_VIOLATION", "Snapshot manifest kok kimligi uyusmuyor");
   }
   const seen = new Set<string>();
+  // Native reopen accepts at most 64 MiB of durable session receipts.
+  // Account for the fixed root header and final-manifest FileId receipt first.
+  let receiptBytes = Buffer.byteLength("AITEST_SNAPSHOT_V1\n") + 2 * (48 + 1) + 51;
   for (const entry of manifest.entries) {
     const path = entry.relative_path;
     const parts = path.split("/");
@@ -259,6 +262,12 @@ function assertManifestPaths(manifest: SnapshotManifest, root: string): void {
         !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 ||
         !/^[0-9a-f]{64}$/u.test(entry.sha256)) {
       throw new AppError("POLICY_VIOLATION", `Snapshot manifest girdisi gecersiz: ${path}`);
+    }
+    receiptBytes += 52 + Buffer.byteLength(path, "utf16le") * 2;
+    if (receiptBytes > 64 * 1024 * 1024) {
+      throw new AppError("POLICY_VIOLATION", "Snapshot session receipt limit exceeded", {
+        reason_code: "SNAPSHOT_JOURNAL_LIMIT",
+      });
     }
     seen.add(folded);
   }

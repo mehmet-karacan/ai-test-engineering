@@ -20,6 +20,7 @@ extern "C" NTSYSAPI NTSTATUS NTAPI NtSetInformationFile(HANDLE file, PIO_STATUS_
   PVOID information, ULONG length, FILE_INFORMATION_CLASS kind);
 
 namespace {
+constexpr LONGLONG MAX_JOURNAL_BYTES = 64LL * 1024 * 1024;
 struct Handle {
   HANDLE value = INVALID_HANDLE_VALUE;
   explicit Handle(HANDLE h = INVALID_HANDLE_VALUE) : value(h) {}
@@ -323,7 +324,7 @@ bool readEqual(HANDLE file, const std::string& expected) {
 
 bool readJournal(HANDLE file, const std::string& header, std::string& contents) {
   LARGE_INTEGER size{};
-  if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > 64LL * 1024 * 1024 ||
+  if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > MAX_JOURNAL_BYTES ||
       static_cast<size_t>(size.QuadPart) < header.size()) return false;
   contents.resize(static_cast<size_t>(size.QuadPart));
   size_t offset = 0;
@@ -337,6 +338,10 @@ bool readJournal(HANDLE file, const std::string& header, std::string& contents) 
 }
 
 bool appendReceipt(HANDLE journal, const std::string& line) {
+  LARGE_INTEGER size{}, zero{};
+  if (!GetFileSizeEx(journal, &size) || size.QuadPart < 0 || size.QuadPart > MAX_JOURNAL_BYTES ||
+      line.size() > static_cast<size_t>(MAX_JOURNAL_BYTES - size.QuadPart) ||
+      !SetFilePointerEx(journal, zero, nullptr, FILE_END)) return false;
   DWORD written = 0;
   return line.size() <= MAXDWORD && WriteFile(journal, line.data(), static_cast<DWORD>(line.size()),
     &written, nullptr) && written == line.size() && FlushFileBuffers(journal);
