@@ -2,7 +2,7 @@
 import { resolve } from "node:path";
 import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "../dist/storage/maintenance-lock.js";
-import { appendRestorePhase, canRecoverPreparedEmptyBlob, fileIdentity, journalPathForDb,
+import { appendRestorePhase, canRecoverPreparedAbsentBlobNames, fileIdentity, journalPathForDb,
   prepareRestorePhaseLine, readRestoreJournal } from "../dist/storage/restore-journal.js";
 import { startWindowsRestoreRecoverySession } from "../dist/storage/windows-restore-recovery-session.js";
 import { captureExpectedWindowsRestoreFile } from "../dist/storage/windows-restore-session.js";
@@ -19,19 +19,19 @@ try {
   if (!journal || journal.targetDbPath !== dbPath || journal.formatVersion !== 2 ||
       !journal.nativeInitial || !journal.moveReceipts ||
       journal.phase === "COMMITTED" || journal.phase === "ROLLED_BACK") throw new Error("native recovery journal unavailable");
-  if (journal.publishedBlobs.length > 0 && !canRecoverPreparedEmptyBlob(journal)) {
+  if (journal.publishedBlobs.length > 0 && !canRecoverPreparedAbsentBlobNames(journal)) {
     throw new Error("blob ownership receipts unavailable for automatic recovery");
   }
   releaseArtifact = acquireMaintenanceLock(journal.artifactRoot, "restore-recovery");
   journal = readRestoreJournal(journalPath);
   if (!journal || journal.targetDbPath !== dbPath || !journal.nativeInitial || !journal.moveReceipts ||
       journal.phase === "COMMITTED" || journal.phase === "ROLLED_BACK") throw new Error("journal changed before recovery");
-  if (journal.publishedBlobs.length > 0 && !canRecoverPreparedEmptyBlob(journal)) {
+  if (journal.publishedBlobs.length > 0 && !canRecoverPreparedAbsentBlobNames(journal)) {
     throw new Error("journal changed before empty blob recovery");
   }
   const helper = packagedWindowsFileHelper();
   session = await startWindowsRestoreRecoverySession(helper, journal);
-  if (canRecoverPreparedEmptyBlob(journal)) {
+  if (canRecoverPreparedAbsentBlobNames(journal)) {
     if (session.remaining() !== 0 || !journal.evidence?.oldDb.exists) {
       throw new Error("PREPARED layout is not the untouched old generation");
     }

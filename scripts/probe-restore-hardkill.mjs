@@ -22,6 +22,8 @@ const expectRecovery = process.argv.includes("--expect-recovery");
 const expectPreparedOld = process.argv.includes("--expect-prepared-old");
 const preparedNegative = process.argv.find((arg) => arg.startsWith("--prepared-negative="))?.slice("--prepared-negative=".length);
 const preparedNativeCut = process.argv.find((arg) => arg.startsWith("--prepared-native-cut="))?.slice("--prepared-native-cut=".length);
+const precreateParent = process.argv.includes("--precreate-parent");
+const walSentinel = process.argv.includes("--wal-sentinel");
 const native = process.argv.includes("--native");
 assert.equal(native, true, "Production Windows restore is native-only; run this probe with --native");
 const timeoutArgs = process.argv.filter((arg) => arg.startsWith("--cut-timeout-ms="));
@@ -35,15 +37,20 @@ const allModes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", 
   "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
   "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
 const selected = process.argv.find((arg) => arg.startsWith("--mode="))?.slice("--mode=".length);
-assert.ok(!selected || allModes.includes(selected) || selected === "ROLLBACK_TERMINAL", "Unknown probe mode");
+assert.ok(!selected || allModes.includes(selected) || ["ROLLBACK_TERMINAL", "PREPARED_RECEIPT"].includes(selected),
+  "Unknown probe mode");
 const modes = selected ? [selected] : allModes;
-assert.ok(!expectPreparedOld || selected === "PREPARED", "--expect-prepared-old requires --mode=PREPARED");
-assert.ok(!preparedNegative || selected === "PREPARED" && expectPreparedOld &&
+assert.ok(!expectPreparedOld || selected === "PREPARED" || selected === "PREPARED_RECEIPT",
+  "--expect-prepared-old requires a PREPARED cut");
+assert.ok(!preparedNegative || ["PREPARED", "PREPARED_RECEIPT"].includes(selected) && expectPreparedOld &&
   ["occupied", "parent-swap", "stage-occupied", "pending-occupied"].includes(preparedNegative),
 "--prepared-negative requires --mode=PREPARED --expect-prepared-old");
-assert.ok(!preparedNativeCut || selected === "PREPARED" && expectPreparedOld && !preparedNegative &&
+assert.ok(!preparedNativeCut || ["PREPARED", "PREPARED_RECEIPT"].includes(selected) && expectPreparedOld && !preparedNegative &&
   ["guard", "terminal-flush"].includes(preparedNativeCut),
 "--prepared-native-cut requires --mode=PREPARED --expect-prepared-old");
+assert.ok(!precreateParent || selected === "LINK", "--precreate-parent requires --mode=LINK");
+assert.ok(!walSentinel || selected === "PREPARED_RECEIPT" && expectPreparedOld,
+  "--wal-sentinel requires receipt recovery cut");
 const schema = `
   CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
   INSERT INTO schema_migrations VALUES (7);
@@ -56,15 +63,19 @@ const childCode = `
 const fs = require("node:fs");
 const { syncBuiltinESMExports } = require("node:module");
 const mode = process.argv[1], moduleUrl = process.argv[2], backupDir = process.argv[3], targetDb = process.argv[4], artifacts = process.argv[5], native = process.argv[6] === "native";
-let lastPhase = "";
+let lastPhase = "", lastStageReceipted = false;
 function halt() { process.stdout.write("HALT:" + mode + "\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000); }
 const write = fs.writeFileSync;
 fs.writeFileSync = (...args) => { const result = write(...args); if (typeof args[1] === "string") {
-  try { lastPhase = JSON.parse(JSON.parse(args[1]).json).phase ?? lastPhase; } catch { /* other write */ }
+  try { const record = JSON.parse(JSON.parse(args[1]).json);
+    lastPhase = record.phase ?? lastPhase;
+    lastStageReceipted = record.stageIntents?.some((item) => item.identity !== null) ?? false;
+  } catch { /* other write */ }
 } return result; };
 const sync = fs.fsyncSync;
 fs.fsyncSync = (fd) => { const result = sync(fd);
-  if (lastPhase === mode || mode === "ROLLBACK_TERMINAL" && lastPhase === "ROLLED_BACK") halt();
+  if (lastPhase === mode || mode === "PREPARED_RECEIPT" && lastPhase === "PREPARED" && lastStageReceipted ||
+      mode === "ROLLBACK_TERMINAL" && lastPhase === "ROLLED_BACK") halt();
   return result; };
 const link = fs.linkSync;
 fs.linkSync = (...args) => { const result = link(...args); if (mode === "LINK") halt(); return result; };
@@ -160,6 +171,7 @@ try {
   const results = [];
   const blockedRecoveries = [];
   const walModes = new Set(["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"]);
+  if (walSentinel) walModes.add("PREPARED_RECEIPT");
   for (const mode of modes) {
     const fixture = join(root, mode.toLowerCase());
     const sourceDbPath = join(fixture, "source", "state.db");
@@ -181,7 +193,7 @@ try {
     const targetArtifacts = join(fixture, "runtime", "artifacts");
     mkdirSync(dirname(targetDb), { recursive: true });
     mkdirSync(targetArtifacts, { recursive: true });
-    if (expectPreparedOld) mkdirSync(dirname(join(targetArtifacts, rel)), { recursive: true });
+    if (expectPreparedOld || precreateParent) mkdirSync(dirname(join(targetArtifacts, rel)), { recursive: true });
     const old = new Database(targetDb);
     if (walModes.has(mode)) old.pragma("journal_mode = WAL");
     old.exec(schema);
@@ -211,6 +223,21 @@ try {
     const hadShm = existsSync(`${targetDb}-shm`);
     await killAt(mode, backup.backup_dir, targetDb, targetArtifacts);
     const journal = readRestoreJournal(journalPathForDb(targetDb));
+    if (mode === "PREPARED_RECEIPT") {
+      assert.equal(journal.phase, "PREPARED");
+      assert.ok(journal.stageIntents?.[0]?.identity, "durable stage receipt required");
+      for (let attempt = 0; attempt < 100 && existsSync(`${journal.stageIntents[0].path}.pending`); attempt++) {
+        await new Promise((done) => setTimeout(done, 50));
+      }
+      assert.equal(existsSync(journal.stageIntents[0].path), false);
+      assert.equal(existsSync(`${journal.stageIntents[0].path}.pending`), false);
+      assert.equal(existsSync(journal.publishedBlobs[0].path), false);
+    }
+    if (mode === "LINK" && precreateParent) {
+      assert.equal(journal.phase, "PREPARED");
+      assert.ok(journal.stageIntents?.[0]?.identity);
+      assert.equal(existsSync(journal.stageIntents[0].path), true);
+    }
     if (preparedNativeCut) {
       const helper = faultFixtureWindowsFileHelper();
       const previousCut = process.env.AITEST_NATIVE_EMPTY_ROLLBACK_HALT_AFTER_FLUSH;
@@ -261,7 +288,7 @@ try {
     }
     if (preparedNegative) {
       assert.equal(journal.phase, "PREPARED");
-      assert.equal(journal.stageIntents?.[0]?.identity, null);
+      assert.equal(journal.stageIntents?.[0]?.identity === null, mode === "PREPARED");
       const parent = dirname(join(targetArtifacts, rel));
       if (preparedNegative === "parent-swap") {
         renameSync(parent, `${parent}-moved`);
@@ -277,7 +304,7 @@ try {
       .map((name) => join(dirname(targetDb), name))].filter((path) => existsSync(path) && hashFile(path) === oldHash);
     assert.ok(oldCopies.length >= 1, `${mode}: old DB bytes lost`);
     const newAtTarget = ["PUBLISH_DB", "NEW_DB_MOVED", "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"].includes(mode);
-    const oldAtTarget = ["PREPARED", "LINK", "BLOBS_READY"].includes(mode);
+    const oldAtTarget = ["PREPARED", "PREPARED_RECEIPT", "LINK", "BLOBS_READY"].includes(mode);
     assert.equal(existsSync(targetDb), newAtTarget || oldAtTarget, `${mode}: target DB physical layout`);
     assert.equal(existsSync(journal.stagedDbPath), !newAtTarget, `${mode}: staged DB physical layout`);
     assert.equal(hashFile(newAtTarget ? targetDb : journal.stagedDbPath), journal.evidence.sourceDbSha256,
@@ -322,7 +349,7 @@ try {
       const reopened = new Storage({ dbPath: targetDb });
       try {
         if ((!native && (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY")) ||
-            expectPreparedOld && !preparedNegative && mode === "PREPARED") {
+            expectPreparedOld && !preparedNegative && (mode === "PREPARED" || mode === "PREPARED_RECEIPT")) {
           assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
           if (walModes.has(mode)) {
             assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
@@ -350,7 +377,7 @@ try {
     }
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
     assert.equal(existsSync(join(targetArtifacts, rel)), preparedNegative === "occupied" ||
-      mode !== "PREPARED" && mode !== "LINK",
+      mode !== "PREPARED" && mode !== "PREPARED_RECEIPT" && mode !== "LINK",
       `${mode}: blob ownership/layout changed`);
     const releaseDb = acquireRestoreDbLock(targetDb); releaseDb();
     const releaseArtifact = acquireMaintenanceLock(targetArtifacts, "restore"); releaseArtifact();

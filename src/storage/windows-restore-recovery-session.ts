@@ -70,7 +70,7 @@ export async function startWindowsRestoreRecoverySession(helper: WindowsFileHelp
       async guardEmptyBlob() {
         if (count !== 0 || emptyGuarded || journal.phase !== "PREPARED" ||
             journal.publishedBlobs.length !== 1 || journal.stageIntents?.length !== 1 ||
-            journal.stageIntents[0]?.identity !== null || !journal.emptyBlobGuard?.parents[0] ||
+            !journal.emptyBlobGuard?.parents[0] ||
             !journal.nativeInitial?.oldDb) throw protocolError("empty blob recovery unavailable");
         const destination = journal.publishedBlobs[0]!.path;
         const stage = journal.stageIntents[0]!.path;
