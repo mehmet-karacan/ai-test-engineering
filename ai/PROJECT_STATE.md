@@ -1,5 +1,7 @@
 # PROJECT_STATE - Gelistirme Durumu
 
+- 2026-10-13 entegrasyon 9: S03 session receipt/quarantine/ALREADY_COMPLETE ve S02 installed Maven/JDK native pin manifesti coordinator dalina merge edildi. Build PASS (262 source); S03 odak 34+22 PASS, S02 odak 17 PASS, local release gate LOCAL_PASS. S01 15-cut gercek WAL probe tekrar exit0. Bagimsiz review'lar S03 reserved marker/ownership ve S02 yeni-file/incomplete manifest/lifecycle aciklarini kaydetti; S01 OpenCode GLM delete review kaydedildi. S01/S02/S03 VERIFIED degil, S04 migration baslamadi; G1/G2/G3 ve full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-9.md`.
+
 - 2026-10-13 entegrasyon 8: coordinator `codex/windows-native-006`; S01 kalici artifactRoot replacement guard PASS, gecici swap-back ve GC nested path race RED, native pinli delete primitive kaniti merge edildi ama uretime baglanmadi. S02 basarisiz baseline, duplicate pin ve terminal Maven kesinti artifact'leri merge edildi; OpenCode Qwen3.8 bagimsiz WN21 incelemesi kaydedildi. S03 final manifest son asamada no-replace rename; hard-kill partial sahiplik acik. S04 migration baslamadi. G1/G2/G3, customer ve full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-8.md`.
 
 ## Aktif gorev

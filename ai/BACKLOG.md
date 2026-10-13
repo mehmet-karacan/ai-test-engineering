@@ -10,8 +10,8 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | --- | --- | --- | --- |
 | S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | LOCAL_VERIFIED | WN01-WN04 mapping/baseline; WN67-WN69 full evidence kapisi S09'da tamamlanir; S00 review checkpoint |
 | S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; mevcut hedef 15-cut gercek WAL PASS, fresh direct native 5-cut PASS, kalici root alias guard PASS; gecici swap-back ve GC nested path race RED, native pinli delete henuz uretimde degil |
-| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; verified pin/resume, WN21 yazili 8MiB ve basarisiz baseline/terminal kesinti artifact'i PASS; blob orphan GC, tam Maven/JDK pin, ust Job disi hard-kill ve customer gate acik |
-| S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; tek oturumlu pinned snapshot ve final manifest yayini odak 52 PASS; kill partial cleanup/sahiplik, sayfali scan persistence ve S04 schema acik |
+| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; verified pin/resume, WN21 kesinti artifact'i, installed Maven/JDK mevcut dosya pin manifesti odak 17 PASS; yeni kurulum dosyasi, 22 absent config, complete manifest/lifecycle, orphan GC, ust Job disi hard-kill ve customer gate acik |
+| S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; pinli snapshot session receipt/quarantine/ALREADY_COMPLETE odak 55 PASS; reserved marker kaynak adi, same-byte FileId sahipligi, partial cleanup, sayfali scan persistence ve S04 schema acik |
 | S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42; S01 VERIFIED oncesi yalniz salt okunur tasarim/fixture checkpoint'i hazir |
 | S05 | Gercek subagent oturumlari ve context butcesi | TODO | WN43-WN52 |
 | S06 | Native Maven/coverage/iteration | TODO | WN53-WN60 |
