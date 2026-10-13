@@ -1,12 +1,43 @@
-/** One Windows .cmd invocation. The launcher owns only the child it starts. */
+/** One Windows .cmd invocation through the owned Job Object helper. */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { fileURLToPath } from "node:url";
 import { AppError } from "../domain/errors.js";
 
 const UNSUPPORTED = /[%!^|<>"\r\n\0]/u;
 const DEFAULT_LOG_BUDGET = 8 * 1024 * 1024;
+const HELPER = fileURLToPath(new URL("../../native/bin/windows-process-helper.exe", import.meta.url));
+const HELPER_MANIFEST = fileURLToPath(new URL("../../native/windows-process-helper.manifest.json", import.meta.url));
+
+interface HelperStatus { kind: "exited" | "cancelled" | "owner_lost" | string; win32_error: number; exit_code: number }
+
+export function assertWindowsProcessHelper(): void {
+  if (process.platform !== "win32" || process.arch !== "x64") {
+    throw new AppError("BLOCKED_ISOLATION", "Windows x64 Job Object helper required", {
+      reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED",
+    });
+  }
+  try {
+    const manifest = JSON.parse(readFileSync(HELPER_MANIFEST, "utf8")) as {
+      schema_version?: number; source_sha256?: string; binary_sha256?: string;
+    };
+    const hash = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+    if (manifest.schema_version !== 1 || !/^[a-f0-9]{64}$/.test(manifest.binary_sha256 ?? "") ||
+        !/^[a-f0-9]{64}$/.test(manifest.source_sha256 ?? "") ||
+        hash(readFileSync(HELPER)) !== manifest.binary_sha256 ||
+        hash(readFileSync(fileURLToPath(new URL("../../native/windows-process-helper.cpp", import.meta.url)))) !== manifest.source_sha256) {
+      throw new Error("helper hash mismatch");
+    }
+  } catch {
+    throw new AppError("BLOCKED_ISOLATION", "Windows Job Object helper provenance unavailable", {
+      reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED",
+    });
+  }
+}
 
 export interface NativeProcessPlan {
   executable: string;
@@ -92,26 +123,33 @@ export class WindowsProcessSupervisor {
     if (signal?.aborted) {
       return { status: "cancelled", exitCode: null, stdout: "", stderr: "", stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: 0 };
     }
+    assertWindowsProcessHelper();
+    const controlRoot = mkdtempSync(join(tmpdir(), "aitest-owned-process-"));
+    const statusPath = join(controlRoot, "status.json");
     let child: ChildProcess;
     try {
-      child = spawn(cmd, ["/d", "/s", "/v:off", "/c", commandLine], {
-        cwd: plan.cwd, env: plan.env, shell: false, windowsVerbatimArguments: true,
-        windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+      const nativeCommand = `"${cmd}" /d /s /v:off /c ${commandLine}`;
+      child = spawn(HELPER, [statusPath, plan.cwd, cmd, nativeCommand], {
+        cwd: plan.cwd, env: plan.env, shell: false,
+        windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
       });
     } catch (error) {
+      rmSync(controlRoot, { recursive: true, force: true });
       return { status: "spawn_error", exitCode: null, stdout: "", stderr: "", stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: Date.now() - started, errorCode: (error as NodeJS.ErrnoException).code ?? "UNKNOWN" };
     }
     child.stdout?.on("data", (data: Buffer) => stdout.append(data));
     child.stderr?.on("data", (data: Buffer) => stderr.append(data));
     let reason: "timeout" | "cancelled" | undefined;
-    let exited = false;
-    child.once("exit", () => { exited = true; });
+    child.stdin?.on("error", () => { /* helper may close after natural completion */ });
+    let fallbackTimer: NodeJS.Timeout | undefined;
     const stop = (why: "timeout" | "cancelled"): void => {
-      if (reason || exited || child.exitCode !== null || !child.pid) return;
+      if (reason || child.exitCode !== null) return;
       reason = why;
-      const killer = spawn(join(plan.env.SystemRoot ?? process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
-        ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", shell: false });
-      killer.on("error", () => { child.kill(); });
+      try { if (child.stdin && !child.stdin.destroyed) child.stdin.write("C"); }
+      catch { /* helper exit races cancellation; status still decides */ }
+      // Killing our own helper closes its only Job Object handle. This never
+      // targets a remembered Maven/JVM PID, including after PID reuse.
+      fallbackTimer = setTimeout(() => { if (child.exitCode === null) child.kill(); }, 5000);
     };
     const completionPromise = new Promise<{ code: number | null; errorCode?: string }>((resolveDone) => {
       let spawnError: string | undefined;
@@ -124,13 +162,23 @@ export class WindowsProcessSupervisor {
     if (signal?.aborted) onAbort();
     const completion = await completionPromise;
     clearTimeout(timer);
+    if (fallbackTimer) clearTimeout(fallbackTimer);
     signal?.removeEventListener("abort", onAbort);
-    const status = reason ?? (completion.errorCode ? "spawn_error" : completion.code === 0 ? "success" : "nonzero");
+    let helperStatus: HelperStatus | undefined;
+    try { helperStatus = JSON.parse(readFileSync(statusPath, "utf8")) as HelperStatus; }
+    catch { /* Missing/invalid status is a typed ownership failure. */ }
+    rmSync(controlRoot, { recursive: true, force: true });
+    const validExit = helperStatus?.kind === "exited" && helperStatus.win32_error === 0 &&
+      Number.isSafeInteger(helperStatus.exit_code) && helperStatus.exit_code >= 0 && helperStatus.exit_code <= 0xffffffff;
+    const validCancelled = helperStatus?.kind === "cancelled" && helperStatus.win32_error === 0 && completion.code === 101;
+    const status = reason && validCancelled ? reason :
+      (completion.errorCode || !validExit || completion.code !== 0 ? "spawn_error" :
+      helperStatus?.exit_code === 0 ? "success" : "nonzero");
     return {
-      status, exitCode: completion.code, stdout: stdout.text(), stderr: stderr.text(),
+      status, exitCode: validExit ? helperStatus?.exit_code ?? null : null, stdout: stdout.text(), stderr: stderr.text(),
       stdoutTruncatedBytes: stdout.dropped, stderrTruncatedBytes: stderr.dropped,
       durationMs: Date.now() - started,
-      ...(completion.errorCode ? { errorCode: completion.errorCode } : {}),
+      ...(status === "spawn_error" ? { errorCode: completion.errorCode ?? helperStatus?.kind ?? "HELPER_STATUS_MISSING" } : {}),
     };
   }
 }
