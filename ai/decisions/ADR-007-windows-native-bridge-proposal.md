@@ -1,12 +1,12 @@
 # ADR-007: Windows yerel guvenlik koprusu onerisi
 
 - Tarih: 2026-10-13
-- Durum: ONERI - kullanici ve kurum policy karari bekliyor; uygulama yetkisi degildir.
+- Durum: DAR KAPSAMLI ONAY - kullanici 2026-10-13 tarihinde bu sohbet icinde "Izin veriyorum" dedi. Yerel kopru uygulamasi ve gerekli compiler/SDK veya denetlenmis bagimlilik kullanimi onaylandi. G1/G2/G3 ayri kapilardir.
 - Gorev: `AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0`, S02 WN22-WN23 ve S03 WN27/WN30; S01 WN12-WN13 ile temas.
 
 ## Gozlenen engel
 
-Kurulu Node v24.14.1 `child_process` arayuzu Windows Job Object olusturma, sureci askida baslatip Job Object'e baglama ve job handle kapanisinda butun JVM agacini bitirme islemlerini sunmuyor. `taskkill /T /F` tek basina sert kapatma sonrasi sahiplik ve PID tekrar kullanimini ispatlamiyor. Windows'ta `fs.constants.O_NOFOLLOW` yok; Node `fs.open` ara dizin junction'larini handle'a baglayarak takip etmeme garantisi vermiyor. Mevcut `package-lock.json` icinde bu Win32 API'lerini saglayan bir kopru yok. Yerelde `cl`/`csc` bulunmuyor; `dotnet --list-sdks` bos. Bu nedenle kurulum/derleme veya yeni binary karari verilmeden WN22-WN23 ile adversarial no-follow kabulune PASSED yazilamaz.
+Kurulu Node v24.14.1 `child_process` arayuzu Windows Job Object olusturma, sureci askida baslatip Job Object'e baglama ve job handle kapanisinda butun JVM agacini bitirme islemlerini sunmuyor. `taskkill /T /F` tek basina sert kapatma sonrasi sahiplik ve PID tekrar kullanimini ispatlamiyor. Windows'ta `fs.constants.O_NOFOLLOW` yok; Node `fs.open` ara dizin junction'larini handle'a baglayarak takip etmeme garantisi vermiyor. Mevcut `package-lock.json` icinde bu Win32 API'lerini saglayan bir kopru yok. `cl` normal PATH'te gorunmese de VS 2022 BuildTools MSVC 14.44.35207 ve Windows SDK 10.0.26100.0 bu makinede kurulu; user-scope kurulum gerekmiyor. WN22-WN23 ile adversarial no-follow kabulune ancak derlenmis kopru ve gercek Windows kaniti sonrasi PASSED yazilir.
 
 ## Onerilen dar kapsam
 
