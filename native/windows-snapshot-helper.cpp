@@ -4,6 +4,7 @@
 #include <winternl.h>
 #include <bcrypt.h>
 #include <cstdio>
+#include <cstddef>
 #include <cstring>
 #include <cwctype>
 #include <iostream>
@@ -13,6 +14,9 @@
 
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "bcrypt.lib")
+
+extern "C" NTSYSAPI NTSTATUS NTAPI NtSetInformationFile(HANDLE file, PIO_STATUS_BLOCK io,
+  PVOID information, ULONG length, FILE_INFORMATION_CLASS kind);
 
 namespace {
 struct Handle {
@@ -184,6 +188,29 @@ bool markDelete(HANDLE h) {
   return SetFileInformationByHandle(h, FileDispositionInfo, &disposition, sizeof(disposition)) != 0;
 }
 
+std::wstring temporaryManifestName() {
+  unsigned char random[16]{};
+  if (BCryptGenRandom(nullptr, random, sizeof(random), BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return {};
+  static constexpr wchar_t digits[] = L"0123456789abcdef";
+  std::wstring name = L"snapshot-manifest.json.tmp-";
+  for (unsigned char byte : random) { name.push_back(digits[byte >> 4]); name.push_back(digits[byte & 15]); }
+  return name;
+}
+
+bool renameHeld(HANDLE source, HANDLE targetDirectory, const std::wstring& targetName) {
+  if (!component(targetName)) return false;
+  const size_t nameBytes = targetName.size() * sizeof(wchar_t);
+  std::vector<unsigned char> buffer(offsetof(FILE_RENAME_INFO, FileName) + nameBytes);
+  auto* info = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
+  info->ReplaceIfExists = FALSE;
+  info->RootDirectory = targetDirectory;
+  info->FileNameLength = static_cast<DWORD>(nameBytes);
+  std::memcpy(info->FileName, targetName.data(), nameBytes);
+  IO_STATUS_BLOCK io{};
+  return NtSetInformationFile(source, &io, info, static_cast<ULONG>(buffer.size()),
+    static_cast<FILE_INFORMATION_CLASS>(10)) >= 0;
+}
+
 struct Created {
   Handle file;
   Created() = default;
@@ -267,9 +294,11 @@ int run(int argc, wchar_t** argv) {
   std::vector<CreatedDirectory> directories;
   bool completed = false;
   bool manifestSeen = false;
+  size_t manifestIndex = 0;
   std::string line;
   while (std::getline(std::cin, line)) {
     if (line == "END") { completed = manifestSeen; break; }
+    if (line == "BARRIER") { std::puts("BARRIER"); std::fflush(stdout); continue; }
     const size_t first = line.find('\t');
     if (first == std::string::npos) break;
     const std::string kind = line.substr(0, first);
@@ -290,9 +319,12 @@ int run(int argc, wchar_t** argv) {
       if (manifestSeen) break;
       std::string body;
       if (!hexBytes(line.substr(first + 1), body) || body.empty()) break;
+      const std::wstring stagedName = temporaryManifestName();
+      if (stagedName.empty()) break;
       Handle output;
-      if (!child(targetRoot.back().value, L"snapshot-manifest.json", false, true,
+      if (!child(targetRoot.back().value, stagedName, false, true,
           GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, output, 0)) break;
+      manifestIndex = files.size();
       files.emplace_back(std::move(output));
       DWORD written = 0;
       if (body.size() > MAXDWORD || !WriteFile(files.back().file.value, body.data(), static_cast<DWORD>(body.size()),
@@ -300,6 +332,8 @@ int run(int argc, wchar_t** argv) {
       manifestSeen = true;
     } else break;
   }
+  if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
+  if (completed && !renameHeld(files[manifestIndex].file.value, targetRoot.back().value, L"snapshot-manifest.json")) completed = false;
   if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
   if (!completed) {
     bool cleaned = true;
