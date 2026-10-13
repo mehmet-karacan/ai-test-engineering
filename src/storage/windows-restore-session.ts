@@ -1,9 +1,9 @@
 /** Persistent Windows file owner. The helper's stdout is not durable; journal each receipt before the next MOVE. */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { assertTrustedWindowsFileHelper, inspectWindowsPath, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
-import { fileIdentity, type RestoreMoveReceipt } from "./restore-journal.js";
+import { fileIdentity, type RestoreJournalRecord, type RestoreMoveReceipt } from "./restore-journal.js";
 
 export type RestoreFileSlot = RestoreMoveReceipt["slot"];
 export type RestoreFileSnapshot = RestoreMoveReceipt["before"];
@@ -60,6 +60,59 @@ export function parseRestoreSnapshot(value: string): RestoreFileSnapshot {
 
 function sameSnapshot(a: RestoreFileSnapshot, b: RestoreFileSnapshot): boolean {
   return a.volumeSerial === b.volumeSerial && a.fileId === b.fileId && a.bytes === b.bytes && a.sha256 === b.sha256;
+}
+
+export interface RestoreRecoveryReady {
+  physicalForwardCount: number;
+  acceptCommand: string;
+  files: Partial<Record<RestoreFileSlot, { name: string; identity: RestoreFileSnapshot }>>;
+}
+
+/** Pure pre-ACCEPT gate: a crash may leave exactly one physical move ahead of its fsynced receipt. */
+export function validateRestoreRecoveryReady(line: string, journal: RestoreJournalRecord): RestoreRecoveryReady {
+  const fields = line.split("\t");
+  const initial = journal.nativeInitial;
+  const receipts = journal.moveReceipts;
+  if (fields.length !== 7 || fields[0] !== "RECOVERY_READY" || fields[1] !== journal.generation ||
+      !initial || !receipts || !/^(0|[1-9]\d*)$/u.test(fields[2] ?? "")) {
+    throw protocolError("invalid RECOVERY_READY");
+  }
+  const count = Number(fields[2]);
+  const dbName = basename(journal.targetDbPath);
+  const oldSuffix = basename(journal.preservedDbPath).slice(dbName.length);
+  const names = {
+    oldDb: [dbName, basename(journal.preservedDbPath)],
+    oldWal: [`${dbName}-wal`, `${dbName}-wal${oldSuffix}`],
+    oldShm: [`${dbName}-shm`, `${dbName}-shm${oldSuffix}`],
+    stagedDb: [basename(journal.stagedDbPath), dbName],
+  } as const;
+  const present = SLOTS.filter((slot) => initial[slot] !== null);
+  if ((journal.phase === "PREPARED" && count !== 0) || count > present.length ||
+      receipts.length > count || count > receipts.length + 1 ||
+      receipts.some((receipt, index) => receipt.slot !== present[index] ||
+        !sameSnapshot(receipt.before, initial[receipt.slot]!))) throw protocolError("recovery receipt prefix mismatch");
+  const files: RestoreRecoveryReady["files"] = {};
+  for (const [index, slot] of SLOTS.entries()) {
+    const field = fields[index + 3]!;
+    if (!field.startsWith(`${slot}=`)) throw protocolError("recovery slot order");
+    const value = field.slice(slot.length + 1);
+    const expected = initial[slot];
+    if (expected === null) {
+      if (value !== "-") throw protocolError("unexpected recovery sidecar");
+      continue;
+    }
+    const parts = value.split(":");
+    if (parts.length !== 5) throw protocolError("invalid recovery slot");
+    const fileName = decodeName(parts[0]!);
+    const identity = parseRestoreSnapshot(parts.slice(1).join(":"));
+    const forwardIndex = present.indexOf(slot);
+    if (fileName !== names[slot][forwardIndex < count ? 1 : 0] || !sameSnapshot(identity, expected)) {
+      throw protocolError("recovery file identity or layout mismatch");
+    }
+    files[slot] = { name: fileName, identity };
+  }
+  return { physicalForwardCount: count, files,
+    acceptCommand: `ACCEPT\t${journal.generation}\t${count}\t${fields.slice(3).join("\t")}` };
 }
 
 /** JS hash and two native FileId reads narrow preflight races; session READY must recheck every field. */
