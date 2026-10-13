@@ -1,1 +1,3 @@
 tests/fixtures/native/
+scripts/windows-file-helper-fault-fixture.mjs
+native/bin/*.obj
