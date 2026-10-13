@@ -186,6 +186,39 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
     }
   }, 15000);
 
+  it("parent pipe EOF makes the helper reap its Job and write owner_lost", async () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-job-owner-eof-"));
+    const foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    let ownedPid: number | undefined;
+    let helperPid: number | undefined;
+    try {
+      const pidPath = join(root, "owned.pid");
+      const batch = join(root, "mvn.cmd");
+      const childScript = join(root, "child.js");
+      const statusPath = join(root, "status.json");
+      const helper = resolve("native/bin/windows-process-helper.exe");
+      const cmd = join(process.env.SystemRoot!, "System32", "cmd.exe");
+      writeFileSync(childScript, `require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`);
+      writeFileSync(batch, `@echo off\r\nstart "" /b "${process.execPath}" "${childScript}"\r\nexit /b 0\r\n`);
+      const command = `"${cmd}" /d /s /v:off /c ""${batch}""`;
+      const batchSha = createHash("sha256").update(readFileSync(batch)).digest("hex");
+      const child = spawn(helper, [statusPath, root, cmd, command, batchSha, batch], { stdio: ["pipe", "pipe", "pipe"] });
+      helperPid = child.pid;
+      const closed = new Promise<number | null>((resolveClosed) => child.once("close", (code) => resolveClosed(code)));
+      ownedPid = await waitForFile(pidPath);
+      child.stdin.end();
+      expect(await Promise.race([closed, delay(10000).then(() => { throw new Error("Helper did not exit after stdin EOF"); })])).toBe(101);
+      expect(JSON.parse(readFileSync(statusPath, "utf8"))).toMatchObject({ kind: "owner_lost", win32_error: 0 });
+      await waitForExit(ownedPid, "Owned child");
+      expect(foreign.pid && alive(foreign.pid)).toBe(true);
+    } finally {
+      if (helperPid && alive(helperPid)) spawnSync("taskkill", ["/F", "/PID", String(helperPid)]);
+      if (ownedPid && alive(ownedPid)) process.kill(ownedPid);
+      if (foreign.pid && alive(foreign.pid)) foreign.kill();
+      await removeOwnedFixture(root);
+    }
+  }, 20000);
+
   it("hard-killing the coordinator drains the owned child and leaves an unrelated Node alive", async () => {
     const root = mkdtempSync(join(tmpdir(), "wn-job-hardkill-"));
     const foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
