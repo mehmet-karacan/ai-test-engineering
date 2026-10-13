@@ -134,6 +134,23 @@ describe("S03 metadata inventory phase A", () => {
     } finally { removeFixture(sandbox); }
   });
 
+  it.fails("WN28: a persisted generation must not omit a row after deletion between pages", async () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "wn-inventory-cursor-drift-"));
+    try {
+      const root = join(sandbox, "root");
+      mkdirSync(root);
+      for (const name of ["00-a.txt", "10-b.txt", "20-c.txt"]) writeFileSync(join(root, name), name);
+      const first = await scanFileInventory(root, { pageSize: 1, generation: 42 });
+      expect(first.entries.map((entry) => entry.relativePath)).toEqual(["00-a.txt"]);
+      expect(first.nextCursor).not.toBeNull();
+      // A real Windows tree changes while the caller retains its old generation cursor.
+      removeFixtureChild(sandbox, join(root, "00-a.txt"));
+      const second = await scanFileInventory(root, { pageSize: 1, generation: 42, cursor: first.nextCursor });
+      // The offset cursor currently skips 10-b.txt and yields 20-c.txt.
+      expect(second.entries.map((entry) => entry.relativePath)).toEqual(["10-b.txt"]);
+    } finally { removeFixture(sandbox); }
+  });
+
   it("reports an unreadable directory as partial without guessing its contents", async () => {
     const root = mkdtempSync(join(tmpdir(), "wn-inventory-denied-"));
     try {
