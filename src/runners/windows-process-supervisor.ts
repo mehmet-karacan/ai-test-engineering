@@ -73,7 +73,7 @@ export interface NativeProcessResult {
   errorCode?: string;
   /** Set only after the helper proves an empty Job Object or pre-spawn refusal. */
   ownedTreeDrained?: boolean;
-  /** Helper exited 102 after a pin refusal, before CreateProcess was called. */
+  /** No child was created: prelaunch executable stat or helper pin refusal. */
   preSpawnNoChild?: boolean;
 }
 
@@ -221,8 +221,8 @@ export class WindowsProcessSupervisor {
     if (process.platform !== "win32") {
       throw new AppError("BLOCKED_ISOLATION", "UNSUPPORTED_PLATFORM");
     }
-    if (!isAbsolute(plan.executable) || !plan.executable.toLowerCase().endsWith(".cmd") || !existsSync(plan.executable)) {
-      throw new AppError("INVALID_PARAMETERS", "Expected existing absolute .cmd executable");
+    if (!isAbsolute(plan.executable) || !plan.executable.toLowerCase().endsWith(".cmd")) {
+      throw new AppError("INVALID_PARAMETERS", "Expected absolute .cmd executable");
     }
     if (!isAbsolute(plan.cwd) || plan.timeoutMs <= 0 || !Number.isFinite(plan.timeoutMs)) {
       throw new AppError("INVALID_PARAMETERS", "Invalid native process cwd or timeout");
@@ -230,6 +230,15 @@ export class WindowsProcessSupervisor {
     const budget = plan.maxLogBytes ?? DEFAULT_LOG_BUDGET;
     if (!Number.isSafeInteger(budget) || budget < 0 || budget > DEFAULT_LOG_BUDGET) {
       throw new AppError("INVALID_PARAMETERS", "Invalid log budget");
+    }
+    // No helper or Maven child has been created. Preserve the OS file error
+    // separately from a helper spawn failure, with explicit no-child proof.
+    try { statSync(plan.executable); }
+    catch (error) {
+      return { status: "spawn_error", exitCode: null, stdout: "", stderr: "",
+        stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: 0,
+        errorCode: (error as NodeJS.ErrnoException).code ?? "EXECUTABLE_STAT_FAILED",
+        ownedTreeDrained: true, preSpawnNoChild: true };
     }
     const cmd = cmdExecutable(plan.env);
     const pinnedFiles = collectPinnedFiles(plan);

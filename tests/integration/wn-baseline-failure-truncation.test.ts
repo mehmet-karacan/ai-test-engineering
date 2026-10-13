@@ -33,6 +33,9 @@ describe.skipIf(process.platform !== "win32")("WN21 failed baseline truncation",
       const dispatcher = new JobDispatcher({ services, runnerKind: "host_dev_only", workerEnabled: false, workspaceRoot: join(root, "workspace") });
       const result = await dispatcher.dispatch(job, dispatcher.buildGoalContract(job, [], project), project);
       expect(result.final_outcome).toBe("BASELINE_FAILED");
+      expect(services.storage!.db.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM checkpoints WHERE job_id = ?",
+      ).get(job.id)!.count).toBe(0);
       const run = services.storage!.db.prepare<[string], { id: string; stdout_log_path: string; exit_code: number }>(
         "SELECT id, stdout_log_path, exit_code FROM test_run_provenance WHERE job_id = ? AND stage = 'baseline'",
       ).get(job.id)!;
@@ -78,6 +81,12 @@ describe.skipIf(process.platform !== "win32")("WN21 failed baseline truncation",
       const dispatcher = new JobDispatcher({ services, runnerKind: "host_dev_only", workerEnabled: false, workspaceRoot: join(root, "workspace") });
       const result = await dispatcher.dispatch(job, dispatcher.buildGoalContract(job, [], project), project);
       expect(result.final_outcome).toBe("FAILED");
+      expect(services.storage!.db.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM test_run_provenance WHERE job_id = ?",
+      ).get(job.id)!.count).toBe(0);
+      expect(services.storage!.db.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM checkpoints WHERE job_id = ?",
+      ).get(job.id)!.count).toBe(0);
       const row = services.storage!.db.prepare<[string], { relative_store_path: string; status: string }>(
         "SELECT a.relative_store_path, a.status FROM job_events e JOIN artifacts a ON a.id = e.payload_artifact_id WHERE e.job_id = ? AND e.event_type = 'run_output_truncated_terminal'",
       ).get(job.id)!;

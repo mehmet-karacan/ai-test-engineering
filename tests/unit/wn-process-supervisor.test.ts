@@ -74,6 +74,45 @@ describe.skipIf(process.platform !== "win32")("S02 Windows process supervisor", 
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  it("classifies a missing executable as ENOENT without accepted output", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn-process-enoent-"));
+    try {
+      const result = await new WindowsProcessSupervisor().run({
+        executable: join(dir, "missing.cmd"), cwd: dir, argv: [], timeoutMs: 5000, env: process.env,
+      });
+      expect(result).toMatchObject({
+        status: "spawn_error", errorCode: "ENOENT", exitCode: null,
+        stdout: "", stderr: "", ownedTreeDrained: true, preSpawnNoChild: true,
+      });
+    } finally {
+      const target = resolve(dir);
+      const inside = relative(resolve(tmpdir()), target);
+      if (inside && !inside.startsWith("..") && !isAbsolute(inside) && basename(target).startsWith("wn-process-enoent-")) {
+        rmSync(target, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("keeps helper spawn failure separate from executable ENOENT", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn-process-spawn-fault-"));
+    try {
+      const executable = join(dir, "fixture.cmd");
+      writeFileSync(executable, "@echo off\r\necho SHOULD_NOT_RUN\r\n");
+      const result = await new WindowsProcessSupervisor().run({
+        executable, cwd: join(dir, "missing-cwd"), argv: [], timeoutMs: 5000, env: process.env,
+      });
+      expect(result).toMatchObject({ status: "spawn_error", exitCode: null, stdout: "", stderr: "" });
+      expect(result.preSpawnNoChild).not.toBe(true);
+      expect(result.errorCode).toBe("ENOENT");
+    } finally {
+      const target = resolve(dir);
+      const inside = relative(resolve(tmpdir()), target);
+      if (inside && !inside.startsWith("..") && !isAbsolute(inside) && basename(target).startsWith("wn-process-spawn-fault-")) {
+        rmSync(target, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("does not emit a broken UTF-8 code point at the byte limit", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wn-process-"));
     try {
