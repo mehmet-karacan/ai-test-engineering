@@ -37,6 +37,25 @@ function hexName(path: string): string {
   return Buffer.from(path, "utf16le").toString("hex");
 }
 
+/** Keep native launch failures and uncertain marker ownership on the typed boundary. */
+export function assertSnapshotHelperResult(run: {
+  error?: Error;
+  status: number | null;
+  signal: string | null;
+  stdout: string | null | undefined;
+}): void {
+  const response = (run.stdout ?? "").replace(/\r\n/gu, "\n");
+  if (run.error || run.status !== 0 || run.signal || response !== "READY\nOK\n") {
+    throw new AppError("BLOCKED_ISOLATION", "Windows snapshot copy failed", {
+      reason_code: run.error ? "SNAPSHOT_HELPER_LAUNCH_FAILED" :
+        run.status === 5 ? "SNAPSHOT_OWNERSHIP_UNVERIFIED" :
+        run.status === 4 ? "SNAPSHOT_PARTIAL_CLEANUP_FAILED" : "SNAPSHOT_COPY_FAILED",
+      exit_code: run.status, signal: run.signal,
+      spawn_error_code: (run.error as NodeJS.ErrnoException | undefined)?.code ?? null,
+    });
+  }
+}
+
 export function publishWindowsSnapshot(sourceRoot: string, targetRoot: string, sourceRootIdentity: WindowsFileIdentity,
     targetRootIdentity: WindowsFileIdentity, manifest: SnapshotManifest): void {
   const helper = packagedSnapshotHelper();
@@ -49,12 +68,5 @@ export function publishWindowsSnapshot(sourceRoot: string, targetRoot: string, s
   const run = spawnSync(helper, ["snapshot", sourceRoot, targetRoot, rootId(sourceRootIdentity), rootId(targetRootIdentity)], {
     shell: false, windowsHide: true, encoding: "utf8", input, timeout: 10 * 60_000, maxBuffer: 64 * 1024,
   });
-  const response = run.stdout.replace(/\r\n/gu, "\n");
-  if (run.error || run.status !== 0 || run.signal || response !== "READY\nOK\n") {
-    throw new AppError("BLOCKED_ISOLATION", "Windows snapshot copy failed", {
-      reason_code: run.status === 5 ? "SNAPSHOT_RECOVERY_QUARANTINED" :
-        run.status === 4 ? "SNAPSHOT_PARTIAL_CLEANUP_FAILED" : "SNAPSHOT_COPY_FAILED",
-      exit_code: run.status, signal: run.signal,
-    });
-  }
+  assertSnapshotHelperResult(run);
 }
