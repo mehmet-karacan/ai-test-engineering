@@ -355,6 +355,32 @@ struct SessionSlot {
   bool readGuard = false;
 };
 
+struct TwoBlobGuardItem {
+  std::wstring rootPath;
+  std::wstring parentRelative;
+  std::wstring names[3];
+  std::vector<Handle> root;
+  std::vector<Handle> parents;
+  std::vector<Handle> reserved;
+  Handle owned;
+  bool hasOwned = false;
+  Identity rootId, parentId, ownedId;
+  unsigned char ownedDigest[32]{};
+};
+
+// Session commands are bounded before allocating an untrusted full line.
+bool readSessionLine(std::string& line) {
+  constexpr size_t maximum = 1024 * 1024;
+  line.clear();
+  for (;;) {
+    const int next = std::cin.get();
+    if (next == EOF) return false;
+    if (next == '\n') return true;
+    if (line.size() == maximum) return false;
+    line.push_back(static_cast<char>(next));
+  }
+}
+
 bool snapshot(HANDLE file, Identity& info, unsigned char digest[32]) {
   return identity(file, info) && info.links == 1 && hashHeld(file, digest);
 }
@@ -514,9 +540,13 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
   std::wstring blobRootPath, blobParentRelative;
   std::vector<Handle> blobRoot, blobParents, blobReservations;
   Identity blobRootId, blobParentId;
+  std::vector<TwoBlobGuardItem> twoBlobGuards;
+  bool twoBlobGuardStarted = false;
+  bool twoBlobGuardReady = false;
   std::string line;
-  while (std::getline(std::cin, line)) {
+  while (readSessionLine(line)) {
     const auto fields = splitTabs(line);
+    if (fields.empty()) return 2;
     if (!sidecarsStillOwned(root.back().value, dbName, slots)) return 2;
     if (!accepted) {
       if (fields.size() != 7 || fields[0] != "ACCEPT" || fields[1] != generation ||
@@ -527,6 +557,123 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
       std::fflush(stdout);
       continue;
     }
+    if (fields.size() == 2 && fields[0] == "GUARD_BEGIN" && fields[1] == "2" && recovering &&
+        sequence == 0 && !emptyGuarded && !twoBlobGuardStarted && slots[0].present && slots[3].present &&
+        slots[0].currentName == dbName && slots[3].currentName == stagedName) {
+      twoBlobGuardStarted = true;
+      std::puts("GUARD_BEGIN_OK\t2"); std::fflush(stdout); continue;
+    }
+    if (twoBlobGuardStarted && fields.size() == 15 && fields[0] == "GUARD_ITEM" && !twoBlobGuardReady &&
+        fields[1] == std::to_string(twoBlobGuards.size()) && twoBlobGuards.size() < 2 && line.size() <= 8192) {
+      TwoBlobGuardItem item;
+      std::wstring destination, stage;
+      if (!decodeUtf16Hex(fields[2], item.rootPath) ||
+          !decodeName(std::wstring(fields[4].begin(), fields[4].end()), destination) ||
+          !decodeName(std::wstring(fields[5].begin(), fields[5].end()), stage) ||
+          stage.size() <= destination.size() + 13 ||
+          stage.compare(0, destination.size(), destination) != 0 ||
+          stage.compare(destination.size(), 9, L".restore-") != 0 ||
+          stage.compare(stage.size() - 4, 4, L".tmp") != 0 ||
+          !uuidAtEnd(stage.substr(0, stage.size() - 4), destination + L".restore-")) return 2;
+      item.names[0] = destination;
+      item.names[1] = stage;
+      item.names[2] = stage + L".pending";
+      if (fields[3] != "-" && !decodeUtf16Hex(fields[3], item.parentRelative)) return 2;
+      if (!openAbsolute(item.rootPath, true, FILE_READ_ATTRIBUTES, item.root) ||
+          !identity(item.root.back().value, item.rootId) ||
+          !expectedRoot(item.rootId, std::wstring(fields[6].begin(), fields[6].end()).c_str(),
+            std::wstring(fields[7].begin(), fields[7].end()).c_str())) return 2;
+      if (!twoBlobGuards.empty() &&
+          (CompareStringOrdinal(item.rootPath.c_str(), -1, twoBlobGuards[0].rootPath.c_str(), -1, TRUE) != CSTR_EQUAL ||
+           !sameFileId(item.rootId, twoBlobGuards[0].rootId))) return 2;
+      HANDLE parent = item.root.back().value;
+      if (!item.parentRelative.empty()) {
+        std::wstring ignored;
+        std::vector<std::wstring> parts;
+        if (!splitPath(item.parentRelative, false, ignored, parts)) return 2;
+        for (const auto& part : parts) {
+          Handle next;
+          if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return 2;
+          item.parents.push_back(std::move(next));
+          parent = item.parents.back().value;
+        }
+      }
+      if (!identity(parent, item.parentId) ||
+          !expectedRoot(item.parentId, std::wstring(fields[8].begin(), fields[8].end()).c_str(),
+            std::wstring(fields[9].begin(), fields[9].end()).c_str())) return 2;
+      for (const auto& earlier : twoBlobGuards) {
+        if (!sameFileId(item.parentId, earlier.parentId)) continue;
+        for (const auto& name : item.names) for (const auto& prior : earlier.names) {
+          if (CompareStringOrdinal(name.c_str(), -1, prior.c_str(), -1, TRUE) == CSTR_EQUAL) return 2;
+        }
+      }
+      const bool stageOwned = fields[10] == "stage";
+      const bool destinationOwned = fields[10] == "destination";
+      if (!stageOwned && !destinationOwned && fields[10] != "none") return 2;
+      if (stageOwned || destinationOwned) {
+        const auto& name = stageOwned ? item.names[1] : item.names[0];
+        if (!openChild(parent, name, false, false, GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE,
+            item.owned, 0) || !snapshot(item.owned.value, item.ownedId, item.ownedDigest) ||
+            item.ownedId.links != 1) return 2;
+        char serial[17]{};
+        std::snprintf(serial, sizeof(serial), "%016llx", item.ownedId.id.VolumeSerialNumber);
+        if (fields[11] != serial || fields[12] != ascii(fileIdHex(item.ownedId)) ||
+            fields[13] != std::to_string(item.ownedId.bytes) ||
+            fields[14] != ascii(digestHex(item.ownedDigest))) return 2;
+        item.hasOwned = true;
+      } else if (fields[11] != "-" || fields[12] != "-" || fields[13] != "-" || fields[14] != "-") return 2;
+      for (size_t i = 0; i < 3; ++i) {
+        if ((stageOwned && i == 1) || (destinationOwned && i == 0)) continue;
+        Handle reserved;
+        if (!openChild(parent, item.names[i], false, true,
+            GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE,
+            reserved, 0, nullptr, FILE_DELETE_ON_CLOSE)) return 2;
+        item.reserved.push_back(std::move(reserved));
+      }
+      twoBlobGuards.push_back(std::move(item));
+      std::printf("GUARD_ITEM_OK\t%zu\n", twoBlobGuards.size() - 1); std::fflush(stdout); continue;
+    }
+    if (twoBlobGuardStarted && fields.size() == 1 && fields[0] == "GUARD_FINAL" &&
+        !twoBlobGuardReady && twoBlobGuards.size() == 2) {
+      for (auto& item : twoBlobGuards) {
+        std::vector<Handle> observedRoot, observedParent;
+        Identity observed;
+        if (!openAbsolute(item.rootPath, true, FILE_READ_ATTRIBUTES, observedRoot) ||
+            !identity(observedRoot.back().value, observed) || !sameFileId(observed, item.rootId)) return 2;
+        HANDLE parent = observedRoot.back().value;
+        if (!item.parentRelative.empty()) {
+          std::wstring ignored;
+          std::vector<std::wstring> parts;
+          if (!splitPath(item.parentRelative, false, ignored, parts)) return 2;
+          for (const auto& part : parts) {
+            Handle next;
+            if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return 2;
+            observedParent.push_back(std::move(next));
+            parent = observedParent.back().value;
+          }
+        }
+        if (!identity(parent, observed) || !sameFileId(observed, item.parentId)) return 2;
+        if (item.hasOwned) {
+          Identity owned;
+          unsigned char digest[32]{};
+          if (!snapshot(item.owned.value, owned, digest) || !sameIdentity(owned, item.ownedId) ||
+              std::memcmp(digest, item.ownedDigest, 32) != 0) return 2;
+        }
+      }
+      for (auto& slot : slots) {
+        if (!slot.present) continue;
+        Handle current;
+        Identity pinned, observed;
+        unsigned char pinnedHash[32]{}, observedHash[32]{};
+        if (!openChild(root.back().value, slot.currentName, false, false,
+            GENERIC_READ | FILE_READ_ATTRIBUTES, current, FILE_SHARE_READ | FILE_SHARE_DELETE) ||
+            !snapshot(slot.file.value, pinned, pinnedHash) || !snapshot(current.value, observed, observedHash) ||
+            !sameIdentity(pinned, observed) || std::memcmp(pinnedHash, observedHash, 32) != 0) return 2;
+      }
+      twoBlobGuardReady = true;
+      std::puts("GUARD_READY\t2"); std::fflush(stdout); continue;
+    }
+    if (twoBlobGuardStarted && (fields.size() != 1 || fields[0] != "CLOSE" || !twoBlobGuardReady)) return 2;
     const bool ownedGuard = fields[0] == "OWNED_GUARD";
     if ((fields[0] == "EMPTY_GUARD" || ownedGuard) && fields.size() == (ownedGuard ? 13 : 9) && recovering &&
         sequence == 0 && !emptyGuarded && slots[0].present && slots[3].present &&

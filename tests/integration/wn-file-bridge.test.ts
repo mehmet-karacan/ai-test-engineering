@@ -486,6 +486,122 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
     } finally { if (child.exitCode === null) child.kill(); }
   });
 
+  it("starts a bounded two-blob guard only after exact DB layout acceptance", async () => {
+    const root = join(sandbox, `recover-two-guard-${randomUUID()}`);
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    const generation = randomUUID();
+    mkdirSync(root);
+    writeFileSync(join(root, "state.db"), "old-generation");
+    writeFileSync(join(root, stagedName), "new-generation");
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    const child = spawn(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName),
+      hex(preservedName), generation], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const nextLine = stdoutLineReader(child.stdout);
+    try {
+      const ready = (await nextLine()).split("\t");
+      expect(ready.slice(0, 3)).toEqual(["RECOVERY_READY", generation, "0"]);
+      child.stdin.write(["ACCEPT", generation, "0", ...ready.slice(3)].join("\t") + "\n");
+      expect(await nextLine()).toBe(`ACCEPTED\t${generation}\t0`);
+      child.stdin.write("GUARD_BEGIN\t2\n");
+      expect(await nextLine()).toBe("GUARD_BEGIN_OK\t2");
+    } finally {
+      if (child.exitCode === null) { child.kill(); await once(child, "exit"); }
+    }
+  });
+
+  it("pins two distinct blob parents and rejects a foreign second FileId before final guard", async () => {
+    const root = join(sandbox, `recover-two-items-${randomUUID()}`);
+    const artifactRoot = join(root, "artifacts");
+    const parents = [join(artifactRoot, "first"), join(artifactRoot, "second")];
+    const destinations = ["a".repeat(64), "b".repeat(64)];
+    const stages = destinations.map((name) => `${name}.restore-${randomUUID()}.tmp`);
+    const stagedName = `state.db.restore-${randomUUID()}`;
+    const preservedName = `state.db.restore-old-${randomUUID()}`;
+    const hex = (name: string) => Buffer.from(name, "utf16le").toString("hex");
+    for (const parent of parents) mkdirSync(parent, { recursive: true });
+    writeFileSync(join(root, "state.db"), "old-generation");
+    writeFileSync(join(root, stagedName), "new-generation");
+    const ownedPaths = [join(parents[0]!, stages[0]!), join(parents[1]!, destinations[1]!)];
+    writeFileSync(ownedPaths[0]!, "owned-first");
+    writeFileSync(ownedPaths[1]!, "owned-second");
+    const artifactId = inspectWindowsPath(helper, artifactRoot);
+    const parentIds = parents.map((path) => inspectWindowsPath(helper, path));
+    const ownedIds = ownedPaths.map((path) => inspectWindowsPath(helper, path));
+    const ownedHashes = ownedPaths.map((path) => createHash("sha256").update(readFileSync(path)).digest("hex"));
+    const run = async (wrongSecond: boolean, killAfterGuard = false, caseCollision = false,
+      skipIndex = false, thirdItem = false): Promise<number> => {
+      const generation = randomUUID();
+      const child = spawn(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName),
+        hex(preservedName), generation], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const nextLine = stdoutLineReader(child.stdout);
+      try {
+        const ready = (await nextLine()).split("\t");
+        expect(ready.slice(0, 3)).toEqual(["RECOVERY_READY", generation, "0"]);
+        child.stdin.write(["ACCEPT", generation, "0", ...ready.slice(3)].join("\t") + "\n");
+        expect(await nextLine()).toBe(`ACCEPTED\t${generation}\t0`);
+        child.stdin.write("GUARD_BEGIN\t2\n");
+        expect(await nextLine()).toBe("GUARD_BEGIN_OK\t2");
+        let lastItem = "";
+        for (let index = 0; index < 2; index++) {
+          const owned = ownedIds[index]!;
+          const collision = caseCollision && index === 1;
+          const parentIndex = collision ? 0 : index;
+          const destination = collision ? destinations[0]!.toUpperCase() : destinations[index]!;
+          const stage = collision ? stages[0]!.replace(destinations[0]!, destination) : stages[index]!;
+          lastItem = ["GUARD_ITEM", skipIndex && index === 1 ? 2 : index, hex(artifactRoot),
+            hex(parentIndex === 0 ? "first" : "second"),
+            hex(destination), hex(stage), artifactId.volumeSerial, artifactId.fileId,
+            parentIds[parentIndex]!.volumeSerial, parentIds[parentIndex]!.fileId,
+            index === 0 ? "stage" : "destination",
+            owned.volumeSerial, wrongSecond && index === 1 ? "f".repeat(32) : owned.fileId,
+            owned.bytes, ownedHashes[index]].join("\t");
+          child.stdin.write(lastItem + "\n");
+          if ((wrongSecond || caseCollision || skipIndex) && index === 1) {
+            const [code] = await once(child, "exit") as [number];
+            return code;
+          }
+          expect(await nextLine()).toBe(`GUARD_ITEM_OK\t${index}`);
+        }
+        if (thirdItem) {
+          child.stdin.write(lastItem.replace(/^GUARD_ITEM\t1\t/u, "GUARD_ITEM\t2\t") + "\n");
+          const [code] = await once(child, "exit") as [number];
+          return code;
+        }
+        child.stdin.write("GUARD_FINAL\n");
+        expect(await nextLine()).toBe("GUARD_READY\t2");
+        if (killAfterGuard) {
+          expect(() => renameSync(ownedPaths[0]!, `${ownedPaths[0]!}.moved`)).toThrow();
+          expect(() => renameSync(ownedPaths[1]!, `${ownedPaths[1]!}.moved`)).toThrow();
+          const killed = spawnSync("taskkill", ["/F", "/PID", String(child.pid)],
+            { encoding: "utf8", windowsHide: true });
+          expect(killed.status, killed.stderr).toBe(0);
+          await once(child, "exit");
+          return child.exitCode ?? 1;
+        }
+        child.stdin.write("CLOSE\n");
+        expect(await nextLine()).toBe(`CLOSED\t${generation}\t0`);
+        const [code] = await once(child, "exit") as [number];
+        return code;
+      } finally {
+        if (child.exitCode === null) { child.kill(); await once(child, "exit"); }
+      }
+    };
+    expect(await run(false)).toBe(0);
+    expect(await run(true)).toBe(2);
+    expect(await run(false, false, true)).toBe(2);
+    expect(await run(false, false, false, true)).toBe(2);
+    expect(await run(false, false, false, false, true)).toBe(2);
+    expect(await run(false, true)).not.toBe(0);
+    expect(readFileSync(ownedPaths[0]!, "utf8")).toBe("owned-first");
+    expect(readFileSync(ownedPaths[1]!, "utf8")).toBe("owned-second");
+    for (let index = 0; index < 2; index++) {
+      expect(existsSync(join(parents[index]!, `${stages[index]!}.pending`))).toBe(false);
+      expect(existsSync(join(parents[index]!, index === 0 ? destinations[index]! : stages[index]!))).toBe(false);
+    }
+    expect(readFileSync(join(root, "state.db"), "utf8")).toBe("old-generation");
+  });
+
   it("rolls a pinned partial move back only after an exact recovery acceptance", async () => {
     const root = join(sandbox, "recover-rollback-root");
     const stagedName = `state.db.restore-${randomUUID()}`;

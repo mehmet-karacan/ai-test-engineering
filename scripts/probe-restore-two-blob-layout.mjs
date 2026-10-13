@@ -6,10 +6,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, w
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createInterface } from "node:readline";
 import Database from "better-sqlite3";
 import { createBackup, sha256Data } from "../dist/storage/lifecycle-ops.js";
 import { readRestoreJournal, journalPathForDb } from "../dist/storage/restore-journal.js";
 import { Storage } from "../dist/storage/storage.js";
+import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 
 assert.equal(process.platform, "win32");
 const cuts = ["PREPARED", "RECEIPT_1", "LINK_1", "RECEIPT_2", "LINK_2", "PUBLISH_1", "PUBLISH_2"];
@@ -20,6 +22,8 @@ assert.ok(!expectOld || !!selected, "--expect-old needs a single cut");
 const reverseLayout = process.argv.includes("--reverse-layout");
 assert.ok(!reverseLayout || selected === "PUBLISH_1", "--reverse-layout needs PUBLISH_1");
 const trace = process.argv.includes("--trace");
+const guardAfterCut = process.argv.includes("--guard-after-cut");
+assert.ok(!guardAfterCut || selected === "PUBLISH_1", "--guard-after-cut needs PUBLISH_1");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-two-blob-"));
 const hashFile = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const schema = `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
@@ -148,6 +152,58 @@ try {
       assert.equal(existsSync(destination), expected[1][index] === "destination");
       if (existsSync(stage)) assert.equal(hashFile(stage), journal.stageIntents[index].sha256);
       if (existsSync(destination)) assert.equal(hashFile(destination), journal.stageIntents[index].sha256);
+    }
+    if (guardAfterCut) {
+      const helper = packagedWindowsFileHelper();
+      const hex = (value) => Buffer.from(value, "utf16le").toString("hex");
+      const native = spawn(helper.path, ["recover-session", dirname(targetDb), hex(basename(targetDb)),
+        hex(basename(journal.stagedDbPath)), hex(basename(journal.preservedDbPath)), journal.generation],
+        { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: native.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const next = async () => {
+        const result = await lines.next();
+        assert.equal(result.done, false, "native guard closed before receipt");
+        return result.value;
+      };
+      try {
+        const ready = (await next()).split("\t");
+        assert.deepEqual(ready.slice(0, 3), ["RECOVERY_READY", journal.generation, "0"]);
+        native.stdin.write(["ACCEPT", journal.generation, "0", ...ready.slice(3)].join("\t") + "\n");
+        assert.equal(await next(), `ACCEPTED\t${journal.generation}\t0`);
+        native.stdin.write("GUARD_BEGIN\t2\n");
+        assert.equal(await next(), "GUARD_BEGIN_OK\t2");
+        for (let index = 0; index < 2; index++) {
+          const stage = journal.stageIntents[index];
+          const destination = journal.publishedBlobs[index].path;
+          const parent = dirname(destination);
+          const parentRelative = parent.slice(journal.artifactRoot.length).replace(/^[/\\]/u, "");
+          const mode = existsSync(stage.path) ? "stage" : "destination";
+          const owned = stage.identity;
+          assert.ok(owned, "published blob needs durable stage receipt");
+          const rootId = journal.emptyBlobGuard.root;
+          const parentId = journal.emptyBlobGuard.parents[index];
+          assert.ok(parentId, "existing parent identity required");
+          native.stdin.write(["GUARD_ITEM", index, hex(journal.artifactRoot), hex(parentRelative),
+            hex(basename(destination)), hex(basename(stage.path)), rootId.volumeSerial, rootId.fileId,
+            parentId.volumeSerial, parentId.fileId, mode, owned.volumeSerial, owned.fileId,
+            owned.bytes, owned.sha256].join("\t") + "\n");
+          assert.equal(await next(), `GUARD_ITEM_OK\t${index}`);
+        }
+        native.stdin.write("GUARD_FINAL\n");
+        assert.equal(await next(), "GUARD_READY\t2");
+        const killed = spawnSync("taskkill", ["/F", "/PID", String(native.pid)], { encoding: "utf8" });
+        assert.equal(killed.status, 0, killed.stderr);
+        if (native.exitCode === null) await new Promise((done) => native.once("exit", done));
+      } finally {
+        if (native.exitCode === null && native.pid) spawnSync("taskkill", ["/F", "/PID", String(native.pid)]);
+      }
+      for (let index = 0; index < 2; index++) {
+        const stage = journal.stageIntents[index].path;
+        const destination = journal.publishedBlobs[index].path;
+        assert.equal(existsSync(stage), expected[1][index] === "stage");
+        assert.equal(existsSync(destination), expected[1][index] === "destination");
+      }
+      assert.equal(hashFile(targetDb), oldHash);
     }
     let blocked = false;
     try { const storage = new Storage({ dbPath: targetDb }); storage.close(); }
