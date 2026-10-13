@@ -436,7 +436,7 @@ function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: 
  * hedefi ezmez. Journal yarim restore'u acilista engeller; hard-kill recovery
  * dogrulanmadan crash-safe kabul verilmez.
  */
-export function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): RestoreResult {
+export async function restoreBackup(backupDir: string, targetDbPath: string, targetArtifactRoot: string): Promise<RestoreResult> {
   targetDbPath = resolve(targetDbPath);
   targetArtifactRoot = resolve(targetArtifactRoot);
   backupDir = resolve(backupDir);

@@ -112,7 +112,7 @@ describe("P08/PP44: upgrade/migration veri korunumu", () => {
 
     const restoredDb = join(dir, "restored", "state.db");
     const restoredArtifacts = join(dir, "restored", "artifacts");
-    restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
+    await restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
     expect(readRestoreJournal(journalPathForDb(restoredDb))?.phase).toBe("COMMITTED");
     const restored = new Storage({ dbPath: restoredDb });
     try {
