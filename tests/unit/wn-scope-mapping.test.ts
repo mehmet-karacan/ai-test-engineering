@@ -6,8 +6,8 @@
  * - WN68: validator duplicate/universe disi/eksik satir/eksik replacement/gecersiz WN
  *   karsiligi/gecersiz scope durumlarinda non-zero.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { describe, it, expect, afterAll } from "vitest";
+import { readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -34,7 +34,7 @@ const expectedSet = new Set(expectedIds);
 // kaynak agacini rekursoz tarar (source_tree_digest); repo icindeki gecici
 // dizin, paralel vitest kosularinda o tarama ile yarisa girip ENOENT uretir
 // (p01-release-gate live-repo gate testleri). Tmp dizin agacin disindadir.
-const fixtureRoot = join(tmpdir(), "aitest-wn-scope-tmp");
+const fixtureRoot = mkdtempSync(join(tmpdir(), "aitest-wn-scope-"));
 function runValidator(dir) {
   try {
     const stdout = execFileSync(process.execPath, [join(repoRoot, "scripts", "validate-windows-scope.mjs"), dir], {
@@ -54,9 +54,6 @@ function makeFixture(name, scopeOverride, mappingOverride) {
   return join(fixtureRoot, name);
 }
 
-beforeAll(() => {
-  rmSync(fixtureRoot, { recursive: true, force: true });
-});
 afterAll(() => {
   rmSync(fixtureRoot, { recursive: true, force: true });
 });
