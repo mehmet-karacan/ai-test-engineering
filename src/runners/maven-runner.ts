@@ -101,10 +101,12 @@ export class MavenRunner {
         throw new AppError("BLOCKED_ISOLATION", "Maven launch inputs changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
       mkdirSync(options.log_dir, { recursive: true });
-      result = await new WindowsProcessSupervisor().run({
+      const goalPlan = {
         executable: toolchain.executable, cwd: toolchain.cwd, argv,
         timeoutMs: options.timeout_ms, env,
-      }, controller.signal, this.lifecycle);
+        ...(this.lifecycle ? { pinnedInputs: verified.pinnedInputs } : {}),
+      };
+      result = await new WindowsProcessSupervisor().run(goalPlan, controller.signal, this.lifecycle);
     } finally {
       this.running.delete(controller);
     }
@@ -113,8 +115,11 @@ export class MavenRunner {
     writeFileSync(stdoutLog, result.stdout);
     writeFileSync(stderrLog, result.stderr);
     if (result.status !== "success" && result.status !== "nonzero") {
+      const reasonCode = result.errorCode === "pin_unavailable" ? "NATIVE_INPUT_PIN_UNAVAILABLE"
+        : result.errorCode === "pin_mismatch" ? "TOOLCHAIN_IDENTITY_CHANGED"
+        : `NATIVE_MAVEN_${result.status.toUpperCase()}`;
       throw new AppError("BLOCKED_ISOLATION", `Native Maven ${result.status}`, {
-        reason_code: `NATIVE_MAVEN_${result.status.toUpperCase()}`,
+        reason_code: reasonCode,
         stdout_log_path: stdoutLog,
         stderr_log_path: stderrLog,
         toolchain_identity: effectiveIdentity,

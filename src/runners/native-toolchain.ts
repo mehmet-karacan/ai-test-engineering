@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, dirname, delimiter } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { WindowsProcessSupervisor } from "./windows-process-supervisor.js";
+import { WindowsProcessSupervisor, processPinPaths } from "./windows-process-supervisor.js";
 
 const UNSAFE_CMD = /[%!^|<>"\r\n\0]/u;
 const UNSAFE_EXPANDED_OPTIONS = /[&%!^|<>"\r\n\0]/u;
@@ -40,6 +40,10 @@ export function effectiveMavenEnvironment(inherited: NodeJS.ProcessEnv, override
     }
     env[key] = value;
   }
+  // Apache Maven's Windows launcher invokes USERPROFILE/mavenrc_pre and
+  // mavenrc_post when this flag is empty. Disable both without changing the
+  // user's global environment; MAVEN_ARGS remains outside the allowlist.
+  env.MAVEN_SKIP_RC = "1";
   return env;
 }
 
@@ -75,6 +79,8 @@ export interface NativeToolchainPlan {
   source: "explicit" | "installed" | "wrapper";
   cwd: string;
   identity: string;
+  /** Exact file snapshot that produced identity; null means verified absent. */
+  pinnedInputs: ReadonlyArray<{ path: string; sha256: string | null }>;
 }
 
 export interface NativeVersionEvidence {
@@ -93,10 +99,25 @@ export interface VerifiedNativeToolchainPlan extends NativeToolchainPlan {
 
 /** Probe the selected executable. The raw -v output stays local to this call. */
 export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal, lifecycle?: import("./windows-process-supervisor.js").NativeProcessLifecycle): Promise<NativeVersionEvidence> {
-  const run = await new WindowsProcessSupervisor().run({
+  const basePlan = {
     executable: plan.executable, cwd: plan.cwd, argv: ["-v"], timeoutMs: 30000,
     maxLogBytes: 64 * 1024, env,
-  }, signal, lifecycle);
+  };
+  // -v does not consume explicit -s/-t argv paths. Keep the exact expected
+  // digests for every file it can open, without taking a fresh hash here.
+  const required = lifecycle ? new Set(processPinPaths(basePlan).map((path) => path.toLowerCase())) : null;
+  const probePins = required ? plan.pinnedInputs.filter((input) => required.has(input.path.toLowerCase())) : [];
+  if (required && probePins.length !== required.size) {
+    throw new AppError("BLOCKED_ISOLATION", "Maven probe snapshot incomplete", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+  }
+  const probePlan = { ...basePlan, ...(required ? { pinnedInputs: probePins } : {}) };
+  const run = await new WindowsProcessSupervisor().run(probePlan, signal, lifecycle);
+  if (run.errorCode === "pin_unavailable") {
+    throw new AppError("BLOCKED_ISOLATION", "Maven input pinning unavailable", { reason_code: "NATIVE_INPUT_PIN_UNAVAILABLE" });
+  }
+  if (run.errorCode === "pin_mismatch") {
+    throw new AppError("BLOCKED_ISOLATION", "Maven input changed before launch", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
+  }
   if (run.status !== "success" || run.stdoutTruncatedBytes > 0 || run.stderrTruncatedBytes > 0) {
     throw new AppError("BLOCKED_ISOLATION", "Maven version probe failed or truncated", { reason_code: "MAVEN_VERSION_UNVERIFIED" });
   }
@@ -252,27 +273,45 @@ export class NativeToolchainResolver {
           .find(([actual]) => actual.toUpperCase() === key)?.[1] ?? "";
         return [key, createHash("sha256").update(value).digest("hex")];
       }));
-    const settings = options.settingsPath ?? join(homedir(), ".m2", "settings.xml");
-    const toolchains = options.toolchainsPath ?? join(homedir(), ".m2", "toolchains.xml");
-    const localConfig: Array<{ directory: string; files: Record<string, string | null> }> = [];
+    const defaultSettings = join(homedir(), ".m2", "settings.xml");
+    const defaultToolchains = join(homedir(), ".m2", "toolchains.xml");
+    if ((options.settingsPath !== undefined && !isAbsolute(options.settingsPath)) ||
+        (options.toolchainsPath !== undefined && !isAbsolute(options.toolchainsPath))) {
+      throw new AppError("INVALID_PARAMETERS", "Maven config path must be absolute");
+    }
+    const pins = new Map<string, { path: string; sha256: string | null }>();
+    const pin = (path: string, required: boolean): void => {
+      const absolute = resolve(path);
+      const key = absolute.toLowerCase();
+      if (pins.has(key)) {
+        if (required && pins.get(key)!.sha256 === null) fileDigest(absolute, true);
+        return;
+      }
+      pins.set(key, { path: absolute, sha256: fileDigest(absolute, required) });
+    };
+    pin(executable, true);
+    pin(defaultSettings, false);
+    pin(defaultToolchains, false);
+    if (options.settingsPath !== undefined) pin(options.settingsPath, true);
+    if (options.toolchainsPath !== undefined) pin(options.toolchainsPath, true);
     for (let cursor = cwd; ; cursor = dirname(cursor)) {
-      localConfig.push({
-        directory: cursor,
-        files: Object.fromEntries(["jvm.config", "maven.config", "extensions.xml"]
-          .map((name) => [name, fileDigest(join(cursor, ".mvn", name), false)])),
-      });
+      for (const name of ["jvm.config", "maven.config", "extensions.xml"]) {
+        pin(join(cursor, ".mvn", name), false);
+      }
       if (dirname(cursor) === cursor) break;
     }
+    if (source === "wrapper") {
+      pin(join(cwd, ".mvn", "wrapper", "maven-wrapper.properties"), true);
+      pin(join(cwd, ".mvn", "wrapper", "maven-wrapper.jar"), true);
+    }
+    const pinnedInputs = [...pins.values()];
     const profiles = options.profiles ?? [];
     for (const profile of profiles) {
       if (!SAFE_PROPERTY_KEY.test(profile)) throw new AppError("INVALID_PARAMETERS", "Invalid Maven profile");
     }
     const identity = createHash("sha256").update(JSON.stringify({
-      cwd, executable, executableDigest: fileDigest(executable, true), source, envIdentity, profiles,
-      settingsPath: settings, settingsDigest: fileDigest(settings, options.settingsPath !== undefined),
-      toolchainsPath: toolchains, toolchainsDigest: fileDigest(toolchains, options.toolchainsPath !== undefined),
-      localConfig,
+      cwd, executable, source, envIdentity, profiles, pinnedInputs,
     })).digest("hex");
-    return { executable, source, cwd, identity };
+    return { executable, source, cwd, identity, pinnedInputs };
   }
 }

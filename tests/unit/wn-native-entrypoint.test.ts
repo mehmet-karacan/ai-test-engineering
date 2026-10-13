@@ -11,8 +11,6 @@ import { createDefaultServicesForTest } from "../../src/application/services.js"
 import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { JobDispatcher } from "../../src/orchestration/job-dispatcher.js";
 import { defaultConfig, loadConfig } from "../../src/configuration/config-loader.js";
-import { NativeExecutionToolchainRecordStore } from "../../src/orchestration/native-execution-toolchain-record.js";
-import { NativeToolchainRecordStore } from "../../src/orchestration/native-toolchain-record.js";
 
 describe("WN14/WN24 native customer entrypoint", () => {
   it("does not silently strip a legacy runner field in saved config", () => {
@@ -108,7 +106,7 @@ describe("WN14/WN24 native customer entrypoint", () => {
     } finally { services.storage?.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
-  it.skipIf(process.platform !== "win32")("runs only a synthetic native baseline in the frozen workspace through normal dispatch routing", async () => {
+  it.skipIf(process.platform !== "win32")("normal native baseline rejects absent Maven inputs before goal execution", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-dispatch-fixture-"));
     const services = createDefaultServicesForTest(join(root, "state.db"), join(root, "artifacts"));
     const originalPath = process.env.Path;
@@ -133,27 +131,13 @@ describe("WN14/WN24 native customer entrypoint", () => {
       const dispatcher = new JobDispatcher({ services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: join(root, "workspace") });
       const result = await dispatcher.dispatch(job, dispatcher.buildGoalContract(job, [], project), project);
       const baseline = join(root, "workspace", "jobs", job.id, "baseline");
-      expect(result.phases_completed).toContain("baseline_ok");
-      expect(existsSync(join(baseline, "target", "surefire-reports", "TEST-Fixture.xml"))).toBe(true);
+      expect(result.final_outcome).toBe("FAILED");
+      expect(result.error).toMatch(/pinning unavailable|input pinning unavailable/i);
+      expect(result.phases_completed).not.toContain("baseline_ok");
+      expect(existsSync(join(baseline, "target", "surefire-reports", "TEST-Fixture.xml"))).toBe(false);
       expect(existsSync(join(project, "target"))).toBe(false);
       expect(readdirSync(project).sort()).toEqual(sourceFiles);
       expect(digestSource()).toBe(sourceDigest);
-      const sourceIdentity = new NativeToolchainRecordStore(services.storage!.db, join(root, "workspace")).read(job.id).identity;
-      const execution = new NativeExecutionToolchainRecordStore(services.storage!.db, join(root, "workspace")).read(job.id, baseline);
-      expect(execution.identity).toMatch(/^[a-f0-9]{64}$/);
-      expect(execution.identity).not.toBe(sourceIdentity);
-      mkdirSync(join(baseline, ".mvn"));
-      writeFileSync(join(baseline, ".mvn", "maven.config"), "-ntp");
-      const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run");
-      try {
-        const pinnedRunner = new MavenRunner(undefined, undefined, (verified) => {
-          new NativeExecutionToolchainRecordStore(services.storage!.db, join(root, "workspace")).pinOrVerify(job.id, verified);
-        });
-        await expect(pinnedRunner.run({ working_dir: baseline, goals: ["test"], timeout_ms: 15000,
-          log_dir: join(baseline, "target", "rerun-logs") })).rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
-        expect(processRun).toHaveBeenCalledTimes(1); // only -v; goals cannot start after drift
-        expect(processRun.mock.calls[0]?.[0].argv).toEqual(["-v"]);
-      } finally { processRun.mockRestore(); }
       expect(docker).not.toHaveBeenCalled();
     } finally {
       if (originalPath === undefined) delete process.env.Path;

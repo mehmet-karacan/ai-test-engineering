@@ -68,6 +68,20 @@ describe("S02 durable native process registry", () => {
     expect(leases.acquire(jobId, "new", 300000).lease.fencing_token).toBe(2);
   });
 
+  it("clears only a proven pre-spawn no-child pin failure", () => {
+    const lease = leases.acquire(jobId, "old", 300000).lease;
+    const registry = new NativeProcessRegistry(storage.db, jobId, "old", lease.fencing_token);
+    registry.beforeSpawn(plan);
+    registry.afterSpawn(4242);
+    registry.afterTerminal({ ...done, status: "spawn_error", exitCode: null, errorCode: "pin_unavailable",
+      preSpawnNoChild: false, ownedTreeDrained: true });
+    expect(() => leases.acquire(jobId, "new", 300000)).toThrowError();
+    registry.afterTerminal({ ...done, status: "spawn_error", exitCode: null, errorCode: "pin_unavailable",
+      preSpawnNoChild: true, ownedTreeDrained: true });
+    leases.release(jobId, "old");
+    expect(leases.acquire(jobId, "new", 300000).lease.fencing_token).toBe(2);
+  });
+
   it("rejects a stale registry before it writes a process record", () => {
     const lease = leases.acquire(jobId, "old", 300000).lease;
     leases.release(jobId, "old");

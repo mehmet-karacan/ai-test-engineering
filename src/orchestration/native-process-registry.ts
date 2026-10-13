@@ -76,7 +76,10 @@ export class NativeProcessRegistry implements NativeProcessLifecycle {
 
   afterTerminal(result: NativeProcessResult): void {
     const current = this.active;
-    if (!current || result.ownedTreeDrained !== true || !["success", "nonzero", "timeout", "cancelled"].includes(result.status)) return;
+    const provenNoChildPinFailure = result.status === "spawn_error" && result.preSpawnNoChild === true &&
+      (result.errorCode === "pin_unavailable" || result.errorCode === "pin_mismatch");
+    if (!current || result.ownedTreeDrained !== true ||
+        (!provenNoChildPinFailure && !["success", "nonzero", "timeout", "cancelled"].includes(result.status))) return;
     const updated = this.db.prepare(
       "UPDATE job_leases SET process_identity = NULL WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
     ).run(this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
