@@ -546,7 +546,7 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
 #ifdef AITEST_FAULT_FIXTURE
   bool twoBlobArmed = false;
 #endif
-  auto recheckTwoBlobGuards = [&]() -> bool {
+  auto recheckTwoBlobGuards = [&](bool checkOwned = true) -> bool {
     for (auto& item : twoBlobGuards) {
       std::vector<Handle> observedRoot, observedParent;
       Identity observed;
@@ -565,7 +565,7 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
         }
       }
       if (!identity(parent, observed) || !sameFileId(observed, item.parentId)) return false;
-      if (item.hasOwned) {
+      if (item.hasOwned && checkOwned) {
         Identity owned;
         unsigned char digest[32]{};
         if (!snapshot(item.owned.value, owned, digest) || !sameIdentity(owned, item.ownedId) ||
@@ -706,7 +706,14 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
       std::puts("GUARD_ARMED\t2"); std::fflush(stdout); continue;
     }
 #endif
-    if (twoBlobGuardStarted && (fields.size() != 1 || fields[0] != "CLOSE" || !twoBlobGuardReady)) return 2;
+#ifdef AITEST_FAULT_FIXTURE
+    const bool twoBlobTestCommit = twoBlobGuardStarted && twoBlobArmed &&
+      fields[0] == "ROLLBACK_COMMIT" && fields.size() == 7 && !rollbackCommitted;
+#else
+    const bool twoBlobTestCommit = false;
+#endif
+    if (twoBlobGuardStarted && !twoBlobTestCommit &&
+        (fields.size() != 1 || fields[0] != "CLOSE" || !twoBlobGuardReady)) return 2;
     const bool ownedGuard = fields[0] == "OWNED_GUARD";
     if ((fields[0] == "EMPTY_GUARD" || ownedGuard) && fields.size() == (ownedGuard ? 13 : 9) && recovering &&
         sequence == 0 && !emptyGuarded && slots[0].present && slots[3].present &&
@@ -797,7 +804,7 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
       emptyGuarded = true;
       std::puts(ownedGuard ? "OWNED_GUARDED" : "EMPTY_GUARDED"); std::fflush(stdout); continue;
     }
-    if (fields[0] == "ROLLBACK_COMMIT" && fields.size() == 7 && emptyGuarded &&
+    if (fields[0] == "ROLLBACK_COMMIT" && fields.size() == 7 && (emptyGuarded || twoBlobTestCommit) &&
         !rollbackCommitted && sequence == 0) {
       std::wstring journalPath;
       std::string terminalLine;
@@ -808,21 +815,27 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
           terminalLine.find('\n') != terminalLine.size() - 1) return 2;
       std::vector<Handle> observedRoot, observedParent, journal;
       Identity found;
-      if (!openAbsolute(blobRootPath, true, FILE_READ_ATTRIBUTES, observedRoot) ||
-          !identity(observedRoot.back().value, found) || !sameFileId(found, blobRootId)) return 2;
-      HANDLE parent = observedRoot.back().value;
-      if (!blobParentRelative.empty()) {
-        std::wstring ignored;
-        std::vector<std::wstring> parts;
-        if (!splitPath(blobParentRelative, false, ignored, parts)) return 2;
-        for (const auto& part : parts) {
-          Handle next;
-          if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return 2;
-          observedParent.push_back(std::move(next));
-          parent = observedParent.back().value;
+      if (twoBlobTestCommit) {
+        // ARM already verified bytes/FileId under share-zero held handles.
+        // Delete-pending files cannot necessarily be read again by name.
+        if (!recheckTwoBlobGuards(false)) return 2;
+      } else {
+        if (!openAbsolute(blobRootPath, true, FILE_READ_ATTRIBUTES, observedRoot) ||
+            !identity(observedRoot.back().value, found) || !sameFileId(found, blobRootId)) return 2;
+        HANDLE parent = observedRoot.back().value;
+        if (!blobParentRelative.empty()) {
+          std::wstring ignored;
+          std::vector<std::wstring> parts;
+          if (!splitPath(blobParentRelative, false, ignored, parts)) return 2;
+          for (const auto& part : parts) {
+            Handle next;
+            if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return 2;
+            observedParent.push_back(std::move(next));
+            parent = observedParent.back().value;
+          }
         }
+        if (!identity(parent, found) || !sameFileId(found, blobParentId)) return 2;
       }
-      if (!identity(parent, found) || !sameFileId(found, blobParentId)) return 2;
       for (auto& slot : slots) {
         if (!slot.present) continue;
         Handle current;
@@ -842,11 +855,34 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
       if (fields[2] != serial || fields[3] != ascii(fileIdHex(journalId)) ||
           fields[4] != std::to_string(journalId.bytes) ||
           fields[5] != ascii(digestHex(journalHash))) return 2;
+#ifdef AITEST_FAULT_FIXTURE
+      wchar_t twoBlobTerminalCut[16]{};
+      if (twoBlobTestCommit) {
+        GetEnvironmentVariableW(L"AITEST_NATIVE_TWO_BLOB_TERMINAL_CUT", twoBlobTerminalCut, 16);
+      }
+      auto haltTwoBlobTerminal = [&](const wchar_t* cut) -> bool {
+        if (!twoBlobTestCommit || std::wcscmp(twoBlobTerminalCut, cut) != 0) return true;
+        wchar_t markerPath[32768]{};
+        const DWORD length = GetEnvironmentVariableW(L"AITEST_NATIVE_TWO_BLOB_TERMINAL_MARKER",
+          markerPath, static_cast<DWORD>(std::size(markerPath)));
+        if (length == 0 || length >= std::size(markerPath)) return false;
+        Handle marker(CreateFileW(markerPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+          FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (marker.value == INVALID_HANDLE_VALUE || !FlushFileBuffers(marker.value)) return false;
+        Sleep(INFINITE);
+        return false;
+      };
+      if (!haltTwoBlobTerminal(L"before")) return 2;
+#endif
       DWORD written = 0;
       if (!WriteFile(journal.back().value, terminalLine.data(), static_cast<DWORD>(terminalLine.size()),
             &written, nullptr) || written != terminalLine.size() ||
           !FlushFileBuffers(journal.back().value)) return 2;
       rollbackCommitted = true;
+#ifdef AITEST_FAULT_FIXTURE
+      if (!haltTwoBlobTerminal(L"after")) return 2;
+      if (twoBlobTestCommit && std::wcscmp(twoBlobTerminalCut, L"ack") == 0) return 2;
+#endif
 #ifdef AITEST_FAULT_FIXTURE
       wchar_t haltAfterFlush[2]{};
       if (GetEnvironmentVariableW(L"AITEST_NATIVE_EMPTY_ROLLBACK_HALT_AFTER_FLUSH", haltAfterFlush, 2) == 1 &&

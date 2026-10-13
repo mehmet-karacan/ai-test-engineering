@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,6 +29,11 @@ assert.ok(!guardAfterCut || selected === "PUBLISH_1", "--guard-after-cut needs P
 const armCut = process.argv.find((value) => value.startsWith("--arm-cut="))?.slice(10);
 assert.ok(!armCut || ["first", "second"].includes(armCut));
 assert.ok(!armCut || guardAfterCut, "--arm-cut needs --guard-after-cut");
+const walSentinel = process.argv.includes("--wal-sentinel");
+assert.ok(!walSentinel || !!armCut, "--wal-sentinel needs a partial ARM cut");
+const terminalCut = process.argv.find((value) => value.startsWith("--terminal-cut="))?.slice(15);
+assert.ok(!terminalCut || ["before", "after", "ack"].includes(terminalCut));
+assert.ok(!terminalCut || !!armCut, "--terminal-cut needs a partial ARM cut");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-two-blob-"));
 const hashFile = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const schema = `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
@@ -103,10 +108,25 @@ try {
     mkdirSync(dirname(targetDb), { recursive: true });
     for (const rel of relatives) mkdirSync(dirname(join(targetArtifacts, rel)), { recursive: true });
     const old = new Database(targetDb);
+    if (walSentinel) old.pragma("journal_mode = WAL");
     old.exec(schema);
     old.prepare("INSERT INTO test_jobs VALUES ('old', 'COMPLETED')").run();
-    old.close();
+    if (walSentinel) {
+      const mainBeforeSentinel = readFileSync(targetDb);
+      old.prepare("INSERT INTO test_jobs VALUES ('wal-sentinel', 'COMPLETED')").run();
+      assert.deepEqual(readFileSync(targetDb), mainBeforeSentinel,
+        "sentinel must be in real uncheckpointed WAL");
+      const mainBytes = readFileSync(targetDb);
+      const walBytes = readFileSync(`${targetDb}-wal`);
+      const shmBytes = readFileSync(`${targetDb}-shm`);
+      assert.ok(walBytes.length > 32, "real WAL frame required");
+      old.close();
+      writeFileSync(targetDb, mainBytes);
+      writeFileSync(`${targetDb}-wal`, walBytes);
+      writeFileSync(`${targetDb}-shm`, shmBytes);
+    } else old.close();
     const oldHash = hashFile(targetDb);
+    const oldWalHash = walSentinel ? hashFile(`${targetDb}-wal`) : null;
     const child = spawn(process.execPath,
       ["-e", childCode, cut, pathToFileURL(resolve("dist/storage/lifecycle-ops.js")).href,
         backup.backup_dir, targetDb, targetArtifacts, trace ? "trace" : ""],
@@ -134,6 +154,7 @@ try {
     assert.equal(journal.emptyBlobGuard.parents.length, 2);
     assert.notDeepEqual(journal.emptyBlobGuard.parents[0], journal.emptyBlobGuard.parents[1]);
     assert.equal(hashFile(targetDb), oldHash);
+    if (walSentinel) assert.equal(hashFile(`${targetDb}-wal`), oldWalHash);
     if (reverseLayout) {
       renameSync(journal.publishedBlobs[0].path, journal.stageIntents[0].path);
       renameSync(journal.stageIntents[1].path, journal.publishedBlobs[1].path);
@@ -225,15 +246,19 @@ try {
         assert.equal(existsSync(destination), !disposed && expected[1][index] === "destination");
       }
       assert.equal(hashFile(targetDb), oldHash);
+      if (walSentinel) assert.equal(hashFile(`${targetDb}-wal`), oldWalHash);
       if (armCut) {
         assert.equal(readFileSync(journalPath).equals(journalBeforeGuard), true,
           "partial ARM changed durable journal");
         // A new production helper must pin the partial layout without trusting
         // the previous killed child's in-memory handles or a path-only read.
-        const replayHelper = packagedWindowsFileHelper();
+        const replayHelper = terminalCut ? faultFixtureWindowsFileHelper() : packagedWindowsFileHelper();
+        const terminalMarker = join(fixture, `terminal-${terminalCut}.marker`);
         const replay = spawn(replayHelper.path, ["recover-session", dirname(targetDb), hex(basename(targetDb)),
           hex(basename(journal.stagedDbPath)), hex(basename(journal.preservedDbPath)), journal.generation],
-          { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+          { stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+            env: terminalCut ? { ...process.env, AITEST_NATIVE_TWO_BLOB_TERMINAL_CUT: terminalCut,
+              AITEST_NATIVE_TWO_BLOB_TERMINAL_MARKER: terminalMarker } : process.env });
         const replayLines = createInterface({ input: replay.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
         const replayNext = async () => {
           const result = await replayLines.next();
@@ -267,16 +292,34 @@ try {
           }
           replay.stdin.write("GUARD_FINAL\n");
           assert.equal(await replayNext(), "GUARD_READY\t2");
+          if (terminalCut) {
+            replay.stdin.write("GUARD_ARM\n");
+            assert.equal(await replayNext(), "GUARD_ARMED\t2");
+          }
           const expectedJournal = captureExpectedWindowsRestoreFile(replayHelper, journalPath);
           const terminalLine = prepareRestorePhaseLine(journalPath, { ...journal, phase: "ROLLED_BACK" });
           replay.stdin.write(["ROLLBACK_COMMIT", hex(journalPath), expectedJournal.volumeSerial,
             expectedJournal.fileId, expectedJournal.bytes, expectedJournal.sha256,
             Buffer.from(terminalLine, "utf8").toString("hex")].join("\t") + "\n");
+          if (terminalCut && terminalCut !== "ack") {
+            for (let attempt = 0; attempt < 200 && !existsSync(terminalMarker); attempt++) {
+              if (replay.exitCode !== null) break;
+              await new Promise((done) => setTimeout(done, 50));
+            }
+            assert.equal(existsSync(terminalMarker), true, `${terminalCut}: terminal cut marker missing`);
+            const killed = spawnSync("taskkill", ["/F", "/PID", String(replay.pid)], { encoding: "utf8" });
+            assert.equal(killed.status, 0, killed.stderr);
+          }
           const exitCode = replay.exitCode === null ? await new Promise((done, fail) => {
             const timer = setTimeout(() => { replay.kill(); fail(new Error("N=2 terminal command hung")); }, 10_000);
             replay.once("exit", (code) => { clearTimeout(timer); done(code); });
           }) : replay.exitCode;
-          assert.equal(exitCode, 2, "N=2 terminal command must fail closed");
+          if (terminalCut === "before" || terminalCut === "after") assert.notEqual(exitCode, 0);
+          else assert.equal(exitCode, 2, "N=2 terminal command must fail closed or lose ACK");
+          if (terminalCut === "ack") {
+            const response = await replayLines.next();
+            assert.equal(response.done, true, `ACK loss fixture emitted ${response.value}`);
+          }
         } finally {
           if (replay.exitCode === null && replay.pid) {
             const killed = spawnSync("taskkill", ["/F", "/PID", String(replay.pid)], { encoding: "utf8" });
@@ -285,22 +328,59 @@ try {
           if (replay.exitCode === null) await new Promise((done) => replay.once("exit", done));
         }
         assert.equal(hashFile(targetDb), oldHash);
-        assert.equal(readFileSync(journalPath).equals(journalBeforeGuard), true,
-          "replayed N=2 guard or rejected terminal changed durable journal");
+        if (walSentinel) {
+          assert.equal(hashFile(`${targetDb}-wal`), oldWalHash, "old WAL bytes changed");
+          assert.equal(existsSync(`${targetDb}-shm`), true, "old SHM path lost");
+          const oracleDir = join(fixture, "wal-oracle");
+          const oracleDb = join(oracleDir, "state.db");
+          mkdirSync(oracleDir);
+          for (const suffix of ["", "-wal", "-shm"]) {
+            copyFileSync(`${targetDb}${suffix}`, `${oracleDb}${suffix}`);
+          }
+          const oracle = new Database(oracleDb, { readonly: true, fileMustExist: true });
+          try {
+            assert.equal(oracle.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
+            assert.equal(oracle.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
+              "wal-sentinel", "uncheckpointed WAL row lost");
+          } finally { oracle.close(); }
+        }
+        assert.equal(readFileSync(journalPath).equals(journalBeforeGuard),
+          !terminalCut || terminalCut === "before", "N=2 terminal journal boundary mismatch");
         const after = readRestoreJournal(journalPath);
-        assert.equal(after.phase, "PREPARED");
+        assert.equal(after.phase, terminalCut === "after" || terminalCut === "ack" ? "ROLLED_BACK" : "PREPARED");
         assert.equal(after.moveReceipts.length, 0);
         assert.equal(after.recoveryReceipts, undefined);
         assert.equal(after.stageIntents.filter((item) => item.identity !== null).length, 2);
+        if (terminalCut) {
+          for (let index = 0; index < 2; index++) {
+            const stage = journal.stageIntents[index].path;
+            const destination = journal.publishedBlobs[index].path;
+            for (const path of [stage, destination, `${stage}.pending`]) {
+              assert.equal(existsSync(path), false, `${terminalCut}: owned blob name remained after helper exit`);
+            }
+          }
+        }
       }
     }
     let blocked = false;
-    try { const storage = new Storage({ dbPath: targetDb }); storage.close(); }
+    try {
+      const storage = new Storage({ dbPath: targetDb });
+      try {
+        if (terminalCut === "after" || terminalCut === "ack") {
+          assert.equal(storage.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
+          if (walSentinel) assert.equal(storage.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
+            "wal-sentinel");
+        }
+      } finally { storage.close(); }
+    }
     catch (error) { blocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED"; if (!blocked) throw error; }
-    assert.equal(blocked, !expectOld, `${cut}: startup generation outcome`);
+    assert.equal(blocked, !(expectOld || terminalCut === "after" || terminalCut === "ack"),
+      `${cut}: startup generation outcome`);
     results.push({ cut, receipts: expected[0], physical: expected[1],
       ...(armCut ? { armCut, postArmPhysical: [0, 1].map((index) => armCut === "second" ||
-        armCut === "first" && index === 0 ? "none" : expected[1][index]), terminalRejected: true } : {}), blocked });
+        armCut === "first" && index === 0 ? "none" : expected[1][index]),
+        terminalCut: terminalCut ?? null, terminalRejected: !terminalCut,
+        ...(terminalCut ? { finalPhysical: ["none", "none"] } : {}) } : {}), blocked });
   }
   process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
 } finally {
