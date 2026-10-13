@@ -47,6 +47,8 @@ export interface NativeProcessPlan {
   timeoutMs: number;
   env: NodeJS.ProcessEnv;
   maxLogBytes?: number;
+  /** Frozen resolver snapshot; these hashes must never be refreshed before a goal run. */
+  pinnedInputs?: ReadonlyArray<{ path: string; sha256: string | null }>;
 }
 
 export interface NativeProcessLifecycle {
@@ -64,8 +66,10 @@ export interface NativeProcessResult {
   stderrTruncatedBytes: number;
   durationMs: number;
   errorCode?: string;
-  /** Set only after the helper's terminal status proves its Job Object is empty. */
+  /** Set only after the helper proves an empty Job Object or pre-spawn refusal. */
   ownedTreeDrained?: boolean;
+  /** Helper exited 102 after a pin refusal, before CreateProcess was called. */
+  preSpawnNoChild?: boolean;
 }
 
 function quote(value: string): string {
@@ -87,19 +91,18 @@ function cmdExecutable(env: NodeJS.ProcessEnv): string {
   return file;
 }
 
-/** Native helper compares these digests against no-follow handles before it starts cmd. */
-function collectPinnedFiles(plan: NativeProcessPlan): Array<{ path: string; sha256: string }> {
+/** Complete path set, including absent optional config, for snapshot coverage. */
+export function processPinPaths(plan: NativeProcessPlan): string[] {
   const paths = new Map<string, string>();
   const add = (path: string, required: boolean): void => {
     const absolute = resolve(path);
     if (!isAbsolute(path) || !/^[a-z]:\\/iu.test(absolute)) {
       throw new AppError("BLOCKED_ISOLATION", "Native pin requires an absolute drive path", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
     }
-    if (!existsSync(absolute)) {
-      if (required) throw new AppError("BLOCKED_ISOLATION", "Required native pin is missing", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
-      return;
+    if (required && !existsSync(absolute)) {
+      throw new AppError("BLOCKED_ISOLATION", "Required native pin is missing", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
     }
-    if (!statSync(absolute).isFile()) {
+    if (existsSync(absolute) && !statSync(absolute).isFile()) {
       throw new AppError("BLOCKED_ISOLATION", "Native pin is not a file", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
     }
     paths.set(absolute.toLowerCase(), absolute);
@@ -117,7 +120,32 @@ function collectPinnedFiles(plan: NativeProcessPlan): Array<{ path: string; sha2
     add(join(dirname(plan.executable), ".mvn", "wrapper", "maven-wrapper.properties"), true);
     add(join(dirname(plan.executable), ".mvn", "wrapper", "maven-wrapper.jar"), true);
   }
-  return [...paths.values()].map((path) => ({ path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") }));
+  return [...paths.values()];
+}
+
+/** Native helper compares these digests against no-follow handles before it starts cmd. */
+function collectPinnedFiles(plan: NativeProcessPlan): Array<{ path: string; sha256: string }> {
+  const paths = processPinPaths(plan);
+  if (plan.pinnedInputs) {
+    const expected = new Map<string, { path: string; sha256: string | null }>();
+    for (const input of plan.pinnedInputs) {
+      if (!isAbsolute(input.path) || (input.sha256 !== null && !/^[a-f0-9]{64}$/u.test(input.sha256))) {
+        throw new AppError("BLOCKED_ISOLATION", "Malformed native pin", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+      }
+      const key = resolve(input.path).toLowerCase();
+      if (expected.has(key)) throw new AppError("BLOCKED_ISOLATION", "Duplicate native pin", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+      expected.set(key, input);
+    }
+    if (expected.size !== paths.length || paths.some((path) => !expected.has(path.toLowerCase()))) {
+      throw new AppError("BLOCKED_ISOLATION", "Incomplete native pin snapshot", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+    }
+    return paths.map((path) => ({ path, sha256: expected.get(path.toLowerCase())!.sha256 ?? "-" }));
+  }
+  // Standalone version probes may capture a fresh local snapshot. A goal run
+  // supplies pinnedInputs from the approved resolver identity instead.
+  return paths.filter((path) => existsSync(path)).map((path) => ({
+    path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
+  }));
 }
 
 class BoundedOutput {
@@ -264,6 +292,9 @@ export class WindowsProcessSupervisor {
     const validExit = helperStatus?.kind === "exited" && helperStatus.win32_error === 0 &&
       Number.isSafeInteger(helperStatus.exit_code) && helperStatus.exit_code >= 0 && helperStatus.exit_code <= 0xffffffff;
     const validCancelled = helperStatus?.kind === "cancelled" && helperStatus.win32_error === 0 && completion.code === 101;
+    const preSpawnNoChild = cleaned && !registrationFailed && completion.code === 102 &&
+      (helperStatus?.kind === "pin_unavailable" || helperStatus?.kind === "pin_mismatch") &&
+      Number.isSafeInteger(helperStatus.win32_error) && helperStatus.win32_error > 0;
     const status = !cleaned || registrationFailed ? "spawn_error" : reason && validCancelled ? reason :
       (completion.errorCode || !validExit || completion.code !== 0 ? "spawn_error" :
       helperStatus?.exit_code === 0 ? "success" : "nonzero");
@@ -271,7 +302,8 @@ export class WindowsProcessSupervisor {
       status, exitCode: validExit ? helperStatus?.exit_code ?? null : null, stdout: stdout.text(), stderr: stderr.text(),
       stdoutTruncatedBytes: stdout.dropped, stderrTruncatedBytes: stderr.dropped,
       durationMs: Date.now() - started,
-      ownedTreeDrained: status !== "spawn_error" && (validExit || validCancelled),
+      ownedTreeDrained: preSpawnNoChild || (status !== "spawn_error" && (validExit || validCancelled)),
+      preSpawnNoChild,
       ...(status === "spawn_error" ? { errorCode: !cleaned ? "HELPER_CONTROL_CLEANUP_FAILED" : registrationFailed ? "NATIVE_REGISTRY_WRITE_FAILED" : completion.errorCode ?? helperStatus?.kind ?? "HELPER_STATUS_MISSING" } : {}),
     };
     try { lifecycle?.afterTerminal(result); }
