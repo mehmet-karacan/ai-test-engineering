@@ -29,7 +29,8 @@ export async function startWindowsRestoreRecoverySession(helper: WindowsFileHelp
   const dbName = basename(journal.targetDbPath);
   const stagedName = basename(journal.stagedDbPath);
   const preservedName = basename(journal.preservedDbPath);
-  const child = spawn(helper.path, ["recover-session", dirname(journal.targetDbPath), hexName(dbName),
+  const child = spawn(helper.path, [journal.nativeInitial.oldDb === null ? "recover-fresh" : "recover-session",
+    dirname(journal.targetDbPath), hexName(dbName),
     hexName(stagedName), hexName(preservedName), journal.generation],
     { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true });
   const lines = new RestoreSessionLines(child);

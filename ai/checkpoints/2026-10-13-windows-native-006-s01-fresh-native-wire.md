@@ -15,3 +15,8 @@
 
 - `nativeInitial.oldDb=null`, yalnız oldWal/oldShm da null ve evidence.oldDb.exists=false ise kabul edilir. Yeni `FRESH_TARGET_CONFIRMED` fazi eski `OLD_DB_PRESERVED` anlami degistirilmeden bos layout'u ayirt eder. Eski v2 ve legacy journal okuyucu testleri 23/23 PASS.
 - Fresh ROLLED_BACK kaydindan sonra genel Storage acilisi bos SQLite DB yaratmadan `RESTORE_RECOVERY_REQUIRED` ile durur. Yalniz ilerideki explicit restore retry icin `allowFreshRollbackForRestore` secenegi vardir; henuz restoreBackup bu secenegi kullanmiyor. Bu dilim fresh production publish'i acmaz.
+
+## Fresh recovery adapter
+
+- `nativeInitial.oldDb=null` kaydi `recover-fresh` komutuna yonelir. Gercek Windows SQLite fixture'inda journal-proven tek stagedDb FileId `RECOVERY_READY/ACCEPT` ile onaylandi, published dosya staged ada ters tasindi ve hedef yoklugu dogrulandi. Adapter testleri 5/5 PASS, typecheck exit 0. Worker ve restoreBackup henuz fresh yoluna bagli degildir.
+- S03 bagimsiz RED fixture'i, no-delete-share parent directory handle tutulurken dis `fs.renameSync(root, root-moved)` isleminin basarabildigini gosterdi. Bu nedenle root/alias degismezligi varsayimi WN13 icin kanit degildir; fresh production NO_GO ve path/GC sinirlari acik kalir.
