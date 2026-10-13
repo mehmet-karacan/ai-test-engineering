@@ -150,5 +150,33 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
       holder.stdin.end();
       await new Promise<void>((resolveExit) => holder.once("exit", () => resolveExit()));
     }
+    const renameHolder = spawn(helper.path, ["hold-rename", path], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    await new Promise<void>((resolveReady, rejectReady) => {
+      renameHolder.stdout.once("data", (data: Buffer) => data.toString().includes("READY") ? resolveReady() : rejectReady(new Error("no READY")));
+      renameHolder.once("exit", (code) => rejectReady(new Error(`rename holder exit ${code}`)));
+    });
+    try {
+      expect(() => new Database(path, { readonly: true })).toThrow();
+    } finally {
+      renameHolder.stdin.end();
+      await new Promise<void>((resolveExit) => renameHolder.once("exit", () => resolveExit()));
+    }
+    const transitioned = spawn(helper.path, ["hold-transition", path], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    await new Promise<void>((resolveReady, rejectReady) => {
+      transitioned.stdout.once("data", (data: Buffer) => data.toString().includes("READY") ? resolveReady() : rejectReady(new Error("no READY")));
+      transitioned.once("exit", (code) => rejectReady(new Error(`transition exit ${code}`)));
+    });
+    try {
+      const readonly = new Database(path, { readonly: true });
+      try { expect(readonly.prepare("SELECT x FROM t").get()).toMatchObject({ x: 1 }); }
+      finally { readonly.close(); }
+      const rawWriter = spawnSync(process.execPath, ["-e",
+        "const D=require('better-sqlite3');const db=new D(process.argv[1]);db.exec('INSERT INTO t VALUES (4)');db.close()", path],
+        { cwd: process.cwd(), encoding: "utf8", windowsHide: true });
+      expect(rawWriter.status).not.toBe(0);
+    } finally {
+      transitioned.stdin.end();
+      await new Promise<void>((resolveExit) => transitioned.once("exit", () => resolveExit()));
+    }
   });
 });

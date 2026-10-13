@@ -208,9 +208,27 @@ bool hashHeld(HANDLE file, unsigned char digest[32]) {
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
-  if (argc == 3 && wcscmp(argv[1], L"hold-read") == 0) {
+  if (argc == 3 && wcscmp(argv[1], L"hold-transition") == 0) {
+    std::vector<Handle> renameChain, readChain;
+    if (!openAbsolute(argv[2], false, GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE,
+      renameChain, FILE_SHARE_READ) ||
+        !openAbsolute(argv[2], false, GENERIC_READ | FILE_READ_ATTRIBUTES,
+          readChain, FILE_SHARE_READ | FILE_SHARE_DELETE)) return 2;
+    Identity before, after;
+    if (!identity(renameChain.back().value, before) || !identity(readChain.back().value, after) ||
+        !sameIdentity(before, after)) return 2;
+    renameChain.clear();
+    std::puts("READY");
+    std::fflush(stdout);
+    char ignored = 0;
+    while (std::fread(&ignored, 1, 1, stdin) == 1) {}
+    return 0;
+  }
+  if (argc == 3 && (wcscmp(argv[1], L"hold-read") == 0 || wcscmp(argv[1], L"hold-rename") == 0)) {
     std::vector<Handle> chain;
-    if (!openAbsolute(argv[2], false, GENERIC_READ | FILE_READ_ATTRIBUTES, chain, FILE_SHARE_READ)) return 2;
+    const DWORD access = GENERIC_READ | FILE_READ_ATTRIBUTES |
+      (wcscmp(argv[1], L"hold-rename") == 0 ? DELETE : 0);
+    if (!openAbsolute(argv[2], false, access, chain, FILE_SHARE_READ)) return 2;
     std::puts("READY");
     std::fflush(stdout);
     char ignored = 0;
