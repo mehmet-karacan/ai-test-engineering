@@ -110,6 +110,31 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
     } finally { cleanup(sandbox); }
   });
 
+  it("rejects a valid-size inventory whose durable receipts exceed the reopen limit before writing", () => {
+    const sandbox = fixture();
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "<project/>");
+      writeFileSync(join(target, "sentinel.txt"), "keep");
+      const snapshot = new SourceSnapshot(source);
+      const base = snapshot.buildManifest();
+      const template = base.entries[0]!;
+      const entries = Array.from({ length: 68_000 }, (_, index) => ({
+        ...template,
+        relative_path: `src/${index.toString(36)}-${"x".repeat(230)}`,
+      }));
+      try { snapshot.copyTo(target, { ...base, entries }); throw new Error("Accepted oversized receipt journal"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).code).toBe("POLICY_VIOLATION");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_JOURNAL_LIMIT");
+      }
+      expect(readdirSync(target)).toEqual(["sentinel.txt"]);
+    } finally { cleanup(sandbox); }
+  }, 30_000);
+
   it("removes only files it created when a later source digest is wrong", () => {
     const sandbox = fixture();
     try {
