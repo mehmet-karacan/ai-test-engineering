@@ -8,6 +8,17 @@ import { acquireRestoreDbLock } from "./maintenance-lock.js";
 export type RestorePhase = "PREPARED" | "BLOBS_READY" | "OLD_DB_MOVED" | "OLD_WAL_MOVED" | "OLD_SHM_MOVED" |
   "OLD_DB_PRESERVED" | "NEW_DB_MOVED" | "NEW_DB_PUBLISHED" | "VERIFIED" | "COMMITTED" | "ROLLED_BACK";
 
+export interface RestoreMoveReceipt {
+  generation: string;
+  sequence: number;
+  operation: "rename";
+  slot: "oldDb" | "oldWal" | "oldShm" | "stagedDb";
+  fromName: string;
+  toName: string;
+  before: { volumeSerial: string; fileId: string; bytes: number; sha256: string };
+  after: { volumeSerial: string; fileId: string; bytes: number; sha256: string };
+}
+
 export interface RestoreJournalRecord {
   formatVersion?: 2;
   generation: string;
@@ -17,6 +28,7 @@ export interface RestoreJournalRecord {
   stagedDbPath: string;
   preservedDbPath: string;
   publishedBlobs: Array<{ path: string; sha256: string }>;
+  moveReceipts?: RestoreMoveReceipt[];
   evidence?: {
     oldDb: { exists: boolean; bytes: number | null; sha256: string | null };
     oldWal: { exists: boolean; bytes: number | null; sha256: string | null };
@@ -59,12 +71,46 @@ function within(root: string, path: string): boolean {
   return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`) && rel.length > 0;
 }
 
+function validMoveReceipts(record: RestoreJournalRecord): boolean {
+  const receipts = record.moveReceipts;
+  if (receipts === undefined) return true;
+  if (record.formatVersion !== 2 || !Array.isArray(receipts)) return false;
+  const dbName = basename(record.targetDbPath);
+  const preservedName = basename(record.preservedDbPath);
+  if (dirname(record.preservedDbPath) !== dirname(record.targetDbPath) ||
+      dirname(record.stagedDbPath) !== dirname(record.targetDbPath) ||
+      !preservedName.startsWith(`${dbName}.restore-old-`)) return false;
+  const oldSuffix = preservedName.slice(dbName.length);
+  const names = {
+    oldDb: [dbName, preservedName],
+    oldWal: [`${dbName}-wal`, `${dbName}-wal${oldSuffix}`],
+    oldShm: [`${dbName}-shm`, `${dbName}-shm${oldSuffix}`],
+    stagedDb: [basename(record.stagedDbPath), dbName],
+  } as const;
+  const slotOrder = ["oldDb", "oldWal", "oldShm", "stagedDb"] as const;
+  let priorIndex = -1;
+  return receipts.every((receipt, index) => {
+    if (!receipt || receipt.operation !== "rename" || receipt.generation !== record.generation ||
+        receipt.sequence !== index + 1 || !Object.hasOwn(names, receipt.slot)) return false;
+    const slotIndex = slotOrder.indexOf(receipt.slot);
+    if (slotIndex <= priorIndex) return false;
+    priorIndex = slotIndex;
+    const [from, to] = names[receipt.slot];
+    const identity = receipt.before;
+    return receipt.fromName === from && receipt.toName === to && !!identity &&
+      /^[a-f0-9]{16}$/.test(identity.volumeSerial) && /^[a-f0-9]{32}$/.test(identity.fileId) &&
+      Number.isSafeInteger(identity.bytes) && identity.bytes >= 0 && /^[a-f0-9]{64}$/.test(identity.sha256) &&
+      receipt.after?.volumeSerial === identity.volumeSerial && receipt.after.fileId === identity.fileId &&
+      receipt.after.bytes === identity.bytes && receipt.after.sha256 === identity.sha256;
+  });
+}
+
 function validate(record: RestoreJournalRecord): void {
   if (!record.generation || !Object.hasOwn(NEXT, record.phase) || !isAbsolute(record.targetDbPath) ||
       !isAbsolute(record.artifactRoot) || !isAbsolute(record.stagedDbPath) || !isAbsolute(record.preservedDbPath) ||
       !within(dirname(record.targetDbPath), record.stagedDbPath) || !within(dirname(record.targetDbPath), record.preservedDbPath) ||
       record.stagedDbPath === record.targetDbPath || record.preservedDbPath === record.targetDbPath ||
-      !Array.isArray(record.publishedBlobs) || record.publishedBlobs.some((blob) =>
+      !validMoveReceipts(record) || !Array.isArray(record.publishedBlobs) || record.publishedBlobs.some((blob) =>
         !isAbsolute(blob.path) || !within(record.artifactRoot, blob.path) || !/^[a-f0-9]{64}$/.test(blob.sha256))) {
     throw recoveryError("journal path or record invalid");
   }
@@ -86,11 +132,23 @@ function validate(record: RestoreJournalRecord): void {
 }
 
 function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJournalRecord): boolean {
-  if (previous === null) return next.phase === "PREPARED";
+  if (previous === null) return next.phase === "PREPARED" && (next.moveReceipts === undefined || next.moveReceipts.length === 0);
   if ((previous.phase === "COMMITTED" || previous.phase === "ROLLED_BACK") && next.phase === "PREPARED") {
-    return next.generation !== previous.generation && next.targetDbPath === previous.targetDbPath;
+    return next.generation !== previous.generation && next.targetDbPath === previous.targetDbPath &&
+      (next.moveReceipts === undefined || next.moveReceipts.length === 0);
   }
+  const priorMoves = previous.moveReceipts;
+  const nextMoves = next.moveReceipts;
+  const slotForPhase: Partial<Record<RestorePhase, RestoreMoveReceipt["slot"]>> = {
+    OLD_DB_MOVED: "oldDb", OLD_WAL_MOVED: "oldWal", OLD_SHM_MOVED: "oldShm", NEW_DB_MOVED: "stagedDb",
+  };
+  const moveSlot = slotForPhase[next.phase];
+  const receiptsValid = priorMoves === undefined ? nextMoves === undefined : nextMoves !== undefined &&
+    nextMoves.length === priorMoves.length + (moveSlot ? 1 : 0) &&
+    priorMoves.every((receipt, index) => JSON.stringify(receipt) === JSON.stringify(nextMoves[index])) &&
+    (!moveSlot || nextMoves.at(-1)?.slot === moveSlot);
   return next.generation === previous.generation && next.targetDbPath === previous.targetDbPath &&
+    receiptsValid &&
     next.formatVersion === previous.formatVersion &&
     JSON.stringify(next.evidence) === JSON.stringify(previous.evidence) &&
     next.artifactRoot === previous.artifactRoot && next.stagedDbPath === previous.stagedDbPath &&
@@ -101,7 +159,7 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
     (previous.formatVersion === 2 ? NEXT[previous.phase] : LEGACY_NEXT[previous.phase] ?? []).includes(next.phase);
 }
 
-function fileIdentity(path: string): { exists: boolean; bytes: number | null; sha256: string | null } {
+export function fileIdentity(path: string): { exists: boolean; bytes: number | null; sha256: string | null } {
   let fd: number;
   try { fd = openSync(path, "r"); }
   catch (error) {
