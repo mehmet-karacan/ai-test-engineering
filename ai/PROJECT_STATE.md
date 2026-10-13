@@ -1,5 +1,7 @@
 # PROJECT_STATE - Gelistirme Durumu
 
+- 2026-10-13 entegrasyon 14: S03 required build input hash/cursor v2 ve S02 WN20 ENOENT/spawn fault kanitlari merge edildi. Coordinator build PASS (270 source), S03 3 dosya/49 ve S02 4 dosya/30 PASS. S01 `8e1c81a` bagimsiz review P1 SEALED sonrasi helper crash→COMMITTED penceresi buldu; merge edilmedi, fix suruyor. S01/S02/S03 VERIFIED degil; S04 migration, G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-14.md`.
+
 - 2026-10-13 entegrasyon 13: S02 WN14-WN24 ve S03 WN25-WN31 salt okunur gap audit merge edildi; urun kodu degismedi. S02 WN16/17/21 dar LOCAL_VERIFIED, yedi NO_GO, WN19 tam zincir NOT_RUN. S03 WN25/26/27/30 PARTIAL, WN28/29/31 NO_GO; S04 schema/S05 context bagimliliklari acik. S01 verify→COMMITTED P1 uzerinde calisiliyor. G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-13.md`.
 
 - 2026-10-13 entegrasyon 12: S03 64 MiB receipt siniri, S02 ust Job topology NO_GO ve S01 rollback/FileId verify duzeltmeleri merge edildi. Build PASS (270 source), S01 3 dosya/30 ve journal/recovery 4 dosya/34 PASS, local release gate LOCAL_PASS. Bagimsiz S01 takip review verify→COMMITTED P1 penceresini acik buldu. S01/S02/S03 VERIFIED degil, S04 migration baslamadi; G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-12.md`.
