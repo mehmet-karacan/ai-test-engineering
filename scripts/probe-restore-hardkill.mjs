@@ -22,7 +22,7 @@ const allModes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", 
   "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
   "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
 const selected = process.argv.find((arg) => arg.startsWith("--mode="))?.slice("--mode=".length);
-assert.ok(!selected || allModes.includes(selected), "Unknown probe mode");
+assert.ok(!selected || allModes.includes(selected) || selected === "ROLLBACK_TERMINAL", "Unknown probe mode");
 const modes = selected ? [selected] : allModes;
 const schema = `
   CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
@@ -43,9 +43,17 @@ fs.writeFileSync = (...args) => { const result = write(...args); if (typeof args
   try { lastPhase = JSON.parse(JSON.parse(args[1]).json).phase ?? lastPhase; } catch { /* other write */ }
 } return result; };
 const sync = fs.fsyncSync;
-fs.fsyncSync = (fd) => { const result = sync(fd); if (lastPhase === mode) halt(); return result; };
+fs.fsyncSync = (fd) => { const result = sync(fd);
+  if (lastPhase === mode || mode === "ROLLBACK_TERMINAL" && lastPhase === "ROLLED_BACK") halt();
+  return result; };
 const link = fs.linkSync;
 fs.linkSync = (...args) => { const result = link(...args); if (mode === "LINK") halt(); return result; };
+const read = fs.readFileSync;
+fs.readFileSync = (path, ...args) => {
+  if (mode === "ROLLBACK_TERMINAL" && lastPhase === "NEW_DB_PUBLISHED" &&
+      typeof path === "string" && path.startsWith(artifacts)) throw new Error("fixture published blob read failure");
+  return read(path, ...args);
+};
 const rename = fs.renameSync;
 fs.renameSync = (from, to) => { const result = rename(from, to);
   if (mode === "MOVE_DB" && from === targetDb && to.includes(".restore-old-")) halt();
@@ -89,8 +97,17 @@ async function killAt(mode, backupDir, targetDb, artifacts) {
       child.stdout.on("data", (chunk) => {
         if (chunk.toString().includes(`HALT:${mode}`)) { clearTimeout(timer); ok(); }
       });
-      child.once("exit", (code) => { clearTimeout(timer); fail(new Error(`Child exited ${code} before ${mode}: ${stderr}`)); });
+      child.once("exit", (code) => { clearTimeout(timer);
+        const phase = readRestoreJournal(journalPathForDb(targetDb))?.phase;
+        fail(new Error(`Child exited ${code} before ${mode}, journal ${phase}: ${stderr}`)); });
     });
+    if (native && (mode === "COMMITTED" || mode === "ROLLBACK_TERMINAL")) {
+      const writer = spawnSync(process.execPath, ["-e", `const Database=require("better-sqlite3");
+        const db=new Database(process.argv[1]); db.pragma("busy_timeout=0");
+        db.prepare("INSERT INTO test_jobs VALUES ('racing-writer','COMPLETED')").run(); db.close();`, targetDb],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 10_000 });
+      assert.notEqual(writer.status, 0, `native guard must deny raw writer during ${mode} fsync`);
+    }
     const killed = spawnSync("taskkill", ["/F", "/PID", String(child.pid)], { encoding: "utf8" });
     assert.equal(killed.status, 0, killed.stderr);
     await new Promise((ok) => { if (child.exitCode !== null) ok(); else child.once("exit", ok); });

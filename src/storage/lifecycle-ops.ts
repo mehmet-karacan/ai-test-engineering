@@ -651,12 +651,22 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
         if (existsSync(sidecar)) rmSync(sidecar, { force: true });
       }
       phase("VERIFIED");
+      // Publish the terminal decision while the native read guard still denies
+      // raw SQLite writers. CLOSE acknowledges release only after this fsync.
+      phase("COMMITTED");
       if (nativeSession) {
-        await nativeSession.close();
+        try { await nativeSession.close(); }
+        catch {
+          nativeSession = undefined;
+          safeRollback = false;
+          throw new AppError("STORAGE_ERROR", "Committed restore close acknowledgement uncertain", {
+            reason_code: "RESTORE_COMMITTED_CLOSE_UNCERTAIN",
+          });
+        }
         nativeSession = undefined;
       }
-      phase("COMMITTED");
     } catch (error) {
+      if (journalTerminal) throw error;
       try {
         if (options?.nativeHelper && !nativeSession) throw error;
         if (dbPublished && existsSync(targetDbPath)) {
@@ -676,6 +686,9 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
           } else renameSync(item.saved, item.original);
         }
         if (nativeSession) {
+          // The final reverse MOVE receipt is still held by the native owner.
+          // Seal the old-generation decision before releasing its raw-writer guard.
+          phase("ROLLED_BACK");
           await nativeSession.close();
           nativeSession = undefined;
         }
