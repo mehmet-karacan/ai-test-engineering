@@ -18,6 +18,13 @@ assert.ok(resolve(root).startsWith(resolve(tmpdir())));
 const expectRecovery = process.argv.includes("--expect-recovery");
 const native = process.argv.includes("--native");
 assert.equal(native, true, "Production Windows restore is native-only; run this probe with --native");
+const timeoutArgs = process.argv.filter((arg) => arg.startsWith("--cut-timeout-ms="));
+assert.ok(timeoutArgs.length <= 1, "Specify --cut-timeout-ms once");
+const timeoutText = timeoutArgs[0]?.slice("--cut-timeout-ms=".length);
+assert.ok(timeoutText === undefined || /^[1-9]\d*$/u.test(timeoutText), "Invalid --cut-timeout-ms");
+const cutTimeoutMs = timeoutText === undefined ? 45_000 : Number(timeoutText);
+assert.ok(Number.isSafeInteger(cutTimeoutMs) && cutTimeoutMs >= 1_000 && cutTimeoutMs <= 180_000,
+  "--cut-timeout-ms must be between 1000 and 180000");
 const allModes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED",
   "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
   "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
@@ -105,7 +112,13 @@ async function killAt(mode, backupDir, targetDb, artifacts) {
   child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
   try {
     await new Promise((ok, fail) => {
-      const timer = setTimeout(() => fail(new Error(`Timeout at ${mode}: ${stderr}`)), 45000);
+      const timer = setTimeout(() => {
+        let journalPhase;
+        try { journalPhase = readRestoreJournal(journalPathForDb(targetDb))?.phase ?? "absent"; }
+        catch (error) { journalPhase = `unreadable:${String(error?.message)}`; }
+        fail(new Error(`Timeout at ${mode} after ${cutTimeoutMs}ms; journal=${journalPhase}; ` +
+          `last_stdout=${JSON.stringify(stdout.slice(-1024))}; last_stderr=${JSON.stringify(stderr.slice(-1024))}`));
+      }, cutTimeoutMs);
       child.stdout.on("data", (chunk) => {
         stdout += chunk.toString();
         if (stdout.length > 8192) { clearTimeout(timer); fail(new Error(`Probe output too long at ${mode}`)); }
