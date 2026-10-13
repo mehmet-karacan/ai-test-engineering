@@ -90,6 +90,31 @@ export function inspectWindowsPath(helper: WindowsFileHelperSpec, path: string):
   return identity(fields);
 }
 
+/** Delete a DB-authorized blob by its pinned native FileId after the DB row is durably DELETED. */
+export function deleteWindowsOwnedFile(helper: WindowsFileHelperSpec, root: string, relativePath: string,
+  expectedRoot: WindowsFileIdentity, expectedFile: WindowsFileIdentity & { sha256: string }): void {
+  assertTrustedWindowsFileHelper(helper);
+  if (!isAbsolute(root) || !relativePath || isAbsolute(relativePath) ||
+      !/^[a-f0-9]{64}$/u.test(expectedFile.sha256) ||
+      !/^[a-f0-9]{16}$/u.test(expectedRoot.volumeSerial) || !/^[a-f0-9]{32}$/u.test(expectedRoot.fileId) ||
+      !/^[a-f0-9]{16}$/u.test(expectedFile.volumeSerial) || !/^[a-f0-9]{32}$/u.test(expectedFile.fileId) ||
+      !Number.isSafeInteger(expectedFile.bytes) || expectedFile.bytes < 0) {
+    throw new AppError("BLOCKED_ISOLATION", "Invalid owned delete request", { reason_code: "WINDOWS_OWNED_DELETE_INVALID" });
+  }
+  const run = spawnSync(helper.path, ["delete-owned-session", root, relativePath,
+    expectedFile.volumeSerial, expectedFile.fileId, String(expectedFile.bytes), expectedFile.sha256,
+    expectedRoot.volumeSerial, expectedRoot.fileId], {
+    input: "DELETE\n", shell: false, windowsHide: true, encoding: "utf8", timeout: 30_000, maxBuffer: 8192,
+  });
+  const expectedOutput = `DELETE_READY\t${expectedFile.volumeSerial}\t${expectedFile.fileId}\t` +
+    `${expectedFile.bytes}\t${expectedFile.sha256}\nDELETED\t${expectedFile.volumeSerial}\t${expectedFile.fileId}\n`;
+  if (run.error || run.status !== 0 || run.signal || run.stdout.replace(/\r\n/gu, "\n") !== expectedOutput) {
+    throw new AppError("BLOCKED_ISOLATION", "Native owned delete was rejected or uncertain", {
+      reason_code: "WINDOWS_OWNED_DELETE_UNCERTAIN", exit_code: run.status, signal: run.signal,
+    });
+  }
+}
+
 export function copyWindowsFile(helper: WindowsFileHelperSpec, sourceRoot: string, sourceRelativePath: string,
   targetRoot: string, targetRelativePath: string): WindowsCopyResult {
   const fields = invoke(helper, ["copy", sourceRoot, sourceRelativePath, targetRoot, targetRelativePath]);

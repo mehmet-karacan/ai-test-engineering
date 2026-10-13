@@ -700,6 +700,47 @@ int freshRestoreSession(int argc, wchar_t** argv, bool recovering) {
   }
   return 2;
 }
+
+// GC primitive: the row must already be DELETED before this command starts.
+// The held file handle, not the mutable absolute path, selects the file to unlink.
+int deleteOwnedSession(int argc, wchar_t** argv) {
+  if (argc != 10) return 2;
+  std::vector<Handle> root, file;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root)) return 2;
+  Identity pinnedRoot;
+  if (!identity(root.back().value, pinnedRoot)) return 2;
+  char rootVolume[17]{};
+  std::snprintf(rootVolume, sizeof(rootVolume), "%016llx", pinnedRoot.id.VolumeSerialNumber);
+  if (ascii(argv[8]) != rootVolume || ascii(argv[9]) != ascii(fileIdHex(pinnedRoot)) ||
+      !openRelative(root.back().value, argv[3], false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, file, false,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)) return 2;
+  Identity before;
+  unsigned char digest[32]{};
+  if (!snapshot(file.back().value, before, digest)) return 2;
+  char volume[17]{};
+  std::snprintf(volume, sizeof(volume), "%016llx", before.id.VolumeSerialNumber);
+  if (ascii(argv[4]) != volume || ascii(argv[5]) != ascii(fileIdHex(before)) ||
+      ascii(argv[6]) != std::to_string(before.bytes) || ascii(argv[7]) != ascii(digestHex(digest))) return 2;
+  std::printf("DELETE_READY\t%s\t%s\t%llu\t%s\n", volume, ascii(fileIdHex(before)).c_str(),
+    before.bytes, ascii(digestHex(digest)).c_str());
+  std::fflush(stdout);
+  std::string line;
+  if (!std::getline(std::cin, line) || line != "DELETE") return 2;
+  Identity current;
+  unsigned char currentDigest[32]{};
+  if (!snapshot(file.back().value, current, currentDigest) || !sameIdentity(before, current) ||
+      std::memcmp(digest, currentDigest, 32) != 0) return 2;
+  FILE_DISPOSITION_INFO disposition{};
+  disposition.DeleteFile = TRUE;
+  IO_STATUS_BLOCK io{};
+  constexpr auto dispositionClass = static_cast<FILE_INFORMATION_CLASS>(13); // FileDispositionInformation
+  if (NtSetInformationFile(file.back().value, &io, &disposition,
+      static_cast<ULONG>(sizeof(disposition)), dispositionClass) < 0) return 2;
+  std::printf("DELETED\t%s\t%s\n", volume, ascii(fileIdHex(before)).c_str());
+  std::fflush(stdout);
+  return 0;
+}
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -707,6 +748,7 @@ int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"recover-session") == 0) return restoreSession(argc, argv, true);
   if (argc > 1 && wcscmp(argv[1], L"session-fresh") == 0) return freshRestoreSession(argc, argv, false);
   if (argc > 1 && wcscmp(argv[1], L"recover-fresh") == 0) return freshRestoreSession(argc, argv, true);
+  if (argc > 1 && wcscmp(argv[1], L"delete-owned-session") == 0) return deleteOwnedSession(argc, argv);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
     std::vector<Handle> root;
