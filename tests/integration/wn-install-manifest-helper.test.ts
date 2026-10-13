@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -94,6 +94,8 @@ describe.skipIf(process.platform !== "win32")("WN15 native manifest pin transpor
       const batch = join(root, "mvn.cmd");
       const ready = join(root, "ready.txt");
       writeFileSync(jar, "old");
+      const originalMembers = readdirSync(lib).sort();
+      const originalJarHash = createHash("sha256").update(readFileSync(jar)).digest("hex");
       writeFileSync(batch, `@echo off\r\necho ready>"${ready}"\r\nping -n 10 127.0.0.1 >nul\r\n`);
       const digest = (path: string): string => createHash("sha256").update(readFileSync(path)).digest("hex");
       const manifest = join(root, "pins.txt");
@@ -107,10 +109,17 @@ describe.skipIf(process.platform !== "win32")("WN15 native manifest pin transpor
       try {
         for (let attempt = 0; attempt < 200 && !existsSync(ready); attempt += 1) await delay(25);
         expect(existsSync(ready)).toBe(true);
+        expect(child.exitCode).toBeNull();
         // The initial deny-creation oracle failed on real Windows. Preserve
         // the observed gap so the customer gate cannot infer frozen membership.
-        expect(() => writeFileSync(join(lib, "new.jar"), "new")).not.toThrow();
-        expect(readFileSync(join(lib, "new.jar"), "utf8")).toBe("new");
+        const newJar = join(lib, "new.jar");
+        expect(() => writeFileSync(newJar, "new")).not.toThrow();
+        expect(readFileSync(newJar, "utf8")).toBe("new");
+        rmSync(newJar);
+        expect(child.exitCode).toBeNull();
+        // A start/end content inventory cannot observe this transient member.
+        expect(readdirSync(lib).sort()).toEqual(originalMembers);
+        expect(digest(jar)).toBe(originalJarHash);
       } finally {
         child.stdin.write("C");
         const exit = await Promise.race([closed, delay(15000).then(() => { child.kill(); throw new Error("Helper did not close"); })]);
