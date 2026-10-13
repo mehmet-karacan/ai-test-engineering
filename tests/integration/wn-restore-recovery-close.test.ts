@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
 import { captureExpectedWindowsRestoreFile } from "../../src/storage/windows-restore-session.js";
@@ -15,7 +16,7 @@ import { Storage } from "../../src/storage/storage.js";
 import Database from "better-sqlite3";
 
 describe.skipIf(process.platform !== "win32")("S01 native recovery close", () => {
-  it.each(["forward-unreceipted", "reverse-unreceipted"])("reopens old SQLite after %s move", (cut) => {
+  it.each(["forward-unreceipted", "reverse-unreceipted", "terminal-fsync"])("reopens old SQLite after %s move", async (cut) => {
     const root = mkdtempSync(join(tmpdir(), "wn-restore-recovery-startup-"));
     const targetDbPath = join(root, "state.db");
     const stagedDbPath = `${targetDbPath}.restore-${randomUUID()}`;
@@ -48,6 +49,35 @@ describe.skipIf(process.platform !== "win32")("S01 native recovery close", () =>
       if (cut === "reverse-unreceipted") {
         appendRestorePhase(journalPath, { ...base, phase: "RECOVERING", recoveryBaseCount: 1, recoveryReceipts: [] });
         renameSync(preservedDbPath, targetDbPath);
+      }
+      if (cut === "terminal-fsync") {
+        const pausePath = join(root, "pause-terminal.cjs");
+        writeFileSync(pausePath, `const fs=require("node:fs"); const {syncBuiltinESMExports}=require("node:module");
+          let phase=""; const write=fs.writeFileSync; fs.writeFileSync=(...args)=>{const result=write(...args);
+            if(typeof args[1]==="string") try{phase=JSON.parse(JSON.parse(args[1]).json).phase??phase}catch{} return result};
+          const sync=fs.fsyncSync; fs.fsyncSync=(fd)=>{const result=sync(fd); if(phase==="ROLLED_BACK"){
+            process.stdout.write("HALT\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000)} return result};
+          syncBuiltinESMExports();`);
+        const workerPath = fileURLToPath(new URL("../../scripts/restore-recovery-worker.mjs", import.meta.url));
+        const worker = spawn(process.execPath, ["--require", pausePath, workerPath, targetDbPath],
+          { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+        let stderr = "";
+        worker.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+        try {
+          await new Promise<void>((done, fail) => {
+            const timer = setTimeout(() => fail(new Error(`worker terminal timeout: ${stderr}`)), 30_000);
+            worker.stdout.on("data", (chunk) => { if (chunk.toString().includes("HALT")) { clearTimeout(timer); done(); } });
+            worker.once("exit", (code) => { clearTimeout(timer); fail(new Error(`worker exited ${code}: ${stderr}`)); });
+          });
+          const writer = spawnSync(process.execPath, ["-e", `const Database=require("better-sqlite3");
+            const db=new Database(process.argv[1]); db.pragma("busy_timeout=0");
+            db.prepare("INSERT INTO test_jobs VALUES ('racing-writer','COMPLETED')").run(); db.close();`, targetDbPath],
+          { cwd: process.cwd(), encoding: "utf8", timeout: 10_000 });
+          expect(writer.status).not.toBe(0);
+        } finally {
+          if (worker.exitCode === null && worker.pid) spawnSync("taskkill", ["/F", "/PID", String(worker.pid)]);
+          if (worker.exitCode === null) await once(worker, "exit").catch(() => undefined);
+        }
       }
       opened = new Storage({ dbPath: targetDbPath });
       expect(opened.db.prepare("SELECT id FROM test_jobs").all()).toEqual([{ id: "old" }]);

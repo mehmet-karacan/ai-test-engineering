@@ -58,9 +58,9 @@ try {
       fileIdentity(journal.stagedDbPath).sha256 !== e.sourceDbSha256) {
     throw new Error("old generation identity changed during recovery");
   }
+  appendRestorePhase(journalPath, { ...journal, phase: "ROLLED_BACK" });
   await session.close();
   session = undefined;
-  appendRestorePhase(journalPath, { ...journal, phase: "ROLLED_BACK" });
   process.stdout.write("RECOVERED_OLD\n");
 } catch (error) {
   process.stderr.write(String(error?.stack ?? error));
