@@ -295,6 +295,20 @@ export class JobDispatcher {
       let baselineExecutionRoot: string | null = null;
       let baselineEvidence: BaselineResult | null = null;
       let baselineRunId: string | null = null;
+      const persistFailedBaseline = (baseline: BaselineResult): void => {
+        if (!baseline.run || baseline.run_started_at === null || baseline.run_finished_at === null) return;
+        assertLease();
+        baselineRunId = inventory.writeTestRunProvenance({
+          job_id: job.id, stage: "baseline", attempt_ordinal: null, iteration_ordinal: null,
+          execution_root: baseline.execution_root, command: baseline.run.command,
+          stdout_log_path: baseline.run.stdout_log_path, stderr_log_path: baseline.run.stderr_log_path,
+          exit_code: baseline.run.exit_code, timed_out: baseline.run.timed_out,
+          test_inventory: baseline.test_inventory,
+          coverage_report_path: "", coverage_report_sha256: null, coverage_report_paths: [],
+          started_at: baseline.run_started_at, finished_at: baseline.run_finished_at,
+          output_truncation: runOutputTruncation(baseline.run),
+        });
+      };
 
       // baseline: mevcut testler gercekten calisir (guvenli runner contract'indan)
       if ((this.runnerKind === "host_dev_only" || this.runnerKind === "windows_native") && hostRunner) {
@@ -306,6 +320,7 @@ export class JobDispatcher {
           if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
             throw new AppError("POLICY_VIOLATION", "Baseline iptal/pause sonrasinda tamamlandi", { reason_code: latest.lifecycle });
           }
+          persistFailedBaseline(baseline);
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
           return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Baseline ${baseline.status}: ${baseline.failed_tests.join(", ") || baseline.reason_code || "kanit yok"}` };
@@ -326,6 +341,7 @@ export class JobDispatcher {
           if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
             throw new AppError("POLICY_VIOLATION", "Docker baseline iptal/pause sonrasinda tamamlandi", { reason_code: latest.lifecycle });
           }
+          persistFailedBaseline(baseline);
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
           return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Docker baseline ${baseline.status}: ${baseline.failed_tests.join(", ") || baseline.reason_code || "kanit yok"}` };
