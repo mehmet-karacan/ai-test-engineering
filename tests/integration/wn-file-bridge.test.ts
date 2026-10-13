@@ -530,10 +530,12 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
     const ownedIds = ownedPaths.map((path) => inspectWindowsPath(helper, path));
     const ownedHashes = ownedPaths.map((path) => createHash("sha256").update(readFileSync(path)).digest("hex"));
     const run = async (wrongSecond: boolean, killAfterGuard = false, caseCollision = false,
-      skipIndex = false, thirdItem = false): Promise<number> => {
+      skipIndex = false, thirdItem = false,
+      fault?: "sha" | "hardlink" | "long-item" | "long-line"): Promise<number> => {
       const generation = randomUUID();
       const child = spawn(helper.path, ["recover-session", root, hex("state.db"), hex(stagedName),
         hex(preservedName), generation], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      child.stdin.on("error", () => {});
       const nextLine = stdoutLineReader(child.stdout);
       try {
         const ready = (await nextLine()).split("\t");
@@ -542,6 +544,11 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
         expect(await nextLine()).toBe(`ACCEPTED\t${generation}\t0`);
         child.stdin.write("GUARD_BEGIN\t2\n");
         expect(await nextLine()).toBe("GUARD_BEGIN_OK\t2");
+        if (fault === "long-line") {
+          child.stdin.write(`${"X".repeat(1024 * 1024 + 1)}\n`);
+          const [code] = await once(child, "exit") as [number];
+          return code;
+        }
         let lastItem = "";
         for (let index = 0; index < 2; index++) {
           const owned = ownedIds[index]!;
@@ -549,15 +556,17 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
           const parentIndex = collision ? 0 : index;
           const destination = collision ? destinations[0]!.toUpperCase() : destinations[index]!;
           const stage = collision ? stages[0]!.replace(destinations[0]!, destination) : stages[index]!;
-          lastItem = ["GUARD_ITEM", skipIndex && index === 1 ? 2 : index, hex(artifactRoot),
+          lastItem = ["GUARD_ITEM", skipIndex && index === 1 ? 2 : index,
+            fault === "long-item" && index === 1 ? hex(artifactRoot) + "0".repeat(8192) : hex(artifactRoot),
             hex(parentIndex === 0 ? "first" : "second"),
             hex(destination), hex(stage), artifactId.volumeSerial, artifactId.fileId,
             parentIds[parentIndex]!.volumeSerial, parentIds[parentIndex]!.fileId,
             index === 0 ? "stage" : "destination",
             owned.volumeSerial, wrongSecond && index === 1 ? "f".repeat(32) : owned.fileId,
-            owned.bytes, ownedHashes[index]].join("\t");
+            owned.bytes, fault === "sha" && index === 1 ? "f".repeat(64) : ownedHashes[index]].join("\t");
           child.stdin.write(lastItem + "\n");
-          if ((wrongSecond || caseCollision || skipIndex) && index === 1) {
+          if ((wrongSecond || caseCollision || skipIndex || fault === "sha" ||
+              fault === "hardlink" || fault === "long-item") && index === 1) {
             const [code] = await once(child, "exit") as [number];
             return code;
           }
@@ -592,6 +601,13 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
     expect(await run(false, false, true)).toBe(2);
     expect(await run(false, false, false, true)).toBe(2);
     expect(await run(false, false, false, false, true)).toBe(2);
+    expect(await run(false, false, false, false, false, "sha")).toBe(2);
+    const alias = `${ownedPaths[1]!}.foreign-link`;
+    linkSync(ownedPaths[1]!, alias);
+    try { expect(await run(false, false, false, false, false, "hardlink")).toBe(2); }
+    finally { rmSync(alias); }
+    expect(await run(false, false, false, false, false, "long-item")).toBe(2);
+    expect(await run(false, false, false, false, false, "long-line")).toBe(2);
     expect(await run(false, true)).not.toBe(0);
     expect(readFileSync(ownedPaths[0]!, "utf8")).toBe("owned-first");
     expect(readFileSync(ownedPaths[1]!, "utf8")).toBe("owned-second");
