@@ -1,0 +1,6 @@
+# S01 OLD_WAL_MOVED probe zaman asimi ayrimi (2026-10-13)
+
+- Koordinator birlesik checkout'ta ayni helper/probe/lifecycle hash'leriyle `OLD_WAL_MOVED` kesitinde varsayilan 45 saniyelik zaman asimini uc kez gordu. Bir gozlemde native `inspect state.db-wal` prosesi PREPARED journal'inden once uzun sure canliydi. Bu, S01 dalinda tekrar etmedi; kod nedeni veya kalici Windows file-lock iddiasi kanitlanmadi.
+- S01 worktree HEAD `63e8e91` uzerinde yalitilmis `--native --mode=OLD_WAL_MOVED` 1/1 PASS (6.64s); bes tekrar 5.50, 5.64, 5.90, 5.75, 5.74 saniyede PASS. Orijinal 15 kesitlik probe 15/15 exit 0 idi.
+- Varsayilan kesit suresi 45000 ms korundu. Yalniz ayrim icin `--cut-timeout-ms=N` secenegi eklendi; tek deger ve 1000..180000 araligi zorunlu. Timeout artik journal fazini, son child stdout/stderr parcacigini ve sureyi rapor eder. Hicbir cut/DB/WAL/SHM/blob oracle'i gevsetilmedi.
+- S01'de `--cut-timeout-ms=120000 --mode=OLD_WAL_MOVED` PASS (~6.8s); 1000 ms negatif fixture beklenen RED exit 1, `journal=absent; last_stdout=""; last_stderr=""`; 180001 gecersiz parametre beklenen RED exit 1. Bu sonuc 45 saniyelik koordinator takilmasinin nedenini aciklamaz. Koordinatorun 120 saniyelik olcumu sonraki karar noktasi.
