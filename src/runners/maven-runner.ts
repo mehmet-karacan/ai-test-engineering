@@ -16,6 +16,8 @@ export interface RunResult {
   native_status?: NativeProcessResult["status"];
   stdout_truncated_bytes?: number;
   stderr_truncated_bytes?: number;
+  stdout_truncation_reason?: NativeProcessResult["stdoutTruncationReason"];
+  stderr_truncation_reason?: NativeProcessResult["stderrTruncationReason"];
   toolchain_identity?: string;
 }
 
@@ -122,6 +124,10 @@ export class MavenRunner {
         reason_code: reasonCode,
         stdout_log_path: stdoutLog,
         stderr_log_path: stderrLog,
+        stdout_truncated_bytes: result.stdoutTruncatedBytes,
+        stderr_truncated_bytes: result.stderrTruncatedBytes,
+        ...(result.stdoutTruncationReason ? { stdout_truncation_reason: result.stdoutTruncationReason } : {}),
+        ...(result.stderrTruncationReason ? { stderr_truncation_reason: result.stderrTruncationReason } : {}),
         toolchain_identity: effectiveIdentity,
       });
     }
@@ -135,6 +141,8 @@ export class MavenRunner {
       native_status: result.status,
       stdout_truncated_bytes: result.stdoutTruncatedBytes,
       stderr_truncated_bytes: result.stderrTruncatedBytes,
+      ...(result.stdoutTruncationReason ? { stdout_truncation_reason: result.stdoutTruncationReason } : {}),
+      ...(result.stderrTruncationReason ? { stderr_truncation_reason: result.stderrTruncationReason } : {}),
       toolchain_identity: effectiveIdentity,
     };
   }
