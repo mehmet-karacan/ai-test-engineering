@@ -20,3 +20,8 @@
 
 - `nativeInitial.oldDb=null` kaydi `recover-fresh` komutuna yonelir. Gercek Windows SQLite fixture'inda journal-proven tek stagedDb FileId `RECOVERY_READY/ACCEPT` ile onaylandi, published dosya staged ada ters tasindi ve hedef yoklugu dogrulandi. Adapter testleri 5/5 PASS, typecheck exit 0. Worker ve restoreBackup henuz fresh yoluna bagli degildir.
 - S03 bagimsiz RED fixture'i, no-delete-share parent directory handle tutulurken dis `fs.renameSync(root, root-moved)` isleminin basarabildigini gosterdi. Bu nedenle root/alias degismezligi varsayimi WN13 icin kanit degildir; fresh production NO_GO ve path/GC sinirlari acik kalir.
+
+## Startup worker bos-layout uzlasmasi
+
+- Worker `RECOVERED_EMPTY` doner; count0 fiziksel staged layout ve count1 yayinlanmis staged FileId icin exact journal prefix + native READY/ACCEPT sonrasi `ROLLED_BACK` fsync eder. Genel `Storage` bos DB yaratmadan `RESTORE_RECOVERY_REQUIRED` verir; explicit restore yeniden denenebilir. Bu bilincli fail-closed sonucudur, WN11 kabulunun tamami degildir.
+- `npm run build` exit 0; gercek Windows SQLite fixture'inda `wn-restore-recovery-close.test.ts` 8/8 PASS (iki fresh count kesiti dahil). Count1 testindeki baslangic tasimasi fixture `renameSync` ile kuruldu; gercek taskkill kesiti ve root alias guvencesi henuz kanitlanmadi.

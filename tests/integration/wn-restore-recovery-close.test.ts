@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
@@ -17,6 +17,49 @@ import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 import Database from "better-sqlite3";
 
 describe.skipIf(process.platform !== "win32")("S01 native recovery close", () => {
+  it.each([0, 1])("recovers a fresh layout at physical count %i without creating an empty DB", (physicalCount) => {
+    const root = mkdtempSync(join(tmpdir(), "wn-restore-fresh-startup-"));
+    const targetDbPath = join(root, "state.db");
+    const stagedDbPath = `${targetDbPath}.restore-${randomUUID()}`;
+    const preservedDbPath = `${targetDbPath}.restore-old-${randomUUID()}`;
+    const artifactRoot = join(root, "artifacts");
+    const manifestPath = join(root, "manifest.json");
+    try {
+      mkdirSync(artifactRoot);
+      writeFileSync(manifestPath, "{}");
+      const source = new Database(stagedDbPath);
+      source.exec("CREATE TABLE test_jobs(id TEXT PRIMARY KEY); INSERT INTO test_jobs VALUES ('new')");
+      source.close();
+      const helper = packagedWindowsFileHelper();
+      const generation = randomUUID();
+      const stagedDb = captureExpectedWindowsRestoreFile(helper, stagedDbPath);
+      const base: RestoreJournalRecord = { formatVersion: 2, generation, phase: "PREPARED",
+        targetDbPath, artifactRoot, stagedDbPath, preservedDbPath, publishedBlobs: [],
+        moveReceipts: [], nativeInitial: { oldDb: null, oldWal: null, oldShm: null, stagedDb },
+        evidence: captureRestoreEvidence(targetDbPath, stagedDbPath, manifestPath, []) };
+      const journalPath = journalPathForDb(targetDbPath);
+      appendRestorePhase(journalPath, base);
+      if (physicalCount === 1) {
+        appendRestorePhase(journalPath, { ...base, phase: "BLOBS_READY" });
+        appendRestorePhase(journalPath, { ...base, phase: "FRESH_TARGET_CONFIRMED" });
+        renameSync(stagedDbPath, targetDbPath);
+        const receipt = { generation, sequence: 1, operation: "rename" as const, slot: "stagedDb" as const,
+          fromName: basename(stagedDbPath), toName: "state.db",
+          before: stagedDb, after: stagedDb };
+        appendRestorePhase(journalPath, { ...base, phase: "NEW_DB_MOVED", moveReceipts: [receipt] });
+      }
+      const worker = fileURLToPath(new URL("../../scripts/restore-recovery-worker.mjs", import.meta.url));
+      const result = spawnSync(process.execPath, [worker, targetDbPath], { encoding: "utf8", timeout: 30_000 });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toBe("RECOVERED_EMPTY\n");
+      expect(readRestoreJournal(journalPath)?.phase).toBe("ROLLED_BACK");
+      expect(existsSync(targetDbPath)).toBe(false);
+      expect(existsSync(stagedDbPath)).toBe(true);
+      expect(() => new Storage({ dbPath: targetDbPath })).toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      expect(existsSync(targetDbPath)).toBe(false);
+    } finally { rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+  });
+
   it.each(["forward-unreceipted", "reverse-unreceipted", "terminal-fsync", "startup-lock"])("reopens old SQLite after %s move", async (cut) => {
     const root = mkdtempSync(join(tmpdir(), "wn-restore-recovery-startup-"));
     const targetDbPath = join(root, "state.db");

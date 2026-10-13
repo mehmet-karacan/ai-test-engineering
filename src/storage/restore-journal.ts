@@ -324,7 +324,8 @@ export function recoverIntactOldRestoreBeforeOpen(dbPath: string): void {
     const result = spawnSync(process.execPath, [worker, dbPath], {
       encoding: "utf8", windowsHide: true, timeout: 120_000, maxBuffer: 8192,
     });
-    if (result.status !== 0 || result.stdout !== "RECOVERED_OLD\n") {
+    const expectedOutput = first.nativeInitial.oldDb === null ? "RECOVERED_EMPTY\n" : "RECOVERED_OLD\n";
+    if (result.status !== 0 || result.stdout !== expectedOutput) {
       throw recoveryError(`native old-generation recovery failed (${result.status ?? result.signal ?? "unknown"})`);
     }
     const last = readRestoreJournal(path);
@@ -333,6 +334,9 @@ export function recoverIntactOldRestoreBeforeOpen(dbPath: string): void {
         JSON.stringify(fileIdentity(`${dbPath}-wal`)) !== JSON.stringify(last.evidence?.oldWal) ||
         fileIdentity(last.stagedDbPath).sha256 !== last.evidence?.sourceDbSha256) {
       throw recoveryError("native old generation uncertain after worker exit");
+    }
+    if (first.nativeInitial.oldDb === null) {
+      throw recoveryError("fresh restore returned to an empty target; explicit restore required");
     }
     return;
   }
