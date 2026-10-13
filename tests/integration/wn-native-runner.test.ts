@@ -82,9 +82,11 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
         log_dir: join(dir, "logs"), executable });
       expect(readFileSync(result.stdout_log_path).length).toBeLessThanOrEqual(limit);
       expect(readFileSync(result.stderr_log_path).length).toBeLessThanOrEqual(limit);
-      expect(result.stdout_truncated_bytes).toBeGreaterThan(0);
+      expect(result.stdout_truncated_bytes).toBe(0);
+      expect(result.stdout_rendered_truncated_bytes).toBeGreaterThan(0);
       expect(result.stdout_truncation_reason).toBe("BYTE_BUDGET_EXCEEDED");
-      expect(result.stderr_truncated_bytes).toBeGreaterThan(0);
+      expect(result.stderr_truncated_bytes).toBe(3);
+      expect(result.stderr_rendered_truncated_bytes).toBe(0);
       expect(result.stderr_truncation_reason).toBe("BYTE_BUDGET_EXCEEDED");
     } finally {
       const target = resolve(dir);
