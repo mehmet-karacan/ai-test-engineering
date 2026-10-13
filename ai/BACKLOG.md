@@ -9,9 +9,9 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | Paket | Is | Durum | Sonraki kanit |
 | --- | --- | --- | --- |
 | S00 | 005 arsiv, 320 legacy ID mapping, yeni scope, Windows baseline | LOCAL_VERIFIED | WN01-WN04 mapping/baseline; WN67-WN69 full evidence kapisi S09'da tamamlanir; S00 review checkpoint |
-| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; mevcut hedef 15-cut gercek WAL, fresh direct native 5-cut, pinli blob ve rollback 30 PASS; terminal verify-session dalda, SEALED sonrasi helper crash→COMMITTED P1, COPY stage orphan, kalici receipt ve GC DB yetkisi acik |
-| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; WN20 ENOENT/spawn fault birlesik odak 30 PASS, WN21 kesinti artifact'i ve installed Maven/JDK manifesti; yeni kurulum JAR RED, private clone ACL nested NO_GO, ust Job disi WN23 NOT_VERIFIED, absent config/orphan GC/customer gate acik |
-| S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; required build input hash/cursor v2 odak 49 PASS, snapshot FileId receipt/quarantine/ALREADY_COMPLETE; marker forge/sahiplik, partial cleanup, sayfali scan persistence ve S04 schema acik |
+| S01 | Backup otoritesi ve hata atomik restore | IN_PROGRESS | WN05-WN13; mevcut hedef 15-cut gercek WAL, fresh direct native 5-cut; terminal native COMMIT/taskkill/ACK belirsizligi kanitli, stage CREATE_NEW→receipt orphan, kalici FileId receipt, parent alias ve GC yetkisi acik |
+| S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; WN20 ENOENT/spawn fault, WN21 kalici PENDING final/temp receipt hardkill kaniti; yeni kurulum JAR RED, private clone ACL nested NO_GO, ust Job disi WN23 NOT_VERIFIED, eski/diger writer temp ve fiziksel GC/customer gate acik |
+| S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; required build input hash/cursor v2, snapshot FileId receipt ve forged marker read-only karantina; gercek complete retry de karantina, trusted dis ownership, partial cleanup, sayfali scan persistence ve S04 schema acik |
 | S04 | SQLite proje kimligi, agent task ve resume | TODO | WN32-WN42; S01 VERIFIED oncesi yalniz salt okunur tasarim/fixture checkpoint'i hazir |
 | S05 | Gercek subagent oturumlari ve context butcesi | TODO | WN43-WN52 |
 | S06 | Native Maven/coverage/iteration | TODO | WN53-WN60 |

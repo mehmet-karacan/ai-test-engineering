@@ -1,5 +1,7 @@
 # PROJECT_STATE - Gelistirme Durumu
 
+- 2026-10-13 entegrasyon 15: S01 native COMMIT blob/ancestor guard ve ACK uncertainty; S02 PENDING run-output/final+temp receipt; S03 forged marker karantinasi/typed helper hatalari merge edildi. Build PASS (276 source), S02 coordinator 11/11, S03 coordinator secilmis 4/4, local gate LOCAL_PASS. S01 coordinator toplu kosuda timeout; tek fixture 120.82s PASS, ajan 23/23 odak PASS. S01/S02/S03 VERIFIED degil; S04 migration, G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-15.md`.
+
 - 2026-10-13 entegrasyon 14: S03 required build input hash/cursor v2 ve S02 WN20 ENOENT/spawn fault kanitlari merge edildi. Coordinator build PASS (270 source), S03 3 dosya/49 ve S02 4 dosya/30 PASS. S01 `8e1c81a` bagimsiz review P1 SEALED sonrasi helper crash→COMMITTED penceresi buldu; merge edilmedi, fix suruyor. S01/S02/S03 VERIFIED degil; S04 migration, G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-14.md`.
 
 - 2026-10-13 entegrasyon 13: S02 WN14-WN24 ve S03 WN25-WN31 salt okunur gap audit merge edildi; urun kodu degismedi. S02 WN16/17/21 dar LOCAL_VERIFIED, yedi NO_GO, WN19 tam zincir NOT_RUN. S03 WN25/26/27/30 PARTIAL, WN28/29/31 NO_GO; S04 schema/S05 context bagimliliklari acik. S01 verify→COMMITTED P1 uzerinde calisiliyor. G1/G2/G3/customer/full gate NO_GO. Ayrinti: `ai/checkpoints/2026-10-13-windows-native-006-bridge-integration-13.md`.
