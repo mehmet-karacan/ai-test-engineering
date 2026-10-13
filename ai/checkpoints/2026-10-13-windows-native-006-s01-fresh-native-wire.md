@@ -25,3 +25,8 @@
 
 - Worker `RECOVERED_EMPTY` doner; count0 fiziksel staged layout ve count1 yayinlanmis staged FileId icin exact journal prefix + native READY/ACCEPT sonrasi `ROLLED_BACK` fsync eder. Genel `Storage` bos DB yaratmadan `RESTORE_RECOVERY_REQUIRED` verir; explicit restore yeniden denenebilir. Bu bilincli fail-closed sonucudur, WN11 kabulunun tamami degildir.
 - `npm run build` exit 0; gercek Windows SQLite fixture'inda `wn-restore-recovery-close.test.ts` 8/8 PASS (iki fresh count kesiti dahil). Count1 testindeki baslangic tasimasi fixture `renameSync` ile kuruldu; gercek taskkill kesiti ve root alias guvencesi henuz kanitlanmadi.
+
+## Gercek hard-kill kesitleri
+
+- `node scripts/probe-restore-fresh-hardkill.mjs`: exit 0; 4/4 Windows `taskkill /PID /F` kesiti PASS. READY, MOVED stdout fakat receipt fsync oncesi, receipt fsync sonrasi ve VERIFY_READY sonrasi kesitlerinde native recover-fresh READY/ACCEPT fiziksel 0/1 layout'u uzlastirdi; ROLLED_BACK journal, hedef DB/WAL/SHM yoklugu ve staged snapshot SHA dogrulandi.
+- Bu probe restoreBackup tam lifecycle'i degil, native helper + journal + worker zincirini olcer. COMMITTED/final CLOSE, blob yayini, rakip raw SQLite yazari, root rename/alias ve her mutation kesiti henuz kapsanmadi. Production fresh hedef yolu acilmaz; WN11/12/13 NO_GO.
