@@ -26,6 +26,12 @@ function alive(pid: number): boolean {
   catch { return false; }
 }
 
+async function waitForExit(pid: number, label: string): Promise<void> {
+  const deadline = Date.now() + 10000;
+  while (alive(pid) && Date.now() < deadline) await delay(50);
+  if (alive(pid)) throw new Error(`${label} PID ${pid} remained alive after coordinator hard-kill`);
+}
+
 async function removeOwnedFixture(root: string): Promise<void> {
   if (!resolve(root).startsWith(`${resolve(tmpdir())}${sep}`)) throw new Error("Fixture outside Temp");
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -180,7 +186,7 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
     }
   }, 15000);
 
-  it("hard-killing the coordinator closes its helper job and leaves an unrelated Node alive", async () => {
+  it("hard-killing the coordinator drains the owned child and leaves an unrelated Node alive", async () => {
     const root = mkdtempSync(join(tmpdir(), "wn-job-hardkill-"));
     const foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
     let ownedPid: number | undefined;
@@ -202,12 +208,14 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
         `const child=spawn(${JSON.stringify(helper)},[${JSON.stringify(join(root, "status.json"))},${JSON.stringify(root)},${JSON.stringify(cmd)},${JSON.stringify(command)},${JSON.stringify(batchSha)},${JSON.stringify(batch)}],{stdio:['pipe','pipe','pipe']});\n` +
         `fs.writeFileSync(${JSON.stringify(helperPidPath)},String(child.pid)); setInterval(()=>{},1000);\n`);
       const parent = spawn(process.execPath, [parentScript], { stdio: "ignore" });
+      const parentClosed = new Promise<void>((resolveClosed) => parent.once("close", () => resolveClosed()));
       parentPid = parent.pid;
       helperPid = await waitForFile(helperPidPath);
       ownedPid = await waitForFile(pidPath);
       const killed = spawnSync("taskkill", ["/F", "/PID", String(parentPid)], { encoding: "utf8" });
       expect(killed.status).toBe(0);
-      for (let attempt = 0; attempt < 120 && alive(ownedPid); attempt += 1) await delay(25);
+      await Promise.race([parentClosed, delay(5000).then(() => { throw new Error("Coordinator process handle did not close"); })]);
+      await Promise.all([waitForExit(ownedPid, "Owned child"), waitForExit(helperPid, "Helper")]);
       expect(alive(ownedPid)).toBe(false);
       expect(alive(helperPid)).toBe(false);
       expect(foreign.pid && alive(foreign.pid)).toBe(true);
