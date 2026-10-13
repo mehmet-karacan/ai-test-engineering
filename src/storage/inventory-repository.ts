@@ -76,6 +76,9 @@ export class InventoryRepository {
     const recordedArtifact = existing ? this.db.prepare<[string, string], { sha256: string; bytes: number; relative_store_path: string; status: string }>(
       "SELECT sha256, bytes, relative_store_path, status FROM artifacts WHERE kind = 'run_output_truncation' AND job_id = ? AND pin_reason = ?",
     ).get(input.job_id, pin) : undefined;
+    if (existing && hasTruncation && !recordedArtifact) {
+      throw new AppError("STORAGE_ERROR", "Eski run icin output kesinti kaniti sonradan eklenemez");
+    }
     if (recordedArtifact && (!truncationJson || recordedArtifact.sha256 !== this.artifacts?.sha256(truncationJson) || recordedArtifact.status !== "READY")) {
       throw new AppError("STORAGE_ERROR", "Run output kesinti kaydi degisti");
     }

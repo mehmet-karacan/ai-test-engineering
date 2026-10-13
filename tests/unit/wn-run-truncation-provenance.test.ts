@@ -91,4 +91,11 @@ describe("WN21 durable run output truncation", () => {
     expect(storage.db.prepare("SELECT id FROM test_run_provenance WHERE job_id = ?").all(jobId)).toHaveLength(0);
     expect(storage.db.prepare("SELECT id FROM artifacts WHERE job_id = ?").all(jobId)).toHaveLength(0);
   });
+
+  it("does not backfill truncation into a pre-existing run without evidence", () => {
+    const oldId = new InventoryRepository(storage.db).writeTestRunProvenance({ ...input(), output_truncation: undefined });
+    expect(() => inventory.writeTestRunProvenance(input())).toThrow();
+    expect(storage.db.prepare<[string], { id: string }>("SELECT id FROM test_run_provenance WHERE job_id = ?").get(jobId)!.id).toBe(oldId);
+    expect(storage.db.prepare("SELECT id FROM artifacts WHERE job_id = ? AND kind = 'run_output_truncation'").all(jobId)).toHaveLength(0);
+  });
 });
