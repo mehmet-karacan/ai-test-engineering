@@ -50,7 +50,7 @@ export function publishWindowsSnapshot(sourceRoot: string, targetRoot: string, s
     shell: false, windowsHide: true, encoding: "utf8", input, timeout: 10 * 60_000, maxBuffer: 64 * 1024,
   });
   const response = run.stdout.replace(/\r\n/gu, "\n");
-  if (run.error || run.status !== 0 || run.signal || (response !== "READY\nOK\n" && response !== "READY\nALREADY_COMPLETE\n")) {
+  if (run.error || run.status !== 0 || run.signal || response !== "READY\nOK\n") {
     throw new AppError("BLOCKED_ISOLATION", "Windows snapshot copy failed", {
       reason_code: run.status === 5 ? "SNAPSHOT_RECOVERY_QUARANTINED" :
         run.status === 4 ? "SNAPSHOT_PARTIAL_CLEANUP_FAILED" : "SNAPSHOT_COPY_FAILED",

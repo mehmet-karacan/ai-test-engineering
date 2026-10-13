@@ -331,12 +331,15 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
       renameSync(join(target, "pom.xml"), join(target, "orphaned-original.xml"));
       writeFileSync(join(target, "pom.xml"), "other user");
+      const markerBeforeRetry = readFileSync(join(target, ".aitest-snapshot-session"));
       try { new SourceSnapshot(source).copyTo(target, manifest); throw new Error("Recovered an incomplete session"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
         expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
       }
       expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("other user");
+      expect(readFileSync(join(target, "orphaned-original.xml"), "utf8")).toBe("original");
+      expect(readFileSync(join(target, ".aitest-snapshot-session"))).toEqual(markerBeforeRetry);
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
@@ -374,13 +377,16 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       expect(child.kill()).toBe(true);
       expect((await closed)[0]).toBe(null);
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
-      expect(readdirSync(target).some((name) => name.startsWith("snapshot-manifest.json.tmp-"))).toBe(true);
+      const stagedBeforeRetry = readdirSync(target).filter((name) => name.startsWith("snapshot-manifest.json.tmp-"));
+      expect(stagedBeforeRetry).toHaveLength(1);
       try { new SourceSnapshot(source).copyTo(target, manifest); throw new Error("Accepted staged manifest"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
         expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
       }
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
+      expect(readdirSync(target).filter((name) => name.startsWith("snapshot-manifest.json.tmp-")))
+        .toEqual(stagedBeforeRetry);
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
         child.stdin.destroy(); child.kill(); await once(child, "close");
@@ -426,7 +432,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
     }
   }, 30_000);
 
-  it("reconciles a verified final manifest after publish-before-OK hard kill", async () => {
+  it("quarantines a published snapshot after publish-before-OK hard kill without external ownership", async () => {
     const sandbox = fixture();
     let child: ChildProcessWithoutNullStreams | undefined;
     try {
@@ -454,7 +460,12 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       expect(child.kill()).toBe(true);
       expect((await closed)[0]).toBe(null);
       expect(readFileSync(join(target, "snapshot-manifest.json"), "utf8")).toBe(publicManifest);
-      expect(() => snapshot.copyTo(target, manifest)).not.toThrow();
+      try { snapshot.copyTo(target, manifest); throw new Error("Accepted untrusted completed session"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+      }
+      expect(readFileSync(join(target, "snapshot-manifest.json"), "utf8")).toBe(publicManifest);
       expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
@@ -463,6 +474,39 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       cleanup(sandbox);
     }
   }, 30_000);
+
+  it("quarantines a complete-looking target with a forged local marker", () => {
+    const sandbox = fixture();
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const snapshot = new SourceSnapshot(source);
+      const manifest = snapshot.buildManifest();
+      const publicManifest = JSON.stringify({ ...manifest,
+        entries: manifest.entries.map(({ source_location: _loc, ...entry }) => entry) }, null, 2);
+      writeFileSync(join(target, "pom.xml"), "original");
+      writeFileSync(join(target, "snapshot-manifest.json"), publicManifest);
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      const fileId = inspectWindowsPath(bridge, join(target, "pom.xml"));
+      const manifestId = inspectWindowsPath(bridge, join(target, "snapshot-manifest.json"));
+      const marker = `AITEST_SNAPSHOT_V1\n${sourceId.volumeSerial}${sourceId.fileId}\n` +
+        `${targetId.volumeSerial}${targetId.fileId}\n` +
+        `F\t${Buffer.from("pom.xml", "utf16le").toString("hex")}\t${fileId.volumeSerial}${fileId.fileId}\n` +
+        `M\t${manifestId.volumeSerial}${manifestId.fileId}\n`;
+      writeFileSync(join(target, ".aitest-snapshot-session"), marker);
+      try { snapshot.copyTo(target, manifest); throw new Error("Accepted forged target ownership"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+      }
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+      expect(readFileSync(join(target, ".aitest-snapshot-session"), "utf8")).toBe(marker);
+    } finally { cleanup(sandbox); }
+  });
 
   it("does not accept or delete a changed file during read-only reconciliation", () => {
     const sandbox = fixture();
