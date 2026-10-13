@@ -17,6 +17,7 @@ try {
   if (!journal || journal.targetDbPath !== dbPath || journal.formatVersion !== 2 ||
       !journal.nativeInitial || !journal.moveReceipts ||
       journal.phase === "COMMITTED" || journal.phase === "ROLLED_BACK") throw new Error("native recovery journal unavailable");
+  if (journal.publishedBlobs.length > 0) throw new Error("blob ownership receipts unavailable for automatic recovery");
   releaseArtifact = acquireMaintenanceLock(journal.artifactRoot, "restore-recovery");
   journal = readRestoreJournal(journalPath);
   if (!journal || journal.targetDbPath !== dbPath || !journal.nativeInitial || !journal.moveReceipts ||

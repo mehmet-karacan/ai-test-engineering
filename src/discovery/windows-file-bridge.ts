@@ -167,3 +167,18 @@ export function renameWindowsOwnedFile(helper: WindowsFileHelperSpec, root: stri
   }
   return result;
 }
+
+/** Hash a blob through a no-follow held handle under a known artifact root. */
+export function verifyWindowsOwnedFile(helper: WindowsFileHelperSpec, root: string, relativePath: string,
+  expectedRoot: WindowsFileIdentity, expected: { bytes: number; sha256: string; identity?: WindowsFileIdentity }): WindowsCopyResult {
+  const fields = invoke(helper, ["verify-owned", root, relativePath,
+    expectedRoot.volumeSerial, expectedRoot.fileId,
+    expected.identity?.volumeSerial ?? "-", expected.identity?.fileId ?? "-",
+    String(expected.bytes), expected.sha256]);
+  if (fields.length !== 6 || !/^[a-f0-9]{64}$/u.test(fields[5] ?? "") ||
+      Number(fields[4]) !== expected.bytes || fields[5] !== expected.sha256 ||
+      (expected.identity && (fields[1] !== expected.identity.volumeSerial || fields[2] !== expected.identity.fileId))) {
+    throw new AppError("BLOCKED_ISOLATION", "Owned file verification failed", { reason_code: "WINDOWS_OWNED_VERIFY_FAILED" });
+  }
+  return { ...identity(fields), sha256: fields[5]! };
+}

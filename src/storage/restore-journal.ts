@@ -316,6 +316,10 @@ export function recoverIntactOldRestoreBeforeOpen(dbPath: string): void {
   dbPath = resolve(dbPath);
   const path = journalPathForDb(dbPath);
   const first = readRestoreJournal(path);
+  if (first && first.phase !== "COMMITTED" && first.phase !== "ROLLED_BACK" &&
+      first.publishedBlobs.length > 0) {
+    throw recoveryError("blob ownership receipts unavailable for automatic recovery");
+  }
   if (first?.nativeInitial && first.phase !== "COMMITTED" && first.phase !== "ROLLED_BACK") {
     for (const check of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, path, first.stagedDbPath,
       first.preservedDbPath, `${dbPath}-wal${first.preservedDbPath.slice(dbPath.length)}`,
