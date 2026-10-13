@@ -2,10 +2,45 @@ import { describe, expect, it } from "vitest";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, journalPathForDb, readRestoreJournal, recoverIntactOldRestoreBeforeOpen } from "../../src/storage/restore-journal.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, journalPathForDb, readRestoreJournal,
+  recoverIntactOldRestoreBeforeOpen, type RestoreMoveReceipt } from "../../src/storage/restore-journal.js";
 import { Storage } from "../../src/storage/storage.js";
 
 describe("S01 restore journal fail-closed", () => {
+  it("receipt-enabled v2 journal rejects a move without receipt and changed receipt history", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-journal-receipt-order-"));
+    try {
+      const db = join(root, "state.db");
+      const stage = join(root, "state.db.stage");
+      const manifest = join(root, "manifest.json");
+      writeFileSync(db, "old-db-bytes");
+      writeFileSync(stage, "new-db-bytes");
+      writeFileSync(manifest, "new-manifest");
+      const generation = "receipt-generation";
+      const base = { formatVersion: 2 as const, generation, targetDbPath: db,
+        artifactRoot: join(root, "artifacts"), stagedDbPath: stage,
+        preservedDbPath: join(root, "state.db.restore-old-receipt"), publishedBlobs: [],
+        evidence: captureRestoreEvidence(db, stage, manifest, []) };
+      const path = journalPathForDb(db);
+      appendRestorePhase(path, { ...base, phase: "PREPARED", moveReceipts: [] });
+      appendRestorePhase(path, { ...base, phase: "BLOBS_READY", moveReceipts: [] });
+      expect(() => appendRestorePhase(path, { ...base, phase: "OLD_DB_MOVED", moveReceipts: [] }))
+        .toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      const before = { volumeSerial: "a".repeat(16), fileId: "b".repeat(32), bytes: 12, sha256: "c".repeat(64) };
+      const receipt: RestoreMoveReceipt = { generation, sequence: 1, operation: "rename", slot: "oldDb",
+        fromName: "state.db", toName: "state.db.restore-old-receipt", before, after: { ...before } };
+      expect(() => appendRestorePhase(path, { ...base, phase: "OLD_DB_MOVED",
+        moveReceipts: [{ ...receipt, generation: "other-generation" }] }))
+        .toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      expect(() => appendRestorePhase(path, { ...base, phase: "OLD_DB_MOVED",
+        moveReceipts: [{ ...receipt, toName: "state.db" }] }))
+        .toThrow(/RESTORE_RECOVERY_REQUIRED/);
+      appendRestorePhase(path, { ...base, phase: "OLD_DB_MOVED", moveReceipts: [receipt] });
+      expect(() => appendRestorePhase(path, { ...base, phase: "OLD_DB_PRESERVED",
+        moveReceipts: [{ ...receipt, before: { ...before, fileId: "d".repeat(32) } }] }))
+        .toThrow(/RESTORE_RECOVERY_REQUIRED/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it("v2 per-move journal DB/WAL/SHM ve yeni DB yayin sirasi disina cikamaz", () => {
     const root = mkdtempSync(join(tmpdir(), "wn-journal-v2-move-order-"));
     try {

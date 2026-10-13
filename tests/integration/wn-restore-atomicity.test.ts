@@ -20,7 +20,8 @@ import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 import { Storage } from "../../src/storage/storage.js";
 
 type BlobEntry = { relative_path: string; sha256: string; bytes: number };
-const faults = vi.hoisted(() => ({ stageCopy: false, dbPublish: false, secondBlobPublish: false, linkCount: 0,
+const faults = vi.hoisted(() => ({ stageCopy: false, tamperStagedDb: false, tamperStagedBlob: false,
+  dbPublish: false, secondBlobPublish: false, linkCount: 0, observedLinks: 0,
   afterFirstLink: null as null | (() => void) }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -31,9 +32,19 @@ vi.mock("node:fs", async (importOriginal) => {
       error.code = "ENOSPC";
       throw error;
     }
-    return actual.copyFileSync(src, dest, mode);
+    const copied = actual.copyFileSync(src, dest, mode);
+    if (faults.tamperStagedDb && String(src).endsWith("state.db") && String(dest).includes(".restore-")) {
+      const staged = new Database(String(dest));
+      try { staged.prepare("INSERT INTO test_jobs VALUES ('untrusted-copy', 'COMPLETED')").run(); }
+      finally { staged.close(); }
+    }
+    if (faults.tamperStagedBlob && String(src).includes("blobs") && String(dest).includes(".restore-")) {
+      actual.writeFileSync(dest, "tampered staged blob");
+    }
+    return copied;
   };
   const linkSync: typeof actual.linkSync = (existingPath, newPath) => {
+    faults.observedLinks++;
     if (faults.secondBlobPublish && ++faults.linkCount === 2) {
       const error: NodeJS.ErrnoException = new Error("EACCES: second blob publish failed");
       error.code = "EACCES";
@@ -530,6 +541,75 @@ describe("WN restore atomikligi", () => {
       assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "ROLLED_BACK");
     } finally {
       faults.stageCopy = false;
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a changed staged DB before moving the old generation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-stage-identity-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      sourceDb.prepare("INSERT INTO test_jobs VALUES ('backup-job', 'COMPLETED')").run();
+      const saved = await createBackup(sourceDb, sourceDbPath, join(root, "source", "artifacts"), join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      mkdirSync(dirname(targetDbPath), { recursive: true });
+      const active = new Database(targetDbPath);
+      active.exec(SCHEMA);
+      active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
+      active.close();
+      const baseline = sha256Data(readFileSync(targetDbPath));
+      faults.tamperStagedDb = true;
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_STAGED_DB_CHANGED");
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
+      assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
+    } finally {
+      faults.tamperStagedDb = false;
+      sourceDb?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("rejects a changed staged blob before publishing any target blob", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-restore-stage-blob-"));
+    let sourceDb: Database.Database | undefined;
+    try {
+      const sourceDbPath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(dirname(sourceDbPath), { recursive: true });
+      sourceDb = new Database(sourceDbPath);
+      sourceDb.exec(SCHEMA);
+      const blob = makeBlob(sourceArtifacts, "verified backup blob");
+      sourceDb.prepare("INSERT INTO artifacts VALUES ('backup-art', NULL, ?, ?, ?, 'READY')")
+        .run(blob.relative_path, blob.sha256, blob.bytes);
+      const saved = await createBackup(sourceDb, sourceDbPath, sourceArtifacts, join(root, "backups"));
+      sourceDb.close();
+      sourceDb = undefined;
+      const targetDbPath = join(root, "runtime", "state.db");
+      const targetArtifacts = join(root, "runtime", "artifacts");
+      mkdirSync(dirname(targetDbPath), { recursive: true });
+      const active = new Database(targetDbPath);
+      active.exec(SCHEMA);
+      active.prepare("INSERT INTO test_jobs VALUES ('active-job', 'COMPLETED')").run();
+      active.close();
+      const baseline = sha256Data(readFileSync(targetDbPath));
+      faults.observedLinks = 0;
+      faults.tamperStagedBlob = true;
+      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
+        (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_STAGED_BLOB_CHANGED");
+      assert.equal(faults.observedLinks, 0);
+      assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
+      assert.equal(existsSync(join(targetArtifacts, blob.relative_path)), false);
+    } finally {
+      faults.tamperStagedBlob = false;
+      faults.observedLinks = 0;
       sourceDb?.close();
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }

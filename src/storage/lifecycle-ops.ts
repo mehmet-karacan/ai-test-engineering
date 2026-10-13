@@ -12,7 +12,7 @@ import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
-import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, journalPathForDb, type RestorePhase } from "./restore-journal.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
 
 export interface BackupResult {
@@ -552,6 +552,11 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
   };
   try {
     copyFileSync(join(backupDir, "state.db"), tempDb);
+    if (fileIdentity(tempDb).sha256 !== journalBase.evidence.sourceDbSha256) {
+      throw new AppError("STORAGE_ERROR", "Staged restore DB differs from verified backup", {
+        reason_code: "RESTORE_STAGED_DB_CHANGED",
+      });
+    }
   } catch (error) {
     // PREPARED henuz yazilmadi; yarim staging DB'si yeni restore sanilamaz.
     rmSync(tempDb, { force: true });
@@ -567,6 +572,14 @@ export function restoreBackup(backupDir: string, targetDbPath: string, targetArt
       if (item.skip) continue;
       mkdirSync(resolve(item.destination, ".."), { recursive: true });
       copyFileSync(item.source, item.stage);
+    }
+    for (const item of plan) {
+      if (item.skip) continue;
+      if (fileIdentity(item.stage).sha256 !== item.sha256) {
+        throw new AppError("STORAGE_ERROR", "Staged restore blob differs from verified backup", {
+          reason_code: "RESTORE_STAGED_BLOB_CHANGED",
+        });
+      }
     }
     for (const item of plan) {
       if (item.skip) continue;
