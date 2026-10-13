@@ -11,6 +11,8 @@ import { createDefaultServicesForTest } from "../../src/application/services.js"
 import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { JobDispatcher } from "../../src/orchestration/job-dispatcher.js";
 import { defaultConfig, loadConfig } from "../../src/configuration/config-loader.js";
+import { NativeExecutionToolchainRecordStore } from "../../src/orchestration/native-execution-toolchain-record.js";
+import { NativeToolchainRecordStore } from "../../src/orchestration/native-toolchain-record.js";
 
 describe("WN14/WN24 native customer entrypoint", () => {
   it("does not silently strip a legacy runner field in saved config", () => {
@@ -116,7 +118,8 @@ describe("WN14/WN24 native customer entrypoint", () => {
       const project = join(root, "project");
       mkdirSync(project);
       writeFileSync(join(project, "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>fixture</artifactId><version>1</version><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version></plugin></plugins></build></project>`);
-      writeFileSync(join(project, "mvn.cmd"), "@echo off\r\nif \"%~1\"==\"-v\" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\nif not exist target mkdir target\r\necho native>target\\ran.txt\r\nexit /b 0\r\n");
+      writeFileSync(join(project, "mvn.cmd"), `@echo off\r\nif "%~1"=="-v" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\n"${process.execPath}" emit-report.js\r\nexit /b %errorlevel%\r\n`);
+      writeFileSync(join(project, "emit-report.js"), `const fs=require('node:fs');fs.mkdirSync('target/surefire-reports',{recursive:true});fs.writeFileSync('target/surefire-reports/TEST-Fixture.xml','<testsuite name="Fixture" tests="1" failures="0" errors="0" skipped="0"><testcase name="ok" classname="Fixture"/></testsuite>');fs.mkdirSync('target/site/jacoco',{recursive:true});fs.writeFileSync('target/site/jacoco/jacoco.xml','<report name="Fixture"/>');`);
       const sourceFiles = readdirSync(project).sort();
       const digestSource = (): string => {
         const hash = createHash("sha256");
@@ -129,11 +132,28 @@ describe("WN14/WN24 native customer entrypoint", () => {
       const job = services.jobs!.createJob({ locationId: location.id, requestDigest: "native-dispatch-fixture" });
       const dispatcher = new JobDispatcher({ services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: join(root, "workspace") });
       const result = await dispatcher.dispatch(job, dispatcher.buildGoalContract(job, [], project), project);
-      expect(result.final_outcome).toBe("BASELINE_FAILED"); // fixture intentionally emits no Surefire report
-      expect(existsSync(join(root, "workspace", "jobs", job.id, "baseline", "target", "ran.txt"))).toBe(true);
-      expect(existsSync(join(project, "target", "ran.txt"))).toBe(false);
+      const baseline = join(root, "workspace", "jobs", job.id, "baseline");
+      expect(result.phases_completed).toContain("baseline_ok");
+      expect(existsSync(join(baseline, "target", "surefire-reports", "TEST-Fixture.xml"))).toBe(true);
+      expect(existsSync(join(project, "target"))).toBe(false);
       expect(readdirSync(project).sort()).toEqual(sourceFiles);
       expect(digestSource()).toBe(sourceDigest);
+      const sourceIdentity = new NativeToolchainRecordStore(services.storage!.db, join(root, "workspace")).read(job.id).identity;
+      const execution = new NativeExecutionToolchainRecordStore(services.storage!.db, join(root, "workspace")).read(job.id, baseline);
+      expect(execution.identity).toMatch(/^[a-f0-9]{64}$/);
+      expect(execution.identity).not.toBe(sourceIdentity);
+      mkdirSync(join(baseline, ".mvn"));
+      writeFileSync(join(baseline, ".mvn", "maven.config"), "-ntp");
+      const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run");
+      try {
+        const pinnedRunner = new MavenRunner(undefined, undefined, (verified) => {
+          new NativeExecutionToolchainRecordStore(services.storage!.db, join(root, "workspace")).pinOrVerify(job.id, verified);
+        });
+        await expect(pinnedRunner.run({ working_dir: baseline, goals: ["test"], timeout_ms: 15000,
+          log_dir: join(baseline, "target", "rerun-logs") })).rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
+        expect(processRun).toHaveBeenCalledTimes(1); // only -v; goals cannot start after drift
+        expect(processRun.mock.calls[0]?.[0].argv).toEqual(["-v"]);
+      } finally { processRun.mockRestore(); }
       expect(docker).not.toHaveBeenCalled();
     } finally {
       if (originalPath === undefined) delete process.env.Path;

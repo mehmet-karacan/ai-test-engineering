@@ -35,6 +35,7 @@ import { defaultWorkerServerManager } from "../workers/opencode/worker-server-ma
 import { buildFrozenTargetList, rebuildFrozenTargetDigest, type ConcreteTarget } from "../discovery/target-resolver.js";
 import { NativeToolchainRecordStore } from "./native-toolchain-record.js";
 import { NativeProcessRegistry } from "./native-process-registry.js";
+import { NativeExecutionToolchainRecordStore } from "./native-execution-toolchain-record.js";
 import { verifyNativeToolchain } from "../runners/native-toolchain.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
@@ -239,7 +240,11 @@ export class JobDispatcher {
         nativeToolchainIdentity = toolchain.identity;
         // Each frozen workspace has a distinct path-bound identity. The
         // source-root preflight identity cannot be reused as its digest.
-        hostRunner = new MavenRunner(undefined, nativeRegistry);
+        const executionToolchains = new NativeExecutionToolchainRecordStore(storage.db, this.workspaceRoot);
+        hostRunner = new MavenRunner(undefined, nativeRegistry, (verified) => {
+          assertLease();
+          executionToolchains.pinOrVerify(job.id, verified);
+        });
         ownedRunners.set(job.id, hostRunner);
         jobs.appendEvent({
           job_id: job.id,
@@ -1223,6 +1228,11 @@ export class JobDispatcher {
         throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
       await record.verify(job.id, options, verifyNativeToolchain);
+      // A native job that reached resume must retain its frozen baseline
+      // identity. Dispatch recreates that workspace and compares the fresh
+      // version/config identity before another Maven goal is launched.
+      new NativeExecutionToolchainRecordStore(storage.db, this.workspaceRoot)
+        .read(job.id, join(this.workspaceRoot, "jobs", job.id, "baseline"));
     }
 
     // P03/PP11: kaynak kontrolu tam source identity ile: HEAD + sirali canonical

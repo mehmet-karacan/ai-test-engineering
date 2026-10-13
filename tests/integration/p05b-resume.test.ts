@@ -14,6 +14,7 @@ import { handleTestResume } from "../../src/application/job-tools.js";
 import { JobDispatcher, type GoalContract } from "../../src/orchestration/job-dispatcher.js";
 import { CustomerRunnerFactory } from "../../src/runners/runner-factory.js";
 import { NativeToolchainRecordStore } from "../../src/orchestration/native-toolchain-record.js";
+import { NativeExecutionToolchainRecordStore } from "../../src/orchestration/native-execution-toolchain-record.js";
 import { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolchain } from "../../src/runners/native-toolchain.js";
 import { AppError } from "../../src/domain/errors.js";
 import { RecoveryManager } from "../../src/orchestration/recovery-manager.js";
@@ -92,6 +93,13 @@ async function prepareJob(): Promise<PreparedJob> {
   const env = effectiveMavenEnvironment(options.env);
   const verified = await verifyNativeToolchain(NativeToolchainResolver.resolve({ ...options, env }), env);
   new NativeToolchainRecordStore(services.storage!.db, artifactRoot).pin(started.job_id, options, verified);
+  const baseline = join(artifactRoot, "jobs", started.job_id, "baseline");
+  mkdirSync(baseline, { recursive: true });
+  const execution = NativeToolchainResolver.resolve({ cwd: baseline, env, executable });
+  new NativeExecutionToolchainRecordStore(services.storage!.db, artifactRoot).pinOrVerify(started.job_id, {
+    ...execution, baseIdentity: execution.identity,
+    identity: digest(`frozen:${execution.identity}`), mavenVersion: "3.9.16", javaVersion: "25.0.3", outputDigest: digest("fixture version"),
+  });
 
   return { services, projectDir, jobId: started.job_id, goal, artifactRoot };
 }
@@ -104,6 +112,21 @@ describe("P05-B resume zinciri", () => {
     while (cleanups.length > 0) {
       cleanups.pop()!();
     }
+  });
+
+  it("missing frozen workspace identity blocks native resume before recovery mutation", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => {
+      prepared.services.storage?.close();
+      rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true });
+    });
+    prepared.services.storage!.db.prepare("DELETE FROM artifacts WHERE job_id = ? AND kind = 'native_execution_toolchain_contract'").run(prepared.jobId);
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const dispatchSpy = vi.spyOn(JobDispatcher.prototype, "dispatch");
+    const dispatcher = new JobDispatcher({ services: prepared.services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: prepared.artifactRoot });
+    await expect(dispatcher.resumeDispatch(prepared.services.jobs!.getJob(prepared.jobId), prepared.projectDir))
+      .rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_MISSING" } });
+    expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
   it("test_resume ayni frozen job/target/model/butce ile resumeDispatch'e ulasir", async () => {
