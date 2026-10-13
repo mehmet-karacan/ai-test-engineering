@@ -1,6 +1,6 @@
 /** Pinned native rollback session. ACCEPT follows a validated RECOVERY_READY only. */
 import { spawn } from "node:child_process";
-import { basename, dirname } from "node:path";
+import { basename, dirname, isAbsolute, relative, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { assertTrustedWindowsFileHelper, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 import type { RestoreJournalRecord, RestoreMoveReceipt } from "./restore-journal.js";
@@ -14,8 +14,11 @@ function protocolError(detail: string): AppError {
 }
 
 export interface WindowsRestoreRecoverySession {
+  readonly pid: number;
   remaining(): number;
   rollbackOne(): Promise<RestoreMoveReceipt>;
+  guardEmptyBlob(): Promise<void>;
+  commitEmptyRollback(journalPath: string, expected: RestoreMoveReceipt["before"], line: string): Promise<void>;
   close(): Promise<void>;
   abort(): void;
 }
@@ -34,6 +37,9 @@ export async function startWindowsRestoreRecoverySession(helper: WindowsFileHelp
     hexName(stagedName), hexName(preservedName), journal.generation],
     { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true });
   const lines = new RestoreSessionLines(child);
+  // A hard-killed helper closes stdin before a pending write callback runs.
+  // The callback rejects the command; consume the stream error as well.
+  child.stdin.on("error", () => {});
   let closed = false;
   let busy = false;
   const send = async (command: string): Promise<string[]> => {
@@ -56,8 +62,45 @@ export async function startWindowsRestoreRecoverySession(helper: WindowsFileHelp
     const slots = (["oldDb", "oldWal", "oldShm", "stagedDb"] as const)
       .filter((slot) => journal.nativeInitial![slot] !== null);
     const origin = { oldDb: dbName, oldWal: `${dbName}-wal`, oldShm: `${dbName}-shm`, stagedDb: stagedName };
+    let emptyGuarded = false;
+    let emptyCommitted = false;
     return {
+      pid: child.pid ?? 0,
       remaining: () => count,
+      async guardEmptyBlob() {
+        if (count !== 0 || emptyGuarded || journal.phase !== "PREPARED" ||
+            journal.publishedBlobs.length !== 1 || journal.stageIntents?.length !== 1 ||
+            journal.stageIntents[0]?.identity !== null || !journal.emptyBlobGuard?.parents[0] ||
+            !journal.nativeInitial?.oldDb) throw protocolError("empty blob recovery unavailable");
+        const destination = journal.publishedBlobs[0]!.path;
+        const stage = journal.stageIntents[0]!.path;
+        const parent = dirname(destination);
+        if (dirname(stage) !== parent) throw protocolError("stage parent mismatch");
+        const parentRelative = relative(journal.artifactRoot, parent);
+        if (isAbsolute(parentRelative) || parentRelative === ".." || parentRelative.startsWith(`..${sep}`)) {
+          throw protocolError("parent outside artifact root");
+        }
+        const root = journal.emptyBlobGuard.root;
+        const parentId = journal.emptyBlobGuard.parents[0]!;
+        const hexPath = (value: string) => Buffer.from(value, "utf16le").toString("hex");
+        const reply = await send(`EMPTY_GUARD\t${hexPath(journal.artifactRoot)}\t` +
+          `${parentRelative ? hexPath(parentRelative) : "-"}\t${hexName(basename(destination))}\t` +
+          `${hexName(basename(stage))}\t${root.volumeSerial}\t${root.fileId}\t` +
+          `${parentId.volumeSerial}\t${parentId.fileId}`);
+        if (reply.length !== 1 || reply[0] !== "EMPTY_GUARDED") throw protocolError("invalid empty guard receipt");
+        emptyGuarded = true;
+      },
+      async commitEmptyRollback(journalPath, expected, line) {
+        if (!emptyGuarded || emptyCommitted || count !== 0 || !line.endsWith("\n")) {
+          throw protocolError("empty rollback unavailable");
+        }
+        const hexPath = Buffer.from(journalPath, "utf16le").toString("hex");
+        const hexLine = Buffer.from(line, "utf8").toString("hex");
+        const reply = await send(`ROLLBACK_COMMIT\t${hexPath}\t${expected.volumeSerial}\t` +
+          `${expected.fileId}\t${expected.bytes}\t${expected.sha256}\t${hexLine}`);
+        if (reply.length !== 1 || reply[0] !== "ROLLBACK_COMMITTED") throw protocolError("invalid rollback ACK");
+        emptyCommitted = true;
+      },
       async rollbackOne() {
         if (count <= 0) throw protocolError("rollback complete");
         const slot = slots[count - 1]!;
@@ -81,6 +124,7 @@ export async function startWindowsRestoreRecoverySession(helper: WindowsFileHelp
       },
       async close() {
         if (count !== 0) throw protocolError("rollback incomplete");
+        if (emptyGuarded && !emptyCommitted) throw protocolError("empty rollback not committed");
         const reply = await send("CLOSE");
         if (reply.length !== 3 || reply[0] !== "CLOSED" || reply[1] !== journal.generation ||
             reply[2] !== String(sequence)) throw protocolError("invalid recovery CLOSED");

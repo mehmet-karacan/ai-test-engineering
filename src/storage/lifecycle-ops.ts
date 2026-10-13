@@ -600,6 +600,15 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     path: item.stage, bytes: item.bytes, sha256: item.sha256,
     identity: null as RestoreMoveReceipt["before"] | null,
   })) : undefined;
+  const emptyBlobGuard = options?.nativeHelper && initialArtifactRoot && stageIntents?.length
+    ? { root: { volumeSerial: initialArtifactRoot.volumeSerial, fileId: initialArtifactRoot.fileId },
+      parents: plan.filter((item) => !item.skip).map((item) => {
+        const parentPath = dirname(item.destination);
+        if (!existsSync(parentPath)) return null;
+        const identity = inspectWindowsPath(options.nativeHelper!, parentPath);
+        return { volumeSerial: identity.volumeSerial, fileId: identity.fileId };
+      }) }
+    : undefined;
   let nativeInitial: RestoreNativeInitial | undefined;
   const journalBase = {
     formatVersion: 2 as const, generation: randomUUID(), targetDbPath, artifactRoot: targetArtifactRoot,
@@ -607,6 +616,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     publishedBlobs: plan.filter((item) => !item.skip).map((item) => ({ path: item.destination, sha256: item.sha256 })),
     ...(moveReceipts ? { moveReceipts } : {}),
     ...(stageIntents ? { stageIntents } : {}),
+    ...(emptyBlobGuard ? { emptyBlobGuard } : {}),
     evidence: captureRestoreEvidence(targetDbPath, join(backupDir, "state.db"), join(backupDir, "blob-manifest.json"),
       manifest.blobs.map((blob) => ({ path: resolve(targetRoot, blob.relative_path.replace(/\//g, pathSep)),
         sha256: blob.sha256, bytes: blob.bytes,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "source_sha256": "f91b4c865b25ba5808c5caaef0fe29aff48e0c1834fb5ded3b806b0ac7e845d8",
-  "binary_sha256": "dcc367375434a69cbae3fd6bb381d0b3d0acc42e57ce2f822a9d114a3cad9e47",
+  "source_sha256": "9461dfd4de811f471f9bf283aaf49aa29ea51ce34edb57a69f8cec3c4ace5f37",
+  "binary_sha256": "b6f7b183a2684aa0bdb67a8993ebd316717908c0de16b28b5e77efd886bcd0e0",
   "toolchain": {
     "name": "Microsoft Visual C++ Build Tools 2022",
     "installation_version": "17.14.37710.0",

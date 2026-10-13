@@ -165,6 +165,11 @@ bool sameIdentity(const Identity& a, const Identity& b) {
     CompareFileTime(&a.lastWrite, &b.lastWrite) == 0;
 }
 
+bool sameFileId(const Identity& a, const Identity& b) {
+  return a.id.VolumeSerialNumber == b.id.VolumeSerialNumber &&
+    std::memcmp(a.id.FileId.Identifier, b.id.FileId.Identifier, sizeof(a.id.FileId.Identifier)) == 0;
+}
+
 void printIdentity(const Identity& item, const unsigned char* digest = nullptr) {
   std::printf("OK\t%016llx\t", item.id.VolumeSerialNumber);
   for (unsigned char byte : item.id.FileId.Identifier) std::printf("%02x", byte);
@@ -394,6 +399,10 @@ std::vector<std::string> splitTabs(const std::string& line) {
   }
 }
 
+bool decodeUtf16Hex(const std::string& encoded, std::wstring& path);
+bool decodeBytesHex(const std::string& encoded, std::string& bytes);
+bool expectedRoot(const Identity& actual, const wchar_t* volume, const wchar_t* id);
+
 int restoreSession(int argc, wchar_t** argv, bool recovering) {
   if (argc != (recovering ? 7 : 6)) return 2;
   std::wstring dbName, stagedName, preservedName;
@@ -500,6 +509,11 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
   std::printf("\n");
   std::fflush(stdout);
   bool accepted = !recovering;
+  bool emptyGuarded = false;
+  bool rollbackCommitted = false;
+  std::wstring blobRootPath, blobParentRelative;
+  std::vector<Handle> blobRoot, blobParents, blobReservations;
+  Identity blobRootId, blobParentId;
   std::string line;
   while (std::getline(std::cin, line)) {
     const auto fields = splitTabs(line);
@@ -513,7 +527,118 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
       std::fflush(stdout);
       continue;
     }
+    if (fields[0] == "EMPTY_GUARD" && fields.size() == 9 && recovering &&
+        sequence == 0 && !emptyGuarded && slots[0].present && slots[3].present &&
+        slots[0].currentName == dbName && slots[3].currentName == stagedName) {
+      std::wstring destination, stage;
+      if (!decodeUtf16Hex(fields[1], blobRootPath) ||
+          !decodeName(std::wstring(fields[3].begin(), fields[3].end()), destination) ||
+          !decodeName(std::wstring(fields[4].begin(), fields[4].end()), stage) ||
+          stage.size() <= destination.size() + 13 ||
+          stage.compare(0, destination.size(), destination) != 0 ||
+          stage.compare(destination.size(), 9, L".restore-") != 0 ||
+          stage.compare(stage.size() - 4, 4, L".tmp") != 0 ||
+          !uuidAtEnd(stage.substr(0, stage.size() - 4), destination + L".restore-")) return 2;
+      if (!openAbsolute(blobRootPath, true, FILE_READ_ATTRIBUTES, blobRoot) ||
+          !identity(blobRoot.back().value, blobRootId) ||
+          !expectedRoot(blobRootId,
+            std::wstring(fields[5].begin(), fields[5].end()).c_str(),
+            std::wstring(fields[6].begin(), fields[6].end()).c_str())) return 2;
+      HANDLE parent = blobRoot.back().value;
+      if (fields[2] != "-") {
+        if (!decodeUtf16Hex(fields[2], blobParentRelative)) return 2;
+        std::wstring ignored;
+        std::vector<std::wstring> parts;
+        if (!splitPath(blobParentRelative, false, ignored, parts)) return 2;
+        for (const auto& part : parts) {
+          Handle next;
+          if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return 2;
+          blobParents.push_back(std::move(next));
+          parent = blobParents.back().value;
+        }
+      }
+      if (!identity(parent, blobParentId) ||
+          !expectedRoot(blobParentId,
+            std::wstring(fields[7].begin(), fields[7].end()).c_str(),
+            std::wstring(fields[8].begin(), fields[8].end()).c_str())) return 2;
+      for (const auto& name : { destination, stage, stage + L".pending" }) {
+        Handle reserved;
+        if (!openChild(parent, name, false, true,
+            GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE,
+            reserved, 0, nullptr, FILE_DELETE_ON_CLOSE)) return 2;
+        blobReservations.push_back(std::move(reserved));
+      }
+      emptyGuarded = true;
+      std::puts("EMPTY_GUARDED"); std::fflush(stdout); continue;
+    }
+    if (fields[0] == "ROLLBACK_COMMIT" && fields.size() == 7 && emptyGuarded &&
+        !rollbackCommitted && sequence == 0) {
+      std::wstring journalPath;
+      std::string terminalLine;
+      if (!decodeUtf16Hex(fields[1], journalPath) ||
+          journalPath != std::wstring(argv[2]) + L"\\" + dbName + L".restore-journal.jsonl" ||
+          !decodeBytesHex(fields[6], terminalLine) || terminalLine.empty() ||
+          terminalLine.back() != '\n' ||
+          terminalLine.find('\n') != terminalLine.size() - 1) return 2;
+      std::vector<Handle> observedRoot, observedParent, journal;
+      Identity found;
+      if (!openAbsolute(blobRootPath, true, FILE_READ_ATTRIBUTES, observedRoot) ||
+          !identity(observedRoot.back().value, found) || !sameFileId(found, blobRootId)) return 2;
+      HANDLE parent = observedRoot.back().value;
+      if (!blobParentRelative.empty()) {
+        std::wstring ignored;
+        std::vector<std::wstring> parts;
+        if (!splitPath(blobParentRelative, false, ignored, parts)) return 2;
+        for (const auto& part : parts) {
+          Handle next;
+          if (!openChild(parent, part, true, false, FILE_READ_ATTRIBUTES, next)) return 2;
+          observedParent.push_back(std::move(next));
+          parent = observedParent.back().value;
+        }
+      }
+      if (!identity(parent, found) || !sameFileId(found, blobParentId)) return 2;
+      for (auto& slot : slots) {
+        if (!slot.present) continue;
+        Handle current;
+        Identity pinned, observed;
+        unsigned char pinnedHash[32]{}, observedHash[32]{};
+        if (!openChild(root.back().value, slot.currentName, false, false,
+            GENERIC_READ | FILE_READ_ATTRIBUTES, current, FILE_SHARE_READ | FILE_SHARE_DELETE) ||
+            !snapshot(slot.file.value, pinned, pinnedHash) || !snapshot(current.value, observed, observedHash) ||
+            !sameIdentity(pinned, observed) || std::memcmp(pinnedHash, observedHash, 32) != 0) return 2;
+      }
+      Identity journalId;
+      unsigned char journalHash[32]{};
+      if (!openAbsolute(journalPath, false, GENERIC_READ | FILE_APPEND_DATA, journal, FILE_SHARE_READ) ||
+          !snapshot(journal.back().value, journalId, journalHash)) return 2;
+      char serial[17]{};
+      std::snprintf(serial, sizeof(serial), "%016llx", journalId.id.VolumeSerialNumber);
+      if (fields[2] != serial || fields[3] != ascii(fileIdHex(journalId)) ||
+          fields[4] != std::to_string(journalId.bytes) ||
+          fields[5] != ascii(digestHex(journalHash))) return 2;
+      DWORD written = 0;
+      if (!WriteFile(journal.back().value, terminalLine.data(), static_cast<DWORD>(terminalLine.size()),
+            &written, nullptr) || written != terminalLine.size() ||
+          !FlushFileBuffers(journal.back().value)) return 2;
+      rollbackCommitted = true;
+#ifdef AITEST_FAULT_FIXTURE
+      wchar_t haltAfterFlush[2]{};
+      if (GetEnvironmentVariableW(L"AITEST_NATIVE_EMPTY_ROLLBACK_HALT_AFTER_FLUSH", haltAfterFlush, 2) == 1 &&
+          haltAfterFlush[0] == L'1') {
+        wchar_t markerPath[32768]{};
+        const DWORD length = GetEnvironmentVariableW(L"AITEST_NATIVE_EMPTY_ROLLBACK_FLUSH_MARKER",
+          markerPath, static_cast<DWORD>(std::size(markerPath)));
+        if (length == 0 || length >= std::size(markerPath)) return 2;
+        Handle marker(CreateFileW(markerPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+          FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (marker.value == INVALID_HANDLE_VALUE || !FlushFileBuffers(marker.value)) return 2;
+        Sleep(INFINITE);
+      }
+#endif
+      std::puts("ROLLBACK_COMMITTED"); std::fflush(stdout); continue;
+    }
     if (fields.size() == 1 && fields[0] == "CLOSE") {
+      if (emptyGuarded && !rollbackCommitted) return 2;
       const bool sidecarsAtOrigin = (!slots[1].present || slots[1].currentName == dbName + L"-wal") &&
         (!slots[2].present || slots[2].currentName == dbName + L"-shm");
       const bool sidecarsPreserved = (!slots[1].present || slots[1].currentName == dbName + L"-wal" + preservedSuffix) &&
@@ -1103,7 +1228,8 @@ int blobVerifySession(int argc, wchar_t** argv) {
       std::wstring journalPath;
       std::string terminalLine;
       if (!decodeUtf16Hex(fields[1], journalPath) ||
-          !decodeBytesHex(fields[6], terminalLine) || terminalLine.back() != '\n' ||
+          !decodeBytesHex(fields[6], terminalLine) || terminalLine.empty() ||
+          terminalLine.back() != '\n' ||
           terminalLine.find('\n') != terminalLine.size() - 1) return 2;
       std::vector<Handle> journal;
       Identity before;
