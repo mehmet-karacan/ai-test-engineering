@@ -9,9 +9,10 @@ import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import Database from "better-sqlite3";
 import { createBackup, sha256Data } from "../dist/storage/lifecycle-ops.js";
-import { readRestoreJournal, journalPathForDb } from "../dist/storage/restore-journal.js";
+import { prepareRestorePhaseLine, readRestoreJournal, journalPathForDb } from "../dist/storage/restore-journal.js";
 import { Storage } from "../dist/storage/storage.js";
 import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
+import { captureExpectedWindowsRestoreFile } from "../dist/storage/windows-restore-session.js";
 import { faultFixtureWindowsFileHelper } from "./windows-file-helper-fault-fixture.mjs";
 
 assert.equal(process.platform, "win32");
@@ -158,6 +159,8 @@ try {
       if (existsSync(destination)) assert.equal(hashFile(destination), journal.stageIntents[index].sha256);
     }
     if (guardAfterCut) {
+      const journalPath = journalPathForDb(targetDb);
+      const journalBeforeGuard = readFileSync(journalPath);
       const helper = armCut ? faultFixtureWindowsFileHelper() : packagedWindowsFileHelper();
       const hex = (value) => Buffer.from(value, "utf16le").toString("hex");
       const armMarker = join(fixture, `arm-${armCut}.marker`);
@@ -223,6 +226,8 @@ try {
       }
       assert.equal(hashFile(targetDb), oldHash);
       if (armCut) {
+        assert.equal(readFileSync(journalPath).equals(journalBeforeGuard), true,
+          "partial ARM changed durable journal");
         // A new production helper must pin the partial layout without trusting
         // the previous killed child's in-memory handles or a path-only read.
         const replayHelper = packagedWindowsFileHelper();
@@ -262,6 +267,16 @@ try {
           }
           replay.stdin.write("GUARD_FINAL\n");
           assert.equal(await replayNext(), "GUARD_READY\t2");
+          const expectedJournal = captureExpectedWindowsRestoreFile(replayHelper, journalPath);
+          const terminalLine = prepareRestorePhaseLine(journalPath, { ...journal, phase: "ROLLED_BACK" });
+          replay.stdin.write(["ROLLBACK_COMMIT", hex(journalPath), expectedJournal.volumeSerial,
+            expectedJournal.fileId, expectedJournal.bytes, expectedJournal.sha256,
+            Buffer.from(terminalLine, "utf8").toString("hex")].join("\t") + "\n");
+          const exitCode = replay.exitCode === null ? await new Promise((done, fail) => {
+            const timer = setTimeout(() => { replay.kill(); fail(new Error("N=2 terminal command hung")); }, 10_000);
+            replay.once("exit", (code) => { clearTimeout(timer); done(code); });
+          }) : replay.exitCode;
+          assert.equal(exitCode, 2, "N=2 terminal command must fail closed");
         } finally {
           if (replay.exitCode === null && replay.pid) {
             const killed = spawnSync("taskkill", ["/F", "/PID", String(replay.pid)], { encoding: "utf8" });
@@ -270,14 +285,22 @@ try {
           if (replay.exitCode === null) await new Promise((done) => replay.once("exit", done));
         }
         assert.equal(hashFile(targetDb), oldHash);
-        assert.equal(readRestoreJournal(journalPathForDb(targetDb)).phase, "PREPARED");
+        assert.equal(readFileSync(journalPath).equals(journalBeforeGuard), true,
+          "replayed N=2 guard or rejected terminal changed durable journal");
+        const after = readRestoreJournal(journalPath);
+        assert.equal(after.phase, "PREPARED");
+        assert.equal(after.moveReceipts.length, 0);
+        assert.equal(after.recoveryReceipts, undefined);
+        assert.equal(after.stageIntents.filter((item) => item.identity !== null).length, 2);
       }
     }
     let blocked = false;
     try { const storage = new Storage({ dbPath: targetDb }); storage.close(); }
     catch (error) { blocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED"; if (!blocked) throw error; }
     assert.equal(blocked, !expectOld, `${cut}: startup generation outcome`);
-    results.push({ cut, receipts: expected[0], physical: expected[1], blocked });
+    results.push({ cut, receipts: expected[0], physical: expected[1],
+      ...(armCut ? { armCut, postArmPhysical: [0, 1].map((index) => armCut === "second" ||
+        armCut === "first" && index === 0 ? "none" : expected[1][index]), terminalRejected: true } : {}), blocked });
   }
   process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
 } finally {
