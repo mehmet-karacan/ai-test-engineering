@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import Database from "better-sqlite3";
 import { inspectWindowsPath, copyWindowsFile } from "../../src/discovery/windows-file-bridge.js";
 
 describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
@@ -119,5 +120,35 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
       if (swapper.exitCode === null) await new Promise<void>((resolveExit) => swapper.once("exit", () => resolveExit()));
     }
     expect(readFileSync(join(external, "payload.txt"), "utf8")).toBe("outside");
+  });
+
+  it("probes SQLite read-only verification under a read-share DB guard", async () => {
+    const path = join(sandbox, "read-guard.db");
+    const setup = new Database(path);
+    setup.exec("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (1)");
+    setup.pragma("journal_mode = WAL");
+    setup.close();
+    const holder = spawn(helper.path, ["hold-read", path], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    await new Promise<void>((resolveReady, rejectReady) => {
+      holder.stdout.once("data", (data: Buffer) => data.toString().includes("READY") ? resolveReady() : rejectReady(new Error("no READY")));
+      holder.once("exit", (code) => rejectReady(new Error(`holder exit ${code}`)));
+    });
+    try {
+      const readonly = new Database(path, { readonly: true });
+      try { expect(readonly.prepare("SELECT x FROM t").get()).toMatchObject({ x: 1 }); }
+      finally { readonly.close(); }
+      expect(() => {
+        const writer = new Database(path);
+        try { writer.exec("INSERT INTO t VALUES (2)"); }
+        finally { writer.close(); }
+      }).toThrow();
+      const rawWriter = spawnSync(process.execPath, ["-e",
+        "const D=require('better-sqlite3');const db=new D(process.argv[1]);db.exec('INSERT INTO t VALUES (3)');db.close()", path],
+        { cwd: process.cwd(), encoding: "utf8", windowsHide: true });
+      expect(rawWriter.status).not.toBe(0);
+    } finally {
+      holder.stdin.end();
+      await new Promise<void>((resolveExit) => holder.once("exit", () => resolveExit()));
+    }
   });
 });

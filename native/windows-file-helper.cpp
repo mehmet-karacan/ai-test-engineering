@@ -93,7 +93,8 @@ bool openChild(HANDLE parent, const std::wstring& name, bool directory, bool cre
   return validHandle(result.value, directory);
 }
 
-bool openAbsolute(const std::wstring& path, bool directory, DWORD access, std::vector<Handle>& chain) {
+bool openAbsolute(const std::wstring& path, bool directory, DWORD access, std::vector<Handle>& chain,
+  ULONG finalShare = FILE_SHARE_READ | FILE_SHARE_WRITE) {
   std::wstring drive;
   std::vector<std::wstring> parts;
   if (!splitPath(path, true, drive, parts)) return false;
@@ -105,7 +106,8 @@ bool openAbsolute(const std::wstring& path, bool directory, DWORD access, std::v
     const bool childDirectory = i + 1 < parts.size() || directory;
     Handle child;
     if (!openChild(chain.back().value, parts[i], childDirectory, false,
-      childDirectory ? FILE_READ_ATTRIBUTES : access, child)) return false;
+      childDirectory ? FILE_READ_ATTRIBUTES : access, child,
+      childDirectory ? FILE_SHARE_READ | FILE_SHARE_WRITE : finalShare)) return false;
     chain.push_back(std::move(child));
   }
   return directory ? validHandle(chain.back().value, true) : parts.size() > 0;
@@ -206,6 +208,15 @@ bool hashHeld(HANDLE file, unsigned char digest[32]) {
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  if (argc == 3 && wcscmp(argv[1], L"hold-read") == 0) {
+    std::vector<Handle> chain;
+    if (!openAbsolute(argv[2], false, GENERIC_READ | FILE_READ_ATTRIBUTES, chain, FILE_SHARE_READ)) return 2;
+    std::puts("READY");
+    std::fflush(stdout);
+    char ignored = 0;
+    while (std::fread(&ignored, 1, 1, stdin) == 1) {}
+    return 0;
+  }
   if (argc == 3 && wcscmp(argv[1], L"inspect") == 0) {
     std::vector<Handle> chain;
     if (!openAbsolute(argv[2], false, FILE_READ_ATTRIBUTES, chain)) {
