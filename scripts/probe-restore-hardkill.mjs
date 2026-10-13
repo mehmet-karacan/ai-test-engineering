@@ -11,7 +11,6 @@ import { createBackup, restoreBackup, sha256Data } from "../dist/storage/lifecyc
 import { journalPathForDb, readRestoreJournal } from "../dist/storage/restore-journal.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "../dist/storage/maintenance-lock.js";
 import { Storage } from "../dist/storage/storage.js";
-import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 
 assert.equal(process.platform, "win32", "This probe requires native Windows taskkill");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-hardkill-"));
@@ -36,7 +35,7 @@ const hashFile = (path) => createHash("sha256").update(readFileSync(path)).diges
 const childCode = `
 const fs = require("node:fs");
 const { syncBuiltinESMExports } = require("node:module");
-const mode = process.argv[1], moduleUrl = process.argv[2], helperUrl = process.argv[3], backupDir = process.argv[4], targetDb = process.argv[5], artifacts = process.argv[6], native = process.argv[7] === "native";
+const mode = process.argv[1], moduleUrl = process.argv[2], backupDir = process.argv[3], targetDb = process.argv[4], artifacts = process.argv[5], native = process.argv[6] === "native";
 let lastPhase = "";
 function halt() { process.stdout.write("HALT:" + mode + "\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000); }
 const write = fs.writeFileSync;
@@ -89,8 +88,8 @@ if (native) {
   };
 }
 syncBuiltinESMExports();
-Promise.all([import(moduleUrl), import(helperUrl)]).then(async ([module, bridge]) => {
-  await module.restoreBackup(backupDir, targetDb, artifacts, native ? { nativeHelper: bridge.packagedWindowsFileHelper() } : undefined);
+import(moduleUrl).then(async (module) => {
+  await module.restoreBackup(backupDir, targetDb, artifacts);
   process.exitCode = 43;
 })
   .catch((error) => { process.stderr.write(String(error?.stack ?? error)); process.exitCode = 44; });
@@ -98,8 +97,7 @@ Promise.all([import(moduleUrl), import(helperUrl)]).then(async ([module, bridge]
 
 async function killAt(mode, backupDir, targetDb, artifacts) {
   const moduleUrl = pathToFileURL(resolve("dist/storage/lifecycle-ops.js")).href;
-  const helperUrl = pathToFileURL(resolve("dist/discovery/windows-file-bridge.js")).href;
-  const child = spawn(process.execPath, ["-e", childCode, mode, moduleUrl, helperUrl, backupDir, targetDb, artifacts,
+  const child = spawn(process.execPath, ["-e", childCode, mode, moduleUrl, backupDir, targetDb, artifacts,
     native ? "native" : "legacy"],
     { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
@@ -189,6 +187,13 @@ try {
     const oldCopies = [targetDb, ...readdirSync(dirname(targetDb)).filter((name) => name.startsWith("state.db.restore-old-"))
       .map((name) => join(dirname(targetDb), name))].filter((path) => existsSync(path) && hashFile(path) === oldHash);
     assert.ok(oldCopies.length >= 1, `${mode}: old DB bytes lost`);
+    const newAtTarget = ["PUBLISH_DB", "NEW_DB_MOVED", "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"].includes(mode);
+    const oldAtTarget = ["PREPARED", "LINK", "BLOBS_READY"].includes(mode);
+    assert.equal(existsSync(targetDb), newAtTarget || oldAtTarget, `${mode}: target DB physical layout`);
+    assert.equal(existsSync(journal.stagedDbPath), !newAtTarget, `${mode}: staged DB physical layout`);
+    assert.equal(hashFile(newAtTarget ? targetDb : journal.stagedDbPath), journal.evidence.sourceDbSha256,
+      `${mode}: physical new DB hash`);
+    if (oldAtTarget) assert.equal(hashFile(targetDb), oldHash, `${mode}: old target DB hash`);
     if (["MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) {
       const expectedPhase = mode.startsWith("OLD_") ? mode : mode === "MOVE_DB" ? "BLOBS_READY" :
         mode === "MOVE_WAL" ? "OLD_DB_MOVED" : "OLD_WAL_MOVED";
@@ -292,8 +297,7 @@ try {
     const before = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);
     let outcome = "RESTORED";
-    try { await restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts"),
-      native ? { nativeHelper: packagedWindowsFileHelper() } : undefined); }
+    try { await restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts")); }
     catch (error) { outcome = error?.details?.reason_code ?? error?.code ?? String(error); }
     const after = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);
