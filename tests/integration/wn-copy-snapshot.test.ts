@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
-import { existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { SourceSnapshot } from "../../src/discovery/source-snapshot.js";
@@ -127,6 +127,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       expect(() => snapshot.copyTo(target, snapshot.buildManifest())).toThrow();
       expect(existsSync(join(target, "pom.xml"))).toBe(false);
       expect(readFileSync(join(target, "snapshot-manifest.json"), "utf8")).toBe("preexisting");
+      expect(readdirSync(target).some((name) => name.startsWith("snapshot-manifest.json.tmp-"))).toBe(false);
     } finally { cleanup(sandbox); }
   });
 
@@ -175,6 +176,175 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
         child.stdin.destroy();
         child.kill();
         await once(child, "close");
+      }
+      cleanup(sandbox);
+    }
+  }, 30_000);
+
+  it("keeps the original source bytes after a transient source root swap-back", async () => {
+    const sandbox = fixture();
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const manifest = new SourceSnapshot(source).buildManifest();
+      const entry = manifest.entries[0]!;
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      child = spawn(packagedSnapshotHelper(), ["snapshot", source, target,
+        sourceId.volumeSerial + sourceId.fileId, targetId.volumeSerial + targetId.fileId],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const closed = once(child, "close") as Promise<[number]>;
+      expect((await lines.next()).value).toBe("READY");
+      const movedSource = join(sandbox, "source-moved");
+      const replacement = join(sandbox, "source-replacement");
+      renameSync(source, movedSource);
+      mkdirSync(source);
+      writeFileSync(join(source, "pom.xml"), "replacement");
+      child.stdin.write(`FILE\t${Buffer.from(entry.relative_path, "utf16le").toString("hex")}\t${entry.bytes}\t${entry.sha256}\nBARRIER\n`);
+      expect((await lines.next()).value).toBe("BARRIER");
+      renameSync(source, replacement);
+      renameSync(movedSource, source);
+      const publicManifest = JSON.stringify({ ...manifest,
+        entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) });
+      child.stdin.end(`MANIFEST\t${Buffer.from(publicManifest, "utf8").toString("hex")}\nEND\n`);
+      expect((await lines.next()).value).toBe("OK");
+      expect((await closed)[0]).toBe(0);
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+      expect(readFileSync(join(replacement, "pom.xml"), "utf8")).toBe("replacement");
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.stdin.destroy(); child.kill(); await once(child, "close");
+      }
+      cleanup(sandbox);
+    }
+  }, 30_000);
+
+  it("prevents or safely handles a target root swap-back after a copied file", async () => {
+    const sandbox = fixture();
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const manifest = new SourceSnapshot(source).buildManifest();
+      const entry = manifest.entries[0]!;
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      child = spawn(packagedSnapshotHelper(), ["snapshot", source, target,
+        sourceId.volumeSerial + sourceId.fileId, targetId.volumeSerial + targetId.fileId],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const closed = once(child, "close") as Promise<[number]>;
+      expect((await lines.next()).value).toBe("READY");
+      const movedTarget = join(sandbox, "target-moved");
+      const replacement = join(sandbox, "target-replacement");
+      renameSync(target, movedTarget);
+      mkdirSync(target);
+      writeFileSync(join(target, "sentinel.txt"), "replacement");
+      child.stdin.write(`FILE\t${Buffer.from(entry.relative_path, "utf16le").toString("hex")}\t${entry.bytes}\t${entry.sha256}\nBARRIER\n`);
+      expect((await lines.next()).value).toBe("BARRIER");
+      renameSync(target, replacement);
+      let restored = false;
+      try { renameSync(movedTarget, target); restored = true; }
+      catch (error) { expect((error as NodeJS.ErrnoException).code).toMatch(/^(EPERM|EACCES|EBUSY)$/u); }
+      expect(restored).toBe(false);
+      const publicManifest = JSON.stringify({ ...manifest,
+        entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) });
+      child.stdin.end(`MANIFEST\t${Buffer.from(publicManifest, "utf8").toString("hex")}\nEND\n`);
+      expect((await closed)[0]).toBe(restored ? 0 : 2);
+      if (restored) {
+        expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+        expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(true);
+      } else {
+        expect(existsSync(join(movedTarget, "pom.xml"))).toBe(false);
+        expect(existsSync(join(movedTarget, "snapshot-manifest.json"))).toBe(false);
+      }
+      expect(readFileSync(join(replacement, "sentinel.txt"), "utf8")).toBe("replacement");
+      expect(existsSync(join(replacement, "snapshot-manifest.json"))).toBe(false);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.stdin.destroy(); child.kill(); await once(child, "close");
+      }
+      cleanup(sandbox);
+    }
+  }, 30_000);
+
+  it("leaves an untrusted partial target without a manifest after hard kill", async () => {
+    const sandbox = fixture();
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const manifest = new SourceSnapshot(source).buildManifest();
+      const entry = manifest.entries[0]!;
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      child = spawn(packagedSnapshotHelper(), ["snapshot", source, target,
+        sourceId.volumeSerial + sourceId.fileId, targetId.volumeSerial + targetId.fileId],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const closed = once(child, "close") as Promise<[number]>;
+      expect((await lines.next()).value).toBe("READY");
+      child.stdin.write(`FILE\t${Buffer.from(entry.relative_path, "utf16le").toString("hex")}\t${entry.bytes}\t${entry.sha256}\nBARRIER\n`);
+      expect((await lines.next()).value).toBe("BARRIER");
+      expect(child.exitCode).toBe(null);
+      expect(child.kill()).toBe(true);
+      expect((await closed)[0]).toBe(null);
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+      expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
+      expect(() => new SourceSnapshot(source).copyTo(target, manifest)).toThrow();
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+      expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.stdin.destroy(); child.kill(); await once(child, "close");
+      }
+      cleanup(sandbox);
+    }
+  }, 30_000);
+
+  it("does not expose a final manifest when killed after its bytes are staged", async () => {
+    const sandbox = fixture();
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const manifest = new SourceSnapshot(source).buildManifest();
+      const entry = manifest.entries[0]!;
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      child = spawn(packagedSnapshotHelper(), ["snapshot", source, target,
+        sourceId.volumeSerial + sourceId.fileId, targetId.volumeSerial + targetId.fileId],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const closed = once(child, "close") as Promise<[number]>;
+      expect((await lines.next()).value).toBe("READY");
+      const publicManifest = JSON.stringify({ ...manifest,
+        entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) });
+      child.stdin.write(`FILE\t${Buffer.from(entry.relative_path, "utf16le").toString("hex")}\t${entry.bytes}\t${entry.sha256}\n` +
+        `MANIFEST\t${Buffer.from(publicManifest, "utf8").toString("hex")}\nBARRIER\n`);
+      expect((await lines.next()).value).toBe("BARRIER");
+      expect(child.exitCode).toBe(null);
+      expect(child.kill()).toBe(true);
+      expect((await closed)[0]).toBe(null);
+      expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
+      expect(readdirSync(target).some((name) => name.startsWith("snapshot-manifest.json.tmp-"))).toBe(true);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.stdin.destroy(); child.kill(); await once(child, "close");
       }
       cleanup(sandbox);
     }
