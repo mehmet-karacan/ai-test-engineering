@@ -205,8 +205,19 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
   it("passes the verified digest snapshot to the native goal unchanged", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wn runner expected-pins-"));
     try {
-      const executable = join(dir, "mvn.cmd");
+      const maven = join(dir, "maven");
+      const jdk = join(dir, "jdk");
+      for (const path of ["bin", "boot", "lib", "conf"].map((part) => join(maven, part)).concat(
+        ["bin", "lib", "conf"].map((part) => join(jdk, part)))) mkdirSync(path, { recursive: true });
+      const executable = join(maven, "bin", "mvn.cmd");
       writeFileSync(executable, "@echo off\r\necho Apache Maven 3.9.16\r\necho Java version: 25.0.3, vendor: Fixture\r\n");
+      writeFileSync(join(maven, "boot", "plexus.jar"), "boot");
+      writeFileSync(join(maven, "lib", "core.jar"), "core");
+      writeFileSync(join(maven, "conf", "settings.xml"), "<settings/>");
+      writeFileSync(join(jdk, "bin", "java.exe"), "java");
+      writeFileSync(join(jdk, "lib", "modules"), "modules");
+      writeFileSync(join(jdk, "conf", "java.security"), "security");
+      writeFileSync(join(jdk, "release"), "JAVA_VERSION=25");
       let verifiedPins: ReadonlyArray<{ path: string; sha256: string | null }> | undefined;
       let goalPins: ReadonlyArray<{ path: string; sha256: string | null }> | undefined;
       const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run").mockImplementation(async function (plan) {
@@ -221,6 +232,7 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
         const lifecycle = { beforeSpawn: () => undefined, afterSpawn: () => undefined, afterTerminal: () => undefined };
         const result = await new MavenRunner(undefined, lifecycle, (verified) => { verifiedPins = verified.pinnedInputs; }).run({
           working_dir: dir, goals: ["test"], timeout_ms: 15000, log_dir: join(dir, "logs"), executable,
+          env: { JAVA_HOME: jdk },
         });
         expect(verifiedPins).toBeDefined();
         expect(goalPins).toEqual(verifiedPins);
