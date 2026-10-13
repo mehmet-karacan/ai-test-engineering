@@ -12,7 +12,8 @@ import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
-import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb, type RestorePhase } from "./restore-journal.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb,
+  prepareRestorePhaseLine, readRestoreJournal, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
 import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile, verifyWindowsOwnedFile,
   type WindowsCopyResult, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
@@ -602,6 +603,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   };
   let journalStarted = false;
   let journalTerminal = false;
+  let nativeTerminalAttempted = false;
   const phase = (value: RestorePhase): void => {
     appendRestorePhase(journalPath, { ...journalBase, ...(nativeInitial ? { nativeInitial } : {}), phase: value });
     journalStarted = true;
@@ -757,7 +759,19 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       if (blobVerifySession) await blobVerifySession.seal();
       // Publish the terminal decision while the native read guard still denies
       // raw SQLite writers and every native blob handle is still pinned.
-      phase("COMMITTED");
+      if (blobVerifySession && options?.nativeHelper) {
+        const terminalLine = prepareRestorePhaseLine(journalPath,
+          { ...journalBase, ...(nativeInitial ? { nativeInitial } : {}), phase: "COMMITTED" });
+        const journalIdentity = inspectWindowsPath(options.nativeHelper, journalPath);
+        const journalBytes = fileIdentity(journalPath);
+        if (!journalBytes.exists || journalBytes.bytes === null || journalBytes.sha256 === null) {
+          throw new AppError("STORAGE_ERROR", "Restore journal missing before native terminal commit");
+        }
+        nativeTerminalAttempted = true;
+        await blobVerifySession.commit(journalPath,
+          { ...journalIdentity, bytes: journalBytes.bytes, sha256: journalBytes.sha256 }, terminalLine);
+        journalTerminal = true;
+      } else phase("COMMITTED");
       if (blobVerifySession) {
         try { await blobVerifySession.close(); }
         catch {
@@ -782,6 +796,12 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       }
     } catch (error) {
       if (journalTerminal) throw error;
+      if (nativeTerminalAttempted) {
+        safeRollback = false;
+        try { journalTerminal = readRestoreJournal(journalPath)?.phase === "COMMITTED"; }
+        catch { /* A partial terminal write stays fail-closed. */ }
+        throw error;
+      }
       try {
         if (blobVerifySession) { await blobVerifySession.abort(); blobVerifySession = undefined; }
         if (options?.nativeHelper && !nativeSession) throw error;

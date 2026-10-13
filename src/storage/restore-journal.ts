@@ -395,7 +395,7 @@ export function readRestoreJournal(path: string): RestoreJournalRecord | null {
   return previous;
 }
 
-export function appendRestorePhase(path: string, record: RestoreJournalRecord): void {
+export function prepareRestorePhaseLine(path: string, record: RestoreJournalRecord): string {
   validate(record);
   const previous = readRestoreJournal(path);
   if (!transitionValid(previous, record)) {
@@ -403,9 +403,14 @@ export function appendRestorePhase(path: string, record: RestoreJournalRecord): 
   }
   const json = JSON.stringify(record);
   const checksum = createHash("sha256").update(json).digest("hex");
+  return JSON.stringify({ json, checksum }) + "\n";
+}
+
+export function appendRestorePhase(path: string, record: RestoreJournalRecord): void {
+  const line = prepareRestorePhaseLine(path, record);
   const fd = openSync(path, "a", 0o600);
   try {
-    writeFileSync(fd, JSON.stringify({ json, checksum }) + "\n", "utf8");
+    writeFileSync(fd, line, "utf8");
     fsyncSync(fd);
   } finally { closeSync(fd); }
 }

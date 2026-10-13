@@ -849,7 +849,7 @@ int verifyOwned(int argc, wchar_t** argv) {
   return 0;
 }
 
-bool decodeRelativeHex(const std::string& encoded, std::wstring& path) {
+bool decodeUtf16Hex(const std::string& encoded, std::wstring& path) {
   if (encoded.empty() || encoded.size() % 4 != 0 || encoded.size() > 32768) return false;
   path.clear();
   for (size_t i = 0; i < encoded.size(); i += 4) {
@@ -862,9 +862,28 @@ bool decodeRelativeHex(const std::string& encoded, std::wstring& path) {
     }
     path.push_back(static_cast<wchar_t>((value >> 8) | ((value & 0xff) << 8)));
   }
+  return true;
+}
+
+bool decodeRelativeHex(const std::string& encoded, std::wstring& path) {
+  if (!decodeUtf16Hex(encoded, path)) return false;
   std::wstring ignored;
   std::vector<std::wstring> parts;
   return splitPath(path, false, ignored, parts);
+}
+
+bool decodeBytesHex(const std::string& encoded, std::string& bytes) {
+  if (encoded.empty() || encoded.size() % 2 != 0 || encoded.size() > 32 * 1024 * 1024) return false;
+  bytes.clear(); bytes.reserve(encoded.size() / 2);
+  for (size_t i = 0; i < encoded.size(); i += 2) {
+    auto nibble = [](char c) -> int {
+      return c >= '0' && c <= '9' ? c - '0' + 0 : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+    };
+    const int hi = nibble(encoded[i]), lo = nibble(encoded[i + 1]);
+    if (hi < 0 || lo < 0) return false;
+    bytes.push_back(static_cast<char>((hi << 4) | lo));
+  }
+  return true;
 }
 
 std::vector<std::string> tabFields(const std::string& line) {
@@ -887,6 +906,7 @@ int blobVerifySession(int argc, wchar_t** argv) {
   struct HeldBlob { std::wstring path; Identity identity; unsigned char digest[32]{}; std::vector<Handle> chain; };
   std::vector<HeldBlob> held;
   bool sealed = false;
+  bool committed = false;
   std::puts("READY");
   std::fflush(stdout);
   std::string line;
@@ -930,7 +950,33 @@ int blobVerifySession(int argc, wchar_t** argv) {
       sealed = true;
       std::puts("SEALED"); std::fflush(stdout); continue;
     }
-    if (fields[0] == "CLOSE" && fields.size() == 1 && sealed) {
+    if (fields[0] == "COMMIT" && fields.size() == 7 && sealed && !committed) {
+      std::wstring journalPath;
+      std::string terminalLine;
+      if (!decodeUtf16Hex(fields[1], journalPath) ||
+          !decodeBytesHex(fields[6], terminalLine) || terminalLine.back() != '\n' ||
+          terminalLine.find('\n') != terminalLine.size() - 1) return 2;
+      std::vector<Handle> journal;
+      Identity before;
+      unsigned char digest[32]{};
+      if (!openAbsolute(journalPath, false, GENERIC_READ | FILE_APPEND_DATA, journal, FILE_SHARE_READ) ||
+          !snapshot(journal.back().value, before, digest)) return 2;
+      char serial[17]{};
+      std::snprintf(serial, sizeof(serial), "%016llx", before.id.VolumeSerialNumber);
+      if (fields[2] != serial || fields[3] != ascii(fileIdHex(before)) ||
+          fields[4] != std::to_string(before.bytes) || fields[5] != ascii(digestHex(digest))) return 2;
+      std::vector<Handle> observedRoot;
+      Identity observedRootId;
+      if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, observedRoot) ||
+          !identity(observedRoot.back().value, observedRootId) || !sameIdentity(rootId, observedRootId)) return 2;
+      DWORD written = 0;
+      if (!WriteFile(journal.back().value, terminalLine.data(), static_cast<DWORD>(terminalLine.size()),
+            &written, nullptr) || written != terminalLine.size() ||
+          !FlushFileBuffers(journal.back().value)) return 2;
+      committed = true;
+      std::puts("COMMITTED"); std::fflush(stdout); continue;
+    }
+    if (fields[0] == "CLOSE" && fields.size() == 1 && committed) {
       std::puts("CLOSED"); std::fflush(stdout); return 0;
     }
     return 2;

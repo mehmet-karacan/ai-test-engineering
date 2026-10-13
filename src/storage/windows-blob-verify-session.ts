@@ -7,8 +7,10 @@ import { assertTrustedWindowsFileHelper, type WindowsCopyResult, type WindowsFil
 import { RestoreSessionLines } from "./windows-restore-session.js";
 
 export interface BlobVerifySession {
+  readonly pid: number;
   verify(relativePath: string, expected: WindowsCopyResult): Promise<void>;
   seal(): Promise<void>;
+  commit(journalPath: string, expectedJournal: WindowsCopyResult, terminalLine: string): Promise<void>;
   close(): Promise<void>;
   abort(): Promise<void>;
 }
@@ -26,11 +28,14 @@ export async function startWindowsBlobVerifySession(helper: WindowsFileHelperSpe
       !/^[a-f0-9]{32}$/u.test(expectedRoot.fileId)) throw protocol("invalid root identity");
   const child = spawn(helper.path, ["blob-verify-session", root, expectedRoot.volumeSerial, expectedRoot.fileId],
     { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true });
+  // A hard-killed helper can report EPIPE after write's callback has run.
+  child.stdin.on("error", () => { /* send() observes the failed write or child close. */ });
   const lines = new RestoreSessionLines(child);
   const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
     child.once("close", (code, signal) => resolve({ code, signal })));
   let count = 0;
   let sealed = false;
+  let committed = false;
   let closed = false;
   let busy = false;
   const send = async (command: string): Promise<string> => {
@@ -49,6 +54,7 @@ export async function startWindowsBlobVerifySession(helper: WindowsFileHelperSpe
   try { if (await lines.next() !== "READY") throw protocol("invalid READY"); }
   catch (error) { closed = true; child.kill(); throw error; }
   return {
+    pid: child.pid ?? 0,
     async verify(relativePath, expected) {
       if (sealed || count >= 4096 || !relativePath || isAbsolute(relativePath) ||
           relativePath.split("/").some((part) => !part || part === "." || part === ".." || /[\\:\t\r\n]/u.test(part)) ||
@@ -66,9 +72,23 @@ export async function startWindowsBlobVerifySession(helper: WindowsFileHelperSpe
       if (sealed || await send(`SEAL\t${count}`) !== "SEALED") throw protocol("invalid SEAL response");
       sealed = true;
     },
+    async commit(journalPath, expectedJournal, terminalLine) {
+      if (!sealed || committed || !isAbsolute(journalPath) ||
+          !/^[a-f0-9]{16}$/u.test(expectedJournal.volumeSerial) ||
+          !/^[a-f0-9]{32}$/u.test(expectedJournal.fileId) ||
+          !Number.isSafeInteger(expectedJournal.bytes) || expectedJournal.bytes < 0 ||
+          !/^[a-f0-9]{64}$/u.test(expectedJournal.sha256) ||
+          !terminalLine.endsWith("\n") || terminalLine.indexOf("\n") !== terminalLine.length - 1 ||
+          Buffer.byteLength(terminalLine, "utf8") > 16 * 1024 * 1024) throw protocol("invalid COMMIT request");
+      const response = await send(`COMMIT\t${Buffer.from(journalPath, "utf16le").toString("hex")}\t` +
+        `${expectedJournal.volumeSerial}\t${expectedJournal.fileId}\t${expectedJournal.bytes}\t` +
+        `${expectedJournal.sha256}\t${Buffer.from(terminalLine, "utf8").toString("hex")}`);
+      if (response !== "COMMITTED") throw protocol("invalid COMMIT response");
+      committed = true;
+    },
     async close() {
       try {
-        if (!sealed || await send("CLOSE") !== "CLOSED") throw protocol("invalid CLOSE response");
+        if (!committed || await send("CLOSE") !== "CLOSED") throw protocol("invalid CLOSE response");
         closed = true;
         const result = await exit;
         if (result.code !== 0 || result.signal) throw protocol("child failed after CLOSE");
