@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, openSync, readSync, closeSync, mkdirSync, copyFileSync, writeFileSync, constants } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
+import { copyWindowsFile, inspectWindowsPath, packagedWindowsFileHelper, type WindowsFileIdentity } from "./windows-file-bridge.js";
 
 export type FileClassification = "production_source" | "test_source" | "build_config" | "resource" | "other";
 
@@ -227,6 +228,39 @@ function assertNoLinks(base: string, candidate: string): void {
   }
 }
 
+function sameWindowsRoot(a: WindowsFileIdentity, b: WindowsFileIdentity): boolean {
+  return a.volumeSerial === b.volumeSerial && a.fileId === b.fileId;
+}
+
+function isWithinPath(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
+}
+
+function assertManifestPaths(manifest: SnapshotManifest, root: string): void {
+  if (manifest.schema_version !== 1 || manifest.root !== root) {
+    throw new AppError("POLICY_VIOLATION", "Snapshot manifest kok kimligi uyusmuyor");
+  }
+  const seen = new Set<string>();
+  for (const entry of manifest.entries) {
+    const path = entry.relative_path;
+    const parts = path.split("/");
+    const folded = path.toLowerCase();
+    const invalidWindowsName = process.platform === "win32" && parts.some((part) => {
+      const stem = part.split(".", 1)[0]!.toUpperCase();
+      return Array.from(part).some((character) => character.codePointAt(0)! < 32) ||
+        /[:*?"<>|]/u.test(part) || /[. ]$/u.test(part) ||
+        /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/u.test(stem);
+    });
+    if (!path || path.includes("\\") || isAbsolute(path) || parts.some((part) => !part || part === "." || part === "..") ||
+        invalidWindowsName || folded === "snapshot-manifest.json" || seen.has(folded) || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 ||
+        !/^[0-9a-f]{64}$/u.test(entry.sha256)) {
+      throw new AppError("POLICY_VIOLATION", `Snapshot manifest girdisi gecersiz: ${path}`);
+    }
+    seen.add(folded);
+  }
+}
+
 export class SourceSnapshot {
   private readonly root: string;
 
@@ -317,6 +351,49 @@ export class SourceSnapshot {
 
   copyTo(targetRoot: string, manifest: SnapshotManifest): void {
     const absTarget = resolve(targetRoot);
+    assertManifestPaths(manifest, this.root);
+    if (isWithinPath(this.root, absTarget) || isWithinPath(absTarget, this.root)) {
+      throw new AppError("POLICY_VIOLATION", "Snapshot source and target roots overlap");
+    }
+    if (process.platform === "win32") {
+      // The native helper anchors every child to an already existing target root.
+      // Creating that root through an unchecked path could write through a junction.
+      if (!existsSync(absTarget) || !lstatSync(absTarget).isDirectory()) {
+        throw new AppError("BLOCKED_ISOLATION", "Windows snapshot target root must already exist", {
+          reason_code: "SNAPSHOT_TARGET_ROOT_UNOWNED",
+        });
+      }
+      const helper = packagedWindowsFileHelper();
+      const sourceIdentity = inspectWindowsPath(helper, this.root);
+      const targetIdentity = inspectWindowsPath(helper, absTarget);
+      if (sameWindowsRoot(sourceIdentity, targetIdentity)) {
+        throw new AppError("POLICY_VIOLATION", "Snapshot source and target are the same physical root");
+      }
+      const assertRoots = (): void => {
+        if (!sameWindowsRoot(sourceIdentity, inspectWindowsPath(helper, this.root)) ||
+            !sameWindowsRoot(targetIdentity, inspectWindowsPath(helper, absTarget))) {
+          throw new AppError("BLOCKED_ISOLATION", "Snapshot root identity changed", {
+            reason_code: "SNAPSHOT_ROOT_CHANGED",
+          });
+        }
+      };
+      for (const entry of manifest.entries) {
+        const copied = copyWindowsFile(helper, this.root, entry.relative_path, absTarget, entry.relative_path);
+        if (copied.bytes !== entry.bytes || copied.sha256 !== entry.sha256) {
+          throw new AppError("BLOCKED_ISOLATION", `Snapshot input changed during native copy: ${entry.relative_path}`, {
+            reason_code: "SNAPSHOT_COPY_IDENTITY_CHANGED",
+          });
+        }
+      }
+      assertRoots();
+      writeFileSync(
+        join(absTarget, "snapshot-manifest.json"),
+        JSON.stringify({ ...manifest, entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) }, null, 2),
+        { encoding: "utf8", flag: "wx" },
+      );
+      assertRoots();
+      return;
+    }
     mkdirSync(absTarget, { recursive: true });
     for (const entry of manifest.entries) {
       const targetPath = resolve(absTarget, entry.relative_path.replace(/\//g, sep));
