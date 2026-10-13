@@ -848,6 +848,95 @@ int verifyOwned(int argc, wchar_t** argv) {
   printIdentity(found, digest);
   return 0;
 }
+
+bool decodeRelativeHex(const std::string& encoded, std::wstring& path) {
+  if (encoded.empty() || encoded.size() % 4 != 0 || encoded.size() > 32768) return false;
+  path.clear();
+  for (size_t i = 0; i < encoded.size(); i += 4) {
+    unsigned value = 0;
+    for (size_t j = 0; j < 4; ++j) {
+      const char c = encoded[i + j];
+      const int nibble = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+      if (nibble < 0) return false;
+      value = (value << 4) | static_cast<unsigned>(nibble);
+    }
+    path.push_back(static_cast<wchar_t>((value >> 8) | ((value & 0xff) << 8)));
+  }
+  std::wstring ignored;
+  std::vector<std::wstring> parts;
+  return splitPath(path, false, ignored, parts);
+}
+
+std::vector<std::string> tabFields(const std::string& line) {
+  std::vector<std::string> result;
+  size_t start = 0;
+  for (;;) {
+    const size_t end = line.find('\t', start);
+    result.push_back(line.substr(start, end == std::string::npos ? end : end - start));
+    if (end == std::string::npos) return result;
+    start = end + 1;
+  }
+}
+
+int blobVerifySession(int argc, wchar_t** argv) {
+  if (argc != 5) return 2;
+  std::vector<Handle> root;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root)) return 2;
+  Identity rootId;
+  if (!identity(root.back().value, rootId) || !expectedRoot(rootId, argv[3], argv[4])) return 2;
+  struct HeldBlob { std::wstring path; Identity identity; unsigned char digest[32]{}; std::vector<Handle> chain; };
+  std::vector<HeldBlob> held;
+  bool sealed = false;
+  std::puts("READY");
+  std::fflush(stdout);
+  std::string line;
+  while (std::getline(std::cin, line)) {
+    const auto fields = tabFields(line);
+    if (fields[0] == "ABORT" && fields.size() == 1) {
+      std::puts("ABORTED"); std::fflush(stdout); return 0;
+    }
+    if (fields[0] == "VERIFY" && fields.size() == 6 && !sealed && held.size() < 4096) {
+      HeldBlob blob;
+      if (!decodeRelativeHex(fields[1], blob.path) ||
+          !openRelative(root.back().value, blob.path, false,
+            GENERIC_READ | FILE_READ_ATTRIBUTES, blob.chain, false, FILE_SHARE_READ) ||
+          !snapshot(blob.chain.back().value, blob.identity, blob.digest)) return 2;
+      char serial[17]{};
+      std::snprintf(serial, sizeof(serial), "%016llx", blob.identity.id.VolumeSerialNumber);
+      if (fields[2] != serial || fields[3] != ascii(fileIdHex(blob.identity)) ||
+          fields[4] != std::to_string(blob.identity.bytes) || fields[5] != ascii(digestHex(blob.digest))) return 2;
+      held.push_back(std::move(blob));
+      std::printf("VERIFIED\t%zu\t%s\t%s\t%llu\t%s\n", held.size(), serial,
+        ascii(fileIdHex(held.back().identity)).c_str(), held.back().identity.bytes,
+        ascii(digestHex(held.back().digest)).c_str());
+      std::fflush(stdout);
+      continue;
+    }
+    if (fields[0] == "SEAL" && fields.size() == 2 && !sealed &&
+        fields[1] == std::to_string(held.size())) {
+      std::vector<Handle> observedRoot;
+      Identity observedRootId;
+      if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, observedRoot) ||
+          !identity(observedRoot.back().value, observedRootId) || !sameIdentity(rootId, observedRootId)) return 2;
+      for (auto& blob : held) {
+        std::vector<Handle> observed;
+        Identity found;
+        unsigned char digest[32]{};
+        if (!openRelative(root.back().value, blob.path, false,
+              GENERIC_READ | FILE_READ_ATTRIBUTES, observed, false, FILE_SHARE_READ) ||
+            !snapshot(observed.back().value, found, digest) ||
+            !sameIdentity(found, blob.identity) || std::memcmp(digest, blob.digest, 32) != 0) return 2;
+      }
+      sealed = true;
+      std::puts("SEALED"); std::fflush(stdout); continue;
+    }
+    if (fields[0] == "CLOSE" && fields.size() == 1 && sealed) {
+      std::puts("CLOSED"); std::fflush(stdout); return 0;
+    }
+    return 2;
+  }
+  return 2;
+}
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -860,6 +949,7 @@ int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"copy-owned") == 0) return copyOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"rename-owned") == 0) return renameOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"verify-owned") == 0) return verifyOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"blob-verify-session") == 0) return blobVerifySession(argc, argv);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
     std::vector<Handle> root;
