@@ -1,0 +1,9 @@
+# 006 native bridge entegrasyon checkpoint 10
+
+- Tarih 2026-10-13; coordinator `codex/windows-native-006`, checkpoint 9 `d7020d9` uzerine S01 `fe13938` ve S02 `6fd23da` merge edildi. G1/G2/G3, customer Maven/model, original checkout apply ve yayin kapali; CI kapali.
+- S01 native restore blob copy/publish/normal cleanup `copy-owned`, `rename-owned`, `delete-owned-session` ile pinli root/FileId/hash ve NO_REPLACE kullaniyor. Gecici artifactRoot swap gercek probe'da replacement'a yazmadi; GC delete hardkill before/after disposition fixture belirsiz receipt kesitini gosterdi. Coordinator build PASS (265 source), odak 2 dosya/28 PASS, iki probe exit0, local release gate LOCAL_PASS (source dirty=false). Bagimsiz review `ai/reviews/2026-10-13-s01-owned-blob-review.md` iki P1 (erken ROLLED_BACK, fiziksel kimliksiz skip/verify) ve iki P2 (COPY orphan stage, path mkdir) buldu. Journal blob FileId receipt ve GC DB yetkisi acik; S01 VERIFIED degil.
+- S02 `6fd23da` lifecycle'li verify incomplete distribution planini -v/goal oncesi `TOOLCHAIN_DISTRIBUTION_UNVERIFIED` reddediyor; customer factory lifecycle yoksa `NATIVE_PROCESS_OWNERSHIP_UNVERIFIED`. Gercek Windows helper fixture, pinli `old.jar` varken ayni lib dizinine `new.jar` yaratabildi (RED). Coordinator merge sonrasi build PASS (266 source), odak 4 dosya/26 PASS. Dizin uyeligi snapshot surec boyunca sabitlenemedi; customer NO_GO.
+- S03 session uzlastirmasi checkpoint 9 durumunda. Bagimsiz review marker ad cakisimi ve same-byte farkli FileId replacement takibini ajana verdi. S04 migration S01 VERIFIED sonrasina bagli.
+- Full suite/full release gate PASS iddiasi yok. Ana checkout `main` `3b1916e` ve untracked Java testi korunuyor. Full gate NO_GO.
+
+Devam: S01 P1 RED-GREEN, S02 directory membership guven siniri, S03 reserved marker/FileId kaniti. G1/G2/G3 acilmaz.

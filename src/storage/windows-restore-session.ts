@@ -1,9 +1,10 @@
 /** Persistent Windows file owner. The helper's stdout is not durable; journal each receipt before the next MOVE. */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { assertTrustedWindowsFileHelper, inspectWindowsPath, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
-import { fileIdentity, type RestoreMoveReceipt } from "./restore-journal.js";
+import { assertTrustedWindowsFileHelper, inspectWindowsPath, type WindowsFileHelperSpec,
+  type WindowsFileIdentity } from "../discovery/windows-file-bridge.js";
+import { fileIdentity, type RestoreJournalRecord, type RestoreMoveReceipt } from "./restore-journal.js";
 
 export type RestoreFileSlot = RestoreMoveReceipt["slot"];
 export type RestoreFileSnapshot = RestoreMoveReceipt["before"];
@@ -15,6 +16,9 @@ export interface RestoreMoveOptions {
   generation: string;
   expected: { oldDb: RestoreFileSnapshot; oldWal?: RestoreFileSnapshot | null;
     oldShm?: RestoreFileSnapshot | null; stagedDb: RestoreFileSnapshot };
+}
+export interface FreshRestoreMoveOptions extends Omit<RestoreMoveOptions, "expected"> {
+  expected: { oldDb: null; oldWal: null; oldShm: null; stagedDb: RestoreFileSnapshot };
 }
 export interface RestoreMoveSession {
   renameOwned(slot: RestoreFileSlot, toName: string): Promise<RestoreMoveReceipt>;
@@ -36,12 +40,12 @@ function component(name: string): boolean {
     !/[. ]$/u.test(name);
 }
 
-function hexName(name: string): string {
+export function hexName(name: string): string {
   if (!component(name)) throw protocolError("invalid file name");
   return Buffer.from(name, "utf16le").toString("hex");
 }
 
-function decodeName(hex: string): string {
+export function decodeName(hex: string): string {
   if (!/^(?:[a-f0-9]{4})+$/u.test(hex)) throw protocolError("invalid UTF-16LE file name");
   const name = Buffer.from(hex, "hex").toString("utf16le");
   if (hexName(name) !== hex) throw protocolError("noncanonical UTF-16LE file name");
@@ -58,8 +62,65 @@ export function parseRestoreSnapshot(value: string): RestoreFileSnapshot {
   return { volumeSerial: fields[0]!, fileId: fields[1]!, bytes, sha256: fields[3]! };
 }
 
-function sameSnapshot(a: RestoreFileSnapshot, b: RestoreFileSnapshot): boolean {
+export function sameSnapshot(a: RestoreFileSnapshot, b: RestoreFileSnapshot): boolean {
   return a.volumeSerial === b.volumeSerial && a.fileId === b.fileId && a.bytes === b.bytes && a.sha256 === b.sha256;
+}
+
+export interface RestoreRecoveryReady {
+  physicalForwardCount: number;
+  acceptCommand: string;
+  files: Partial<Record<RestoreFileSlot, { name: string; identity: RestoreFileSnapshot }>>;
+}
+
+/** Pure pre-ACCEPT gate: a crash may leave exactly one physical move ahead of its fsynced receipt. */
+export function validateRestoreRecoveryReady(line: string, journal: RestoreJournalRecord): RestoreRecoveryReady {
+  const fields = line.split("\t");
+  const initial = journal.nativeInitial;
+  const receipts = journal.moveReceipts;
+  if (fields.length !== 7 || fields[0] !== "RECOVERY_READY" || fields[1] !== journal.generation ||
+      !initial || !receipts || !/^(0|[1-9]\d*)$/u.test(fields[2] ?? "")) {
+    throw protocolError("invalid RECOVERY_READY");
+  }
+  const count = Number(fields[2]);
+  const dbName = basename(journal.targetDbPath);
+  const oldSuffix = basename(journal.preservedDbPath).slice(dbName.length);
+  const names = {
+    oldDb: [dbName, basename(journal.preservedDbPath)],
+    oldWal: [`${dbName}-wal`, `${dbName}-wal${oldSuffix}`],
+    oldShm: [`${dbName}-shm`, `${dbName}-shm${oldSuffix}`],
+    stagedDb: [basename(journal.stagedDbPath), dbName],
+  } as const;
+  const present = SLOTS.filter((slot) => initial[slot] !== null);
+  const progressValid = journal.phase === "RECOVERING"
+    ? journal.recoveryBaseCount !== undefined && !!journal.recoveryReceipts &&
+      count <= journal.recoveryBaseCount - journal.recoveryReceipts.length &&
+      count >= journal.recoveryBaseCount - journal.recoveryReceipts.length - 1
+    : receipts.length <= count && count <= receipts.length + 1;
+  if ((journal.phase === "PREPARED" && count !== 0) || count > present.length || !progressValid ||
+      receipts.some((receipt, index) => receipt.slot !== present[index] ||
+        !sameSnapshot(receipt.before, initial[receipt.slot]!))) throw protocolError("recovery receipt prefix mismatch");
+  const files: RestoreRecoveryReady["files"] = {};
+  for (const [index, slot] of SLOTS.entries()) {
+    const field = fields[index + 3]!;
+    if (!field.startsWith(`${slot}=`)) throw protocolError("recovery slot order");
+    const value = field.slice(slot.length + 1);
+    const expected = initial[slot];
+    if (expected === null) {
+      if (value !== "-") throw protocolError("unexpected recovery sidecar");
+      continue;
+    }
+    const parts = value.split(":");
+    if (parts.length !== 5) throw protocolError("invalid recovery slot");
+    const fileName = decodeName(parts[0]!);
+    const identity = parseRestoreSnapshot(parts.slice(1).join(":"));
+    const forwardIndex = present.indexOf(slot);
+    if (fileName !== names[slot][forwardIndex < count ? 1 : 0] || !sameSnapshot(identity, expected)) {
+      throw protocolError("recovery file identity or layout mismatch");
+    }
+    files[slot] = { name: fileName, identity };
+  }
+  return { physicalForwardCount: count, files,
+    acceptCommand: `ACCEPT\t${journal.generation}\t${count}\t${fields.slice(3).join("\t")}` };
 }
 
 /** JS hash and two native FileId reads narrow preflight races; session READY must recheck every field. */
@@ -71,6 +132,18 @@ export function captureExpectedWindowsRestoreFile(helper: WindowsFileHelperSpec,
       after.linkCount !== 1 || before.volumeSerial !== after.volumeSerial || before.fileId !== after.fileId ||
       before.bytes !== digest.bytes || after.bytes !== digest.bytes) throw protocolError("preflight file identity changed");
   return { volumeSerial: before.volumeSerial, fileId: before.fileId, bytes: digest.bytes, sha256: digest.sha256 };
+}
+
+/** Detect persistent root replacement before a path-based blob mutation. This is not a transient-swap lock. */
+export function assertWindowsRestoreRootIdentity(helper: WindowsFileHelperSpec, root: string,
+  expected: WindowsFileIdentity): void {
+  try {
+    const current = inspectWindowsPath(helper, root);
+    if (current.volumeSerial === expected.volumeSerial && current.fileId === expected.fileId) return;
+  } catch { /* Missing or reparse root is also a changed root. */ }
+  throw new AppError("BLOCKED_ISOLATION", "Restore artifact root identity changed", {
+    reason_code: "RESTORE_ARTIFACT_ROOT_CHANGED",
+  });
 }
 
 export class RestoreSessionLines {
@@ -141,13 +214,14 @@ export class RestoreSessionLines {
   }
 }
 
-function assertOptions(options: RestoreMoveOptions): void {
+function assertOptions(options: RestoreMoveOptions | FreshRestoreMoveOptions, fresh: boolean): void {
   if (!isAbsolute(options.dbDirectory) || !component(options.dbName) || !component(options.stagedName) ||
       !options.preservedSuffix.startsWith(".restore-old-") || !component(`x${options.preservedSuffix}`) ||
       !/^[a-zA-Z0-9-]{1,128}$/u.test(options.generation)) throw protocolError("invalid session options");
   for (const slot of SLOTS) {
     const snapshot = options.expected[slot] ?? null;
-    if (((slot === "stagedDb" || slot === "oldDb") && !snapshot) || (snapshot && !sameSnapshot(parseRestoreSnapshot(
+    if (((slot === "stagedDb" || (!fresh && slot === "oldDb")) && !snapshot) ||
+        (fresh && slot !== "stagedDb" && snapshot !== null) || (snapshot && !sameSnapshot(parseRestoreSnapshot(
       `${snapshot.volumeSerial}:${snapshot.fileId}:${snapshot.bytes}:${snapshot.sha256}`), snapshot))) {
       throw protocolError("invalid expected snapshot");
     }
@@ -157,9 +231,20 @@ function assertOptions(options: RestoreMoveOptions): void {
 /** The child must retain its pinned handles until close; stdout receipts are checked but not themselves durable. */
 export async function startWindowsRestoreMoveSession(helper: WindowsFileHelperSpec,
   options: RestoreMoveOptions): Promise<RestoreMoveSession> {
-  assertOptions(options);
+  return startRestoreMoveSession(helper, options, false);
+}
+
+/** Fresh targets have an absent old generation and use a separate native command. */
+export async function startWindowsFreshRestoreMoveSession(helper: WindowsFileHelperSpec,
+  options: FreshRestoreMoveOptions): Promise<RestoreMoveSession> {
+  return startRestoreMoveSession(helper, options, true);
+}
+
+async function startRestoreMoveSession(helper: WindowsFileHelperSpec,
+  options: RestoreMoveOptions | FreshRestoreMoveOptions, fresh: boolean): Promise<RestoreMoveSession> {
+  assertOptions(options, fresh);
   assertTrustedWindowsFileHelper(helper);
-  const child = spawn(helper.path, ["session", options.dbDirectory, hexName(options.dbName),
+  const child = spawn(helper.path, [fresh ? "session-fresh" : "session", options.dbDirectory, hexName(options.dbName),
     hexName(options.stagedName), options.generation], { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true });
   const lines = new RestoreSessionLines(child);
   const current: Partial<Record<RestoreFileSlot, { name: string; identity: RestoreFileSnapshot }>> = {};

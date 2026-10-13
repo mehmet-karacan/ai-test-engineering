@@ -1,4 +1,4 @@
-/** Native Windows WN11 probe. Run after `npm run build`; only owned os.tmpdir fixtures are touched. */
+/** Windows WN11 probe. Run after `npm run build`; use --native --expect-recovery for 15-cut acceptance. */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -11,14 +11,19 @@ import { createBackup, restoreBackup, sha256Data } from "../dist/storage/lifecyc
 import { journalPathForDb, readRestoreJournal } from "../dist/storage/restore-journal.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "../dist/storage/maintenance-lock.js";
 import { Storage } from "../dist/storage/storage.js";
+import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 
 assert.equal(process.platform, "win32", "This probe requires native Windows taskkill");
 const root = mkdtempSync(join(tmpdir(), "aitest-wn11-hardkill-"));
 assert.ok(resolve(root).startsWith(resolve(tmpdir())));
 const expectRecovery = process.argv.includes("--expect-recovery");
-const modes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED",
+const native = process.argv.includes("--native");
+const allModes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED",
   "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
   "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
+const selected = process.argv.find((arg) => arg.startsWith("--mode="))?.slice("--mode=".length);
+assert.ok(!selected || allModes.includes(selected) || selected === "ROLLBACK_TERMINAL", "Unknown probe mode");
+const modes = selected ? [selected] : allModes;
 const schema = `
   CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
   INSERT INTO schema_migrations VALUES (7);
@@ -30,7 +35,7 @@ const hashFile = (path) => createHash("sha256").update(readFileSync(path)).diges
 const childCode = `
 const fs = require("node:fs");
 const { syncBuiltinESMExports } = require("node:module");
-const mode = process.argv[1], moduleUrl = process.argv[2], backupDir = process.argv[3], targetDb = process.argv[4], artifacts = process.argv[5];
+const mode = process.argv[1], moduleUrl = process.argv[2], helperUrl = process.argv[3], backupDir = process.argv[4], targetDb = process.argv[5], artifacts = process.argv[6], native = process.argv[7] === "native";
 let lastPhase = "";
 function halt() { process.stdout.write("HALT:" + mode + "\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000); }
 const write = fs.writeFileSync;
@@ -38,9 +43,17 @@ fs.writeFileSync = (...args) => { const result = write(...args); if (typeof args
   try { lastPhase = JSON.parse(JSON.parse(args[1]).json).phase ?? lastPhase; } catch { /* other write */ }
 } return result; };
 const sync = fs.fsyncSync;
-fs.fsyncSync = (fd) => { const result = sync(fd); if (lastPhase === mode) halt(); return result; };
+fs.fsyncSync = (fd) => { const result = sync(fd);
+  if (lastPhase === mode || mode === "ROLLBACK_TERMINAL" && lastPhase === "ROLLED_BACK") halt();
+  return result; };
 const link = fs.linkSync;
 fs.linkSync = (...args) => { const result = link(...args); if (mode === "LINK") halt(); return result; };
+const read = fs.readFileSync;
+fs.readFileSync = (path, ...args) => {
+  if (mode === "ROLLBACK_TERMINAL" && lastPhase === "NEW_DB_PUBLISHED" &&
+      typeof path === "string" && path.startsWith(artifacts)) throw new Error("fixture published blob read failure");
+  return read(path, ...args);
+};
 const rename = fs.renameSync;
 fs.renameSync = (from, to) => { const result = rename(from, to);
   if (mode === "MOVE_DB" && from === targetDb && to.includes(".restore-old-")) halt();
@@ -48,25 +61,66 @@ fs.renameSync = (from, to) => { const result = rename(from, to);
   if (mode === "MOVE_SHM" && from === targetDb + "-shm" && to.includes(".restore-old-")) halt();
   if (mode === "PUBLISH_DB" && to === targetDb && from.includes(".restore-") && !from.includes(".restore-old-")) halt();
   return result; };
+if (native) {
+  const childProcess = require("node:child_process");
+  const originalSpawn = childProcess.spawn;
+  childProcess.spawn = (...args) => {
+    const child = originalSpawn(...args);
+    if (args[1]?.[0] === "session") {
+      let pending = "";
+      child.stdout.on("data", (data) => {
+        pending += data.toString();
+        if (pending.length > 8192) throw new Error("native probe line too long");
+        let end;
+        while ((end = pending.indexOf("\\n")) >= 0) {
+          const line = pending.slice(0, end);
+          pending = pending.slice(end + 1);
+          const slot = mode === "MOVE_DB" ? "oldDb" : mode === "MOVE_WAL" ? "oldWal" :
+            mode === "MOVE_SHM" ? "oldShm" : mode === "PUBLISH_DB" ? "stagedDb" : "";
+          const fields = line.split("\\t");
+          if (slot && fields[0] === "MOVED" && fields[3] === slot) halt();
+        }
+      });
+    }
+    return child;
+  };
+}
 syncBuiltinESMExports();
-import(moduleUrl).then(async (module) => { await module.restoreBackup(backupDir, targetDb, artifacts); process.exitCode = 43; })
+Promise.all([import(moduleUrl), import(helperUrl)]).then(async ([module, bridge]) => {
+  await module.restoreBackup(backupDir, targetDb, artifacts, native ? { nativeHelper: bridge.packagedWindowsFileHelper() } : undefined);
+  process.exitCode = 43;
+})
   .catch((error) => { process.stderr.write(String(error?.stack ?? error)); process.exitCode = 44; });
 `;
 
 async function killAt(mode, backupDir, targetDb, artifacts) {
   const moduleUrl = pathToFileURL(resolve("dist/storage/lifecycle-ops.js")).href;
-  const child = spawn(process.execPath, ["-e", childCode, mode, moduleUrl, backupDir, targetDb, artifacts],
+  const helperUrl = pathToFileURL(resolve("dist/discovery/windows-file-bridge.js")).href;
+  const child = spawn(process.execPath, ["-e", childCode, mode, moduleUrl, helperUrl, backupDir, targetDb, artifacts,
+    native ? "native" : "legacy"],
     { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
+  let stdout = "";
   child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
   try {
     await new Promise((ok, fail) => {
-      const timer = setTimeout(() => fail(new Error(`Timeout at ${mode}: ${stderr}`)), 10000);
+      const timer = setTimeout(() => fail(new Error(`Timeout at ${mode}: ${stderr}`)), 45000);
       child.stdout.on("data", (chunk) => {
-        if (chunk.toString().includes(`HALT:${mode}`)) { clearTimeout(timer); ok(); }
+        stdout += chunk.toString();
+        if (stdout.length > 8192) { clearTimeout(timer); fail(new Error(`Probe output too long at ${mode}`)); }
+        if (stdout.includes(`HALT:${mode}\n`)) { clearTimeout(timer); ok(); }
       });
-      child.once("exit", (code) => { clearTimeout(timer); fail(new Error(`Child exited ${code} before ${mode}: ${stderr}`)); });
+      child.once("exit", (code) => { clearTimeout(timer);
+        const phase = readRestoreJournal(journalPathForDb(targetDb))?.phase;
+        fail(new Error(`Child exited ${code} before ${mode}, journal ${phase}: ${stderr}`)); });
     });
+    if (native && (mode === "COMMITTED" || mode === "ROLLBACK_TERMINAL")) {
+      const writer = spawnSync(process.execPath, ["-e", `const Database=require("better-sqlite3");
+        const db=new Database(process.argv[1]); db.pragma("busy_timeout=0");
+        db.prepare("INSERT INTO test_jobs VALUES ('racing-writer','COMPLETED')").run(); db.close();`, targetDb],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 10_000 });
+      assert.notEqual(writer.status, 0, `native guard must deny raw writer during ${mode} fsync`);
+    }
     const killed = spawnSync("taskkill", ["/F", "/PID", String(child.pid)], { encoding: "utf8" });
     assert.equal(killed.status, 0, killed.stderr);
     await new Promise((ok) => { if (child.exitCode !== null) ok(); else child.once("exit", ok); });
@@ -78,6 +132,7 @@ async function killAt(mode, backupDir, targetDb, artifacts) {
 try {
   const results = [];
   const blockedRecoveries = [];
+  const walModes = new Set(["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"]);
   for (const mode of modes) {
     const fixture = join(root, mode.toLowerCase());
     const sourceDbPath = join(fixture, "source", "state.db");
@@ -99,15 +154,26 @@ try {
     const targetArtifacts = join(fixture, "runtime", "artifacts");
     mkdirSync(dirname(targetDb), { recursive: true });
     const old = new Database(targetDb);
-    if (["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) old.pragma("journal_mode = WAL");
+    if (walModes.has(mode)) old.pragma("journal_mode = WAL");
     old.exec(schema);
     old.prepare("INSERT INTO test_jobs (id, lifecycle) VALUES ('old', 'COMPLETED')").run();
-    old.close();
-    if (["MOVE_WAL", "OLD_WAL_MOVED", "MOVE_SHM", "OLD_SHM_MOVED"].includes(mode)) {
-      const wal = Buffer.alloc(32, 0);
-      Buffer.from("377f0682", "hex").copy(wal, 0);
-      writeFileSync(`${targetDb}-wal`, wal);
-      writeFileSync(`${targetDb}-shm`, Buffer.alloc(32768, 0));
+    if (walModes.has(mode)) {
+      const dbBeforeSentinel = readFileSync(targetDb);
+      old.prepare("INSERT INTO test_jobs (id, lifecycle) VALUES ('wal-sentinel', 'COMPLETED')").run();
+      assert.ok(existsSync(`${targetDb}-wal`) && existsSync(`${targetDb}-shm`));
+      const dbBytes = readFileSync(targetDb);
+      assert.deepEqual(dbBytes, dbBeforeSentinel, `${mode}: sentinel must exist only in WAL`);
+      const walBytes = readFileSync(`${targetDb}-wal`);
+      const shmBytes = readFileSync(`${targetDb}-shm`);
+      assert.ok(walBytes.length > 32, `${mode}: real SQLite WAL frames required`);
+      old.close();
+      // SQLite's final close checkpoints/deletes WAL. Restore the captured
+      // coherent main+WAL+SHM snapshot so the row remains uncheckpointed.
+      writeFileSync(targetDb, dbBytes);
+      writeFileSync(`${targetDb}-wal`, walBytes);
+      writeFileSync(`${targetDb}-shm`, shmBytes);
+    } else {
+      old.close();
     }
     const oldHash = hashFile(targetDb);
     // SQLite may rewrite -shm while readonly preflight opens the WAL DB; it is an ephemeral index.
@@ -157,8 +223,12 @@ try {
     try {
       const reopened = new Storage({ dbPath: targetDb });
       try {
-        if (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+        if ((native && mode !== "COMMITTED") || mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
           assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
+          if (walModes.has(mode)) {
+            assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
+              "wal-sentinel", `${mode}: uncheckpointed WAL row must survive`);
+          }
           assert.equal(reopened.db.prepare("SELECT id FROM artifacts WHERE id = 'new'").get(), undefined);
           openedGeneration = "old";
         } else if (mode === "COMMITTED") {
@@ -173,11 +243,12 @@ try {
       startupBlocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED";
       if (!startupBlocked) throw error;
     }
-    assert.equal(startupBlocked, mode !== "COMMITTED" && mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY", `${mode}: startup gate mismatch`);
-    if (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+    assert.equal(startupBlocked, !native && mode !== "COMMITTED" && mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY", `${mode}: startup gate mismatch`);
+    if ((native && mode !== "COMMITTED") || mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
       assert.equal(readRestoreJournal(journalPathForDb(targetDb))?.phase, "ROLLED_BACK");
     }
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
+    assert.equal(existsSync(join(targetArtifacts, rel)), mode !== "PREPARED", `${mode}: blob ownership/layout changed`);
     const releaseDb = acquireRestoreDbLock(targetDb); releaseDb();
     const releaseArtifact = acquireMaintenanceLock(targetArtifacts, "restore"); releaseArtifact();
     results.push({ mode, journal_phase: journal?.phase, startup_blocked: startupBlocked, opened_generation: openedGeneration,
@@ -214,10 +285,13 @@ try {
     const before = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);
     let outcome = "RESTORED";
-    try { await restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts")); }
+    try { await restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts"),
+      native ? { nativeHelper: packagedWindowsFileHelper() } : undefined); }
     catch (error) { outcome = error?.details?.reason_code ?? error?.code ?? String(error); }
     const after = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);
+    assert.notEqual(outcome, "RESTORED", "active raw SQLite owner must block restore");
+    assert.deepEqual(after, before, "active raw SQLite DB/WAL/SHM must remain unchanged");
     process.stdout.write(`${JSON.stringify({ raw_open_outcome: outcome, db_wal_shm_unchanged: before.map((value, index) => value === after[index]),
       journal_phase: readRestoreJournal(journalPathForDb(rawTargetPath))?.phase })}\n`);
   } finally {

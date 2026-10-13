@@ -1,0 +1,10 @@
+# 006 native bridge entegrasyon checkpoint 4
+
+- Sozlesme AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0, SHA-256 `59a08a4a2d626d9aa6cfb55faed82513964aabce45528890e7aa648afe371989`. Coordinator HEAD `eff33aa`, `codex/windows-native-006`, origin'e push edildi.
+- S01 native recovery worker `3b7a205` merge edildi. Forward MOVE receipt'i ve reverse MOVE receipt'i fsync oncesi hard-kill fixture'larinda Windows native helper eski DB/WAL'i journal prefix ve FileId/hash kanitiyla geri getirdi; temiz coordinator 3 dosya/26 PASS ve build PASS. S01 WN11-13 halen NO_GO: 15-cut yeniden probu, terminal close→fsync guard, worker lock→Storage open araligi ve production native helper default eksik. `scripts/restore-recovery-worker.mjs` release mandatory/build input listesinde.
+- S02 verified pin `c9bc2f0` merge edildi. Resolver beklenen dosya hash listesini -v probe/goal native helper'a tasiyor; `MAVEN_SKIP_RC=1` child env ile Maven pre/post mavenrc etkisi kapatildi, `MAVEN_ARGS` aktarilmiyor. Normal customer fixture null implicit config icin goal/Surefire oncesi `NATIVE_INPUT_PIN_UNAVAILABLE` donuyor. Temiz coordinator 7 dosya/63 PASS (seri) ve build PASS; tam suite iddiasi yok. Maven/JDK kurulu dagitim baytlari ve yokken sonradan eklenen config dosyasi guvenli pinlenmedigi icin WN14/15/18/customer readiness NO_GO.
+- S00 scope validator scratch fixture'i repo disinda benzersiz `mkdtemp` kokune tasindi; sabit temp yolunun baska suite/worktree ile cakismasi kapandi.
+- S03 copy-race calismasi temiz izole `codex/windows-native-006-s03-copy` dalinda; eski S03 worktree'deki bilinmeyen buyuk inventory farklari korunuyor, stage/reset yapilmadi. Henuz merge veya VERIFIED yok. S04 yalniz salt okunur hazirlik.
+- Ana checkout `main` HEAD `3b1916e` ve untracked `JavaMetadataScannerCoverageTest.java` degismedi. CI acilmadi; G1 gercek GPU Maven/model, G2 original checkout apply, G3 yayin kapali. Full gate NO_GO.
+
+Devam: S01 15-cut/terminal fence/native default; S02 absent config ve tam effective toolchain kimligi; S03 copy-race ve schema bagimliligi. Bagimsiz review ve release kaniti sonraki dilimlerde zorunlu.

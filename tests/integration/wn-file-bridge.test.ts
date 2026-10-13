@@ -8,7 +8,9 @@ import { once } from "node:events";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import Database from "better-sqlite3";
-import { inspectWindowsPath, copyWindowsFile, packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
+import { inspectWindowsPath, copyWindowsFile, copyWindowsOwnedFile, renameWindowsOwnedFile, verifyWindowsOwnedFile,
+  deleteWindowsOwnedFile,
+  packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
 
 function stdoutLineReader(stdout: Readable): () => Promise<string> {
   const lines = createInterface({ input: stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
@@ -39,6 +41,87 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
     if (actual && actual.startsWith(`${tempRoot}${sep}`) && actual.split(sep).at(-1)?.startsWith("wn-file-bridge-")) {
       rmSync(actual, { recursive: true, force: true });
     }
+  });
+
+  it("deletes only the expected pinned FileId after native root and file checks", () => {
+    const root = join(sandbox, `delete-${randomUUID()}`);
+    mkdirSync(join(root, "blobs"), { recursive: true });
+    const path = join(root, "blobs", "x.bin");
+    writeFileSync(path, "owned bytes");
+    const rootIdentity = inspectWindowsPath(helper, root);
+    const fileIdentity = inspectWindowsPath(helper, path);
+    const expected = { ...fileIdentity, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") };
+    expect(() => deleteWindowsOwnedFile(helper, root, "blobs\\x.bin",
+      { ...rootIdentity, fileId: "f".repeat(32) }, expected)).toThrow();
+    expect(() => deleteWindowsOwnedFile(helper, root, "blobs\\x.bin", rootIdentity,
+      { ...expected, fileId: "f".repeat(32) })).toThrow();
+    expect(readFileSync(path, "utf8")).toBe("owned bytes");
+    deleteWindowsOwnedFile(helper, root, "blobs\\x.bin", rootIdentity, expected);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("refuses an owned delete when the physical blob has another hardlink", () => {
+    const root = join(sandbox, `delete-linked-${randomUUID()}`);
+    mkdirSync(join(root, "blobs"), { recursive: true });
+    const path = join(root, "blobs", "x.bin");
+    const alias = join(root, "blobs", "alias.bin");
+    writeFileSync(path, "shared bytes");
+    linkSync(path, alias);
+    const rootIdentity = inspectWindowsPath(helper, root);
+    const fileIdentity = inspectWindowsPath(helper, path);
+    const expected = { ...fileIdentity, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") };
+    expect(() => deleteWindowsOwnedFile(helper, root, "blobs\\x.bin", rootIdentity, expected)).toThrow();
+    expect(readFileSync(path, "utf8")).toBe("shared bytes");
+    expect(readFileSync(alias, "utf8")).toBe("shared bytes");
+  });
+
+  it("copies and publishes only under the captured root FileId", () => {
+    const sourceRoot = join(sandbox, `owned-source-${randomUUID()}`);
+    const targetRoot = join(sandbox, `owned-target-${randomUUID()}`);
+    const movedRoot = `${targetRoot}-moved`;
+    mkdirSync(join(sourceRoot, "blobs"), { recursive: true });
+    mkdirSync(join(targetRoot, "blobs"), { recursive: true });
+    writeFileSync(join(sourceRoot, "blobs", "x.bin"), "verified source");
+    const sourceIdentity = inspectWindowsPath(helper, sourceRoot);
+    const targetIdentity = inspectWindowsPath(helper, targetRoot);
+    renameSync(targetRoot, movedRoot);
+    mkdirSync(join(targetRoot, "blobs"), { recursive: true });
+    expect(() => copyWindowsOwnedFile(helper, sourceRoot, "blobs\\x.bin", targetRoot,
+      "blobs\\x.stage", sourceIdentity, targetIdentity)).toThrow();
+    expect(existsSync(join(targetRoot, "blobs", "x.stage"))).toBe(false);
+    rmSync(targetRoot, { recursive: true });
+    renameSync(movedRoot, targetRoot);
+    const copied = copyWindowsOwnedFile(helper, sourceRoot, "blobs\\x.bin", targetRoot,
+      "blobs\\x.stage", sourceIdentity, targetIdentity);
+    expect(copied.sha256).toBe(createHash("sha256").update("verified source").digest("hex"));
+    expect(() => renameWindowsOwnedFile(helper, targetRoot, "blobs\\x.stage", "blobs\\x.bin",
+      targetIdentity, { ...copied, fileId: "f".repeat(32) })).toThrow();
+    expect(existsSync(join(targetRoot, "blobs", "x.bin"))).toBe(false);
+    const published = renameWindowsOwnedFile(helper, targetRoot, "blobs\\x.stage", "blobs\\x.bin",
+      targetIdentity, copied);
+    expect(published.fileId).toBe(copied.fileId);
+    expect(readFileSync(join(targetRoot, "blobs", "x.bin"), "utf8")).toBe("verified source");
+  });
+
+  it("pins skip and final verification to the same physical blob ID across nested swaps", () => {
+    const root = join(sandbox, `verify-${randomUUID()}`);
+    const nested = join(root, "blobs");
+    const moved = join(root, "blobs-moved");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(nested, "x.bin"), "expected bytes");
+    const rootId = inspectWindowsPath(helper, root);
+    const original = verifyWindowsOwnedFile(helper, root, "blobs\\x.bin", rootId,
+      { bytes: 14, sha256: createHash("sha256").update("expected bytes").digest("hex") });
+    renameSync(nested, moved);
+    mkdirSync(nested);
+    writeFileSync(join(nested, "x.bin"), "expected bytes");
+    expect(inspectWindowsPath(helper, root).fileId).toBe(rootId.fileId);
+    expect(() => verifyWindowsOwnedFile(helper, root, "blobs\\x.bin", rootId,
+      { bytes: 14, sha256: original.sha256, identity: original })).toThrow();
+    rmSync(nested, { recursive: true });
+    renameSync(moved, nested);
+    expect(verifyWindowsOwnedFile(helper, root, "blobs\\x.bin", rootId,
+      { bytes: 14, sha256: original.sha256, identity: original }).fileId).toBe(original.fileId);
   });
 
   it("uses volume and file ID to recognize hardlink and case aliases", () => {
