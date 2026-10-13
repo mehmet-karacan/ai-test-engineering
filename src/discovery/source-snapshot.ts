@@ -254,7 +254,9 @@ function assertManifestPaths(manifest: SnapshotManifest, root: string): void {
         /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/u.test(stem);
     });
     if (!path || path.includes("\\") || isAbsolute(path) || parts.some((part) => !part || part === "." || part === "..") ||
-        invalidWindowsName || folded === "snapshot-manifest.json" || seen.has(folded) || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 ||
+        invalidWindowsName || folded === "snapshot-manifest.json" || folded === ".aitest-snapshot-session" ||
+        folded.startsWith("snapshot-manifest.json.tmp-") || seen.has(folded) ||
+        !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 ||
         !/^[0-9a-f]{64}$/u.test(entry.sha256)) {
       throw new AppError("POLICY_VIOLATION", `Snapshot manifest girdisi gecersiz: ${path}`);
     }
