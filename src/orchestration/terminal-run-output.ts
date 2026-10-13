@@ -5,6 +5,7 @@ import { AppError } from "../domain/errors.js";
 import type { Phase } from "../domain/job-state.js";
 import type { ArtifactStore } from "../storage/artifact-store.js";
 import { JobRepository } from "../storage/job-repository.js";
+import { promoteRunOutputReceipt, publishRunOutputReceipt, reserveRunOutputReceipt } from "../storage/run-output-receipt.js";
 
 interface TerminalOutput {
   reason_code: string;
@@ -67,31 +68,17 @@ export function recordTerminalRunOutput(input: {
   const key = createHash("sha256").update(JSON.stringify([jobId, phase, output.stdout_log_path, output.stderr_log_path])).digest("hex");
   const pin = `run_output_terminal:${key}`;
   const bytes = JSON.stringify({ schema_version: 1, job_id: jobId, phase, ...output });
-  const expectedHash = artifacts.sha256(bytes);
-  const select = db.prepare<[string, string], { id: string; sha256: string; bytes: number; relative_store_path: string; status: string }>(
-    "SELECT id, sha256, bytes, relative_store_path, status FROM artifacts WHERE job_id = ? AND kind = 'run_output_terminal' AND pin_reason = ?",
-  );
-  const prior = select.all(jobId, pin);
-  if (prior.length > 1 || (prior[0] && (prior[0].sha256 !== expectedHash || prior[0].status !== "READY"))) {
-    throw new AppError("STORAGE_ERROR", "Terminal Maven kesinti kaydi celiskili");
-  }
-  const artifact = artifacts.publish("run_output_terminal", bytes, { schemaVersion: "1", sensitivity: "internal" });
+  const receipt = reserveRunOutputReceipt(db, artifacts, { jobId, kind: "run_output_terminal", pin, data: bytes });
+  publishRunOutputReceipt(artifacts, receipt, bytes);
   db.transaction(() => {
-    const rows = select.all(jobId, pin);
-    if (rows.length > 1) throw new AppError("STORAGE_ERROR", "Terminal Maven kesinti pin'i tekil degil");
-    const row = rows[0];
-    if (row) {
-      if (row.sha256 !== artifact.sha256 || row.bytes !== artifact.bytes || row.relative_store_path !== artifact.relativeStorePath || row.status !== "READY") {
-        throw new AppError("STORAGE_ERROR", "Terminal Maven kesinti kaydi celiskili");
-      }
+    promoteRunOutputReceipt(db, receipt);
+    if (receipt.existingReady) {
       const links = db.prepare<[string, string, string], { id: number }>(
         "SELECT id FROM job_events WHERE job_id = ? AND event_type = ? AND payload_artifact_id = ?",
-      ).all(jobId, "run_output_truncated_terminal", row.id);
+      ).all(jobId, "run_output_truncated_terminal", receipt.id);
       if (links.length !== 1) throw new AppError("STORAGE_ERROR", "Terminal Maven kesinti event baglantisi gecersiz");
       return;
     }
-    db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, 'run_output_terminal', ?, ?, ?, '1', 'internal', 'READY', ?, ?)")
-      .run(artifact.id, jobId, artifact.relativeStorePath, artifact.sha256, artifact.bytes, pin, Date.now());
-    new JobRepository(db).appendEvent({ job_id: jobId, event_type: "run_output_truncated_terminal", phase, origin: "JobDispatcher", payload_artifact_id: artifact.id });
+    new JobRepository(db).appendEvent({ job_id: jobId, event_type: "run_output_truncated_terminal", phase, origin: "JobDispatcher", payload_artifact_id: receipt.id });
   })();
 }

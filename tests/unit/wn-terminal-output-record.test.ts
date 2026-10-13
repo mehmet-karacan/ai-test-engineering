@@ -62,10 +62,15 @@ describe("WN21 terminal output record", () => {
     }), root)).toBeNull();
   });
 
-  it("rolls back the artifact row when event linking fails", () => {
+  it("keeps only a PENDING receipt when event linking fails", () => {
     storage.db.exec("CREATE TRIGGER reject_terminal_event BEFORE INSERT ON job_events WHEN NEW.event_type = 'run_output_truncated_terminal' BEGIN SELECT RAISE(ABORT, 'fixture event failure'); END");
     expect(() => recordTerminalRunOutput({ db: storage.db, artifacts, jobId, phase: "baseline", output: output() })).toThrow();
-    expect(storage.db.prepare("SELECT id FROM artifacts WHERE job_id = ? AND kind = 'run_output_terminal'").all(jobId)).toHaveLength(0);
+    const rows = storage.db.prepare<[string], { status: string }>(
+      "SELECT status FROM artifacts WHERE job_id = ? AND kind = 'run_output_terminal'",
+    ).all(jobId);
+    expect(rows).toEqual([{ status: "PENDING" }]);
+    expect(() => recordTerminalRunOutput({ db: storage.db, artifacts, jobId, phase: "baseline", output: output() }))
+      .toThrowError(/pending reconciliation/i);
     expect(storage.db.prepare("SELECT id FROM job_events WHERE job_id = ? AND event_type = 'run_output_truncated_terminal'").all(jobId)).toHaveLength(0);
   });
 });
