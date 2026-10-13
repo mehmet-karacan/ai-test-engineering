@@ -29,6 +29,21 @@ function ready(count: number, oldName: string, newName: string, old = oldDb): st
 }
 
 describe("Windows restore recovery READY reconciliation", () => {
+  it("accepts fresh count0/count1 and rejects invented old files or a changed staged FileId", () => {
+    const journal: RestoreJournalRecord = { ...record(), phase: "FRESH_TARGET_CONFIRMED",
+      nativeInitial: { oldDb: null, oldWal: null, oldShm: null, stagedDb }, moveReceipts: [] };
+    const line = (count: number, fileName: string, snapshot = stagedDb, oldField = "oldDb=-") =>
+      ["RECOVERY_READY", journal.generation, String(count), oldField, "oldWal=-", "oldShm=-",
+        `stagedDb=${name(fileName)}:${snap(snapshot)}`].join("\t");
+    expect(validateRestoreRecoveryReady(line(0, stageName), journal).physicalForwardCount).toBe(0);
+    expect(validateRestoreRecoveryReady(line(1, dbName), journal).physicalForwardCount).toBe(1);
+    expect(() => validateRestoreRecoveryReady(line(1, dbName,
+      { ...stagedDb, fileId: "f".repeat(32) }), journal)).toThrow();
+    expect(() => validateRestoreRecoveryReady(line(1, dbName, stagedDb,
+      `oldDb=${name(preservedName)}:${snap(oldDb)}`), journal)).toThrow();
+    expect(() => validateRestoreRecoveryReady(line(2, dbName), journal)).toThrow();
+  });
+
   it("accepts durable receipt prefix and one physical MOVE ahead", () => {
     const journal = record();
     expect(validateRestoreRecoveryReady(ready(1, preservedName, stageName), journal).physicalForwardCount).toBe(1);
