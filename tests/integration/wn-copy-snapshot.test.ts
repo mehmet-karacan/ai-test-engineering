@@ -453,6 +453,57 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
     }
   }, 30_000);
 
+  it("quarantines a forged complete receipt after READY hard kill and restart", async () => {
+    const sandbox = fixture();
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const source = join(sandbox, "source");
+      const target = join(sandbox, "target");
+      mkdirSync(source); mkdirSync(target);
+      writeFileSync(join(source, "pom.xml"), "original");
+      const snapshot = new SourceSnapshot(source);
+      const manifest = snapshot.buildManifest();
+      const bridge = packagedWindowsFileHelper();
+      const sourceId = inspectWindowsPath(bridge, source);
+      const targetId = inspectWindowsPath(bridge, target);
+      child = spawn(packagedSnapshotHelper(), ["snapshot", source, target,
+        sourceId.volumeSerial + sourceId.fileId, targetId.volumeSerial + targetId.fileId],
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
+      const closed = once(child, "close") as Promise<[number]>;
+      expect((await lines.next()).value).toBe("READY");
+      expect(child.kill()).toBe(true);
+      expect((await closed)[0]).toBe(null);
+
+      // A same-account writer can replace every target-local receipt after the crash.
+      writeFileSync(join(target, "pom.xml"), "original");
+      const publicManifest = JSON.stringify({ ...manifest,
+        entries: manifest.entries.map(({ source_location: _loc, ...entry }) => entry) }, null, 2);
+      writeFileSync(join(target, "snapshot-manifest.json"), publicManifest);
+      const fileId = inspectWindowsPath(bridge, join(target, "pom.xml"));
+      const manifestId = inspectWindowsPath(bridge, join(target, "snapshot-manifest.json"));
+      const marker = `AITEST_SNAPSHOT_V1\n${sourceId.volumeSerial}${sourceId.fileId}\n` +
+        `${targetId.volumeSerial}${targetId.fileId}\n` +
+        `F\t${Buffer.from("pom.xml", "utf16le").toString("hex")}\t${fileId.volumeSerial}${fileId.fileId}\n` +
+        `M\t${manifestId.volumeSerial}${manifestId.fileId}\n`;
+      writeFileSync(join(target, ".aitest-snapshot-session"), marker);
+
+      try { snapshot.copyTo(target, manifest); throw new Error("Accepted forged restart ownership"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
+      }
+      expect(readFileSync(join(target, ".aitest-snapshot-session"), "utf8")).toBe(marker);
+      expect(readFileSync(join(target, "snapshot-manifest.json"), "utf8")).toBe(publicManifest);
+      expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.stdin.destroy(); child.kill(); await once(child, "close");
+      }
+      cleanup(sandbox);
+    }
+  }, 60_000);
+
   it("quarantines a published snapshot after publish-before-OK hard kill without external ownership", async () => {
     const sandbox = fixture();
     let child: ChildProcessWithoutNullStreams | undefined;
