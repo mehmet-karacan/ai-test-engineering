@@ -464,7 +464,7 @@ int restoreSession(int argc, wchar_t** argv, bool recovering) {
         (!slots[2].present || slots[2].currentName == dbName + L"-shm");
       const bool sidecarsPreserved = (!slots[1].present || slots[1].currentName == dbName + L"-wal" + preservedSuffix) &&
         (!slots[2].present || slots[2].currentName == dbName + L"-shm" + preservedSuffix);
-      const bool rolledBack = sequence > 0 && slots[0].currentName == dbName &&
+      const bool rolledBack = (sequence > 0 || (recovering && accepted)) && slots[0].currentName == dbName &&
         slots[3].currentName == stagedName && sidecarsAtOrigin;
       const bool verifiedPublished = !preservedSuffix.empty() && slots[0].currentName == dbName + preservedSuffix &&
         slots[3].currentName == dbName && slots[3].readGuard && sidecarsPreserved;
