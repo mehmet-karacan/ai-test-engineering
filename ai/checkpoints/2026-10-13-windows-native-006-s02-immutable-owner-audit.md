@@ -1,0 +1,15 @@
+# S02 installed input ve owner topology kabul denetimi
+
+Tarih: 2026-10-13. Dal/HEAD `codex/windows-native-006-s02` / `74dedc9`; koordinator izleme bazi `d130c45`. Iki dal arasinda asagidaki urun kodu ve odak fixture dosyalarinda fark yok. Musteri Maven/model, gercek kurulum yolu, CI ve eski Temp artifaktlari kullanilmadi. Bu dilimde urun kodu degismedi.
+
+| Kabul | Dosya ve kanit | Sinir / karar |
+| --- | --- | --- |
+| WN14 | `src/runners/runner-factory.ts:41,51` normal musteri yolunda sahiplik kaniti yoksa `NATIVE_PROCESS_OWNERSHIP_UNVERIFIED` uretir. | Native musteri Maven baslangici NO_GO. |
+| WN15 | `src/runners/native-toolchain.ts:248,360-371` kurulu Maven/JDK'nin taranan dosyalarini hash listesine katar; `:140` lifecycle altinda eksik manifesti probe oncesi reddeder. `src/runners/maven-runner.ts:111` dogrulanmis pin listesini goal'a tasir. `src/runners/windows-process-supervisor.ts:134-151` helper'a beklenen pinleri tasir. `tests/integration/wn-install-manifest-helper.test.ts:88-130` eski JAR pinliyken yeni `lib/new.jar` yaratma/silme ara olayini gosterir. | Var olan baytlar icin pin yerel kanitli; dizin uyeligi calisirken immutable degil. Baslangic/bitis ayni gorunur. WN15 NO_GO. |
+| WN18 | `src/runners/native-toolchain.ts:323-369` PATH/env, profil, settings/toolchains ve `.mvn` girdilerini kimlige baglar; yok girdiler `null` pin olur. `native/windows-process-helper.cpp:198-205` yoklugu sure boyunca tutamadiginda `pin_unavailable` ile child oncesi durur. | Etkin kimlikte bilinen girdiler kayitli; sonradan dosya ekleme ve eksik implicit config icin calisan cozum yok. WN18 NO_GO. |
+| WN22 | `native/windows-process-helper.cpp:213,260` kendi Job'unu kurup suspended child'i atar. `tests/integration/wn-job-object.test.ts` cancel/timeout/foreign Node ayrimini olcer. | Yerel owned tree kesitleri kanitli; gercek musteri Maven/JVM ve bagimsiz IDE kabulu yok. WN22 NO_GO. |
+| WN23 | `native/windows-process-helper.cpp:315` EOF halinde `owner_lost` yazar. `tests/integration/wn-job-object.test.ts:189-211` bagimsiz pipe EOF yolunu, `:222` ust Job icindeki parent kesitini olcer. `scripts/wn23-parent-hardkill-probe.mjs` ve `s02-wn23-parent-grandchild` checkpoint'i parent/helper/child/grandchild any-Job uyeligi ve parent kesiti sonrasi bos terminal status kaydini gosterir. | `IsProcessInJob(..., nullptr)` ayni Job kimligini veya ust zinciri gostermez; gercek parent kesitinde helper reaper'in bagimsiz calistigi kanitlanmadi. Gec sonuc trusted kabul edilmez; WN23 NO_GO. |
+
+Secili gercek Windows probu: `npx vitest run tests/integration/wn-install-manifest-helper.test.ts --maxWorkers=1` exit 0, 1 dosya/3 PASS. Ucuncu testte calisan helper ve tutulan eski JAR varken yeni JAR yazilip okunur, sonra silinir; helper cancel ile temizlenir. Bu mevcut RED guvenlik oracle'ini yeniden dogrular; yeni bir fixture yazmak onceki kaniti tekrarlayacagindan eklenmedi. Tam suite veya musteri zinciri kosulmadi.
+
+Sonuc: S02 IN_PROGRESS; WN14/15/18/22/23 ve G1/G2/G3 kapali. Kurulum uyeligi icin guvenilir immutable kaynak ve ust Job disinda bagimsiz parent reaper kaniti sonraki kabul girdileridir.
