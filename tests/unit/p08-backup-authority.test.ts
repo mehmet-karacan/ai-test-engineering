@@ -68,7 +68,7 @@ describe("P08: backup snapshot authority", () => {
     assert.equal(verifyBackup(saved.backup_dir).valid, true);
     const target = join(f.root, "restored", "state.db");
     const targetArtifacts = join(f.root, "restored", "artifacts");
-    restoreBackup(saved.backup_dir, target, targetArtifacts);
+    await restoreBackup(saved.backup_dir, target, targetArtifacts);
     const restored = new Database(target, { readonly: true });
     try {
       assert.equal(restored.prepare<[], { n: number }>("SELECT COUNT(*) AS n FROM test_jobs").get()?.n, 1);
@@ -95,7 +95,7 @@ describe("P08: backup snapshot authority", () => {
     assert.ok(result.missing_blobs.includes(blob.relative_path));
     const target = join(f.root, "must-not-change.db");
     writeFileSync(target, "onceki runtime");
-    assert.throws(() => restoreBackup(saved.backup_dir, target, join(f.root, "restore-artifacts")));
+    await assert.rejects(restoreBackup(saved.backup_dir, target, join(f.root, "restore-artifacts")));
     assert.equal(readFileSync(target, "utf8"), "onceki runtime");
   }));
 

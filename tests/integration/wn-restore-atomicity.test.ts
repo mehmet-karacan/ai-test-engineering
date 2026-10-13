@@ -130,7 +130,7 @@ describe("WN restore atomikligi", () => {
       writeFileSync(manifestPath, JSON.stringify(manifest));
       assert.equal(verifyBackup(saved.backup_dir).valid, false);
       const targetDbPath = join(root, "runtime", "state.db");
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")));
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")));
       assert.equal(existsSync(targetDbPath), false);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
     } finally {
@@ -157,7 +157,7 @@ describe("WN restore atomikligi", () => {
       target.prepare("INSERT INTO test_jobs VALUES ('active-job', 'RUNNING')").run();
       target.close();
       const baseline = sha256Data(readFileSync(targetDbPath));
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_ACTIVE_JOBS");
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -187,7 +187,7 @@ describe("WN restore atomikligi", () => {
       const shmPath = `${targetDbPath}-shm`;
       const walBaseline = existsSync(walPath) ? sha256Data(readFileSync(walPath)) : null;
       const shmBaseline = existsSync(shmPath) ? sha256Data(readFileSync(shmPath)) : null;
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_DB_OPEN");
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(walPath), walBaseline !== null);
@@ -237,7 +237,7 @@ describe("WN restore atomikligi", () => {
       sourceDb.close();
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, sourceArtifacts),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, sourceArtifacts),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PATH_OVERLAP");
       assert.equal(existsSync(targetDbPath), false);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -268,7 +268,7 @@ describe("WN restore atomikligi", () => {
       mkdirSync(outside, { recursive: true });
       mkdirSync(targetArtifacts, { recursive: true });
       symlinkSync(outside, join(targetArtifacts, "blobs"), "junction");
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_REPARSE_POINT");
       assert.equal(existsSync(targetDbPath), false);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -300,7 +300,7 @@ describe("WN restore atomikligi", () => {
       symlinkSync(outside, backupSegment, "junction");
       assert.equal(verifyBackup(saved.backup_dir).valid, false);
       const targetDbPath = join(root, "runtime", "state.db");
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_REPARSE_POINT");
       assert.equal(existsSync(targetDbPath), false);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -329,7 +329,7 @@ describe("WN restore atomikligi", () => {
       sourceDb.close();
       sourceDb = undefined;
       const targetDbPath = join(root, "runtime", "state.db");
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, dirname(targetDbPath)),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, dirname(targetDbPath)),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PATH_COLLISION");
       assert.equal(existsSync(targetDbPath), false);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -360,7 +360,7 @@ describe("WN restore atomikligi", () => {
       manifest.blobs[0]!.relative_path = `${otherDrive}:\\outside\\blob`;
       writeFileSync(manifestPath, JSON.stringify(manifest));
       const targetDbPath = join(root, "runtime", "state.db");
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "PATH_ESCAPE");
       assert.equal(existsSync(targetDbPath), false);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -389,7 +389,7 @@ describe("WN restore atomikligi", () => {
       const targetArtifacts = join(root, "runtime", "artifacts");
       mkdirSync(targetArtifacts, { recursive: true });
       writeFileSync(join(targetArtifacts, "blobs"), "keep me");
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_PARENT_NOT_DIRECTORY");
       assert.equal(existsSync(targetDbPath), false);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -420,7 +420,7 @@ describe("WN restore atomikligi", () => {
       const baseline = sha256Data(readFileSync(targetDbPath));
       const releaseDb = acquireRestoreDbLock(targetDbPath);
       try {
-        assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "other-artifacts")),
+        await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "other-artifacts")),
           (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "MAINTENANCE_BUSY_OR_STALE");
         assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
         assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -476,7 +476,7 @@ describe("WN restore atomikligi", () => {
 
       let thrown: unknown;
       try {
-        restoreBackup(saved.backup_dir, runtimeDbPath, runtimeArtifacts);
+        await restoreBackup(saved.backup_dir, runtimeDbPath, runtimeArtifacts);
       } catch (error) {
         thrown = error;
       }
@@ -536,7 +536,7 @@ describe("WN restore atomikligi", () => {
       const baseline = sha256Data(readFileSync(targetDbPath));
 
       faults.stageCopy = true;
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /ENOSPC/);
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /ENOSPC/);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline, "copy failure must preserve active DB bytes");
       assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "ROLLED_BACK");
     } finally {
@@ -566,7 +566,7 @@ describe("WN restore atomikligi", () => {
       active.close();
       const baseline = sha256Data(readFileSync(targetDbPath));
       faults.tamperStagedDb = true;
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_STAGED_DB_CHANGED");
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       assert.equal(existsSync(journalPathForDb(targetDbPath)), false);
@@ -602,7 +602,7 @@ describe("WN restore atomikligi", () => {
       const baseline = sha256Data(readFileSync(targetDbPath));
       faults.observedLinks = 0;
       faults.tamperStagedBlob = true;
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts),
         (error: unknown) => (error as { details?: { reason_code?: unknown } })?.details?.reason_code === "RESTORE_STAGED_BLOB_CHANGED");
       assert.equal(faults.observedLinks, 0);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
@@ -635,7 +635,7 @@ describe("WN restore atomikligi", () => {
       active.close();
       const baseline = sha256Data(readFileSync(targetDbPath));
       faults.dbPublish = true;
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")), /EACCES/);
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, join(root, "runtime", "artifacts")), /EACCES/);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline, "publish failure must preserve old DB bytes");
       assert.equal(readRestoreJournal(journalPathForDb(targetDbPath))?.phase, "ROLLED_BACK");
     } finally {
@@ -673,7 +673,7 @@ describe("WN restore atomikligi", () => {
       const baseline = sha256Data(readFileSync(targetDbPath));
       faults.secondBlobPublish = true;
       faults.linkCount = 0;
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /EACCES/);
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /EACCES/);
       assert.equal(sha256Data(readFileSync(targetDbPath)), baseline);
       for (const blob of blobs) assert.equal(existsSync(join(targetArtifacts, blob.relative_path)), false);
     } finally {
@@ -716,7 +716,7 @@ describe("WN restore atomikligi", () => {
         try { runtimeStore.publish("report", "shared payload"); publishSucceeded = true; }
         catch (error) { publishError = error; }
       };
-      assert.throws(() => restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /EACCES/);
+      await assert.rejects(restoreBackup(saved.backup_dir, targetDbPath, targetArtifacts), /EACCES/);
       const firstPath = join(targetArtifacts, first.relative_path);
       if (publishSucceeded) {
         assert.equal(existsSync(firstPath), true, "normal publisher's referenced blob must survive restore rollback");

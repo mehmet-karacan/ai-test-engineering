@@ -49,7 +49,7 @@ fs.renameSync = (from, to) => { const result = rename(from, to);
   if (mode === "PUBLISH_DB" && to === targetDb && from.includes(".restore-") && !from.includes(".restore-old-")) halt();
   return result; };
 syncBuiltinESMExports();
-import(moduleUrl).then((module) => { module.restoreBackup(backupDir, targetDb, artifacts); process.exitCode = 43; })
+import(moduleUrl).then(async (module) => { await module.restoreBackup(backupDir, targetDb, artifacts); process.exitCode = 43; })
   .catch((error) => { process.stderr.write(String(error?.stack ?? error)); process.exitCode = 44; });
 `;
 
@@ -214,7 +214,7 @@ try {
     const before = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);
     let outcome = "RESTORED";
-    try { restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts")); }
+    try { await restoreBackup(rawBackup.backup_dir, rawTargetPath, join(rawRoot, "runtime", "artifacts")); }
     catch (error) { outcome = error?.details?.reason_code ?? error?.code ?? String(error); }
     const after = ["", "-wal", "-shm"].map((suffix) => existsSync(`${rawTargetPath}${suffix}`)
       ? hashFile(`${rawTargetPath}${suffix}`) : null);

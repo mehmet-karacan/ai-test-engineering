@@ -67,7 +67,7 @@ describe("FIN11: backup/restore gercek zinciri (18.5)", () => {
     expect(verification.blob_check_ok).toBe(true);
     const restoredDbPath = join(dir, "restored", "state.db");
     const restoredArtifactRoot = join(dir, "restored", "artifacts");
-    const restored = restoreBackup(backup.backup_dir, restoredDbPath, restoredArtifactRoot);
+    const restored = await restoreBackup(backup.backup_dir, restoredDbPath, restoredArtifactRoot);
     expect(restored.db_path).toBe(restoredDbPath);
     expect(readFileSync(join(restoredArtifactRoot, record.relativeStorePath), "utf8")).toBe("rapor-icerigi");
     const restoredStorage = new Storage({ dbPath: restoredDbPath });

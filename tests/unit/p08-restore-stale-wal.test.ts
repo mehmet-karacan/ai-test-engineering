@@ -48,7 +48,7 @@ describe("P08/PP44: restore stale WAL/SHM temizligi", () => {
       expect(existsSync(shmPath)).toBe(true);
 
       // restoreBackup AYNI konuma (PP44 e2e'deki live store restore'u):
-      restoreBackup(backup.backup_dir, targetDb, artifactRoot);
+      await restoreBackup(backup.backup_dir, targetDb, artifactRoot);
 
       // Guvenli davranis: stale yan dosyalar temizlendi.
       expect(existsSync(walPath)).toBe(false);
@@ -86,7 +86,7 @@ describe("P08/PP44: restore stale WAL/SHM temizligi", () => {
       backupDb.close();
 
       const freshDb = join(dir, "restored", "state.db");
-      restoreBackup(backup.backup_dir, freshDb, join(dir, "restored", "artifacts"));
+      await restoreBackup(backup.backup_dir, freshDb, join(dir, "restored", "artifacts"));
       expect(existsSync(`${freshDb}-wal`)).toBe(false);
       expect(existsSync(`${freshDb}-shm`)).toBe(false);
       const reopened = new Database(freshDb);

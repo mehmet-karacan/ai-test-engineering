@@ -132,7 +132,7 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v7 migrate)", (
     // Rollback: dogrulanmis backup'i yeni konuma restore et; trusted job + blob geri gelir.
     const restoredDb = join(dir, "restored", "state.db");
     const restoredArtifacts = join(dir, "restored", "artifacts");
-    restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
+    await restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
     const restored = new Storage({ dbPath: restoredDb });
     try {
       expect(restored.schemaVersion()).toBe(7);
