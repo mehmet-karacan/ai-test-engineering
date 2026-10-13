@@ -1,10 +1,11 @@
 /** One Windows .cmd invocation through the owned Job Object helper. */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { AppError } from "../domain/errors.js";
 
@@ -48,6 +49,12 @@ export interface NativeProcessPlan {
   maxLogBytes?: number;
 }
 
+export interface NativeProcessLifecycle {
+  beforeSpawn(plan: NativeProcessPlan): void;
+  afterSpawn(pid: number | undefined): void;
+  afterTerminal(result: NativeProcessResult): void;
+}
+
 export interface NativeProcessResult {
   status: "success" | "nonzero" | "spawn_error" | "timeout" | "cancelled";
   exitCode: number | null;
@@ -57,6 +64,8 @@ export interface NativeProcessResult {
   stderrTruncatedBytes: number;
   durationMs: number;
   errorCode?: string;
+  /** Set only after the helper's terminal status proves its Job Object is empty. */
+  ownedTreeDrained?: boolean;
 }
 
 function quote(value: string): string {
@@ -99,8 +108,31 @@ class BoundedOutput {
   }
 }
 
+/** A locked Windows control file can outlive the helper's close event briefly. */
+export async function cleanupOwnedProcessControlRoot(
+  root: string,
+  remove: (path: string) => void = (path) => rmSync(path, { recursive: true, force: true }),
+): Promise<boolean> {
+  const tempRoot = resolve(tmpdir());
+  const target = resolve(root);
+  const inside = relative(tempRoot, target);
+  if (!isAbsolute(root) || inside === "" || inside.startsWith("..") || isAbsolute(inside) ||
+      !basename(target).startsWith("aitest-owned-process-")) return false;
+  try {
+    if (lstatSync(target).isSymbolicLink() || realpathSync.native(target).toLowerCase() !== target.toLowerCase()) return false;
+  } catch { return false; }
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try { remove(target); return true; }
+    catch (error) {
+      if (!["EPERM", "EBUSY", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "") || attempt === 11) return false;
+      await delay(50);
+    }
+  }
+  return false;
+}
+
 export class WindowsProcessSupervisor {
-  async run(plan: NativeProcessPlan, signal?: AbortSignal): Promise<NativeProcessResult> {
+  async run(plan: NativeProcessPlan, signal?: AbortSignal, lifecycle?: NativeProcessLifecycle): Promise<NativeProcessResult> {
     if (process.platform !== "win32") {
       throw new AppError("BLOCKED_ISOLATION", "UNSUPPORTED_PLATFORM");
     }
@@ -126,16 +158,42 @@ export class WindowsProcessSupervisor {
     assertWindowsProcessHelper();
     const controlRoot = mkdtempSync(join(tmpdir(), "aitest-owned-process-"));
     const statusPath = join(controlRoot, "status.json");
+    const stagedHelper = join(controlRoot, "windows-process-helper.exe");
+    try {
+      copyFileSync(HELPER, stagedHelper);
+      const manifest = JSON.parse(readFileSync(HELPER_MANIFEST, "utf8")) as { binary_sha256: string };
+      const copiedHash = createHash("sha256").update(readFileSync(stagedHelper)).digest("hex");
+      if (copiedHash !== manifest.binary_sha256) throw new Error("staged helper digest mismatch");
+    } catch {
+      const cleaned = await cleanupOwnedProcessControlRoot(controlRoot);
+      return { status: "spawn_error", exitCode: null, stdout: "", stderr: "", stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0,
+        durationMs: Date.now() - started, errorCode: cleaned ? "HELPER_STAGE_FAILED" : "HELPER_CONTROL_CLEANUP_FAILED" };
+    }
+    try { lifecycle?.beforeSpawn(plan); }
+    catch (error) {
+      if (!await cleanupOwnedProcessControlRoot(controlRoot)) {
+        throw new AppError("BLOCKED_ISOLATION", "Native helper control cleanup failed", { reason_code: "HELPER_CONTROL_CLEANUP_FAILED" });
+      }
+      throw error;
+    }
     let child: ChildProcess;
     try {
       const nativeCommand = `"${cmd}" /d /s /v:off /c ${commandLine}`;
-      child = spawn(HELPER, [statusPath, plan.cwd, cmd, nativeCommand], {
+      child = spawn(stagedHelper, [statusPath, plan.cwd, cmd, nativeCommand], {
         cwd: plan.cwd, env: plan.env, shell: false,
         windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
       });
     } catch (error) {
-      rmSync(controlRoot, { recursive: true, force: true });
-      return { status: "spawn_error", exitCode: null, stdout: "", stderr: "", stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: Date.now() - started, errorCode: (error as NodeJS.ErrnoException).code ?? "UNKNOWN" };
+      const cleaned = await cleanupOwnedProcessControlRoot(controlRoot);
+      return { status: "spawn_error", exitCode: null, stdout: "", stderr: "", stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: Date.now() - started, errorCode: cleaned ? (error as NodeJS.ErrnoException).code ?? "UNKNOWN" : "HELPER_CONTROL_CLEANUP_FAILED" };
+    }
+    let registrationFailed = false;
+    try { lifecycle?.afterSpawn(child.pid); }
+    catch {
+      registrationFailed = true;
+      // Only the helper PID returned by this spawn is targeted. Closing it
+      // closes the Job Object handle; the durable record remains unresolved.
+      child.kill();
     }
     child.stdout?.on("data", (data: Buffer) => stdout.append(data));
     child.stderr?.on("data", (data: Buffer) => stderr.append(data));
@@ -167,18 +225,22 @@ export class WindowsProcessSupervisor {
     let helperStatus: HelperStatus | undefined;
     try { helperStatus = JSON.parse(readFileSync(statusPath, "utf8")) as HelperStatus; }
     catch { /* Missing/invalid status is a typed ownership failure. */ }
-    rmSync(controlRoot, { recursive: true, force: true });
+    const cleaned = await cleanupOwnedProcessControlRoot(controlRoot);
     const validExit = helperStatus?.kind === "exited" && helperStatus.win32_error === 0 &&
       Number.isSafeInteger(helperStatus.exit_code) && helperStatus.exit_code >= 0 && helperStatus.exit_code <= 0xffffffff;
     const validCancelled = helperStatus?.kind === "cancelled" && helperStatus.win32_error === 0 && completion.code === 101;
-    const status = reason && validCancelled ? reason :
+    const status = !cleaned || registrationFailed ? "spawn_error" : reason && validCancelled ? reason :
       (completion.errorCode || !validExit || completion.code !== 0 ? "spawn_error" :
       helperStatus?.exit_code === 0 ? "success" : "nonzero");
-    return {
+    const result: NativeProcessResult = {
       status, exitCode: validExit ? helperStatus?.exit_code ?? null : null, stdout: stdout.text(), stderr: stderr.text(),
       stdoutTruncatedBytes: stdout.dropped, stderrTruncatedBytes: stderr.dropped,
       durationMs: Date.now() - started,
-      ...(status === "spawn_error" ? { errorCode: completion.errorCode ?? helperStatus?.kind ?? "HELPER_STATUS_MISSING" } : {}),
+      ownedTreeDrained: status !== "spawn_error" && (validExit || validCancelled),
+      ...(status === "spawn_error" ? { errorCode: !cleaned ? "HELPER_CONTROL_CLEANUP_FAILED" : registrationFailed ? "NATIVE_REGISTRY_WRITE_FAILED" : completion.errorCode ?? helperStatus?.kind ?? "HELPER_STATUS_MISSING" } : {}),
     };
+    try { lifecycle?.afterTerminal(result); }
+    catch { return { ...result, status: "spawn_error", exitCode: null, errorCode: "NATIVE_REGISTRY_COMMIT_FAILED" }; }
+    return result;
   }
 }

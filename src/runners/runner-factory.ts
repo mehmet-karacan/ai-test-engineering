@@ -9,6 +9,7 @@ import { AppError } from "../domain/errors.js";
 import { DockerRunner, DEFAULT_MAVEN_IMAGE, type DockerPreflightResult, type RunnerCapabilityProbe } from "./docker-runner.js";
 import { MavenRunner, type RunResult, type MavenRunOptions } from "./maven-runner.js";
 import { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolchain, type NativeToolchainOptions, type VerifiedNativeToolchainPlan } from "./native-toolchain.js";
+import type { NativeProcessLifecycle } from "./windows-process-supervisor.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 
@@ -43,11 +44,11 @@ export class CustomerRunnerFactory {
 
   /** Once ownership is proven, this preflight binds executable/config bytes
    * and actual Maven/Java versions to one typed identity before baseline. */
-  async prepareNativeCustomerToolchain(options: NativeToolchainOptions): Promise<VerifiedNativeToolchainPlan> {
+  async prepareNativeCustomerToolchain(options: NativeToolchainOptions, lifecycle?: NativeProcessLifecycle): Promise<VerifiedNativeToolchainPlan> {
     this.assertNativeCustomerReady();
     const env = effectiveMavenEnvironment(options.env);
     const selected = NativeToolchainResolver.resolve({ ...options, env });
-    return verifyNativeToolchain(selected, env);
+    return verifyNativeToolchain(selected, env, undefined, lifecycle);
   }
 
   /**

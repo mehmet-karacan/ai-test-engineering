@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
+import { isUnresolvedNativeProcessIdentity } from "./native-process-registry.js";
 
 export interface Lease {
   id: string;
@@ -37,6 +38,15 @@ export class LeaseManager {
           "SELECT id, owner_id, fencing_token, expires_at, heartbeat_at, process_identity FROM job_leases WHERE job_id = ? ORDER BY fencing_token DESC LIMIT 1",
         )
         .get(jobId);
+
+      // Even an apparently healthy lease is not a safe new invocation while
+      // a native helper launch is still recorded. renew() remains available
+      // to its current owner without changing the process record.
+      if (existing && isUnresolvedNativeProcessIdentity(existing.process_identity)) {
+        throw new AppError("BLOCKED_ISOLATION", "Prior native process ownership is unresolved", {
+          reason_code: "NATIVE_PROCESS_UNRESOLVED",
+        });
+      }
 
       // 1) Ayni owner, saglikli lease: idempotent yenileme (token ayni kalir).
       if (existing && existing.owner_id === ownerId && existing.expires_at > now) {

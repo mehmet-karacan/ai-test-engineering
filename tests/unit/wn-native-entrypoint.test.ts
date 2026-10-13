@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { basename, delimiter, isAbsolute, join, relative, resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
 import { CustomerRunnerFactory, resolveRunnerKindFromEnv } from "../../src/runners/runner-factory.js";
 import { DockerRunner } from "../../src/runners/docker-runner.js";
 import { MavenRunner } from "../../src/runners/maven-runner.js";
@@ -93,4 +93,62 @@ describe("WN14/WN24 native customer entrypoint", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("selects the owned native runner for baseline and candidate after readiness", () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-routing-"));
+    const services = createDefaultServicesForTest(join(root, "state.db"), join(root, "artifacts"));
+    try {
+      const dispatcher = new JobDispatcher({ services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: join(root, "workspace") });
+      const nativeRunner = new MavenRunner();
+      const selected = (dispatcher as unknown as { buildVerifiedLoopRunner: (docker: undefined, host: MavenRunner, root: string) => MavenRunner })
+        .buildVerifiedLoopRunner(undefined, nativeRunner, root);
+      expect(selected).toBe(nativeRunner);
+    } finally { services.storage?.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it.skipIf(process.platform !== "win32")("runs only a synthetic native baseline in the frozen workspace through normal dispatch routing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-dispatch-fixture-"));
+    const services = createDefaultServicesForTest(join(root, "state.db"), join(root, "artifacts"));
+    const originalPath = process.env.Path;
+    const readiness = vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const docker = vi.spyOn(DockerRunner.prototype, "preflight");
+    try {
+      const project = join(root, "project");
+      mkdirSync(project);
+      writeFileSync(join(project, "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>fixture</artifactId><version>1</version><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.12</version></plugin></plugins></build></project>`);
+      writeFileSync(join(project, "mvn.cmd"), "@echo off\r\nif \"%~1\"==\"-v\" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\nif not exist target mkdir target\r\necho native>target\\ran.txt\r\nexit /b 0\r\n");
+      const sourceFiles = readdirSync(project).sort();
+      const digestSource = (): string => {
+        const hash = createHash("sha256");
+        for (const name of sourceFiles) hash.update(name).update(readFileSync(join(project, name)));
+        return hash.digest("hex");
+      };
+      const sourceDigest = digestSource();
+      process.env.Path = `${project}${delimiter}${originalPath ?? ""}`;
+      const { location } = new ProjectRepository(services.storage!.db).ensureLocation(project, "native-dispatch-fixture", null);
+      const job = services.jobs!.createJob({ locationId: location.id, requestDigest: "native-dispatch-fixture" });
+      const dispatcher = new JobDispatcher({ services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: join(root, "workspace") });
+      const result = await dispatcher.dispatch(job, dispatcher.buildGoalContract(job, [], project), project);
+      expect(result.final_outcome).toBe("BASELINE_FAILED"); // fixture intentionally emits no Surefire report
+      expect(existsSync(join(root, "workspace", "jobs", job.id, "baseline", "target", "ran.txt"))).toBe(true);
+      expect(existsSync(join(project, "target", "ran.txt"))).toBe(false);
+      expect(readdirSync(project).sort()).toEqual(sourceFiles);
+      expect(digestSource()).toBe(sourceDigest);
+      expect(docker).not.toHaveBeenCalled();
+    } finally {
+      if (originalPath === undefined) delete process.env.Path;
+      else process.env.Path = originalPath;
+      readiness.mockRestore(); docker.mockRestore();
+      services.storage?.close();
+      const target = resolve(root);
+      const inside = relative(resolve(tmpdir()), target);
+      const safe = !!inside && !inside.startsWith("..") && !isAbsolute(inside) && basename(target).startsWith("aitest-wn-dispatch-fixture-") &&
+        !lstatSync(target).isSymbolicLink() && realpathSync.native(target).toLowerCase() === target.toLowerCase();
+      if (safe) {
+        rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+      } else {
+        process.stderr.write("Native dispatch fixture cleanup skipped outside owned Temp root\n");
+      }
+    }
+  }, 60000);
 });
