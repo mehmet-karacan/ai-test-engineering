@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AppError } from "../domain/errors.js";
 
 /** Expected digest must come from a trusted release manifest, not the helper. */
@@ -19,7 +20,7 @@ export interface WindowsCopyResult extends WindowsFileIdentity {
   sha256: string;
 }
 
-function invoke(helper: WindowsFileHelperSpec, args: string[]): string[] {
+export function assertTrustedWindowsFileHelper(helper: WindowsFileHelperSpec): void {
   if (process.platform !== "win32") throw new AppError("POLICY_VIOLATION", "Windows file helper requires Windows");
   try {
     if (!isAbsolute(helper.path) || !/^[0-9a-f]{64}$/u.test(helper.sha256) || lstatSync(helper.path).isSymbolicLink() ||
@@ -30,6 +31,30 @@ function invoke(helper: WindowsFileHelperSpec, args: string[]): string[] {
   } catch {
     throw new AppError("BLOCKED_ISOLATION", "Windows file helper identity is not trusted", { reason_code: "WINDOWS_FILE_HELPER_IDENTITY" });
   }
+}
+
+/** Resolve the packaged binary from its checked source/binary manifest. */
+export function packagedWindowsFileHelper(): WindowsFileHelperSpec {
+  try {
+    const manifest = JSON.parse(readFileSync(new URL("../../native/windows-file-helper.manifest.json", import.meta.url), "utf8")) as unknown;
+    if (!manifest || typeof manifest !== "object" || !("schema_version" in manifest) || manifest.schema_version !== 1 ||
+        !("source_sha256" in manifest) || typeof manifest.source_sha256 !== "string" ||
+        !("binary_sha256" in manifest) || typeof manifest.binary_sha256 !== "string") throw new Error("invalid manifest");
+    const sourceSha = createHash("sha256").update(readFileSync(new URL("../../native/windows-file-helper.cpp", import.meta.url))).digest("hex");
+    if (sourceSha !== manifest.source_sha256) throw new Error("source mismatch");
+    const helper = { path: fileURLToPath(new URL("../../native/bin/windows-file-helper.exe", import.meta.url)),
+      sha256: manifest.binary_sha256 };
+    assertTrustedWindowsFileHelper(helper);
+    return helper;
+  } catch {
+    throw new AppError("BLOCKED_ISOLATION", "Packaged Windows file helper provenance is invalid", {
+      reason_code: "WINDOWS_FILE_HELPER_PROVENANCE",
+    });
+  }
+}
+
+function invoke(helper: WindowsFileHelperSpec, args: string[]): string[] {
+  assertTrustedWindowsFileHelper(helper);
   const run = spawnSync(helper.path, args, { shell: false, windowsHide: true, encoding: "utf8", timeout: 30000, maxBuffer: 64 * 1024 });
   if (run.error || run.status !== 0 || run.signal) {
     if (run.status === 3) {
