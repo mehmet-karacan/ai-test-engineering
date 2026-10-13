@@ -12,7 +12,7 @@
     "aitest-mcp": "./dist/mcp/stdio-entry.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/write-build-stamp.mjs && node scripts/verify-windows-process-helper.mjs",
+    "build": "tsc && node scripts/write-build-stamp.mjs && node scripts/verify-windows-process-helper.mjs && node scripts/verify-windows-file-helper.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
