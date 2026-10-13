@@ -14,8 +14,8 @@ import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
-import type { WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
-import { captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession,
+import { inspectWindowsPath, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
+import { assertWindowsRestoreRootIdentity, captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession,
   type RestoreFileSlot, type RestoreMoveSession } from "./windows-restore-session.js";
 import type { RestoreMoveReceipt, RestoreNativeInitial } from "./restore-journal.js";
 
@@ -541,6 +541,13 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
 
   mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
   mkdirSync(targetArtifactRoot, { recursive: true });
+  const initialArtifactRoot = options?.nativeHelper ? inspectWindowsPath(options.nativeHelper, targetArtifactRoot) : null;
+  let artifactRootChanged = false;
+  const assertArtifactRoot = (): void => {
+    if (!options?.nativeHelper || !initialArtifactRoot) return;
+    try { assertWindowsRestoreRootIdentity(options.nativeHelper, targetArtifactRoot, initialArtifactRoot); }
+    catch (error) { artifactRootChanged = true; throw error; }
+  };
   const tempDb = `${targetDbPath}.restore-${randomUUID()}`;
   const oldSuffix = `.restore-old-${randomUUID()}`;
   const journalPath = journalPathForDb(targetDbPath);
@@ -603,11 +610,15 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     // Tum blob kopyalari ve olasi IO hatalari DB yayini oncesinde tamamlanir.
     for (const item of plan) {
       if (item.skip) continue;
+      assertArtifactRoot();
       mkdirSync(resolve(item.destination, ".."), { recursive: true });
+      assertArtifactRoot();
       copyFileSync(item.source, item.stage);
+      assertArtifactRoot();
     }
     for (const item of plan) {
       if (item.skip) continue;
+      assertArtifactRoot();
       if (fileIdentity(item.stage).sha256 !== item.sha256) {
         throw new AppError("STORAGE_ERROR", "Staged restore blob differs from verified backup", {
           reason_code: "RESTORE_STAGED_BLOB_CHANGED",
@@ -616,12 +627,15 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     }
     for (const item of plan) {
       if (item.skip) continue;
+      assertArtifactRoot();
       // Stage ve hedef ayni dizindedir. Hard link atomik olarak yeni isim
       // olusturur; yarista ortaya cikan mevcut dosyayi rename gibi ezmez.
       linkSync(item.stage, item.destination);
+      assertArtifactRoot();
       publishedNew.push(item.destination);
     }
     phase("BLOBS_READY");
+    assertArtifactRoot();
     // Eski DB ve WAL/SHM, yeni DB yayini basarisiz olursa geri konmak uzere
     // ayni volume'de tutulur. Crash-safe recovery journal sonraki asamadir.
     const staleWal = `${targetDbPath}-wal`;
@@ -643,6 +657,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       dbPublished = true;
       phase("NEW_DB_MOVED");
       phase("NEW_DB_PUBLISHED");
+      assertArtifactRoot();
       if (nativeSession) await nativeSession.enterReadVerify();
       verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest);
       // Read-only SQLite dogrulamasi WAL/SHM yan dosyasi olusturabilir;
@@ -651,6 +666,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
         if (existsSync(sidecar)) rmSync(sidecar, { force: true });
       }
       phase("VERIFIED");
+      assertArtifactRoot();
       // Publish the terminal decision while the native read guard still denies
       // raw SQLite writers. CLOSE acknowledges release only after this fsync.
       phase("COMMITTED");
@@ -699,11 +715,13 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     }
     // Eski generation, journal/retention karari olmadan otomatik silinmez.
   } catch (error) {
+    if (artifactRootChanged) safeRollback = false;
     if (nativeSession) {
       try { await nativeSession.close(); nativeSession = undefined; }
       catch { safeRollback = false; }
     }
     if (safeRollback && !dbPublished) {
+      assertArtifactRoot();
       for (const path of publishedNew.reverse()) {
         if (existsSync(path)) rmSync(path, { force: true });
       }
@@ -711,7 +729,8 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     }
     throw error;
   } finally {
-    if (safeRollback) {
+    if (safeRollback && !artifactRootChanged) {
+      assertArtifactRoot();
       for (const item of plan) {
         if (existsSync(item.stage)) rmSync(item.stage, { force: true });
       }
