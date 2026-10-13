@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -22,6 +22,38 @@ const SCHEMA = `
 `;
 
 describe("S01 native restore session adapter", () => {
+  it("stages and publishes a manifest blob with owned native FileIds", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-native-blob-"));
+    let source: Database.Database | undefined;
+    try {
+      const sourcePath = join(root, "source", "state.db");
+      const sourceArtifacts = join(root, "source", "artifacts");
+      mkdirSync(join(sourceArtifacts, "blobs"), { recursive: true });
+      writeFileSync(join(sourceArtifacts, "blobs", "x.bin"), "new blob bytes");
+      const sha = createHash("sha256").update("new blob bytes").digest("hex");
+      source = new Database(sourcePath);
+      source.exec(SCHEMA);
+      source.prepare("INSERT INTO test_jobs VALUES ('new', 'COMPLETED')").run();
+      source.prepare("INSERT INTO artifacts VALUES (?, ?, ?, ?, ?, ?)")
+        .run("artifact-1", "new", "blobs/x.bin", sha, 14, "READY");
+      const backup = await createBackup(source, sourcePath, sourceArtifacts, join(root, "backups"));
+      source.close(); source = undefined;
+      const target = join(root, "runtime", "state.db");
+      mkdirSync(join(root, "runtime"), { recursive: true });
+      const old = new Database(target);
+      old.exec(SCHEMA);
+      old.prepare("INSERT INTO test_jobs VALUES ('old', 'COMPLETED')").run();
+      old.close();
+      const targetArtifacts = join(root, "runtime", "artifacts");
+      await restoreBackup(backup.backup_dir, target, targetArtifacts,
+        { nativeHelper: packagedWindowsFileHelper() });
+      expect(readFileSync(join(targetArtifacts, "blobs", "x.bin"), "utf8")).toBe("new blob bytes");
+      expect(readRestoreJournal(journalPathForDb(target))?.phase).toBe("COMMITTED");
+    } finally {
+      source?.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
   it("accepts a journal-proven fresh physical publish and reverses only its staged FileId", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-native-fresh-recover-"));
     const helper = packagedWindowsFileHelper();
