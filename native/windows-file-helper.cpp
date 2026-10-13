@@ -1,5 +1,5 @@
 // Windows path helper: each child name is opened relative to a held parent handle.
-// The helper is intentionally narrow: inspect and CREATE_NEW copy only.
+// The helper also pins restore/recovery files until their journal owner closes it.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winternl.h>
@@ -340,12 +340,14 @@ std::vector<std::string> splitTabs(const std::string& line) {
   }
 }
 
-int restoreSession(int argc, wchar_t** argv) {
-  if (argc != 6) return 2;
-  std::wstring dbName, stagedName;
+int restoreSession(int argc, wchar_t** argv, bool recovering) {
+  if (argc != (recovering ? 7 : 6)) return 2;
+  std::wstring dbName, stagedName, preservedName;
   if (!decodeName(argv[3], dbName) || !decodeName(argv[4], stagedName) ||
       !uuidAtEnd(stagedName, dbName + L".restore-")) return 2;
-  const std::string generation = ascii(argv[5]);
+  if (recovering && (!decodeName(argv[5], preservedName) ||
+      !uuidAtEnd(preservedName, dbName + L".restore-old-"))) return 2;
+  const std::string generation = ascii(argv[recovering ? 6 : 5]);
   if (generation.size() != 36) return 2;
   for (char c : generation) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || c == '-')) return 2;
   std::vector<Handle> root;
@@ -354,32 +356,109 @@ int restoreSession(int argc, wchar_t** argv) {
     { "oldDb", dbName, Handle{} }, { "oldWal", dbName + L"-wal", Handle{} },
     { "oldShm", dbName + L"-shm", Handle{} }, { "stagedDb", stagedName, Handle{} },
   };
-  std::wstring preservedSuffix;
-  for (size_t i = 0; i < 4; ++i) {
-    NTSTATUS status = 0;
-    if (!openChild(root.back().value, slots[i].currentName, false, false,
-      GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, slots[i].file, FILE_SHARE_READ, &status)) {
-      if ((i == 1 || i == 2) && status == static_cast<NTSTATUS>(0xC0000034L)) continue;
-      return 2;
+  std::wstring preservedSuffix = recovering ? preservedName.substr(dbName.size()) : L"";
+  unsigned sequence = 0;
+  if (recovering) {
+    // Open every extant candidate with DELETE access and no delete sharing before READY.
+    // A concurrent raw SQLite handle or ambiguous duplicate path aborts without mutation.
+    auto openAt = [&](SessionSlot& slot, const std::wstring& name) -> int {
+      NTSTATUS status = 0;
+      Handle held;
+      if (!openChild(root.back().value, name, false, false,
+          GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, held, FILE_SHARE_READ, &status)) {
+        return status == static_cast<NTSTATUS>(0xC0000034L) ? 0 : -1;
+      }
+      Identity info;
+      unsigned char digest[32]{};
+      if (!snapshot(held.value, info, digest)) return -1;
+      slot.file = std::move(held);
+      slot.currentName = name;
+      slot.present = true;
+      return 1;
+    };
+    auto absent = [&](const std::wstring& name) -> bool {
+      NTSTATUS status = 0;
+      Handle observed;
+      return !openChild(root.back().value, name, false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, observed, FILE_SHARE_READ, &status) &&
+        status == static_cast<NTSTATUS>(0xC0000034L);
+    };
+    const int preservedDb = openAt(slots[0], preservedName);
+    if (preservedDb < 0 || (preservedDb == 0 && openAt(slots[0], dbName) != 1)) return 2;
+    if (preservedDb == 1) ++sequence;
+    for (size_t i = 1; i <= 2; ++i) {
+      const std::wstring original = dbName + (i == 1 ? L"-wal" : L"-shm");
+      const int preserved = openAt(slots[i], original + preservedSuffix);
+      if (preserved < 0) return 2;
+      if (preserved == 1) {
+        if (!absent(original)) return 2;
+        ++sequence;
+      } else if (openAt(slots[i], original) < 0) return 2;
     }
-    slots[i].present = true;
-    Identity info;
-    unsigned char digest[32]{};
-    if (!snapshot(slots[i].file.value, info, digest)) return 2;
+    const int staged = openAt(slots[3], stagedName);
+    if (staged < 0 || (staged == 0 && (preservedDb != 1 || openAt(slots[3], dbName) != 1))) return 2;
+    if (staged == 0) ++sequence;
+    if ((preservedDb == 1 && staged == 1 && !absent(dbName)) ||
+        (preservedDb == 0 && !absent(preservedName)) ||
+        (staged == 0 && !absent(stagedName)) ||
+        (preservedDb == 0 && (slots[1].present && slots[1].currentName != dbName + L"-wal" ||
+                              slots[2].present && slots[2].currentName != dbName + L"-shm")) ||
+        (staged == 0 && (slots[1].present && slots[1].currentName == dbName + L"-wal" ||
+                         slots[2].present && slots[2].currentName == dbName + L"-shm")) ||
+        (slots[2].present && slots[2].currentName != dbName + L"-shm" &&
+         slots[1].present && slots[1].currentName == dbName + L"-wal")) return 2;
+  } else {
+    for (size_t i = 0; i < 4; ++i) {
+      NTSTATUS status = 0;
+      if (!openChild(root.back().value, slots[i].currentName, false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, slots[i].file, FILE_SHARE_READ, &status)) {
+        if ((i == 1 || i == 2) && status == static_cast<NTSTATUS>(0xC0000034L)) continue;
+        return 2;
+      }
+      slots[i].present = true;
+      Identity info;
+      unsigned char digest[32]{};
+      if (!snapshot(slots[i].file.value, info, digest)) return 2;
+    }
   }
-  std::printf("READY\t%s", generation.c_str());
+  std::vector<std::string> recoveryFields;
+  if (recovering) std::printf("RECOVERY_READY\t%s\t%u", generation.c_str(), sequence);
+  else std::printf("READY\t%s", generation.c_str());
   for (const auto& slot : slots) {
     std::printf("\t%s=", slot.key);
-    if (slot.present) printSnapshot(slot.file.value);
+    if (recovering) {
+      std::string field = std::string(slot.key) + "=";
+      if (slot.present) {
+        Identity info;
+        unsigned char digest[32]{};
+        if (!snapshot(slot.file.value, info, digest)) return 2;
+        char volume[17]{}, bytes[32]{};
+        std::snprintf(volume, sizeof(volume), "%016llx", info.id.VolumeSerialNumber);
+        std::snprintf(bytes, sizeof(bytes), "%llu", info.bytes);
+        field += encodeName(slot.currentName) + ":" + volume + ":" + ascii(fileIdHex(info)) +
+          ":" + bytes + ":" + ascii(digestHex(digest));
+      } else field += "-";
+      recoveryFields.push_back(field);
+      std::printf("%s", field.c_str() + std::strlen(slot.key) + 1);
+    } else if (slot.present) printSnapshot(slot.file.value);
     else std::printf("-");
   }
   std::printf("\n");
   std::fflush(stdout);
-  unsigned sequence = 0;
+  bool accepted = !recovering;
   std::string line;
   while (std::getline(std::cin, line)) {
     const auto fields = splitTabs(line);
     if (!sidecarsStillOwned(root.back().value, dbName, slots)) return 2;
+    if (!accepted) {
+      if (fields.size() != 7 || fields[0] != "ACCEPT" || fields[1] != generation ||
+          fields[2] != std::to_string(sequence)) return 2;
+      for (size_t i = 0; i < 4; ++i) if (fields[i + 3] != recoveryFields[i]) return 2;
+      accepted = true;
+      std::printf("ACCEPTED\t%s\t%u\n", generation.c_str(), sequence);
+      std::fflush(stdout);
+      continue;
+    }
     if (fields.size() == 1 && fields[0] == "CLOSE") {
       const bool sidecarsAtOrigin = (!slots[1].present || slots[1].currentName == dbName + L"-wal") &&
         (!slots[2].present || slots[2].currentName == dbName + L"-shm");
@@ -485,7 +564,8 @@ int restoreSession(int argc, wchar_t** argv) {
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
-  if (argc > 1 && wcscmp(argv[1], L"session") == 0) return restoreSession(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"session") == 0) return restoreSession(argc, argv, false);
+  if (argc > 1 && wcscmp(argv[1], L"recover-session") == 0) return restoreSession(argc, argv, true);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
     std::vector<Handle> root;
