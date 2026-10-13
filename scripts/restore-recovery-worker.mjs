@@ -61,7 +61,7 @@ try {
   appendRestorePhase(journalPath, { ...journal, phase: "ROLLED_BACK" });
   await session.close();
   session = undefined;
-  process.stdout.write("RECOVERED_OLD\n");
+  process.stdout.write(initial.oldDb === null ? "RECOVERED_EMPTY\n" : "RECOVERED_OLD\n");
 } catch (error) {
   process.stderr.write(String(error?.stack ?? error));
   process.exitCode = 2;
