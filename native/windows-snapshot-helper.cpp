@@ -306,8 +306,7 @@ int run(int argc, wchar_t** argv) {
     DWORD written = 0;
     if (!WriteFile(journal.value, receipt.data(), static_cast<DWORD>(receipt.size()), &written, nullptr) ||
         written != receipt.size() || !FlushFileBuffers(journal.value)) {
-      markDelete(journal.value);
-      return 2;
+      return markDelete(journal.value) ? 2 : 4;
     }
   } else {
     // A target-local marker can be forged with matching bytes and FileIds.

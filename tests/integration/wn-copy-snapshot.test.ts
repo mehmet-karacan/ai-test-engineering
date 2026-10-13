@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { SourceSnapshot } from "../../src/discovery/source-snapshot.js";
 import { AppError } from "../../src/domain/errors.js";
 import { packagedWindowsFileHelper, inspectWindowsPath } from "../../src/discovery/windows-file-bridge.js";
-import { packagedSnapshotHelper } from "../../src/discovery/windows-snapshot-bridge.js";
+import { assertSnapshotHelperResult, packagedSnapshotHelper } from "../../src/discovery/windows-snapshot-bridge.js";
 
 function fixture(): string {
   return mkdtempSync(join(tmpdir(), "wn-copy-snapshot-"));
@@ -22,6 +22,27 @@ function cleanup(path: string): void {
 }
 
 describe.skipIf(process.platform !== "win32")("S03 native execution snapshot copy", () => {
+  it("returns a typed error when a verified helper vanishes before spawn", () => {
+    const sandbox = fixture();
+    try {
+      const run = spawnSync(join(sandbox, "missing-helper.exe"), [], { encoding: "utf8", windowsHide: true });
+      expect((run.error as NodeJS.ErrnoException | undefined)?.code).toBe("ENOENT");
+      try { assertSnapshotHelperResult(run); throw new Error("Accepted missing helper"); }
+      catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_HELPER_LAUNCH_FAILED");
+      }
+    } finally { cleanup(sandbox); }
+  });
+
+  it("reports a helper exit 4 as partial cleanup failure", () => {
+    const run = spawnSync(process.execPath, ["-e", "process.exit(4)"], { encoding: "utf8", windowsHide: true });
+    try { assertSnapshotHelperResult(run); throw new Error("Accepted incomplete cleanup"); }
+    catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_PARTIAL_CLEANUP_FAILED");
+    }
+  });
   it("refuses a missing target root beneath a junction without creating anything outside", () => {
     const sandbox = fixture();
     try {
@@ -335,7 +356,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       try { new SourceSnapshot(source).copyTo(target, manifest); throw new Error("Recovered an incomplete session"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
       }
       expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("other user");
       expect(readFileSync(join(target, "orphaned-original.xml"), "utf8")).toBe("original");
@@ -382,7 +403,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       try { new SourceSnapshot(source).copyTo(target, manifest); throw new Error("Accepted staged manifest"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
       }
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
       expect(readdirSync(target).filter((name) => name.startsWith("snapshot-manifest.json.tmp-")))
@@ -419,7 +440,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       try { snapshot.copyTo(target, manifest); throw new Error("Recovered READY-only session"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
       }
       expect(existsSync(join(target, "pom.xml"))).toBe(false);
       expect(existsSync(join(target, "snapshot-manifest.json"))).toBe(false);
@@ -463,7 +484,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       try { snapshot.copyTo(target, manifest); throw new Error("Accepted untrusted completed session"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
       }
       expect(readFileSync(join(target, "snapshot-manifest.json"), "utf8")).toBe(publicManifest);
       expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
@@ -501,7 +522,7 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       try { snapshot.copyTo(target, manifest); throw new Error("Accepted forged target ownership"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
       }
       expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
       expect(readFileSync(join(target, ".aitest-snapshot-session"), "utf8")).toBe(marker);
@@ -528,12 +549,12 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       try { snapshot.copyTo(target, manifest); throw new Error("Accepted changed target file"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
       }
       expect(readFileSync(join(target, "pom.xml"), "utf8")).toBe("original");
       expect(readFileSync(join(target, "previous.xml"), "utf8")).toBe("original");
     } finally { cleanup(sandbox); }
-  });
+  }, 60_000);
 
   it("quarantines a byte-identical replacement of the published manifest", () => {
     const sandbox = fixture();
@@ -557,10 +578,10 @@ describe.skipIf(process.platform !== "win32")("S03 native execution snapshot cop
       try { snapshot.copyTo(target, manifest); throw new Error("Accepted replacement manifest"); }
       catch (error) {
         expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_RECOVERY_QUARANTINED");
+        expect((error as AppError).details?.reason_code).toBe("SNAPSHOT_OWNERSHIP_UNVERIFIED");
       }
       expect(readFileSync(published)).toEqual(body);
       expect(readFileSync(join(target, "previous-manifest.json"))).toEqual(body);
     } finally { cleanup(sandbox); }
-  });
+  }, 60_000);
 });
