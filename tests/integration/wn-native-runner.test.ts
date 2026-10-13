@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MavenRunner } from "../../src/runners/maven-runner.js";
 import { AppError } from "../../src/domain/errors.js";
+import { WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
 
 describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () => {
   it("uses an explicitly selected installed Maven script without Docker or wrapper", async () => {
@@ -150,5 +151,59 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
         log_dir: join(dir, "logs"), executable })).rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
       expect(() => readFileSync(sentinel)).toThrow();
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("passes the verified digest snapshot to the native goal unchanged", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn runner expected-pins-"));
+    try {
+      const executable = join(dir, "mvn.cmd");
+      writeFileSync(executable, "@echo off\r\necho Apache Maven 3.9.16\r\necho Java version: 25.0.3, vendor: Fixture\r\n");
+      let verifiedPins: ReadonlyArray<{ path: string; sha256: string | null }> | undefined;
+      let goalPins: ReadonlyArray<{ path: string; sha256: string | null }> | undefined;
+      const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run").mockImplementation(async function (plan) {
+        if (plan.argv[0] === "-v") return { status: "success", exitCode: 0,
+          stdout: "Apache Maven 3.9.16\nJava version: 25.0.3, vendor: Fixture\n", stderr: "",
+          stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: 1, ownedTreeDrained: true };
+        goalPins = (plan as typeof plan & { pinnedInputs?: typeof verifiedPins }).pinnedInputs;
+        return { status: "success", exitCode: 0, stdout: "", stderr: "", stdoutTruncatedBytes: 0,
+          stderrTruncatedBytes: 0, durationMs: 1, ownedTreeDrained: true };
+      });
+      try {
+        const lifecycle = { beforeSpawn: () => undefined, afterSpawn: () => undefined, afterTerminal: () => undefined };
+        await new MavenRunner(undefined, lifecycle, (verified) => { verifiedPins = verified.pinnedInputs; }).run({
+          working_dir: dir, goals: ["test"], timeout_ms: 15000, log_dir: join(dir, "logs"), executable,
+        });
+        expect(verifiedPins).toBeDefined();
+        expect(goalPins).toEqual(verifiedPins);
+      } finally { processRun.mockRestore(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("disables Maven pre/post rc scripts and omits inherited MAVEN_ARGS", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn runner rc-"));
+    const priorArgs = process.env.MAVEN_ARGS;
+    const priorSkip = process.env.MAVEN_SKIP_RC;
+    process.env.MAVEN_ARGS = "UNAPPROVED_ARGUMENTS";
+    delete process.env.MAVEN_SKIP_RC;
+    try {
+      const profile = join(dir, "profile");
+      mkdirSync(profile);
+      const pre = join(dir, "PRE_RAN");
+      const post = join(dir, "POST_RAN");
+      const args = join(dir, "ARGS_RAN");
+      writeFileSync(join(profile, "mavenrc_pre.cmd"), `@echo off\r\necho pre>"${pre}"\r\n`);
+      writeFileSync(join(profile, "mavenrc_post.cmd"), `@echo off\r\necho post>"${post}"\r\n`);
+      const executable = join(dir, "mvn.cmd");
+      writeFileSync(executable, `@echo off\r\nif "%MAVEN_SKIP_RC%"=="" call "%USERPROFILE%\\mavenrc_pre.cmd"\r\nif not "%MAVEN_ARGS%"=="" echo args>"${args}"\r\nif "%~1"=="-v" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\nif "%MAVEN_SKIP_RC%"=="" call "%USERPROFILE%\\mavenrc_post.cmd"\r\n`);
+      const result = await new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 15000,
+        log_dir: join(dir, "logs"), executable, env: { USERPROFILE: profile } });
+      expect(result.native_status).toBe("success");
+      for (const sentinel of [pre, post, args]) expect(() => readFileSync(sentinel)).toThrow();
+      expect(process.env.MAVEN_SKIP_RC).toBeUndefined();
+    } finally {
+      if (priorArgs === undefined) delete process.env.MAVEN_ARGS; else process.env.MAVEN_ARGS = priorArgs;
+      if (priorSkip === undefined) delete process.env.MAVEN_SKIP_RC; else process.env.MAVEN_SKIP_RC = priorSkip;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -106,6 +106,21 @@ async function prepareJob(): Promise<PreparedJob> {
   return { services, projectDir, jobId: started.job_id, goal, artifactRoot };
 }
 
+function stubOwnedVersionProbe(): void {
+  // Contract/recovery tests need to reach post-preflight logic even when the
+  // real helper correctly rejects absent implicit Maven config files.
+  vi.spyOn(WindowsProcessSupervisor.prototype, "run").mockImplementation(async (plan, _signal, lifecycle) => {
+    expect(plan.argv).toEqual(["-v"]);
+    lifecycle?.beforeSpawn(plan);
+    lifecycle?.afterSpawn(process.pid);
+    const result = { status: "success" as const, exitCode: 0,
+      stdout: "Apache Maven 3.9.16\r\nJava version: 25.0.3, vendor: Fixture\r\n", stderr: "",
+      stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0, durationMs: 1, ownedTreeDrained: true };
+    lifecycle?.afterTerminal(result);
+    return result;
+  });
+}
+
 describe("P05-B resume zinciri", () => {
   const cleanups: Array<() => void> = [];
 
@@ -131,7 +146,21 @@ describe("P05-B resume zinciri", () => {
     expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
-  it("test_resume ayni frozen job/target/model/butce ile resumeDispatch'e ulasir", async () => {
+  it("test_resume gerçek helper ile eksik implicit config yüzünden fail-closed kalir", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => {
+      prepared.services.storage?.close();
+      rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true });
+    });
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const dispatchSpy = vi.spyOn(JobDispatcher.prototype, "dispatch");
+    await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
+      .rejects.toMatchObject({ details: { reason_code: "NATIVE_INPUT_PIN_UNAVAILABLE" } });
+    expect(dispatchSpy).not.toHaveBeenCalled();
+    expect(new LeaseManager(prepared.services.storage!.db).get(prepared.jobId).expires_at).toBeLessThan(Date.now());
+  });
+
+  it("test-only owned -v stub ile frozen job/target/model/butce resumeDispatch'e ulasir", async () => {
     const prepared = await prepareJob();
     cleanups.push(() => {
       prepared.services.storage?.close();
@@ -144,6 +173,7 @@ describe("P05-B resume zinciri", () => {
       return { job_id: goal.job_id, phases_completed: ["resume_dispatch_boundary"], final_outcome: "TEST_ONLY_STUB", best_coverage: null, error: null };
     });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    stubOwnedVersionProbe();
     const ownedProbes: string[] = [];
     const realBeforeSpawn = NativeProcessRegistry.prototype.beforeSpawn;
     vi.spyOn(NativeProcessRegistry.prototype, "beforeSpawn").mockImplementation(function (plan) {
@@ -195,6 +225,7 @@ describe("P05-B resume zinciri", () => {
       workspaceRoot: prepared.artifactRoot,
     });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    stubOwnedVersionProbe();
 
     await expect(dispatcher.resumeDispatch(prepared.services.jobs!.getJob(prepared.jobId), prepared.projectDir, "litellm/GLM-5.3-Flash-IT"))
       .rejects.toMatchObject({ code: "POLICY_VIOLATION", details: { reason_code: "CONTRACT_CONFLICT" } });
@@ -267,6 +298,7 @@ describe("P05-B resume zinciri", () => {
     const prepared = await prepareJob();
     cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    stubOwnedVersionProbe();
     vi.spyOn(RecoveryManager.prototype, "planRecovery").mockImplementation((_job, ownerId) => {
       new LeaseManager(prepared.services.storage!.db).acquire(prepared.jobId, ownerId, 300000);
       throw new AppError("STORAGE_ERROR", "checkpoint read failed");
@@ -282,6 +314,7 @@ describe("P05-B resume zinciri", () => {
     const prepared = await prepareJob();
     cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    stubOwnedVersionProbe();
     const realVerify = NativeToolchainRecordStore.prototype.verify;
     let checks = 0;
     vi.spyOn(NativeToolchainRecordStore.prototype, "verify").mockImplementation(function (jobId, options, verifier) {
@@ -334,6 +367,7 @@ describe("P05-B resume zinciri", () => {
     const prepared = await prepareJob();
     cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    stubOwnedVersionProbe();
     const realVerify = NativeToolchainRecordStore.prototype.verify;
     let checks = 0;
     vi.spyOn(NativeToolchainRecordStore.prototype, "verify").mockImplementation(function (jobId, options, verifier) {

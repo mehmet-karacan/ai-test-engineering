@@ -1230,13 +1230,13 @@ export class JobDispatcher {
       if (options.cwd !== projectRoot) {
         throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
-      const registry = new NativeProcessRegistry(storage.db, job.id, recoveryOwnerId, acquired.lease.fencing_token);
-      await record.verify(job.id, options, (selected, env) => verifyNativeToolchain(selected, env, undefined, registry));
       // A native job that reached resume must retain its frozen baseline
       // identity. Dispatch recreates that workspace and compares the fresh
       // version/config identity before another Maven goal is launched.
       new NativeExecutionToolchainRecordStore(storage.db, this.workspaceRoot)
         .read(job.id, join(this.workspaceRoot, "jobs", job.id, "baseline"));
+      const registry = new NativeProcessRegistry(storage.db, job.id, recoveryOwnerId, acquired.lease.fencing_token);
+      await record.verify(job.id, options, (selected, env) => verifyNativeToolchain(selected, env, undefined, registry));
     }
 
     // P03/PP11: kaynak kontrolu tam source identity ile: HEAD + sirali canonical
