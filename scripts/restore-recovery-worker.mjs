@@ -2,8 +2,10 @@
 import { resolve } from "node:path";
 import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "../dist/storage/maintenance-lock.js";
-import { appendRestorePhase, fileIdentity, journalPathForDb, readRestoreJournal } from "../dist/storage/restore-journal.js";
+import { appendRestorePhase, canRecoverPreparedEmptyBlob, fileIdentity, journalPathForDb,
+  prepareRestorePhaseLine, readRestoreJournal } from "../dist/storage/restore-journal.js";
 import { startWindowsRestoreRecoverySession } from "../dist/storage/windows-restore-recovery-session.js";
+import { captureExpectedWindowsRestoreFile } from "../dist/storage/windows-restore-session.js";
 
 const dbPath = resolve(process.argv[2] ?? "");
 let releaseDb;
@@ -17,12 +19,40 @@ try {
   if (!journal || journal.targetDbPath !== dbPath || journal.formatVersion !== 2 ||
       !journal.nativeInitial || !journal.moveReceipts ||
       journal.phase === "COMMITTED" || journal.phase === "ROLLED_BACK") throw new Error("native recovery journal unavailable");
-  if (journal.publishedBlobs.length > 0) throw new Error("blob ownership receipts unavailable for automatic recovery");
+  if (journal.publishedBlobs.length > 0 && !canRecoverPreparedEmptyBlob(journal)) {
+    throw new Error("blob ownership receipts unavailable for automatic recovery");
+  }
   releaseArtifact = acquireMaintenanceLock(journal.artifactRoot, "restore-recovery");
   journal = readRestoreJournal(journalPath);
   if (!journal || journal.targetDbPath !== dbPath || !journal.nativeInitial || !journal.moveReceipts ||
       journal.phase === "COMMITTED" || journal.phase === "ROLLED_BACK") throw new Error("journal changed before recovery");
-  session = await startWindowsRestoreRecoverySession(packagedWindowsFileHelper(), journal);
+  if (journal.publishedBlobs.length > 0 && !canRecoverPreparedEmptyBlob(journal)) {
+    throw new Error("journal changed before empty blob recovery");
+  }
+  const helper = packagedWindowsFileHelper();
+  session = await startWindowsRestoreRecoverySession(helper, journal);
+  if (canRecoverPreparedEmptyBlob(journal)) {
+    if (session.remaining() !== 0 || !journal.evidence?.oldDb.exists) {
+      throw new Error("PREPARED layout is not the untouched old generation");
+    }
+    await session.guardEmptyBlob();
+    const e = journal.evidence;
+    if (JSON.stringify(fileIdentity(dbPath)) !== JSON.stringify(e.oldDb) ||
+        JSON.stringify(fileIdentity(`${dbPath}-wal`)) !== JSON.stringify(e.oldWal) ||
+        fileIdentity(journal.stagedDbPath).sha256 !== e.sourceDbSha256) {
+      throw new Error("old generation identity changed before empty blob rollback");
+    }
+    const terminal = { ...journal, phase: "ROLLED_BACK" };
+    const line = prepareRestorePhaseLine(journalPath, terminal);
+    const journalIdentity = captureExpectedWindowsRestoreFile(helper, journalPath);
+    await session.commitEmptyRollback(journalPath, journalIdentity, line);
+    if (readRestoreJournal(journalPath)?.phase !== "ROLLED_BACK") {
+      throw new Error("native rollback journal commit unavailable");
+    }
+    await session.close();
+    session = undefined;
+    process.stdout.write("RECOVERED_OLD\n");
+  } else {
   const initial = journal.nativeInitial;
   const forward = ["oldDb", "oldWal", "oldShm", "stagedDb"].filter((slot) => initial[slot] !== null);
   const dbName = dbPath.slice(dbPath.lastIndexOf("\\") + 1);
@@ -63,6 +93,7 @@ try {
   await session.close();
   session = undefined;
   process.stdout.write(initial.oldDb === null ? "RECOVERED_EMPTY\n" : "RECOVERED_OLD\n");
+  }
 } catch (error) {
   process.stderr.write(String(error?.stack ?? error));
   process.exitCode = 2;

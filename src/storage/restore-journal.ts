@@ -50,6 +50,8 @@ export interface RestoreJournalRecord {
   publishedBlobs: Array<{ path: string; sha256: string }>;
   stageIntents?: Array<{ path: string; bytes: number; sha256: string;
     identity: RestoreMoveReceipt["before"] | null }>;
+  emptyBlobGuard?: { root: { volumeSerial: string; fileId: string };
+    parents: Array<{ volumeSerial: string; fileId: string } | null> };
   moveReceipts?: RestoreMoveReceipt[];
   nativeInitial?: RestoreNativeInitial;
   recoveryBaseCount?: number;
@@ -213,6 +215,18 @@ function validate(record: RestoreJournalRecord): void {
       throw recoveryError("journal stage intent invalid");
     }
   }
+  if (record.emptyBlobGuard !== undefined) {
+    const guard = record.emptyBlobGuard;
+    const validId = (value: { volumeSerial: string; fileId: string } | null): boolean =>
+      value === null || !!value && /^[a-f0-9]{16}$/u.test(value.volumeSerial) &&
+        /^[a-f0-9]{32}$/u.test(value.fileId);
+    if (record.formatVersion !== 2 || !record.stageIntents ||
+        !validId(guard.root) || guard.root === null || !Array.isArray(guard.parents) ||
+        guard.parents.length !== record.publishedBlobs.length ||
+        guard.parents.some((parent) => !validId(parent))) {
+      throw recoveryError("empty blob guard evidence invalid");
+    }
+  }
   if (record.phase === "FRESH_TARGET_CONFIRMED" && record.nativeInitial?.oldDb !== null ||
       record.phase === "OLD_DB_PRESERVED" && record.nativeInitial?.oldDb === null) {
     throw recoveryError("journal generation phase contradicts initial target");
@@ -293,6 +307,7 @@ function transitionValid(previous: RestoreJournalRecord | null, next: RestoreJou
     receiptsValid && recoveryValid && stagesValid &&
     next.formatVersion === previous.formatVersion &&
     JSON.stringify(next.evidence) === JSON.stringify(previous.evidence) &&
+    JSON.stringify(next.emptyBlobGuard) === JSON.stringify(previous.emptyBlobGuard) &&
     JSON.stringify(next.nativeInitial) === JSON.stringify(previous.nativeInitial) &&
     next.artifactRoot === previous.artifactRoot && next.stagedDbPath === previous.stagedDbPath &&
     next.preservedDbPath === previous.preservedDbPath &&
@@ -353,13 +368,25 @@ export function captureRestoreEvidence(dbPath: string, sourceDbPath: string, man
   };
 }
 
+/** Only one unstarted native blob, with a pinned parent known before PREPARED. */
+export function canRecoverPreparedEmptyBlob(record: RestoreJournalRecord): boolean {
+  return record.formatVersion === 2 && record.phase === "PREPARED" &&
+    record.nativeInitial?.oldDb !== null && record.nativeInitial !== undefined &&
+    record.moveReceipts?.length === 0 && record.publishedBlobs.length === 1 &&
+    record.stageIntents?.length === 1 && record.stageIntents[0]?.identity === null &&
+    record.emptyBlobGuard?.parents.length === 1 && record.emptyBlobGuard.parents[0] !== null &&
+    record.evidence?.expectedBlobs.length === 1 &&
+    record.evidence.expectedBlobs[0]?.path === record.publishedBlobs[0]?.path &&
+    record.evidence.expectedBlobs[0]?.existedBefore === false;
+}
+
 /** Only an intact old generation before any DB/sidecar move can be reopened without file mutation. */
 export function recoverIntactOldRestoreBeforeOpen(dbPath: string): void {
   dbPath = resolve(dbPath);
   const path = journalPathForDb(dbPath);
   const first = readRestoreJournal(path);
   if (first && first.phase !== "COMMITTED" && first.phase !== "ROLLED_BACK" &&
-      first.publishedBlobs.length > 0) {
+      first.publishedBlobs.length > 0 && !canRecoverPreparedEmptyBlob(first)) {
     throw recoveryError("blob ownership receipts unavailable for automatic recovery");
   }
   if (first?.nativeInitial && first.phase !== "COMMITTED" && first.phase !== "ROLLED_BACK") {
