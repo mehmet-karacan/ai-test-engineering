@@ -31,3 +31,8 @@
 - `node scripts/probe-restore-fresh-hardkill.mjs`: exit 0; 4/4 Windows `taskkill /PID /F` kesiti PASS. READY, MOVED stdout fakat receipt fsync oncesi, receipt fsync sonrasi ve VERIFY_READY sonrasi kesitlerinde native recover-fresh READY/ACCEPT fiziksel 0/1 layout'u uzlastirdi; ROLLED_BACK journal, hedef DB/WAL/SHM yoklugu ve staged snapshot SHA dogrulandi.
 - Bu probe restoreBackup tam lifecycle'i degil, native helper + journal + worker zincirini olcer. Final CLOSE, blob yayini, rakip raw SQLite yazari, root rename/alias ve her mutation kesiti henuz kapsanmadi. Production fresh hedef yolu acilmaz; WN11/12/13 NO_GO.
 - Ek terminal kesiti `COMMITTED` fsync sonrasi native guard canliyken taskkill: yeni DB FileId/SHA source ile es ve `test_jobs` yeni satiri readonly SQLite ile acildi. Probe 5/5 exit 0. CLOSE ACK, full blob lifecycle, root alias ve raw writer yarislari halen acik; production fail-closed.
+
+## Sidecar ve raw writer negatifleri
+
+- Fresh native READY oncesi mevcut hedef WAL veya SHM dosyasi fixture'da baytlari korunarak reddedildi; hedef DB varligi da RED olarak reddedilir. `probe-restore-fresh-session.mjs` exit 0.
+- Gercek Windows SQLite fresh adapter fixture'inda VERIFY read guard altinda ayri `better-sqlite3` raw writer child islemi SqliteError ile reddedildi; readonly SELECT basariliydi. `wn-restore-session.test.ts` 5/5 PASS, typecheck exit 0. Bu bir ornek schedule'dir; raw writer ve root alias icin evrensel WN12/13 kaniti degildir.

@@ -55,6 +55,16 @@ try {
   assert.equal(await session.exit(), 2, "occupied target must fail before READY");
   assert.equal(readFileSync(target, "utf8"), "racer");
   rmSync(target);
+  writeFileSync(`${target}-wal`, "stale WAL owner");
+  session = start("session-fresh");
+  assert.equal(await session.exit(), 2, "stale WAL must fail before READY");
+  assert.equal(readFileSync(`${target}-wal`, "utf8"), "stale WAL owner");
+  rmSync(`${target}-wal`);
+  writeFileSync(`${target}-shm`, "stale SHM owner");
+  session = start("session-fresh");
+  assert.equal(await session.exit(), 2, "stale SHM must fail before READY");
+  assert.equal(readFileSync(`${target}-shm`, "utf8"), "stale SHM owner");
+  rmSync(`${target}-shm`);
 
   session = start("session-fresh");
   const ready = (await session.next()).split("\t");

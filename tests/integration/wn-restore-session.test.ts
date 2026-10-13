@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -89,6 +90,11 @@ describe("S01 native restore session adapter", () => {
       const reader = new Database(target, { readonly: true });
       try { expect(reader.prepare("SELECT x FROM t").get()).toEqual({ x: 42 }); }
       finally { reader.close(); }
+      const rawWriter = spawnSync(process.execPath, ["-e",
+        "const D=require('better-sqlite3');const db=new D(process.argv[1]);db.exec('INSERT INTO t VALUES (99)');db.close()", target],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 10_000 });
+      expect(rawWriter.status).not.toBe(0);
+      expect(rawWriter.stderr).toMatch(/SqliteError|database is locked|unable to open database/iu);
       const reversed = await session.renameOwned("stagedDb", stagedName);
       expect(reversed.before).toEqual(initial);
       expect(reversed.sequence).toBe(2);
