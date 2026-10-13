@@ -94,7 +94,7 @@ export interface VerifiedNativeToolchainPlan extends NativeToolchainPlan {
 /** Probe the selected executable. The raw -v output stays local to this call. */
 export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal, lifecycle?: import("./windows-process-supervisor.js").NativeProcessLifecycle): Promise<NativeVersionEvidence> {
   const run = await new WindowsProcessSupervisor().run({
-    executable: plan.executable, cwd: plan.cwd, argv: ["-v"], timeoutMs: 10000,
+    executable: plan.executable, cwd: plan.cwd, argv: ["-v"], timeoutMs: 30000,
     maxLogBytes: 64 * 1024, env,
   }, signal, lifecycle);
   if (run.status !== "success" || run.stdoutTruncatedBytes > 0 || run.stderrTruncatedBytes > 0) {

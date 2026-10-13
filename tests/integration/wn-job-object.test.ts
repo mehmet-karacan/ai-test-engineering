@@ -54,9 +54,11 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
       storage.close();
       const fixture = fileURLToPath(new URL("../fixtures/wn-registry-parent.mjs", import.meta.url));
       const parent = spawn(process.execPath, [fixture, root, jobId], { stdio: "ignore" });
+      const parentClosed = new Promise<void>((resolveClosed) => parent.once("close", () => resolveClosed()));
       parentPid = parent.pid;
       ownedPid = await waitForFile(pidPath);
       expect(spawnSync("taskkill", ["/F", "/PID", String(parentPid)], { encoding: "utf8" }).status).toBe(0);
+      await Promise.race([parentClosed, delay(5000)]);
       for (let attempt = 0; attempt < 120 && alive(ownedPid); attempt += 1) await delay(25);
       expect(alive(ownedPid)).toBe(false);
       expect(foreign.pid && alive(foreign.pid)).toBe(true);

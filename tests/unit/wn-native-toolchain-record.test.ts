@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDefaultServicesForTest } from "../../src/application/services.js";
 import { randomUUID } from "node:crypto";
 import { NativeToolchainRecordStore } from "../../src/orchestration/native-toolchain-record.js";
+import { NativeExecutionToolchainRecordStore } from "../../src/orchestration/native-execution-toolchain-record.js";
 import { NativeToolchainResolver, effectiveMavenEnvironment } from "../../src/runners/native-toolchain.js";
 
 describe("WN24 durable native toolchain", () => {
@@ -72,5 +73,43 @@ describe("WN24 durable native toolchain", () => {
     rmSync(recordDir, { recursive: true });
     symlinkSync(outside, recordDir, "junction");
     expect(() => f.record.read(f.job.id)).toThrowError(/invalid/i);
+  });
+
+  it("pins a frozen workspace path identity and rejects same-path configuration drift", () => {
+    const f = fixture();
+    const baseline = join(f.storeRoot, "jobs", f.job.id, "baseline");
+    const candidate = join(f.storeRoot, "jobs", f.job.id, "staging", "candidate-1");
+    mkdirSync(baseline, { recursive: true }); mkdirSync(candidate, { recursive: true });
+    const store = new NativeExecutionToolchainRecordStore(f.services.storage!.db, f.storeRoot);
+    const options = { cwd: baseline, env: effectiveMavenEnvironment({ PATH: f.bin }), platform: "win32" as const };
+    const selected = NativeToolchainResolver.resolve(options);
+    const verified = { ...selected, baseIdentity: selected.identity, mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "a".repeat(64) };
+    expect(() => store.read(f.job.id, baseline)).toThrowError();
+    store.pinOrVerify(f.job.id, verified);
+    expect(store.read(f.job.id, baseline).identity).toBe(verified.identity);
+    expect(() => store.pinOrVerify(f.job.id, verified)).not.toThrow();
+    const other = NativeToolchainResolver.resolve({ ...options, cwd: candidate });
+    store.pinOrVerify(f.job.id, { ...other, baseIdentity: other.identity, mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "b".repeat(64) });
+    mkdirSync(join(baseline, ".mvn"));
+    writeFileSync(join(baseline, ".mvn", "maven.config"), "-ntp");
+    const changed = NativeToolchainResolver.resolve(options);
+    expect(() => store.pinOrVerify(f.job.id, { ...verified, ...changed, baseIdentity: changed.identity }))
+      .toThrowError(/changed/i);
+  });
+
+  it("rejects a job workspace junction escaping storage before creating an identity directory", () => {
+    const f = fixture();
+    const outside = join(f.root, "outside-execution");
+    const baselineOutside = join(outside, "baseline");
+    mkdirSync(baselineOutside, { recursive: true });
+    const jobsRoot = join(f.storeRoot, "jobs");
+    mkdirSync(jobsRoot, { recursive: true });
+    symlinkSync(outside, join(jobsRoot, f.job.id), "junction");
+    const cwd = join(jobsRoot, f.job.id, "baseline");
+    const selected = NativeToolchainResolver.resolve({ cwd, env: effectiveMavenEnvironment({ PATH: f.bin }), platform: "win32" });
+    const record = new NativeExecutionToolchainRecordStore(f.services.storage!.db, f.storeRoot);
+    expect(() => record.pinOrVerify(f.job.id, { ...selected, baseIdentity: selected.identity,
+      mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "a".repeat(64) })).toThrowError(/invalid/i);
+    expect(existsSync(join(outside, "native-execution-toolchain"))).toBe(false);
   });
 });
