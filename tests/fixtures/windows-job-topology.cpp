@@ -3,9 +3,23 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <cwchar>
 
 // Read-only Job topology probe; the child only reports its own Job membership.
 int wmain(int argc, wchar_t** argv) {
+  if (argc == 3 && wcscmp(argv[1], L"--pid") == 0) {
+    wchar_t* end = nullptr;
+    const unsigned long parsed = wcstoul(argv[2], &end, 10);
+    if (!parsed || !end || *end != L'\0') return 5;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(parsed));
+    if (!process) return 6;
+    BOOL member = FALSE;
+    const BOOL ok = IsProcessInJob(process, nullptr, &member);
+    CloseHandle(process);
+    if (!ok) return 7;
+    std::printf("pid=%lu in_job=%d\n", parsed, member ? 1 : 0);
+    return 0;
+  }
   BOOL in_job = FALSE;
   if (!IsProcessInJob(GetCurrentProcess(), nullptr, &in_job)) return 3;
   if (argc == 2 && wcscmp(argv[1], L"--child") == 0) return in_job ? 1 : 0;
