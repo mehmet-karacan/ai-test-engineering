@@ -3,7 +3,6 @@
 #include <windows.h>
 #include <winternl.h>
 #include <bcrypt.h>
-#include <algorithm>
 #include <cstdio>
 #include <cstddef>
 #include <cstring>
@@ -278,65 +277,6 @@ bool copyOne(HANDLE sourceRoot, HANDLE targetRoot, const std::wstring& relative,
   return true;
 }
 
-bool verifyOne(HANDLE root, const std::wstring& relative, unsigned long long expectedBytes,
-    const std::string& expectedHash, std::vector<Handle>& pinned) {
-  std::wstring ignored;
-  std::vector<std::wstring> parts;
-  if (!split(relative, false, ignored, parts)) return false;
-  std::vector<Handle> directories;
-  HANDLE parent = root;
-  for (size_t i = 0; i + 1 < parts.size(); ++i) {
-    Handle next;
-    if (!child(parent, parts[i], true, false, FILE_READ_ATTRIBUTES, next)) return false;
-    parent = next.value;
-    directories.push_back(std::move(next));
-  }
-  Handle input;
-  if (!child(parent, parts.back(), false, false, GENERIC_READ | FILE_READ_ATTRIBUTES, input, FILE_SHARE_READ)) return false;
-  BY_HANDLE_FILE_INFORMATION before{}, after{};
-  if (!GetFileInformationByHandle(input.value, &before) || before.nNumberOfLinks != 1) return false;
-  std::string digest;
-  unsigned long long bytes = 0;
-  if (!sha256(input.value, nullptr, digest, bytes) || bytes != expectedBytes || digest != expectedHash ||
-      !GetFileInformationByHandle(input.value, &after) || before.nFileIndexHigh != after.nFileIndexHigh ||
-      before.nFileIndexLow != after.nFileIndexLow || before.nFileSizeHigh != after.nFileSizeHigh ||
-      before.nFileSizeLow != after.nFileSizeLow ||
-      CompareFileTime(&before.ftLastWriteTime, &after.ftLastWriteTime) != 0) return false;
-  pinned.push_back(std::move(input));
-  return true;
-}
-
-bool readEqual(HANDLE file, const std::string& expected) {
-  LARGE_INTEGER size{};
-  if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 ||
-      static_cast<unsigned long long>(size.QuadPart) != expected.size()) return false;
-  char buffer[65536];
-  size_t offset = 0;
-  while (offset < expected.size()) {
-    DWORD got = 0;
-    const DWORD want = static_cast<DWORD>(expected.size() - offset < sizeof(buffer) ? expected.size() - offset : sizeof(buffer));
-    if (!ReadFile(file, buffer, want, &got, nullptr) || got != want ||
-        std::memcmp(buffer, expected.data() + offset, got) != 0) return false;
-    offset += got;
-  }
-  return true;
-}
-
-bool readJournal(HANDLE file, const std::string& header, std::string& contents) {
-  LARGE_INTEGER size{};
-  if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > MAX_JOURNAL_BYTES ||
-      static_cast<size_t>(size.QuadPart) < header.size()) return false;
-  contents.resize(static_cast<size_t>(size.QuadPart));
-  size_t offset = 0;
-  while (offset < contents.size()) {
-    DWORD got = 0;
-    const DWORD want = static_cast<DWORD>(std::min<size_t>(contents.size() - offset, 65536));
-    if (!ReadFile(file, contents.data() + offset, want, &got, nullptr) || got != want) return false;
-    offset += got;
-  }
-  return contents.compare(0, header.size(), header) == 0;
-}
-
 bool appendReceipt(HANDLE journal, const std::string& line) {
   LARGE_INTEGER size{}, zero{};
   if (!GetFileSizeEx(journal, &size) || size.QuadPart < 0 || size.QuadPart > MAX_JOURNAL_BYTES ||
@@ -345,12 +285,6 @@ bool appendReceipt(HANDLE journal, const std::string& line) {
   DWORD written = 0;
   return line.size() <= MAXDWORD && WriteFile(journal, line.data(), static_cast<DWORD>(line.size()),
     &written, nullptr) && written == line.size() && FlushFileBuffers(journal);
-}
-
-bool consumeReceipt(const std::string& contents, size_t& offset, const std::string& expected) {
-  if (offset > contents.size() || contents.compare(offset, expected.size(), expected) != 0) return false;
-  offset += expected.size();
-  return true;
 }
 
 int run(int argc, wchar_t** argv) {
@@ -367,12 +301,8 @@ int run(int argc, wchar_t** argv) {
       targetId != ascii(argv[5]) || sourceId.substr(0, 16) != targetId.substr(0, 16)) return 3;
   const std::string receipt = "AITEST_SNAPSHOT_V1\n" + sourceId + "\n" + targetId + "\n";
   Handle journal;
-  bool journalOwned = false;
-  std::string journalContents;
-  size_t receiptOffset = receipt.size();
   if (child(targetRoot.back().value, L".aitest-snapshot-session", false, true,
       GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, journal, 0)) {
-    journalOwned = true;
     DWORD written = 0;
     if (!WriteFile(journal.value, receipt.data(), static_cast<DWORD>(receipt.size()), &written, nullptr) ||
         written != receipt.size() || !FlushFileBuffers(journal.value)) {
@@ -380,18 +310,14 @@ int run(int argc, wchar_t** argv) {
       return 2;
     }
   } else {
-    if (!child(targetRoot.back().value, L".aitest-snapshot-session", false, false,
-        GENERIC_READ | FILE_READ_ATTRIBUTES, journal, FILE_SHARE_READ) ||
-        !readJournal(journal.value, receipt, journalContents)) return 5;
-    Handle finalManifest;
-    if (!child(targetRoot.back().value, L"snapshot-manifest.json", false, false,
-        GENERIC_READ | FILE_READ_ATTRIBUTES, finalManifest, FILE_SHARE_READ)) return 5;
+    // A target-local marker can be forged with matching bytes and FileIds.
+    // Without an independently trusted ownership claim, reopen never accepts it.
+    return 5;
   }
   std::puts("READY");
   std::fflush(stdout);
   std::vector<Created> files;
   std::vector<CreatedDirectory> directories;
-  std::vector<Handle> verifiedFiles;
   bool completed = false;
   bool manifestSeen = false;
   bool pauseAfterPublish = false;
@@ -415,28 +341,14 @@ int run(int argc, wchar_t** argv) {
           digest.find_first_not_of("0123456789abcdef") != std::string::npos) break;
       unsigned long long bytes = 0;
       try { bytes = std::stoull(count); } catch (...) { break; }
-      if (journalOwned) {
-        if (!copyOne(sourceRoot.back().value, targetRoot.back().value, name, bytes, digest, files, directories)) break;
-        const std::string id = hexId(files.back().file.value);
-        if (id.empty() || !appendReceipt(journal.value,
-            "F\t" + line.substr(first + 1, second - first - 1) + "\t" + id + "\n")) break;
-      } else if (!verifyOne(sourceRoot.back().value, name, bytes, digest, verifiedFiles) ||
-                 !verifyOne(targetRoot.back().value, name, bytes, digest, verifiedFiles)) break;
-      else if (!consumeReceipt(journalContents, receiptOffset,
-          "F\t" + line.substr(first + 1, second - first - 1) + "\t" + hexId(verifiedFiles.back().value) + "\n")) break;
+      if (!copyOne(sourceRoot.back().value, targetRoot.back().value, name, bytes, digest, files, directories)) break;
+      const std::string id = hexId(files.back().file.value);
+      if (id.empty() || !appendReceipt(journal.value,
+          "F\t" + line.substr(first + 1, second - first - 1) + "\t" + id + "\n")) break;
     } else if (kind == "MANIFEST") {
       if (manifestSeen) break;
       std::string body;
       if (!hexBytes(line.substr(first + 1), body) || body.empty()) break;
-      if (!journalOwned) {
-        Handle finalManifest;
-        if (!child(targetRoot.back().value, L"snapshot-manifest.json", false, false,
-            GENERIC_READ | FILE_READ_ATTRIBUTES, finalManifest, FILE_SHARE_READ) || !readEqual(finalManifest.value, body)) break;
-        if (!consumeReceipt(journalContents, receiptOffset, "M\t" + hexId(finalManifest.value) + "\n")) break;
-        verifiedFiles.push_back(std::move(finalManifest));
-        manifestSeen = true;
-        continue;
-      }
       const std::wstring stagedName = temporaryManifestName();
       if (stagedName.empty()) break;
       Handle output;
@@ -453,8 +365,7 @@ int run(int argc, wchar_t** argv) {
     } else break;
   }
   if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
-  if (completed && !journalOwned && receiptOffset != journalContents.size()) completed = false;
-  if (completed && journalOwned && !renameHeld(files[manifestIndex].file.value, targetRoot.back().value, L"snapshot-manifest.json")) completed = false;
+  if (completed && !renameHeld(files[manifestIndex].file.value, targetRoot.back().value, L"snapshot-manifest.json")) completed = false;
   if (completed && (!sameRootChain(argv[2], sourceRoot) || !sameRootChain(argv[3], targetRoot))) completed = false;
   if (!completed) {
     bool cleaned = true;
@@ -465,15 +376,15 @@ int run(int argc, wchar_t** argv) {
       it->file = Handle{};
     }
     directories.clear();
-    if (journalOwned) cleaned = markDelete(journal.value) && cleaned;
-    return journalOwned ? (cleaned ? 2 : 4) : 5;
+    cleaned = markDelete(journal.value) && cleaned;
+    return cleaned ? 2 : 4;
   }
   if (pauseAfterPublish) {
     std::puts("PUBLISHED");
     std::fflush(stdout);
     if (!std::getline(std::cin, line) || line != "ACK") return 2;
   }
-  std::puts(journalOwned ? "OK" : "ALREADY_COMPLETE");
+  std::puts("OK");
   return 0;
 }
 }  // namespace
