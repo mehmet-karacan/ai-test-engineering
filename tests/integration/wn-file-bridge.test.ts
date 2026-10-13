@@ -8,7 +8,8 @@ import { once } from "node:events";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import Database from "better-sqlite3";
-import { inspectWindowsPath, copyWindowsFile, packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
+import { inspectWindowsPath, copyWindowsFile, deleteWindowsOwnedFile,
+  packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
 
 function stdoutLineReader(stdout: Readable): () => Promise<string> {
   const lines = createInterface({ input: stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();
@@ -39,6 +40,23 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
     if (actual && actual.startsWith(`${tempRoot}${sep}`) && actual.split(sep).at(-1)?.startsWith("wn-file-bridge-")) {
       rmSync(actual, { recursive: true, force: true });
     }
+  });
+
+  it("deletes only the expected pinned FileId after native root and file checks", () => {
+    const root = join(sandbox, `delete-${randomUUID()}`);
+    mkdirSync(join(root, "blobs"), { recursive: true });
+    const path = join(root, "blobs", "x.bin");
+    writeFileSync(path, "owned bytes");
+    const rootIdentity = inspectWindowsPath(helper, root);
+    const fileIdentity = inspectWindowsPath(helper, path);
+    const expected = { ...fileIdentity, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") };
+    expect(() => deleteWindowsOwnedFile(helper, root, "blobs\\x.bin",
+      { ...rootIdentity, fileId: "f".repeat(32) }, expected)).toThrow();
+    expect(() => deleteWindowsOwnedFile(helper, root, "blobs\\x.bin", rootIdentity,
+      { ...expected, fileId: "f".repeat(32) })).toThrow();
+    expect(readFileSync(path, "utf8")).toBe("owned bytes");
+    deleteWindowsOwnedFile(helper, root, "blobs\\x.bin", rootIdentity, expected);
+    expect(existsSync(path)).toBe(false);
   });
 
   it("uses volume and file ID to recognize hardlink and case aliases", () => {

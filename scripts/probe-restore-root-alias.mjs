@@ -16,12 +16,14 @@ const top = mkdtempSync(join(tmpdir(), "aitest-restore-root-alias-"));
 const root = join(top, "runtime");
 const artifactRoot = join(root, "artifacts");
 const movedArtifactRoot = join(root, "artifacts-moved");
+const replacementArtifactRoot = join(root, "artifacts-replacement");
 const target = join(root, "state.db");
 const staged = `${target}.restore-${randomUUID()}`;
 const preserved = `${target}.restore-old-${randomUUID()}`;
 const generation = randomUUID();
 const helper = packagedWindowsFileHelper();
 const expectGuard = process.argv.includes("--expect-guard");
+const transientSwap = process.argv.includes("--transient-swap");
 let child;
 try {
   mkdirSync(artifactRoot, { recursive: true });
@@ -58,11 +60,20 @@ try {
   ]);
   const ready = (await next()).split("\t");
   assert.equal(ready[0], "READY");
+  if (transientSwap) assertWindowsRestoreRootIdentity(helper, artifactRoot, oldArtifactRoot);
   renameSync(artifactRoot, movedArtifactRoot);
   mkdirSync(artifactRoot);
   const newArtifactRoot = inspectWindowsPath(helper, artifactRoot);
   assert.notEqual(newArtifactRoot.fileId, oldArtifactRoot.fileId);
-  if (expectGuard) {
+  if (transientSwap) {
+    copyFileSync(sourceBlob, join(artifactRoot, "blob.restore.tmp"));
+    renameSync(artifactRoot, replacementArtifactRoot);
+    renameSync(movedArtifactRoot, artifactRoot);
+    assertWindowsRestoreRootIdentity(helper, artifactRoot, oldArtifactRoot);
+    assert.equal(existsSync(join(artifactRoot, "blob.restore.tmp")), false);
+    assert.equal(readFileSync(join(replacementArtifactRoot, "blob.restore.tmp"), "utf8"), "new blob");
+    process.stdout.write("RED_TRANSIENT: before/after FileId passed while absolute copy wrote swapped root\n");
+  } else if (expectGuard) {
     assert.throws(() => assertWindowsRestoreRootIdentity(helper, artifactRoot, oldArtifactRoot),
       (error) => error?.details?.reason_code === "RESTORE_ARTIFACT_ROOT_CHANGED");
     assert.equal(existsSync(join(artifactRoot, "blob.restore.tmp")), false);
