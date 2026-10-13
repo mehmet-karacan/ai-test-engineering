@@ -8,6 +8,7 @@ import { existsSync, linkSync, mkdtempSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { runDiagnostics, type DiagnosticInput } from "../../src/application/diagnostics.js";
 import { defaultRetentionPolicy, gcDryRun, gcSweep } from "../../src/storage/retention-gc.js";
 import { Storage } from "../../src/storage/storage.js";
@@ -17,10 +18,15 @@ import { ArtifactStore } from "../../src/storage/artifact-store.js";
 import { CheckpointStore } from "../../src/orchestration/checkpoint-store.js";
 import { LeaseManager } from "../../src/orchestration/lease-manager.js";
 
-const gcDeleteFault = vi.hoisted(() => ({ secondDelete: false, count: 0 }));
+const gcDeleteFault = vi.hoisted(() => ({ secondDelete: false, count: 0, beforeDelete: null as (() => void) | null }));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   const rmSync: typeof actual.rmSync = (path, options) => {
+    if (gcDeleteFault.beforeDelete && String(path).includes("blobs")) {
+      const callback = gcDeleteFault.beforeDelete;
+      gcDeleteFault.beforeDelete = null;
+      callback();
+    }
     if (gcDeleteFault.secondDelete && String(path).includes("blobs") && ++gcDeleteFault.count === 2) {
       const error: NodeJS.ErrnoException = new Error("EACCES: second GC delete failed");
       error.code = "EACCES";
@@ -270,6 +276,36 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
     expect(existsSync(artifact.path)).toBe(true);
     expect(existsSync(aliasPath)).toBe(true);
     expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("READY");
+  });
+
+  it("GC unlink aninda raw SQLite writer ayni blob icin READY ref yayinlayamaz", () => {
+    const oldJob = jobs.createJob({ locationId, requestDigest: "digest-gc-raw-unlink-old" });
+    jobs.updateLifecycle(oldJob.id, "COMPLETED", 0);
+    const artifact = insertArtifact(oldJob.id, "temp", "raw-unlink-blob", -2 * 24 * 60 * 60 * 1000);
+    const candidate = gcDryRun(storage.db, defaultRetentionPolicy()).candidates.find((entry) => entry.artifact_id === artifact.id)!;
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    const liveJob = jobs.createJob({ locationId, requestDigest: "digest-gc-raw-unlink-live" });
+    jobs.updateLifecycle(liveJob.id, "RUNNING", 0);
+    let writerOutcome = "NOT_RUN";
+    gcDeleteFault.beforeDelete = () => {
+      const raw = new Database(join(dir, "state.db"), { timeout: 0 });
+      try {
+        raw.pragma("busy_timeout = 0");
+        raw.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, created_at) VALUES (?, ?, 'report', ?, ?, ?, '1', 'internal', 'READY', ?)")
+          .run(randomUUID(), liveJob.id, candidate.relative_store_path.toUpperCase(), candidate.sha256, candidate.snapshot!.bytes, Date.now());
+        writerOutcome = "INSERTED";
+      } catch (error) {
+        if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
+        writerOutcome = "SQLITE_BUSY";
+      } finally { raw.close(); }
+    };
+    try {
+      try { gcSweep(storage.db, dryRun, artifactRoot); }
+      catch (error) { expect(String(error)).toMatch(/GC dry-run candidate changed or became pinned/); }
+    } finally { gcDeleteFault.beforeDelete = null; }
+    expect(writerOutcome).not.toBe("NOT_RUN");
+    if (writerOutcome === "INSERTED") expect(existsSync(artifact.path)).toBe(true);
+    else expect(writerOutcome).toBe("SQLITE_BUSY");
   });
 
   it("second GC delete failure never leaves the first missing blob marked READY", () => {
