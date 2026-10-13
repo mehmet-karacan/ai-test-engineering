@@ -167,7 +167,14 @@ class BoundedOutput {
     const decoded = decoder.write(Buffer.concat(this.chunks));
     // A byte budget can end in the middle of a code point. An incomplete
     // suffix is omitted rather than introducing a replacement character.
-    return this.dropped > 0 ? decoded : decoded + decoder.end();
+    const rendered = this.dropped > 0 ? decoded : decoded + decoder.end();
+    // Invalid UTF-8 expands to U+FFFD (three UTF-8 bytes). The raw stream
+    // cap alone does not bound the UTF-8 bytes MavenRunner writes to disk.
+    const encoded = Buffer.from(rendered, "utf8");
+    if (encoded.length <= this.limit) return rendered;
+    const bounded = new StringDecoder("utf8").write(encoded.subarray(0, this.limit));
+    this.dropped += encoded.length - Buffer.byteLength(bounded, "utf8");
+    return bounded;
   }
 }
 

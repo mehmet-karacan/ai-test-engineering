@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { MavenRunner } from "../../src/runners/maven-runner.js";
 import { AppError } from "../../src/domain/errors.js";
 import { WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
@@ -69,6 +69,33 @@ describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () 
       } finally { processRun.mockRestore(); }
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it("keeps the written UTF-8 log under 8 MiB when invalid input bytes expand", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wn runner invalid-utf8-"));
+    const limit = 8 * 1024 * 1024;
+    try {
+      const executable = join(dir, "mvn.cmd");
+      const producer = join(dir, "producer.js");
+      writeFileSync(producer, `process.stdout.write(Buffer.alloc(${limit}, 0xff));process.stderr.write(Buffer.concat([Buffer.alloc(${limit - 1}, 65), Buffer.from('😀')]));`);
+      writeFileSync(executable, `@echo off\r\nif "%~1"=="-v" (\r\n echo Apache Maven 3.9.16\r\n echo Java version: 25.0.3, vendor: Fixture\r\n exit /b 0\r\n)\r\n"${process.execPath}" "${producer}"\r\nexit /b %errorlevel%\r\n`);
+      const result = await new MavenRunner().run({ working_dir: dir, goals: ["test"], timeout_ms: 30000,
+        log_dir: join(dir, "logs"), executable });
+      expect(readFileSync(result.stdout_log_path).length).toBeLessThanOrEqual(limit);
+      expect(readFileSync(result.stderr_log_path).length).toBeLessThanOrEqual(limit);
+      expect(result.stdout_truncated_bytes).toBeGreaterThan(0);
+      expect(result.stdout_truncation_reason).toBe("BYTE_BUDGET_EXCEEDED");
+      expect(result.stderr_truncated_bytes).toBeGreaterThan(0);
+      expect(result.stderr_truncation_reason).toBe("BYTE_BUDGET_EXCEEDED");
+    } finally {
+      const target = resolve(dir);
+      const inside = relative(resolve(tmpdir()), target);
+      if (inside && !inside.startsWith("..") && !isAbsolute(inside) && basename(target).startsWith("wn runner invalid-utf8-")) {
+        rmSync(target, { recursive: true, force: true });
+      } else {
+        process.stderr.write("Refusing invalid UTF-8 fixture cleanup outside owned Temp root\n");
+      }
+    }
+  }, 45000);
 
   it("rejects an explicit empty settings path before Maven starts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wn runner settings-"));

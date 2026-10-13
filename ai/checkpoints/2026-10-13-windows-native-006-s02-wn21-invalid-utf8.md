@@ -1,0 +1,8 @@
+# S02 WN21 invalid UTF-8 yazili log butcesi - customer gate kapali
+
+- Dal `codex/windows-native-006-s02`, baslangic `c1270e4`; S01/S03, original customer/GPU checkout, G1/G2/G3 ve customer readiness degismedi.
+- RED: gercek Windows sentetik `mvn.cmd` goal'u stdout'a tam 8 MiB `0xff` yazdi. Supervisor ham stream'i 8 MiB ile sinirladi, `StringDecoder` her gecersiz byte'i U+FFFD'ye cevirdi, `MavenRunner` UTF-8 yeniden yazinca `maven-stdout.log` **25,165,824 byte** oldu; 8 MiB siniri asildi. Stderr fixture'i 8 MiB sinirinda cok baytli emoji bolunmesini de olctu.
+- GREEN: `BoundedOutput.text()` ham cap sonrasi render edilen UTF-8 baytlari da ayni 8 MiB butceye sigdirir; son cok baytli karakter yarimsa onu yazmaz. Yeniden kodlama sonucu kesilen baytlar truncation sayacina eklenir, `BYTE_BUDGET_EXCEEDED` sebebi korunur. Gercek MavenRunner fixture'i diske yazilan iki logun da en fazla 8 MiB oldugunu ve stdout/stderr truncation tanisini dogruladi. `wn-process-supervisor` ve `wn-native-runner` seri 2 dosya/19 PASS.
+- Son kodda typecheck/build (iki native helper manifest denetimi)/lint exit 0. Tam suite PASS iddiasi yok.
+- Kalici truncation provenance ayri bir dilimdir: `RunResult` count/reason tasir ama mevcut `test_run_provenance` tablosunda alan yok. S04 migration gate'i asilmadan mevcut `ArtifactStore` + `artifacts` iliskisi ile immutable metadata kaydi ve run id baginin kurulmasi inceleniyor; bu dilimde durable kabul iddiasi yok.
+- `CustomerRunnerFactory.assertNativeCustomerReady()` kapali kalir. WN21'in yazili byte butcesi icin yerel kanit var, fakat tum customer/release kabulunun ve S02 VERIFIED'in kaniti degildir.
