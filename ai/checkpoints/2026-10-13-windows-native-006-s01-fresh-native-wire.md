@@ -29,4 +29,5 @@
 ## Gercek hard-kill kesitleri
 
 - `node scripts/probe-restore-fresh-hardkill.mjs`: exit 0; 4/4 Windows `taskkill /PID /F` kesiti PASS. READY, MOVED stdout fakat receipt fsync oncesi, receipt fsync sonrasi ve VERIFY_READY sonrasi kesitlerinde native recover-fresh READY/ACCEPT fiziksel 0/1 layout'u uzlastirdi; ROLLED_BACK journal, hedef DB/WAL/SHM yoklugu ve staged snapshot SHA dogrulandi.
-- Bu probe restoreBackup tam lifecycle'i degil, native helper + journal + worker zincirini olcer. COMMITTED/final CLOSE, blob yayini, rakip raw SQLite yazari, root rename/alias ve her mutation kesiti henuz kapsanmadi. Production fresh hedef yolu acilmaz; WN11/12/13 NO_GO.
+- Bu probe restoreBackup tam lifecycle'i degil, native helper + journal + worker zincirini olcer. Final CLOSE, blob yayini, rakip raw SQLite yazari, root rename/alias ve her mutation kesiti henuz kapsanmadi. Production fresh hedef yolu acilmaz; WN11/12/13 NO_GO.
+- Ek terminal kesiti `COMMITTED` fsync sonrasi native guard canliyken taskkill: yeni DB FileId/SHA source ile es ve `test_jobs` yeni satiri readonly SQLite ile acildi. Probe 5/5 exit 0. CLOSE ACK, full blob lifecycle, root alias ve raw writer yarislari halen acik; production fail-closed.
