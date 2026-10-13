@@ -7,7 +7,7 @@
  * migration re-open + restore veri korunumu yerel olarak kanitlanir.
  */
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../../src/storage/storage.js";
@@ -112,6 +112,10 @@ describe("P08/PP44: upgrade/migration veri korunumu", () => {
 
     const restoredDb = join(dir, "restored", "state.db");
     const restoredArtifacts = join(dir, "restored", "artifacts");
+    mkdirSync(restoredArtifacts, { recursive: true });
+    const emptyTarget = new Storage({ dbPath: restoredDb });
+    emptyTarget.migrate();
+    emptyTarget.close();
     await restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
     expect(readRestoreJournal(journalPathForDb(restoredDb))?.phase).toBe("COMMITTED");
     const restored = new Storage({ dbPath: restoredDb });

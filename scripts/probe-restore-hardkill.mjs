@@ -18,6 +18,7 @@ const root = mkdtempSync(join(tmpdir(), "aitest-wn11-hardkill-"));
 assert.ok(resolve(root).startsWith(resolve(tmpdir())));
 const expectRecovery = process.argv.includes("--expect-recovery");
 const native = process.argv.includes("--native");
+assert.equal(native, true, "Production Windows restore is native-only; run this probe with --native");
 const allModes = ["PREPARED", "LINK", "BLOBS_READY", "MOVE_DB", "OLD_DB_MOVED", "MOVE_WAL", "OLD_WAL_MOVED",
   "MOVE_SHM", "OLD_SHM_MOVED", "OLD_DB_PRESERVED", "PUBLISH_DB", "NEW_DB_MOVED",
   "NEW_DB_PUBLISHED", "VERIFIED", "COMMITTED"];
@@ -66,18 +67,20 @@ if (native) {
   const originalSpawn = childProcess.spawn;
   childProcess.spawn = (...args) => {
     const child = originalSpawn(...args);
-    if (args[1]?.[0] === "session") {
+    if (["session", "copy-stage-session", "blob-verify-session"].includes(args[1]?.[0])) {
       let pending = "";
       child.stdout.on("data", (data) => {
         pending += data.toString();
         if (pending.length > 8192) throw new Error("native probe line too long");
         let end;
         while ((end = pending.indexOf("\\n")) >= 0) {
-          const line = pending.slice(0, end);
+          const line = pending.slice(0, end).replace(/\\r$/, "");
           pending = pending.slice(end + 1);
           const slot = mode === "MOVE_DB" ? "oldDb" : mode === "MOVE_WAL" ? "oldWal" :
             mode === "MOVE_SHM" ? "oldShm" : mode === "PUBLISH_DB" ? "stagedDb" : "";
           const fields = line.split("\\t");
+          if (mode === "LINK" && args[1]?.[0] === "copy-stage-session" && fields[0] === "LINKED") halt();
+          if (mode === "COMMITTED" && args[1]?.[0] === "blob-verify-session" && fields[0] === "COMMITTED") halt();
           if (slot && fields[0] === "MOVED" && fields[3] === slot) halt();
         }
       });
@@ -153,6 +156,7 @@ try {
     const targetDb = join(fixture, "runtime", "state.db");
     const targetArtifacts = join(fixture, "runtime", "artifacts");
     mkdirSync(dirname(targetDb), { recursive: true });
+    mkdirSync(targetArtifacts, { recursive: true });
     const old = new Database(targetDb);
     if (walModes.has(mode)) old.pragma("journal_mode = WAL");
     old.exec(schema);
@@ -223,7 +227,7 @@ try {
     try {
       const reopened = new Storage({ dbPath: targetDb });
       try {
-        if ((native && mode !== "COMMITTED") || mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+        if (!native && (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY")) {
           assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'old'").get()?.id, "old");
           if (walModes.has(mode)) {
             assert.equal(reopened.db.prepare("SELECT id FROM test_jobs WHERE id = 'wal-sentinel'").get()?.id,
@@ -243,12 +247,14 @@ try {
       startupBlocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED";
       if (!startupBlocked) throw error;
     }
-    assert.equal(startupBlocked, !native && mode !== "COMMITTED" && mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY", `${mode}: startup gate mismatch`);
-    if ((native && mode !== "COMMITTED") || mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY") {
+    assert.equal(startupBlocked, mode !== "COMMITTED" && (native ||
+      mode !== "PREPARED" && mode !== "LINK" && mode !== "BLOBS_READY"), `${mode}: startup gate mismatch`);
+    if (!native && (mode === "PREPARED" || mode === "LINK" || mode === "BLOBS_READY")) {
       assert.equal(readRestoreJournal(journalPathForDb(targetDb))?.phase, "ROLLED_BACK");
     }
     if (expectRecovery && startupBlocked) blockedRecoveries.push(mode);
-    assert.equal(existsSync(join(targetArtifacts, rel)), mode !== "PREPARED", `${mode}: blob ownership/layout changed`);
+    assert.equal(existsSync(join(targetArtifacts, rel)), mode !== "PREPARED" && mode !== "LINK",
+      `${mode}: blob ownership/layout changed`);
     const releaseDb = acquireRestoreDbLock(targetDb); releaseDb();
     const releaseArtifact = acquireMaintenanceLock(targetArtifacts, "restore"); releaseArtifact();
     results.push({ mode, journal_phase: journal?.phase, startup_blocked: startupBlocked, opened_generation: openedGeneration,
@@ -266,6 +272,7 @@ try {
   rawSource.close();
   const rawTargetPath = join(rawRoot, "runtime", "state.db");
   mkdirSync(dirname(rawTargetPath), { recursive: true });
+  mkdirSync(join(rawRoot, "runtime", "artifacts"), { recursive: true });
   const rawTarget = new Database(rawTargetPath);
   rawTarget.pragma("journal_mode = WAL");
   rawTarget.exec(schema);

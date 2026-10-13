@@ -45,14 +45,12 @@ describe("S01 native restore session adapter", () => {
       old.prepare("INSERT INTO test_jobs VALUES ('old', 'COMPLETED')").run();
       old.close();
       const targetArtifacts = join(root, "runtime", "artifacts");
-      await expect(restoreBackup(backup.backup_dir, target, targetArtifacts,
-        { nativeHelper: packagedWindowsFileHelper() })).rejects.toMatchObject({
+      await expect(restoreBackup(backup.backup_dir, target, targetArtifacts)).rejects.toMatchObject({
         details: { reason_code: "RESTORE_ARTIFACT_ROOT_REQUIRED" },
       });
       expect(existsSync(journalPathForDb(target))).toBe(false);
       mkdirSync(targetArtifacts, { recursive: true });
-      await restoreBackup(backup.backup_dir, target, targetArtifacts,
-        { nativeHelper: packagedWindowsFileHelper() });
+      await restoreBackup(backup.backup_dir, target, targetArtifacts);
       expect(readFileSync(join(targetArtifacts, "blobs", "x.bin"), "utf8")).toBe("new blob bytes");
       const firstJournal = readRestoreJournal(journalPathForDb(target));
       expect(firstJournal?.phase).toBe("COMMITTED");
@@ -173,8 +171,7 @@ describe("S01 native restore session adapter", () => {
       const backup = await createBackup(source, sourcePath, join(root, "source", "artifacts"), join(root, "backups"));
       source.close(); source = undefined;
       const target = join(root, "runtime", "state.db");
-      await expect(restoreBackup(backup.backup_dir, target, join(root, "runtime", "artifacts"),
-        { nativeHelper: packagedWindowsFileHelper() })).rejects.toMatchObject({
+      await expect(restoreBackup(backup.backup_dir, target, join(root, "runtime", "artifacts"))).rejects.toMatchObject({
         details: { reason_code: "WINDOWS_RESTORE_FRESH_TARGET_UNSUPPORTED" },
       });
       expect(existsSync(target)).toBe(false);
