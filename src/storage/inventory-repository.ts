@@ -3,6 +3,8 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
+import { AppError } from "../domain/errors.js";
+import type { ArtifactStore } from "./artifact-store.js";
 import type { JavaSymbol, TestInventory } from "../discovery/java-inventory.js";
 import type { PomModule } from "../discovery/pom-discovery.js";
 
@@ -13,11 +15,22 @@ export interface InventoryWriteResult {
   test_cases_written: number;
 }
 
+export interface RunOutputTruncation {
+  stdout_raw_dropped_bytes: number;
+  stderr_raw_dropped_bytes: number;
+  stdout_rendered_dropped_bytes: number;
+  stderr_rendered_dropped_bytes: number;
+  stdout_reason: "BYTE_BUDGET_EXCEEDED" | null;
+  stderr_reason: "BYTE_BUDGET_EXCEEDED" | null;
+}
+
 export class InventoryRepository {
   private readonly db: BetterSqlite3.Database;
+  private readonly artifacts: ArtifactStore | undefined;
 
-  constructor(db: BetterSqlite3.Database) {
+  constructor(db: BetterSqlite3.Database, artifacts?: ArtifactStore) {
     this.db = db;
+    this.artifacts = artifacts;
   }
 
   /** P06/PP31: Maven run + Surefire/Failsafe inventory authoritative kaydi. */
@@ -38,13 +51,40 @@ export class InventoryRepository {
     coverage_report_paths: Array<{ path: string; sha256: string | null }>;
     started_at: number;
     finished_at: number;
+    output_truncation?: RunOutputTruncation | undefined;
   }): string {
     const provenanceKey = [input.job_id, input.stage, input.attempt_ordinal ?? 0, input.iteration_ordinal ?? 0].join(":");
     const existing = this.db.prepare<[string], { id: string }>("SELECT id FROM test_run_provenance WHERE provenance_key = ?").get(provenanceKey);
-    if (existing) {
-      return existing.id;
+    const id = existing?.id ?? randomUUID();
+    const truncation = input.output_truncation;
+    const hasTruncation = truncation !== undefined && [
+      truncation.stdout_raw_dropped_bytes, truncation.stderr_raw_dropped_bytes,
+      truncation.stdout_rendered_dropped_bytes, truncation.stderr_rendered_dropped_bytes,
+    ].some((count) => count > 0);
+    if (truncation && Object.values(truncation).some((value) => typeof value === "number" && (!Number.isSafeInteger(value) || value < 0))) {
+      throw new AppError("STORAGE_ERROR", "Gecersiz run output kesinti sayaci");
     }
-    const id = randomUUID();
+    if (truncation && ((truncation.stdout_reason !== null) !== (truncation.stdout_raw_dropped_bytes + truncation.stdout_rendered_dropped_bytes > 0) ||
+      (truncation.stderr_reason !== null) !== (truncation.stderr_raw_dropped_bytes + truncation.stderr_rendered_dropped_bytes > 0))) {
+      throw new AppError("STORAGE_ERROR", "Run output kesinti sebebi ve sayaci uyusmuyor");
+    }
+    if (hasTruncation && !this.artifacts) throw new AppError("STORAGE_ERROR", "Run output kesinti artifact deposu yok");
+    const truncationJson = hasTruncation ? JSON.stringify({
+      schema_version: 1, run_id: id, job_id: input.job_id, stage: input.stage, ...truncation,
+    }) : null;
+    const pin = `run_output_truncation:${id}`;
+    const recordedArtifact = existing ? this.db.prepare<[string, string], { sha256: string; bytes: number; relative_store_path: string; status: string }>(
+      "SELECT sha256, bytes, relative_store_path, status FROM artifacts WHERE kind = 'run_output_truncation' AND job_id = ? AND pin_reason = ?",
+    ).get(input.job_id, pin) : undefined;
+    if (existing && hasTruncation && !recordedArtifact) {
+      throw new AppError("STORAGE_ERROR", "Eski run icin output kesinti kaniti sonradan eklenemez");
+    }
+    if (recordedArtifact && (!truncationJson || recordedArtifact.sha256 !== this.artifacts?.sha256(truncationJson) || recordedArtifact.status !== "READY")) {
+      throw new AppError("STORAGE_ERROR", "Run output kesinti kaydi degisti");
+    }
+    // Blob first; the provenance row and artifact row commit together. An
+    // interrupted publish can leave only an unreferenced blob, never a trusted row.
+    const artifact = truncationJson ? this.artifacts!.publish("run_output_truncation", truncationJson, { schemaVersion: "1", sensitivity: "internal" }) : null;
     const commandJson = JSON.stringify(input.command);
     const inventoryJson = JSON.stringify(input.test_inventory);
     const totalTests = input.test_inventory.reduce((sum, suite) => sum + suite.tests, 0);
@@ -52,7 +92,8 @@ export class InventoryRepository {
     const errors = input.test_inventory.reduce((sum, suite) => sum + suite.errors, 0);
     const skipped = input.test_inventory.reduce((sum, suite) => sum + suite.skipped, 0);
     const placeholders = Array.from({ length: 24 }, () => "?").join(", ");
-    this.db.prepare(
+    this.db.transaction(() => {
+    if (!existing) this.db.prepare(
       `INSERT INTO test_run_provenance (id, job_id, provenance_key, stage, attempt_ordinal, iteration_ordinal, execution_root, command_json, command_digest, stdout_log_path, stderr_log_path, exit_code, timed_out, total_tests, failures, errors, skipped, test_inventory_json, coverage_report_path, coverage_report_sha256, coverage_report_paths_json, started_at, finished_at, created_at) VALUES (${placeholders})`,
     ).run(
       id,
@@ -80,6 +121,24 @@ export class InventoryRepository {
       input.finished_at,
       Date.now(),
     );
+    if (artifact) {
+      const row = this.db.prepare<[string, string], { job_id: string; sha256: string; bytes: number; relative_store_path: string; status: string }>(
+        "SELECT job_id, sha256, bytes, relative_store_path, status FROM artifacts WHERE kind = 'run_output_truncation' AND job_id = ? AND pin_reason = ?",
+      ).get(input.job_id, pin);
+      if (row) {
+        if (row.sha256 !== artifact.sha256 || row.bytes !== artifact.bytes || row.relative_store_path !== artifact.relativeStorePath || row.status !== "READY") {
+          throw new AppError("STORAGE_ERROR", "Run output kesinti kaydi degisti");
+        }
+      } else {
+        this.db.prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, 'run_output_truncation', ?, ?, ?, '1', 'internal', 'READY', ?, ?)")
+          .run(artifact.id, input.job_id, artifact.relativeStorePath, artifact.sha256, artifact.bytes, pin, Date.now());
+      }
+    } else if (existing && this.db.prepare<[string, string], { id: string }>(
+      "SELECT id FROM artifacts WHERE kind = 'run_output_truncation' AND job_id = ? AND pin_reason = ?",
+    ).get(input.job_id, pin)) {
+      throw new AppError("STORAGE_ERROR", "Run output kesinti kaydi silinemez");
+    }
+    })();
     return id;
   }
 
