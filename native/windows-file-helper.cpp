@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstring>
 #include <cwctype>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -77,7 +78,7 @@ bool validHandle(HANDLE h, bool directory) {
 }
 
 bool openChild(HANDLE parent, const std::wstring& name, bool directory, bool create, DWORD access, Handle& result,
-  ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE) {
+  ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE, NTSTATUS* statusOut = nullptr) {
   if (!safeComponent(name) || name.size() > 32767 / sizeof(wchar_t)) return false;
   UNICODE_STRING unicode{};
   unicode.Buffer = const_cast<PWSTR>(name.c_str());
@@ -92,6 +93,7 @@ bool openChild(HANDLE parent, const std::wstring& name, bool directory, bool cre
   const NTSTATUS status = NtCreateFile(&opened, access | SYNCHRONIZE, &attributes, &io, nullptr,
     FILE_ATTRIBUTE_NORMAL, share, create ? FILE_CREATE : FILE_OPEN,
     opts, nullptr, 0);
+  if (statusOut) *statusOut = status;
   if (status < 0 || opened == INVALID_HANDLE_VALUE) return false;
   result = Handle(opened);
   return validHandle(result.value, directory);
@@ -238,9 +240,252 @@ bool renameHeld(HANDLE source, HANDLE targetDirectory, const std::wstring& targe
   return NtSetInformationFile(source, &io, rename, static_cast<ULONG>(buffer.size()),
     static_cast<FILE_INFORMATION_CLASS>(10)) >= 0;
 }
+
+bool decodeName(const std::wstring& encoded, std::wstring& name) {
+  if (encoded.empty() || encoded.size() % 4 != 0 || encoded.size() > 1020) return false;
+  name.clear();
+  for (size_t i = 0; i < encoded.size(); i += 4) {
+    unsigned value = 0;
+    for (size_t j = 0; j < 4; ++j) {
+      const wchar_t c = encoded[i + j];
+      const int nibble = c >= L'0' && c <= L'9' ? c - L'0' :
+        c >= L'a' && c <= L'f' ? c - L'a' + 10 : -1;
+      if (nibble < 0) return false;
+      value = (value << 4) | static_cast<unsigned>(nibble);
+    }
+    // Node Buffer.from(name, "utf16le").toString("hex") is byte little-endian.
+    name.push_back(static_cast<wchar_t>((value >> 8) | ((value & 0xff) << 8)));
+  }
+  return safeComponent(name);
+}
+
+std::string encodeName(const std::wstring& name) {
+  char encoded[5]{};
+  std::string result;
+  for (wchar_t c : name) {
+    std::snprintf(encoded, sizeof(encoded), "%02x%02x", c & 0xff, (c >> 8) & 0xff);
+    result += encoded;
+  }
+  return result;
+}
+
+std::string ascii(const std::wstring& value) {
+  std::string result;
+  for (wchar_t c : value) {
+    if (c > 127) return {};
+    result.push_back(static_cast<char>(c));
+  }
+  return result;
+}
+
+bool uuidAtEnd(const std::wstring& value, const std::wstring& prefix) {
+  if (value.size() != prefix.size() + 36 || value.compare(0, prefix.size(), prefix) != 0) return false;
+  for (size_t i = 0; i < 36; ++i) {
+    const wchar_t c = value[prefix.size() + i];
+    if (i == 8 || i == 13 || i == 18 || i == 23) { if (c != L'-') return false; }
+    else if (!((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'))) return false;
+  }
+  return true;
+}
+
+struct SessionSlot {
+  const char* key;
+  std::wstring currentName;
+  Handle file;
+  bool present = false;
+  bool readGuard = false;
+};
+
+bool snapshot(HANDLE file, Identity& info, unsigned char digest[32]) {
+  return identity(file, info) && info.links == 1 && hashHeld(file, digest);
+}
+
+void printSnapshot(HANDLE file) {
+  Identity info;
+  unsigned char digest[32]{};
+  if (!snapshot(file, info, digest)) return;
+  std::printf("%016llx:%ls:%llu:%ls", info.id.VolumeSerialNumber,
+    fileIdHex(info).c_str(), info.bytes, digestHex(digest).c_str());
+}
+
+bool sidecarsStillOwned(HANDLE root, const std::wstring& dbName, SessionSlot (&slots)[4]) {
+  for (size_t i = 1; i <= 2; ++i) {
+    const std::wstring original = dbName + (i == 1 ? L"-wal" : L"-shm");
+    Handle observed;
+    NTSTATUS status = 0;
+    if (!openChild(root, original, false, false, GENERIC_READ | FILE_READ_ATTRIBUTES,
+      observed, FILE_SHARE_READ | FILE_SHARE_DELETE, &status)) {
+      if (status == static_cast<NTSTATUS>(0xC0000034L) &&
+          (!slots[i].present || slots[i].currentName != original)) continue;
+      return false;
+    }
+    if (!slots[i].present || slots[i].currentName != original) return false;
+    Identity held, found;
+    unsigned char heldDigest[32]{}, foundDigest[32]{};
+    if (!snapshot(slots[i].file.value, held, heldDigest) ||
+        !snapshot(observed.value, found, foundDigest) || !sameIdentity(held, found) ||
+        std::memcmp(heldDigest, foundDigest, 32) != 0) return false;
+  }
+  return true;
+}
+
+std::vector<std::string> splitTabs(const std::string& line) {
+  std::vector<std::string> fields;
+  size_t start = 0;
+  while (true) {
+    const size_t end = line.find('\t', start);
+    fields.push_back(line.substr(start, end == std::string::npos ? end : end - start));
+    if (end == std::string::npos) return fields;
+    start = end + 1;
+  }
+}
+
+int restoreSession(int argc, wchar_t** argv) {
+  if (argc != 6) return 2;
+  std::wstring dbName, stagedName;
+  if (!decodeName(argv[3], dbName) || !decodeName(argv[4], stagedName) ||
+      !uuidAtEnd(stagedName, dbName + L".restore-")) return 2;
+  const std::string generation = ascii(argv[5]);
+  if (generation.size() != 36) return 2;
+  for (char c : generation) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || c == '-')) return 2;
+  std::vector<Handle> root;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root)) return 2;
+  SessionSlot slots[4] = {
+    { "oldDb", dbName, Handle{} }, { "oldWal", dbName + L"-wal", Handle{} },
+    { "oldShm", dbName + L"-shm", Handle{} }, { "stagedDb", stagedName, Handle{} },
+  };
+  std::wstring preservedSuffix;
+  for (size_t i = 0; i < 4; ++i) {
+    NTSTATUS status = 0;
+    if (!openChild(root.back().value, slots[i].currentName, false, false,
+      GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, slots[i].file, FILE_SHARE_READ, &status)) {
+      if ((i == 1 || i == 2) && status == static_cast<NTSTATUS>(0xC0000034L)) continue;
+      return 2;
+    }
+    slots[i].present = true;
+    Identity info;
+    unsigned char digest[32]{};
+    if (!snapshot(slots[i].file.value, info, digest)) return 2;
+  }
+  std::printf("READY\t%s", generation.c_str());
+  for (const auto& slot : slots) {
+    std::printf("\t%s=", slot.key);
+    if (slot.present) printSnapshot(slot.file.value);
+    else std::printf("-");
+  }
+  std::printf("\n");
+  std::fflush(stdout);
+  unsigned sequence = 0;
+  std::string line;
+  while (std::getline(std::cin, line)) {
+    const auto fields = splitTabs(line);
+    if (!sidecarsStillOwned(root.back().value, dbName, slots)) return 2;
+    if (fields.size() == 1 && fields[0] == "CLOSE") {
+      const bool sidecarsAtOrigin = (!slots[1].present || slots[1].currentName == dbName + L"-wal") &&
+        (!slots[2].present || slots[2].currentName == dbName + L"-shm");
+      const bool sidecarsPreserved = (!slots[1].present || slots[1].currentName == dbName + L"-wal" + preservedSuffix) &&
+        (!slots[2].present || slots[2].currentName == dbName + L"-shm" + preservedSuffix);
+      const bool rolledBack = sequence > 0 && slots[0].currentName == dbName &&
+        slots[3].currentName == stagedName && sidecarsAtOrigin;
+      const bool verifiedPublished = !preservedSuffix.empty() && slots[0].currentName == dbName + preservedSuffix &&
+        slots[3].currentName == dbName && slots[3].readGuard && sidecarsPreserved;
+      if (!rolledBack && !verifiedPublished) return 2;
+      std::printf("CLOSED\t%s\t%u\n", generation.c_str(), sequence);
+      std::fflush(stdout);
+      return 0;
+    }
+    if (fields.size() == 1 && fields[0] == "VERIFY") {
+      SessionSlot& published = slots[3];
+      if (!published.present || published.readGuard || published.currentName != dbName ||
+          preservedSuffix.empty() || slots[0].currentName != dbName + preservedSuffix ||
+          (slots[1].present && slots[1].currentName != dbName + L"-wal" + preservedSuffix) ||
+          (slots[2].present && slots[2].currentName != dbName + L"-shm" + preservedSuffix)) return 2;
+      Handle reader;
+      if (!openChild(root.back().value, published.currentName, false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES, reader, FILE_SHARE_READ | FILE_SHARE_DELETE)) return 2;
+      Identity before, after;
+      unsigned char sourceDigest[32]{}, readerDigest[32]{};
+      if (!snapshot(published.file.value, before, sourceDigest) ||
+          !snapshot(reader.value, after, readerDigest) || !sameIdentity(before, after) ||
+          std::memcmp(sourceDigest, readerDigest, 32) != 0) return 2;
+      published.file = std::move(reader);
+      published.readGuard = true;
+      std::printf("VERIFY_READY\t%s\t%u\t", generation.c_str(), sequence);
+      printSnapshot(published.file.value);
+      std::printf("\n");
+      std::fflush(stdout);
+      continue;
+    }
+    if (fields.size() != 8 || fields[0] != "MOVE") return 2;
+    SessionSlot* slot = nullptr;
+    for (auto& item : slots) if (fields[1] == item.key) slot = &item;
+    if (!slot || !slot->present) return 2;
+    std::wstring fromName, toName;
+    if (!decodeName(std::wstring(fields[2].begin(), fields[2].end()), fromName) ||
+        !decodeName(std::wstring(fields[3].begin(), fields[3].end()), toName) ||
+        fromName != slot->currentName || fromName == toName) return 2;
+    if (slot == &slots[0]) {
+      if (fromName == dbName) {
+        const std::wstring prefix = dbName + L".restore-old-";
+        if (!preservedSuffix.empty() || !uuidAtEnd(toName, prefix) || slots[3].currentName != stagedName) return 2;
+        preservedSuffix = toName.substr(dbName.size());
+      } else if (preservedSuffix.empty() || fromName != dbName + preservedSuffix || toName != dbName ||
+                 slots[3].currentName != stagedName ||
+                 (slots[1].present && slots[1].currentName != dbName + L"-wal") ||
+                 (slots[2].present && slots[2].currentName != dbName + L"-shm")) return 2;
+    } else if (slot == &slots[1] || slot == &slots[2]) {
+      const std::wstring original = dbName + (slot == &slots[1] ? L"-wal" : L"-shm");
+      if (preservedSuffix.empty() || slots[0].currentName != dbName + preservedSuffix ||
+          slots[3].currentName != stagedName) return 2;
+      if (fromName == original) {
+        if (toName != original + preservedSuffix ||
+            (slot == &slots[2] && slots[1].present && slots[1].currentName != dbName + L"-wal" + preservedSuffix)) return 2;
+      } else if (fromName != original + preservedSuffix || toName != original ||
+                 (slot == &slots[1] && slots[2].present && slots[2].currentName != dbName + L"-shm")) return 2;
+    } else if (slot == &slots[3]) {
+      if (preservedSuffix.empty() || slots[0].currentName != dbName + preservedSuffix) return 2;
+      if (fromName == stagedName) {
+        if (toName != dbName ||
+            (slots[1].present && slots[1].currentName != dbName + L"-wal" + preservedSuffix) ||
+            (slots[2].present && slots[2].currentName != dbName + L"-shm" + preservedSuffix)) return 2;
+      } else if (fromName != dbName || toName != stagedName) return 2;
+    }
+    if (slot->readGuard) {
+      Handle renameHandle;
+      if (!openChild(root.back().value, fromName, false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, renameHandle, FILE_SHARE_READ)) return 2;
+      Identity held, reopened;
+      if (!identity(slot->file.value, held) || !identity(renameHandle.value, reopened) ||
+          !sameIdentity(held, reopened)) return 2;
+      slot->file = std::move(renameHandle);
+      slot->readGuard = false;
+    }
+    Identity before, after;
+    unsigned char digest[32]{}, afterDigest[32]{};
+    if (!snapshot(slot->file.value, before, digest)) return 2;
+    char volume[17]{};
+    std::snprintf(volume, sizeof(volume), "%016llx", before.id.VolumeSerialNumber);
+    if (fields[4] != volume || fields[5] != ascii(fileIdHex(before)) ||
+        fields[6] != std::to_string(before.bytes) || fields[7] != ascii(digestHex(digest))) return 2;
+    if (!renameHeld(slot->file.value, root.back().value, toName) ||
+        !snapshot(slot->file.value, after, afterDigest) || !sameIdentity(before, after) ||
+        std::memcmp(digest, afterDigest, 32) != 0) return 2;
+    slot->currentName = toName;
+    ++sequence;
+    std::printf("MOVED\t%s\t%u\t%s\t%s\t%s\t", generation.c_str(), sequence,
+      slot->key, encodeName(fromName).c_str(), encodeName(toName).c_str());
+    printSnapshot(slot->file.value);
+    std::printf("\t");
+    printSnapshot(slot->file.value);
+    std::printf("\n");
+    std::fflush(stdout);
+  }
+  return 2; // EOF before CLOSE is a failed session; journal recovery remains nonterminal.
+}
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  if (argc > 1 && wcscmp(argv[1], L"session") == 0) return restoreSession(argc, argv);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
     std::vector<Handle> root;
