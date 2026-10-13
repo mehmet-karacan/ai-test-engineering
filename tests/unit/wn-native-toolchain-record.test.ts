@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDefaultServicesForTest } from "../../src/application/services.js";
@@ -111,5 +111,43 @@ describe("WN24 durable native toolchain", () => {
     expect(() => record.pinOrVerify(f.job.id, { ...selected, baseIdentity: selected.identity,
       mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "a".repeat(64) })).toThrowError(/invalid/i);
     expect(existsSync(join(outside, "native-execution-toolchain"))).toBe(false);
+  });
+
+  it("reclaims only an exact orphan after a file-write/DB-insert crash cut", () => {
+    const f = fixture();
+    const baseline = join(f.storeRoot, "jobs", f.job.id, "baseline");
+    mkdirSync(baseline, { recursive: true });
+    const selected = NativeToolchainResolver.resolve({ cwd: baseline, env: effectiveMavenEnvironment({ PATH: f.bin }), platform: "win32" });
+    const verified = { ...selected, baseIdentity: selected.identity, mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "a".repeat(64) };
+    const store = new NativeExecutionToolchainRecordStore(f.services.storage!.db, f.storeRoot);
+    const db = f.services.storage!.db;
+    db.exec("CREATE TRIGGER cut_execution_identity BEFORE INSERT ON artifacts WHEN NEW.kind = 'native_execution_toolchain_contract' BEGIN SELECT RAISE(ABORT, 'SIMULATED_HARD_KILL_CUT'); END");
+    expect(() => store.pinOrVerify(f.job.id, verified)).toThrowError(/SIMULATED_HARD_KILL_CUT/u);
+    expect(db.prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM artifacts WHERE job_id = ? AND kind = 'native_execution_toolchain_contract'").get(f.job.id)!.count).toBe(0);
+    const scopeRoot = join(f.storeRoot, "jobs", f.job.id, "native-execution-toolchain");
+    const orphan = join(scopeRoot, readdirSync(scopeRoot)[0]!, readdirSync(join(scopeRoot, readdirSync(scopeRoot)[0]!))[0]!);
+    expect(existsSync(orphan)).toBe(true);
+    db.exec("DROP TRIGGER cut_execution_identity");
+    expect(() => store.pinOrVerify(f.job.id, verified)).not.toThrow();
+    expect(store.read(f.job.id, baseline).identity).toBe(verified.identity);
+  });
+
+  it("does not adopt foreign bytes at a matching orphan path", () => {
+    const f = fixture();
+    const baseline = join(f.storeRoot, "jobs", f.job.id, "baseline");
+    mkdirSync(baseline, { recursive: true });
+    const selected = NativeToolchainResolver.resolve({ cwd: baseline, env: effectiveMavenEnvironment({ PATH: f.bin }), platform: "win32" });
+    const verified = { ...selected, baseIdentity: selected.identity, mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "a".repeat(64) };
+    const store = new NativeExecutionToolchainRecordStore(f.services.storage!.db, f.storeRoot);
+    const db = f.services.storage!.db;
+    db.exec("CREATE TRIGGER cut_execution_identity BEFORE INSERT ON artifacts WHEN NEW.kind = 'native_execution_toolchain_contract' BEGIN SELECT RAISE(ABORT, 'SIMULATED_HARD_KILL_CUT'); END");
+    expect(() => store.pinOrVerify(f.job.id, verified)).toThrow();
+    db.exec("DROP TRIGGER cut_execution_identity");
+    const scopeRoot = join(f.storeRoot, "jobs", f.job.id, "native-execution-toolchain");
+    const scoped = join(scopeRoot, readdirSync(scopeRoot)[0]!);
+    const orphan = join(scoped, readdirSync(scoped)[0]!);
+    writeFileSync(orphan, "foreign-byte-content");
+    expect(() => store.pinOrVerify(f.job.id, verified)).toThrowError(/invalid/i);
+    expect(db.prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM artifacts WHERE job_id = ? AND kind = 'native_execution_toolchain_contract'").get(f.job.id)!.count).toBe(0);
   });
 });

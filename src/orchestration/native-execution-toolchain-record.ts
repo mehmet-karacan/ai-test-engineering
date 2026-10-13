@@ -104,10 +104,27 @@ export class NativeExecutionToolchainRecordStore {
     if (dirRel.startsWith("..") || isAbsolute(dirRel)) this.invalid();
     const path = join(directory, hash);
     try { writeFileSync(path, bytes, { flag: "wx" }); }
-    catch { return this.invalid(); }
+    catch (error) {
+      // A hard kill may occur after wx creates the immutable blob but before
+      // the artifact row commits. Only the exact regular file at this scope
+      // can be adopted; a foreign byte, link or path is never trusted.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") this.invalid();
+      this.assertExactOrphan(path, realDir, hash, bytes);
+    }
     this.db.prepare("INSERT INTO artifacts (id,job_id,kind,relative_store_path,sha256,bytes,schema_version,sensitivity,status,pin_reason,created_at) VALUES (?,?,'native_execution_toolchain_contract',?,?,?,'1','internal','READY','native_execution_toolchain_contract',?)")
       .run(randomUUID(), jobId, `${prefix}${hash}`, hash, bytes.length, Date.now());
     return hash;
+  }
+
+  private assertExactOrphan(path: string, realDir: string, hash: string, expected: Buffer): void {
+    try {
+      const metadata = lstatSync(path);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size !== expected.length) this.invalid();
+      const actual = realpathSync.native(path);
+      if (relative(realDir, actual).toLowerCase() !== hash) this.invalid();
+      const bytes = readFileSync(path);
+      if (bytes.length !== expected.length || digest(bytes) !== hash || !bytes.equals(expected)) this.invalid();
+    } catch { this.invalid(); }
   }
 
   private changed(): never { throw new AppError("BLOCKED_ISOLATION", "Frozen workspace toolchain changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" }); }

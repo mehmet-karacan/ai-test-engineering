@@ -19,6 +19,8 @@ import { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolcha
 import { AppError } from "../../src/domain/errors.js";
 import { RecoveryManager } from "../../src/orchestration/recovery-manager.js";
 import { LeaseManager } from "../../src/orchestration/lease-manager.js";
+import { NativeProcessRegistry } from "../../src/orchestration/native-process-registry.js";
+import { WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
 import type { Services } from "../../src/application/services.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
@@ -142,9 +144,22 @@ describe("P05-B resume zinciri", () => {
       return { job_id: goal.job_id, phases_completed: ["resume_dispatch_boundary"], final_outcome: "TEST_ONLY_STUB", best_coverage: null, error: null };
     });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    const ownedProbes: string[] = [];
+    const realBeforeSpawn = NativeProcessRegistry.prototype.beforeSpawn;
+    vi.spyOn(NativeProcessRegistry.prototype, "beforeSpawn").mockImplementation(function (plan) {
+      realBeforeSpawn.call(this, plan);
+      const identity = prepared.services.storage!.db.prepare<[string], { process_identity: string | null }>(
+        "SELECT process_identity FROM job_leases WHERE job_id = ?",
+      ).get(prepared.jobId)?.process_identity;
+      expect(identity).toMatch(/^\{/u);
+      ownedProbes.push(plan.argv.join(" "));
+    });
 
     const result = await handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services);
-    for (let i = 0; i < 60 && resumedGoal === null; i++) {
+    // handleTestResume returns before direct resume's second owned -v probe.
+    // Each probe has a 30 s contract timeout; wait for that bounded work
+    // rather than closing the fixture DB after an arbitrary 3 s.
+    for (let i = 0; i < 1300 && resumedGoal === null; i++) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
@@ -156,6 +171,7 @@ describe("P05-B resume zinciri", () => {
     expect(resumedGoal?.concrete_targets_digest).toBe(prepared.goal.concrete_targets_digest);
     expect(resumedGoal?.contract_budget).toEqual(prepared.goal.budget);
     expect(resumedGoal?.attempt_budget).toBe(prepared.goal.budget.max_candidate_iterations);
+    expect(ownedProbes).toEqual(["-v", "-v"]);
   });
 
   it("resume modeli immutable contract'tan farkliysa dispatch'e ulasmadan fail-closed olur", async () => {
@@ -243,7 +259,8 @@ describe("P05-B resume zinciri", () => {
       .rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
     const events = prepared.services.storage!.db.prepare<[string], { event_type: string }>("SELECT event_type FROM job_events WHERE job_id = ?").all(prepared.jobId);
     expect(events.some((event) => event.event_type === "resume_fresh_start" || event.event_type === "resume_checkpoint_verified")).toBe(false);
-    expect(prepared.services.storage!.db.prepare<[string], { expires_at: number }>("SELECT expires_at FROM job_leases WHERE job_id = ?").get(prepared.jobId)).toBeUndefined();
+    expect(prepared.services.storage!.db.prepare<[string], { expires_at: number }>("SELECT expires_at FROM job_leases WHERE job_id = ?").get(prepared.jobId)!.expires_at)
+      .toBeLessThan(Date.now());
   });
 
   it("recovery plan lease aldiktan sonra hata verirse owner serbest kalir", async () => {
@@ -287,26 +304,30 @@ describe("P05-B resume zinciri", () => {
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
     const before = prepared.services.jobs!.updateLifecycle(prepared.jobId, "RUNNING", prepared.services.jobs!.getJob(prepared.jobId).row_version);
     new LeaseManager(prepared.services.storage!.db).acquire(prepared.jobId, "other-live-owner", 300000);
+    const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run");
     const eventCount = prepared.services.storage!.db.prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM job_events WHERE job_id = ? AND event_type = 'test_resume_accepted'").get(prepared.jobId)!.count;
     await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
       .rejects.toMatchObject({ details: { reason_code: "LEASE_HELD" } });
     expect(prepared.services.jobs!.getJob(prepared.jobId)).toMatchObject({ lifecycle: "RUNNING", outcome: null, row_version: before.row_version });
     expect(prepared.services.storage!.db.prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM job_events WHERE job_id = ? AND event_type = 'test_resume_accepted'").get(prepared.jobId)!.count).toBe(eventCount);
     expect(new LeaseManager(prepared.services.storage!.db).get(prepared.jobId).owner_id).toBe("other-live-owner");
+    expect(processRun).not.toHaveBeenCalled();
   });
 
-  it("canli owner varken direct resume pre-acquire identity hatasi state bozmaz", async () => {
+  it("canli owner varken direct resume hic Maven probe baslatmaz ve state bozmaz", async () => {
     const prepared = await prepareJob();
     cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
     vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
     const before = prepared.services.jobs!.updateLifecycle(prepared.jobId, "RUNNING", prepared.services.jobs!.getJob(prepared.jobId).row_version);
     new LeaseManager(prepared.services.storage!.db).acquire(prepared.jobId, "other-live-owner", 300000);
+    const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run");
     vi.spyOn(NativeToolchainRecordStore.prototype, "verify").mockRejectedValue(new AppError("BLOCKED_ISOLATION", "changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" }));
     const dispatcher = new JobDispatcher({ services: prepared.services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: prepared.artifactRoot });
     await expect(dispatcher.resumeDispatch(prepared.services.jobs!.getJob(prepared.jobId), prepared.projectDir, MODEL))
-      .rejects.toMatchObject({ details: { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" } });
+      .rejects.toMatchObject({ details: { reason_code: "LEASE_HELD" } });
     expect(prepared.services.jobs!.getJob(prepared.jobId)).toMatchObject({ lifecycle: "RUNNING", outcome: null, row_version: before.row_version });
     expect(new LeaseManager(prepared.services.storage!.db).get(prepared.jobId).owner_id).toBe("other-live-owner");
+    expect(processRun).not.toHaveBeenCalled();
   });
 
   it("async identity hatasi sonrasi lease fence devredildiyse yeni owner'in RUNNING state'i korunur", async () => {
