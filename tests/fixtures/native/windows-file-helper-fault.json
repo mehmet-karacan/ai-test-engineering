@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
   "define": "AITEST_FAULT_FIXTURE",
-  "source_sha256": "81a9297d8cd08877c17a94b30af9c09fc703454bbfe502a637889333252de943",
-  "binary_sha256": "90d6cf8e7246aa487ec671cc82007233ba0d630819cafce7f63ccbf99f550e6d"
+  "source_sha256": "45f81a79b04b8010f75df7a4a897275117b168efa4a16ae193e86c3198d864d3",
+  "binary_sha256": "d4d7a85c0e29ac22b60ac76f4302c4f921f97cd863aa32b30e4840a91ac37df5"
 }
