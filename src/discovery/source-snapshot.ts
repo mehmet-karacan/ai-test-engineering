@@ -7,7 +7,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, openSync, readSync, closeSync, mkdirSync, copyFileSync, writeFileSync, constants } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
-import { copyWindowsFile, inspectWindowsPath, packagedWindowsFileHelper, type WindowsFileIdentity } from "./windows-file-bridge.js";
+import { inspectWindowsPath, packagedWindowsFileHelper, type WindowsFileIdentity } from "./windows-file-bridge.js";
+import { publishWindowsSnapshot } from "./windows-snapshot-bridge.js";
 
 export type FileClassification = "production_source" | "test_source" | "build_config" | "resource" | "other";
 
@@ -377,20 +378,7 @@ export class SourceSnapshot {
           });
         }
       };
-      for (const entry of manifest.entries) {
-        const copied = copyWindowsFile(helper, this.root, entry.relative_path, absTarget, entry.relative_path);
-        if (copied.bytes !== entry.bytes || copied.sha256 !== entry.sha256) {
-          throw new AppError("BLOCKED_ISOLATION", `Snapshot input changed during native copy: ${entry.relative_path}`, {
-            reason_code: "SNAPSHOT_COPY_IDENTITY_CHANGED",
-          });
-        }
-      }
-      assertRoots();
-      writeFileSync(
-        join(absTarget, "snapshot-manifest.json"),
-        JSON.stringify({ ...manifest, entries: manifest.entries.map(({ source_location: _loc, ...rest }) => rest) }, null, 2),
-        { encoding: "utf8", flag: "wx" },
-      );
+      publishWindowsSnapshot(this.root, absTarget, sourceIdentity, targetIdentity, manifest);
       assertRoots();
       return;
     }
