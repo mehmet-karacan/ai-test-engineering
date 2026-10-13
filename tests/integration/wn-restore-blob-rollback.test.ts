@@ -6,16 +6,19 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 
 const hook = vi.hoisted(() => ({ obstructDelete: false }));
-vi.mock("../../src/discovery/windows-file-bridge.js", async (importActual) => {
-  const actual = await importActual<typeof import("../../src/discovery/windows-file-bridge.js")>();
-  return { ...actual, verifyWindowsOwnedFile: (...args: Parameters<typeof actual.verifyWindowsOwnedFile>) => {
-    if (hook.obstructDelete && args[1].includes("artifacts")) {
-      hook.obstructDelete = false;
-      const published = join(args[1], args[2]);
-      linkSync(published, join(args[1], "blobs", "alias.bin"));
-      throw new Error("forced final blob verification failure after physical publish");
-    }
-    return actual.verifyWindowsOwnedFile(...args);
+vi.mock("../../src/storage/windows-blob-verify-session.js", async (importActual) => {
+  const actual = await importActual<typeof import("../../src/storage/windows-blob-verify-session.js")>();
+  return { ...actual, startWindowsBlobVerifySession: async (...args: Parameters<typeof actual.startWindowsBlobVerifySession>) => {
+    const session = await actual.startWindowsBlobVerifySession(...args);
+    return { ...session, verify: async (relativePath: string, expected: Parameters<typeof session.verify>[1]) => {
+      if (hook.obstructDelete) {
+        hook.obstructDelete = false;
+        const published = join(args[1], relativePath);
+        linkSync(published, join(args[1], "blobs", "alias.bin"));
+        throw new Error("forced final blob verification failure after physical publish");
+      }
+      return session.verify(relativePath, expected);
+    } };
   } };
 });
 

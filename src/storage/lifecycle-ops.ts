@@ -12,12 +12,14 @@ import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
-import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb, type RestorePhase } from "./restore-journal.js";
+import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb,
+  prepareRestorePhaseLine, readRestoreJournal, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
 import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile, verifyWindowsOwnedFile,
   type WindowsCopyResult, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 import { assertWindowsRestoreRootIdentity, captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession,
   type RestoreFileSlot, type RestoreMoveSession } from "./windows-restore-session.js";
+import { startWindowsBlobVerifySession, type BlobVerifySession } from "./windows-blob-verify-session.js";
 import type { RestoreMoveReceipt, RestoreNativeInitial } from "./restore-journal.js";
 
 export interface BackupResult {
@@ -413,8 +415,8 @@ export function verifyBackup(backupDir: string): RestoreVerification {
   };
 }
 
-function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: BackupManifest,
-  verifyBlob?: (blob: BackupBlob) => void): void {
+async function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: BackupManifest,
+  verifyBlob?: (blob: BackupBlob) => Promise<void>): Promise<void> {
   const snapshot = inspectBackupSnapshot(dbPath);
   if (snapshot.reason !== null || snapshot.rows.length !== manifest.blobs.length) {
     throw new AppError("STORAGE_ERROR", "Published restore DB verification failed", { reason_code: "RESTORE_PUBLISHED_DB_INVALID" });
@@ -425,7 +427,7 @@ function verifyPublishedRestore(dbPath: string, artifactRoot: string, manifest: 
     if (!row || row.sha256 !== blob.sha256 || row.bytes !== blob.bytes) {
       throw new AppError("STORAGE_ERROR", "Published restore manifest mismatch", { reason_code: "RESTORE_PUBLISHED_SET_MISMATCH" });
     }
-    if (verifyBlob) { verifyBlob(blob); continue; }
+    if (verifyBlob) { await verifyBlob(blob); continue; }
     const bytes = readFileSync(resolve(artifactRoot, blob.relative_path.replace(/\//g, pathSep)));
     if (bytes.byteLength !== blob.bytes || sha256Data(bytes) !== blob.sha256) {
       throw new AppError("STORAGE_ERROR", "Published restore blob mismatch", { reason_code: "RESTORE_PUBLISHED_BLOB_INVALID" });
@@ -601,6 +603,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   };
   let journalStarted = false;
   let journalTerminal = false;
+  let nativeTerminalAttempted = false;
   const phase = (value: RestorePhase): void => {
     appendRestorePhase(journalPath, { ...journalBase, ...(nativeInitial ? { nativeInitial } : {}), phase: value });
     journalStarted = true;
@@ -619,6 +622,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     throw error;
   }
   let nativeSession: RestoreMoveSession | undefined;
+  let blobVerifySession: BlobVerifySession | undefined;
   if (options?.nativeHelper) {
     try {
       const helper = options.nativeHelper;
@@ -733,16 +737,17 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       phase("NEW_DB_PUBLISHED");
       assertArtifactRoot();
       if (nativeSession) await nativeSession.enterReadVerify();
-      verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest,
-        options?.nativeHelper && initialArtifactRoot ? (blob) => {
+      if (options?.nativeHelper && initialArtifactRoot) {
+        blobVerifySession = await startWindowsBlobVerifySession(options.nativeHelper, targetArtifactRoot, initialArtifactRoot);
+      }
+      await verifyPublishedRestore(targetDbPath, targetArtifactRoot, manifest,
+        blobVerifySession ? async (blob) => {
           const destination = resolve(targetRoot, blob.relative_path.replace(/\//g, pathSep));
           const expected = ownedBlobs.get(destination)?.identity ?? reusedBlobs.get(destination);
           if (!expected) throw new AppError("BLOCKED_ISOLATION", "Published blob identity missing", {
             reason_code: "RESTORE_OWNED_BLOB_MISSING",
           });
-          verifyWindowsOwnedFile(options.nativeHelper!, targetArtifactRoot,
-            relative(targetRoot, destination), initialArtifactRoot,
-            { bytes: blob.bytes, sha256: blob.sha256, identity: expected });
+          await blobVerifySession!.verify(relative(targetRoot, destination).replace(/\\/gu, "/"), expected);
         } : undefined);
       // Read-only SQLite dogrulamasi WAL/SHM yan dosyasi olusturabilir;
       // baglanti kapandiktan sonra yeni generation yan dosyalari kaldirilir.
@@ -751,9 +756,33 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       }
       phase("VERIFIED");
       assertArtifactRoot();
+      if (blobVerifySession) await blobVerifySession.seal();
       // Publish the terminal decision while the native read guard still denies
-      // raw SQLite writers. CLOSE acknowledges release only after this fsync.
-      phase("COMMITTED");
+      // raw SQLite writers and every native blob handle is still pinned.
+      if (blobVerifySession && options?.nativeHelper) {
+        const terminalLine = prepareRestorePhaseLine(journalPath,
+          { ...journalBase, ...(nativeInitial ? { nativeInitial } : {}), phase: "COMMITTED" });
+        const journalIdentity = inspectWindowsPath(options.nativeHelper, journalPath);
+        const journalBytes = fileIdentity(journalPath);
+        if (!journalBytes.exists || journalBytes.bytes === null || journalBytes.sha256 === null) {
+          throw new AppError("STORAGE_ERROR", "Restore journal missing before native terminal commit");
+        }
+        nativeTerminalAttempted = true;
+        await blobVerifySession.commit(journalPath,
+          { ...journalIdentity, bytes: journalBytes.bytes, sha256: journalBytes.sha256 }, terminalLine);
+        journalTerminal = true;
+      } else phase("COMMITTED");
+      if (blobVerifySession) {
+        try { await blobVerifySession.close(); }
+        catch {
+          blobVerifySession = undefined;
+          safeRollback = false;
+          throw new AppError("STORAGE_ERROR", "Committed blob guard close acknowledgement uncertain", {
+            reason_code: "RESTORE_COMMITTED_BLOB_CLOSE_UNCERTAIN",
+          });
+        }
+        blobVerifySession = undefined;
+      }
       if (nativeSession) {
         try { await nativeSession.close(); }
         catch {
@@ -767,7 +796,20 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       }
     } catch (error) {
       if (journalTerminal) throw error;
+      if (nativeTerminalAttempted) {
+        safeRollback = false;
+        try { journalTerminal = readRestoreJournal(journalPath)?.phase === "COMMITTED"; }
+        catch { /* A partial terminal write stays fail-closed. */ }
+        if (journalTerminal) {
+          throw new AppError("STORAGE_ERROR", "Restore committed; native acknowledgement was lost", {
+            reason_code: "RESTORE_COMMIT_ACK_UNCERTAIN",
+            generation: journalBase.generation,
+          });
+        }
+        throw error;
+      }
       try {
+        if (blobVerifySession) { await blobVerifySession.abort(); blobVerifySession = undefined; }
         if (options?.nativeHelper && !nativeSession) throw error;
         if (dbPublished && existsSync(targetDbPath)) {
           for (const sidecar of [staleWal, staleShm]) {
@@ -802,6 +844,10 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     // Eski generation, journal/retention karari olmadan otomatik silinmez.
   } catch (error) {
     if (artifactRootChanged) safeRollback = false;
+    if (blobVerifySession) {
+      try { await blobVerifySession.abort(); blobVerifySession = undefined; }
+      catch { safeRollback = false; }
+    }
     if (nativeSession) {
       try { await nativeSession.close(); nativeSession = undefined; }
       catch { safeRollback = false; }
