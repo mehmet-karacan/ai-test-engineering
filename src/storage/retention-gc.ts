@@ -208,9 +208,37 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
   // Commit all DELETED markers before unlinking any blob. A later unlink error
   // leaves an orphan, rather than rolling a missing blob back to READY.
   const result = sweep.immediate();
-  for (const blobPath of paths) {
-    if (existsSync(blobPath)) rmSync(blobPath, { force: true });
-  }
+  const unlink = db.transaction(() => {
+    // A raw SQLite writer may have added a new reference after the DELETED commit.
+    // Recheck under a fresh write lock, then hold it through every unlink.
+    const liveReferences = db.prepare<[], { relative_store_path: string }>(
+      "SELECT relative_store_path FROM artifacts WHERE status <> 'DELETED'",
+    ).all().map((row) => {
+      const path = safeBlobPath(row.relative_store_path);
+      const entry = existsSync(path) ? statSync(path) : null;
+      return { path, identity: entry ? { dev: entry.dev, ino: entry.ino } : null };
+    });
+    const current = db.prepare<[string], { relative_store_path: string; sha256: string; bytes: number; status: string }>(
+      "SELECT relative_store_path, sha256, bytes, status FROM artifacts WHERE id = ?",
+    );
+    for (const [index, candidate] of dryRun.candidates.entries()) {
+      const row = current.get(candidate.artifact_id);
+      const path = safeBlobPath(candidate.relative_store_path);
+      const entry = existsSync(path) ? statSync(path) : null;
+      if (!row || row.status !== "DELETED" || row.relative_store_path !== candidate.relative_store_path ||
+          row.sha256 !== candidate.sha256 || row.bytes !== candidate.snapshot!.bytes || path !== paths[index] ||
+          liveReferences.some((other) => other.path.toLowerCase() === path.toLowerCase() ||
+            (entry && other.identity && entry.dev === other.identity.dev && entry.ino === other.identity.ino))) {
+        throw new AppError("POLICY_VIOLATION", "GC reference changed before unlink", {
+          reason_code: "GC_STALE_DRY_RUN", artifact_id: candidate.artifact_id,
+        });
+      }
+    }
+    for (const blobPath of paths) {
+      if (existsSync(blobPath)) rmSync(blobPath, { force: true });
+    }
+  });
+  unlink.immediate();
   return result;
   } finally {
     release();
