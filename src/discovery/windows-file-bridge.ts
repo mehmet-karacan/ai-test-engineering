@@ -123,3 +123,47 @@ export function copyWindowsFile(helper: WindowsFileHelperSpec, sourceRoot: strin
   }
   return { ...identity(fields), sha256: fields[5]! };
 }
+
+function invokeOwned(helper: WindowsFileHelperSpec, args: string[], ready: string, command: string): WindowsCopyResult {
+  assertTrustedWindowsFileHelper(helper);
+  const run = spawnSync(helper.path, args, {
+    input: `${command}\n`, shell: false, windowsHide: true, encoding: "utf8", timeout: 30_000, maxBuffer: 8192,
+  });
+  const lines = run.stdout.replace(/\r\n/gu, "\n").split("\n");
+  if (run.error || run.status !== 0 || run.signal || lines.length !== 3 || lines[0] !== ready || lines[2] !== "") {
+    throw new AppError("BLOCKED_ISOLATION", "Owned native file operation rejected or uncertain", {
+      reason_code: "WINDOWS_OWNED_FILE_UNCERTAIN", exit_code: run.status, signal: run.signal,
+    });
+  }
+  const fields = lines[1]!.split("\t");
+  if (fields[0] !== "OK" || fields.length !== 6 || !/^[a-f0-9]{16}$/u.test(fields[1] ?? "") ||
+      !/^[a-f0-9]{32}$/u.test(fields[2] ?? "") || !/^\d+$/u.test(fields[3] ?? "") ||
+      !/^\d+$/u.test(fields[4] ?? "") || !/^[a-f0-9]{64}$/u.test(fields[5] ?? "")) {
+    throw new AppError("BLOCKED_ISOLATION", "Invalid owned native receipt", { reason_code: "WINDOWS_OWNED_FILE_PROTOCOL" });
+  }
+  return { ...identity(fields), sha256: fields[5]! };
+}
+
+/** Copy into a new stage file under roots pinned and matched to restore preflight identities. */
+export function copyWindowsOwnedFile(helper: WindowsFileHelperSpec, sourceRoot: string, sourceRelativePath: string,
+  targetRoot: string, targetRelativePath: string, expectedSourceRoot: WindowsFileIdentity,
+  expectedTargetRoot: WindowsFileIdentity): WindowsCopyResult {
+  return invokeOwned(helper, ["copy-owned", sourceRoot, sourceRelativePath, targetRoot, targetRelativePath,
+    expectedSourceRoot.volumeSerial, expectedSourceRoot.fileId,
+    expectedTargetRoot.volumeSerial, expectedTargetRoot.fileId], "COPY_READY", "COPY");
+}
+
+/** NO_REPLACE rename of the captured stage FileId within its pinned directory. */
+export function renameWindowsOwnedFile(helper: WindowsFileHelperSpec, root: string,
+  sourceRelativePath: string, targetRelativePath: string, expectedRoot: WindowsFileIdentity,
+  expectedFile: WindowsCopyResult): WindowsCopyResult {
+  const result = invokeOwned(helper, ["rename-owned", root, sourceRelativePath, targetRelativePath,
+    expectedRoot.volumeSerial, expectedRoot.fileId,
+    expectedFile.volumeSerial, expectedFile.fileId, String(expectedFile.bytes), expectedFile.sha256],
+  "RENAME_READY", "RENAME");
+  if (result.volumeSerial !== expectedFile.volumeSerial || result.fileId !== expectedFile.fileId ||
+      result.bytes !== expectedFile.bytes || result.sha256 !== expectedFile.sha256) {
+    throw new AppError("BLOCKED_ISOLATION", "Owned rename identity changed", { reason_code: "WINDOWS_OWNED_RENAME_UNCERTAIN" });
+  }
+  return result;
+}

@@ -58,6 +58,11 @@ try {
   ]);
   const ready = (await next()).split("\t");
   assert.deepEqual(ready, ["DELETE_READY", initial.volumeSerial, initial.fileId, String(initial.bytes), sha]);
+  const writer = spawnSync(process.execPath, ["-e",
+    "require('node:fs').writeFileSync(process.argv[1], 'tampered')", target],
+  { encoding: "utf8", timeout: 10_000 });
+  assert.notEqual(writer.status, 0, "raw writer must be denied while delete owner is pinned");
+  assert.equal(readFileSync(target, "utf8"), "old candidate");
   renameSync(target, moved);
   writeFileSync(target, "replacement user data");
   child.stdin.write("DELETE\n");

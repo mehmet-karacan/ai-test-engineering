@@ -14,7 +14,8 @@ import { AppError } from "../domain/errors.js";
 import { acquireMaintenanceLock, acquireRestoreDbLock } from "./maintenance-lock.js";
 import { appendRestorePhase, assertRestoreReadyBeforeOpen, captureRestoreEvidence, fileIdentity, journalPathForDb, type RestorePhase } from "./restore-journal.js";
 import { hasOpenStorageHandle } from "./storage.js";
-import { inspectWindowsPath, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
+import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, renameWindowsOwnedFile,
+  type WindowsCopyResult, type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 import { assertWindowsRestoreRootIdentity, captureExpectedWindowsRestoreFile, startWindowsRestoreMoveSession,
   type RestoreFileSlot, type RestoreMoveSession } from "./windows-restore-session.js";
 import type { RestoreMoveReceipt, RestoreNativeInitial } from "./restore-journal.js";
@@ -542,6 +543,8 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
   mkdirSync(resolve(targetDbPath, ".."), { recursive: true });
   mkdirSync(targetArtifactRoot, { recursive: true });
   const initialArtifactRoot = options?.nativeHelper ? inspectWindowsPath(options.nativeHelper, targetArtifactRoot) : null;
+  const initialBackupBlobRoot = options?.nativeHelper && manifest.blobs.length > 0
+    ? inspectWindowsPath(options.nativeHelper, backupBlobRoot) : null;
   let artifactRootChanged = false;
   const assertArtifactRoot = (): void => {
     if (!options?.nativeHelper || !initialArtifactRoot) return;
@@ -603,6 +606,7 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     }
   }
   const publishedNew: string[] = [];
+  const ownedBlobs = new Map<string, { identity: WindowsCopyResult; published: boolean }>();
   let dbPublished = false;
   let safeRollback = true;
   try {
@@ -613,13 +617,24 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       assertArtifactRoot();
       mkdirSync(resolve(item.destination, ".."), { recursive: true });
       assertArtifactRoot();
-      copyFileSync(item.source, item.stage);
+      if (options?.nativeHelper && initialArtifactRoot && initialBackupBlobRoot) {
+        const identity = copyWindowsOwnedFile(options.nativeHelper, backupBlobRoot,
+          relative(backupBlobRoot, item.source), targetArtifactRoot, relative(targetRoot, item.stage),
+          initialBackupBlobRoot, initialArtifactRoot);
+        if (identity.sha256 !== item.sha256) {
+          ownedBlobs.set(item.destination, { identity, published: false });
+          throw new AppError("STORAGE_ERROR", "Staged restore blob differs from verified backup", {
+            reason_code: "RESTORE_STAGED_BLOB_CHANGED",
+          });
+        }
+        ownedBlobs.set(item.destination, { identity, published: false });
+      } else copyFileSync(item.source, item.stage);
       assertArtifactRoot();
     }
     for (const item of plan) {
       if (item.skip) continue;
       assertArtifactRoot();
-      if (fileIdentity(item.stage).sha256 !== item.sha256) {
+      if ((options?.nativeHelper ? ownedBlobs.get(item.destination)?.identity.sha256 : fileIdentity(item.stage).sha256) !== item.sha256) {
         throw new AppError("STORAGE_ERROR", "Staged restore blob differs from verified backup", {
           reason_code: "RESTORE_STAGED_BLOB_CHANGED",
         });
@@ -630,7 +645,21 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
       assertArtifactRoot();
       // Stage ve hedef ayni dizindedir. Hard link atomik olarak yeni isim
       // olusturur; yarista ortaya cikan mevcut dosyayi rename gibi ezmez.
-      linkSync(item.stage, item.destination);
+      if (options?.nativeHelper && initialArtifactRoot) {
+        const owned = ownedBlobs.get(item.destination);
+        if (!owned) throw new AppError("BLOCKED_ISOLATION", "Owned staged blob missing", { reason_code: "RESTORE_OWNED_BLOB_MISSING" });
+        try {
+          renameWindowsOwnedFile(options.nativeHelper, targetArtifactRoot,
+            relative(targetRoot, item.stage), relative(targetRoot, item.destination),
+            initialArtifactRoot, owned.identity);
+        } catch (error) {
+          // A lost native acknowledgement can mean the destination exists.
+          // Leave the journal nonterminal; a path-based rollback could delete unrelated data.
+          safeRollback = false;
+          throw error;
+        }
+        owned.published = true;
+      } else linkSync(item.stage, item.destination);
       assertArtifactRoot();
       publishedNew.push(item.destination);
     }
@@ -723,7 +752,14 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     if (safeRollback && !dbPublished) {
       assertArtifactRoot();
       for (const path of publishedNew.reverse()) {
-        if (existsSync(path)) rmSync(path, { force: true });
+        if (options?.nativeHelper && initialArtifactRoot) {
+          const owned = ownedBlobs.get(path);
+          if (!owned) throw new AppError("BLOCKED_ISOLATION", "Published blob identity missing", { reason_code: "RESTORE_OWNED_BLOB_MISSING" });
+          deleteWindowsOwnedFile(options.nativeHelper, targetArtifactRoot, relative(targetRoot, path),
+            initialArtifactRoot, owned.identity);
+          owned.published = false;
+          ownedBlobs.delete(path);
+        } else if (existsSync(path)) rmSync(path, { force: true });
       }
       if (journalStarted && !journalTerminal) phase("ROLLED_BACK");
     }
@@ -732,7 +768,14 @@ export async function restoreBackup(backupDir: string, targetDbPath: string, tar
     if (safeRollback && !artifactRootChanged) {
       assertArtifactRoot();
       for (const item of plan) {
-        if (existsSync(item.stage)) rmSync(item.stage, { force: true });
+        if (options?.nativeHelper && initialArtifactRoot) {
+          const owned = ownedBlobs.get(item.destination);
+          if (owned && !owned.published) {
+            deleteWindowsOwnedFile(options.nativeHelper, targetArtifactRoot, relative(targetRoot, item.stage),
+              initialArtifactRoot, owned.identity);
+            ownedBlobs.delete(item.destination);
+          }
+        } else if (existsSync(item.stage)) rmSync(item.stage, { force: true });
       }
       if (existsSync(tempDb)) rmSync(tempDb, { force: true });
     }

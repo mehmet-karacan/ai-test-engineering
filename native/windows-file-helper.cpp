@@ -714,7 +714,7 @@ int deleteOwnedSession(int argc, wchar_t** argv) {
   if (ascii(argv[8]) != rootVolume || ascii(argv[9]) != ascii(fileIdHex(pinnedRoot)) ||
       !openRelative(root.back().value, argv[3], false,
         GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, file, false,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)) return 2;
+        FILE_SHARE_READ | FILE_SHARE_DELETE)) return 2;
   Identity before;
   unsigned char digest[32]{};
   if (!snapshot(file.back().value, before, digest)) return 2;
@@ -737,8 +737,95 @@ int deleteOwnedSession(int argc, wchar_t** argv) {
   constexpr auto dispositionClass = static_cast<FILE_INFORMATION_CLASS>(13); // FileDispositionInformation
   if (NtSetInformationFile(file.back().value, &io, &disposition,
       static_cast<ULONG>(sizeof(disposition)), dispositionClass) < 0) return 2;
+  if (wcscmp(argv[1], L"delete-owned-probe") == 0) {
+    std::puts("DISPOSITION_SET");
+    std::fflush(stdout);
+    if (!std::getline(std::cin, line) || line != "RECEIPT") return 2;
+  }
   std::printf("DELETED\t%s\t%s\n", volume, ascii(fileIdHex(before)).c_str());
   std::fflush(stdout);
+  return 0;
+}
+
+// Restore blob operations: each request pins its root and every path component.
+// The caller supplies the root identity captured before the restore began.
+bool expectedRoot(const Identity& actual, const wchar_t* volume, const wchar_t* id) {
+  char serial[17]{};
+  std::snprintf(serial, sizeof(serial), "%016llx", actual.id.VolumeSerialNumber);
+  return ascii(volume) == serial && ascii(id) == ascii(fileIdHex(actual));
+}
+
+int copyOwned(int argc, wchar_t** argv) {
+  if (argc != 10) return 2;
+  std::vector<Handle> sourceRoot, source, targetRoot, target;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, sourceRoot) ||
+      !openAbsolute(argv[4], true, FILE_READ_ATTRIBUTES, targetRoot)) return 2;
+  Identity sourceRootId, targetRootId;
+  if (!identity(sourceRoot.back().value, sourceRootId) ||
+      !identity(targetRoot.back().value, targetRootId) ||
+      !expectedRoot(sourceRootId, argv[6], argv[7]) ||
+      !expectedRoot(targetRootId, argv[8], argv[9]) ||
+      sourceRootId.id.VolumeSerialNumber != targetRootId.id.VolumeSerialNumber) return 2;
+  if (!openRelative(sourceRoot.back().value, argv[3], false,
+      GENERIC_READ | FILE_READ_ATTRIBUTES, source, false, FILE_SHARE_READ)) return 2;
+  Identity sourceBefore;
+  if (!identity(source.back().value, sourceBefore) || sourceBefore.links != 1) return 2;
+  std::puts("COPY_READY");
+  std::fflush(stdout);
+  std::string line;
+  if (!std::getline(std::cin, line) || line != "COPY" ||
+      !openRelative(targetRoot.back().value, argv[5], true,
+        GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, target, true, 0)) return 2;
+  unsigned char copiedDigest[32]{}, targetDigest[32]{};
+  unsigned long long copied = 0;
+  Identity targetId, sourceAfter;
+  if (!copyHeld(source.back().value, target.back().value, copiedDigest, copied) ||
+      !identity(target.back().value, targetId) || targetId.bytes != copied ||
+      !identity(source.back().value, sourceAfter) || !sameIdentity(sourceBefore, sourceAfter) ||
+      !hashHeld(target.back().value, targetDigest) ||
+      std::memcmp(copiedDigest, targetDigest, 32) != 0) {
+    FILE_DISPOSITION_INFO disposition{TRUE};
+    SetFileInformationByHandle(target.back().value, FileDispositionInfo, &disposition, sizeof(disposition));
+    return 2;
+  }
+  printIdentity(targetId, copiedDigest);
+  return 0;
+}
+
+int renameOwned(int argc, wchar_t** argv) {
+  if (argc != 11) return 2;
+  std::wstring ignored;
+  std::vector<std::wstring> from, to;
+  if (!splitPath(argv[3], false, ignored, from) || !splitPath(argv[4], false, ignored, to) ||
+      from.size() != to.size() || _wcsicmp(from.back().c_str(), to.back().c_str()) == 0) return 2;
+  for (size_t i = 0; i + 1 < from.size(); ++i) {
+    if (_wcsicmp(from[i].c_str(), to[i].c_str()) != 0) return 2;
+  }
+  std::vector<Handle> root, source;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root)) return 2;
+  Identity rootId;
+  if (!identity(root.back().value, rootId) || !expectedRoot(rootId, argv[5], argv[6]) ||
+      !openRelative(root.back().value, argv[3], false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, source, false,
+        FILE_SHARE_READ | FILE_SHARE_DELETE)) return 2;
+  Identity before;
+  unsigned char digest[32]{};
+  if (!snapshot(source.back().value, before, digest)) return 2;
+  char serial[17]{};
+  std::snprintf(serial, sizeof(serial), "%016llx", before.id.VolumeSerialNumber);
+  if (ascii(argv[7]) != serial || ascii(argv[8]) != ascii(fileIdHex(before)) ||
+      ascii(argv[9]) != std::to_string(before.bytes) || ascii(argv[10]) != ascii(digestHex(digest))) return 2;
+  std::puts("RENAME_READY");
+  std::fflush(stdout);
+  std::string line;
+  if (!std::getline(std::cin, line) || line != "RENAME" ||
+      !renameHeld(source.back().value, source.size() == 1 ? root.back().value : source[source.size() - 2].value,
+        to.back())) return 2;
+  Identity after;
+  unsigned char afterDigest[32]{};
+  if (!snapshot(source.back().value, after, afterDigest) || !sameIdentity(before, after) ||
+      std::memcmp(digest, afterDigest, 32) != 0) return 2;
+  printIdentity(after, afterDigest);
   return 0;
 }
 }  // namespace
@@ -749,6 +836,9 @@ int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"session-fresh") == 0) return freshRestoreSession(argc, argv, false);
   if (argc > 1 && wcscmp(argv[1], L"recover-fresh") == 0) return freshRestoreSession(argc, argv, true);
   if (argc > 1 && wcscmp(argv[1], L"delete-owned-session") == 0) return deleteOwnedSession(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"delete-owned-probe") == 0) return deleteOwnedSession(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"copy-owned") == 0) return copyOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"rename-owned") == 0) return renameOwned(argc, argv);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
     std::vector<Handle> root;
