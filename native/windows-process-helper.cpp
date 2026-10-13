@@ -1,10 +1,15 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <bcrypt.h>
 #include <atomic>
 #include <cstdio>
+#include <cstring>
+#include <cwctype>
 #include <string>
 #include <vector>
+
+#pragma comment(lib, "bcrypt.lib")
 
 // This helper owns the only Job Object handle. Child execution starts suspended,
 // enters the job, and resumes only after KILL_ON_JOB_CLOSE is in force.
@@ -12,6 +17,72 @@ static std::atomic<int> stop_reason{0}; // 0 natural, 1 cancel, 2 parent pipe cl
 static std::atomic<bool> shutting_down{false};
 static HANDLE owned_job = nullptr;
 static HANDLE status_file = INVALID_HANDLE_VALUE;
+
+struct HeldPaths {
+  std::vector<HANDLE> handles;
+  ~HeldPaths() { for (HANDLE handle : handles) CloseHandle(handle); }
+};
+
+// Open every ancestor itself, not a path through a junction. Holding directory
+// handles without FILE_SHARE_DELETE prevents a concurrent path replacement.
+// The final file is read-shared only, so writing or replacing it fails while
+// the owned process is alive.
+static bool pin_path(const wchar_t* path, const wchar_t* expected_hex, HeldPaths& held) {
+  if (!path || !expected_hex || wcslen(expected_hex) != 64 ||
+      wcslen(path) < 4 || !iswalpha(path[0]) || path[1] != L':' || path[2] != L'\\') return false;
+  for (size_t i = 0; i < 64; ++i) {
+    const wchar_t c = expected_hex[i];
+    if (!((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'))) return false;
+  }
+  std::wstring current(path, 3);
+  HANDLE root = CreateFileW(current.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
+    nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  if (root == INVALID_HANDLE_VALUE) return false;
+  held.handles.push_back(root);
+  size_t start = 3;
+  const size_t length = wcslen(path);
+  for (;;) {
+    const size_t next = std::wstring(path).find(L'\\', start);
+    const bool last = next == std::wstring::npos;
+    const size_t end = last ? length : next;
+    if (end == start || (end - start == 1 && path[start] == L'.') ||
+        (end - start == 2 && path[start] == L'.' && path[start + 1] == L'.')) return false;
+    current.assign(path, end);
+    HANDLE opened = CreateFileW(current.c_str(), last ? GENERIC_READ : FILE_READ_ATTRIBUTES,
+      last ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE,
+      nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | (last ? 0 : FILE_FLAG_BACKUP_SEMANTICS), nullptr);
+    if (opened == INVALID_HANDLE_VALUE) return false;
+    held.handles.push_back(opened);
+    FILE_ATTRIBUTE_TAG_INFO tag{};
+    if (!GetFileInformationByHandleEx(opened, FileAttributeTagInfo, &tag, sizeof(tag)) ||
+        (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+        (last ? (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 : (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)) return false;
+    if (last) break;
+    start = next + 1;
+  }
+  BCRYPT_ALG_HANDLE algorithm = nullptr;
+  BCRYPT_HASH_HANDLE hash = nullptr;
+  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
+  bool ok = BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) >= 0;
+  unsigned char buffer[65536];
+  while (ok) {
+    DWORD count = 0;
+    if (!ReadFile(held.handles.back(), buffer, sizeof(buffer), &count, nullptr)) { ok = false; break; }
+    if (count == 0) break;
+    ok = BCryptHashData(hash, buffer, count, 0) >= 0;
+  }
+  unsigned char digest[32]{};
+  if (ok) ok = BCryptFinishHash(hash, digest, sizeof(digest), 0) >= 0;
+  if (hash) BCryptDestroyHash(hash);
+  BCryptCloseAlgorithmProvider(algorithm, 0);
+  if (!ok) return false;
+  static constexpr wchar_t digits[] = L"0123456789abcdef";
+  for (size_t i = 0; i < sizeof(digest); ++i) {
+    if (expected_hex[i * 2] != digits[digest[i] >> 4] ||
+        expected_hex[i * 2 + 1] != digits[digest[i] & 15]) return false;
+  }
+  return true;
+}
 
 static std::string json_status(const char* kind, DWORD error, DWORD exit_code) {
   char bytes[192];
@@ -49,7 +120,7 @@ static void stop_watcher(HANDLE watcher) {
 }
 
 int wmain(int argc, wchar_t** argv) {
-  if (argc != 5) return 90;
+  if (argc < 7 || (argc - 5) % 2 != 0) return 90;
   const wchar_t* status_path = argv[1];
   const wchar_t* cwd = argv[2];
   const wchar_t* executable = argv[3];
@@ -72,6 +143,13 @@ int wmain(int argc, wchar_t** argv) {
       !error_output || error_output == INVALID_HANDLE_VALUE) {
     write_status("invalid_stdio", GetLastError());
     return 93;
+  }
+  HeldPaths pinned;
+  for (int i = 5; i < argc; i += 2) {
+    if (!pin_path(argv[i + 1], argv[i], pinned)) {
+      write_status("pin_mismatch", ERROR_SHARING_VIOLATION);
+      return 102;
+    }
   }
   owned_job = CreateJobObjectW(nullptr, nullptr);
   if (!owned_job) { write_status("create_job_error", GetLastError()); return 93; }
