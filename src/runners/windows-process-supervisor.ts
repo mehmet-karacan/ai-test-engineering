@@ -64,6 +64,9 @@ export interface NativeProcessResult {
   stderr: string;
   stdoutTruncatedBytes: number;
   stderrTruncatedBytes: number;
+  /** UTF-8 bytes excluded after decoding; separate from raw stream bytes dropped above. */
+  stdoutRenderedTruncatedBytes?: number;
+  stderrRenderedTruncatedBytes?: number;
   stdoutTruncationReason?: "BYTE_BUDGET_EXCEEDED";
   stderrTruncationReason?: "BYTE_BUDGET_EXCEEDED";
   durationMs: number;
@@ -154,6 +157,7 @@ class BoundedOutput {
   private chunks: Buffer[] = [];
   private accepted = 0;
   dropped = 0;
+  renderedDropped = 0;
   constructor(private readonly limit: number) {}
   append(chunk: Buffer): void {
     const available = Math.max(0, this.limit - this.accepted);
@@ -167,7 +171,14 @@ class BoundedOutput {
     const decoded = decoder.write(Buffer.concat(this.chunks));
     // A byte budget can end in the middle of a code point. An incomplete
     // suffix is omitted rather than introducing a replacement character.
-    return this.dropped > 0 ? decoded : decoded + decoder.end();
+    const rendered = this.dropped > 0 ? decoded : decoded + decoder.end();
+    // Invalid UTF-8 expands to U+FFFD (three UTF-8 bytes). The raw stream
+    // cap alone does not bound the UTF-8 bytes MavenRunner writes to disk.
+    const encoded = Buffer.from(rendered, "utf8");
+    if (encoded.length <= this.limit) return rendered;
+    const bounded = new StringDecoder("utf8").write(encoded.subarray(0, this.limit));
+    this.renderedDropped += encoded.length - Buffer.byteLength(bounded, "utf8");
+    return bounded;
   }
 }
 
@@ -303,8 +314,9 @@ export class WindowsProcessSupervisor {
     const result: NativeProcessResult = {
       status, exitCode: validExit ? helperStatus?.exit_code ?? null : null, stdout: stdout.text(), stderr: stderr.text(),
       stdoutTruncatedBytes: stdout.dropped, stderrTruncatedBytes: stderr.dropped,
-      ...(stdout.dropped > 0 ? { stdoutTruncationReason: "BYTE_BUDGET_EXCEEDED" as const } : {}),
-      ...(stderr.dropped > 0 ? { stderrTruncationReason: "BYTE_BUDGET_EXCEEDED" as const } : {}),
+      stdoutRenderedTruncatedBytes: stdout.renderedDropped, stderrRenderedTruncatedBytes: stderr.renderedDropped,
+      ...(stdout.dropped > 0 || stdout.renderedDropped > 0 ? { stdoutTruncationReason: "BYTE_BUDGET_EXCEEDED" as const } : {}),
+      ...(stderr.dropped > 0 || stderr.renderedDropped > 0 ? { stderrTruncationReason: "BYTE_BUDGET_EXCEEDED" as const } : {}),
       durationMs: Date.now() - started,
       ownedTreeDrained: preSpawnNoChild || (status !== "spawn_error" && (validExit || validCancelled)),
       preSpawnNoChild,
