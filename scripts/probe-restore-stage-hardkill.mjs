@@ -7,7 +7,8 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rea
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { inspectWindowsPath, packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
+import { inspectWindowsPath } from "../dist/discovery/windows-file-bridge.js";
+import { faultFixtureWindowsFileHelper } from "./windows-file-helper-fault-fixture.mjs";
 
 assert.equal(process.platform, "win32");
 const top = mkdtempSync(join(tmpdir(), "aitest-stage-hardkill-"));
@@ -16,7 +17,7 @@ try {
   mkdirSync(join(sourceRoot, "blobs"), { recursive: true });
   mkdirSync(join(targetRoot, "blobs"), { recursive: true });
   writeFileSync(join(sourceRoot, "blobs", "x.bin"), "stage bytes");
-  const helper = packagedWindowsFileHelper();
+  const helper = faultFixtureWindowsFileHelper();
   const sourceId = inspectWindowsPath(helper, sourceRoot);
   const targetId = inspectWindowsPath(helper, targetRoot);
   const sha = createHash("sha256").update("stage bytes").digest("hex");

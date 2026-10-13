@@ -190,6 +190,7 @@ bool copyHeld(HANDLE source, HANDLE destination, unsigned char digest[32], unsig
     DWORD written = 0;
     if (!WriteFile(destination, buffer.get(), read, &written, nullptr) || written != read) { ok = false; break; }
     total += read;
+#ifdef AITEST_FAULT_FIXTURE
     if (fault != CopyFault::None) {
       if (!FlushFileBuffers(destination)) { ok = false; break; }
       std::printf("%s\t%llu\n", fault == CopyFault::HaltAfterFirstWrite ? "PARTIAL_WRITTEN" : "PARTIAL_FAILURE", total);
@@ -198,6 +199,9 @@ bool copyHeld(HANDLE source, HANDLE destination, unsigned char digest[32], unsig
       ok = false;
       break;
     }
+#else
+    (void)fault;
+#endif
   }
   if (ok) ok = FlushFileBuffers(destination) != 0 && BCryptFinishHash(hash, digest, 32, 0) >= 0;
   if (hash) BCryptDestroyHash(hash);
@@ -205,6 +209,7 @@ bool copyHeld(HANDLE source, HANDLE destination, unsigned char digest[32], unsig
   return ok;
 }
 
+#ifdef AITEST_FAULT_FIXTURE
 // Faults can only run in the owned Temp fixture, never on a customer data path.
 bool ownedStageFaultFixture(const wchar_t* targetRoot) {
   wchar_t temp[MAX_PATH + 1]{};
@@ -222,6 +227,7 @@ bool fixtureFaultRequested(const wchar_t* name, const wchar_t* targetRoot) {
   wchar_t value[2]{};
   return ownedStageFaultFixture(targetRoot) && GetEnvironmentVariableW(name, value, 2) == 1 && value[0] == L'1';
 }
+#endif
 
 bool hashHeld(HANDLE file, unsigned char digest[32]) {
   LARGE_INTEGER origin{};
@@ -824,14 +830,19 @@ int copyOwned(int argc, wchar_t** argv) {
   if (!std::getline(std::cin, line) || line != "COPY" ||
       !openRelative(targetRoot.back().value, argv[5], true,
         GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, target, true, 0)) return 2;
+#ifdef AITEST_FAULT_FIXTURE
   wchar_t oldFault[2]{};
   if (GetEnvironmentVariableW(L"AITEST_NATIVE_OLD_COPY_HALT_AFTER_CREATE", oldFault, 2) == 1 &&
       oldFault[0] == L'1') { std::puts("CREATED_OLD"); std::fflush(stdout); Sleep(INFINITE); }
+#endif
   unsigned char copiedDigest[32]{}, targetDigest[32]{};
   unsigned long long copied = 0;
   Identity targetId, sourceAfter;
-  const CopyFault oldFaultMode = fixtureFaultRequested(L"AITEST_NATIVE_OLD_COPY_HALT_AFTER_PARTIAL_WRITE", argv[4])
-    ? CopyFault::HaltAfterFirstWrite : CopyFault::None;
+  CopyFault oldFaultMode = CopyFault::None;
+#ifdef AITEST_FAULT_FIXTURE
+  if (fixtureFaultRequested(L"AITEST_NATIVE_OLD_COPY_HALT_AFTER_PARTIAL_WRITE", argv[4]))
+    oldFaultMode = CopyFault::HaltAfterFirstWrite;
+#endif
   if (!copyHeld(source.back().value, target.back().value, copiedDigest, copied, oldFaultMode) ||
       !identity(target.back().value, targetId) || targetId.bytes != copied ||
       !identity(source.back().value, sourceAfter) || !sameIdentity(sourceBefore, sourceAfter) ||
@@ -871,17 +882,22 @@ int copyStageSession(int argc, wchar_t** argv) {
       !openRelative(targetRoot.back().value, pendingRelative, true,
         GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE,
         pending, true, 0, FILE_DELETE_ON_CLOSE)) return 2;
+#ifdef AITEST_FAULT_FIXTURE
   wchar_t fault[2]{};
   if (GetEnvironmentVariableW(L"AITEST_NATIVE_STAGE_HALT_AFTER_CREATE", fault, 2) == 1 &&
       fault[0] == L'1') { std::puts("CREATED"); std::fflush(stdout); Sleep(INFINITE); }
+#endif
   unsigned char copiedDigest[32]{}, pendingDigest[32]{};
   unsigned long long copied = 0;
   Identity pendingId, sourceAfter;
+  CopyFault stageFault = CopyFault::None;
+#ifdef AITEST_FAULT_FIXTURE
   const bool haltPartial = fixtureFaultRequested(L"AITEST_NATIVE_STAGE_HALT_AFTER_PARTIAL_WRITE", argv[4]);
   const bool failPartial = fixtureFaultRequested(L"AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE", argv[4]);
   if (haltPartial && failPartial) return 2;
-  const CopyFault stageFault = haltPartial ? CopyFault::HaltAfterFirstWrite :
+  stageFault = haltPartial ? CopyFault::HaltAfterFirstWrite :
     failPartial ? CopyFault::FailAfterFirstWrite : CopyFault::None;
+#endif
   if (!copyHeld(source.back().value, pending.back().value, copiedDigest, copied, stageFault) ||
       !snapshot(pending.back().value, pendingId, pendingDigest) || pendingId.bytes != copied ||
       !identity(source.back().value, sourceAfter) || !sameIdentity(sourceBefore, sourceAfter) ||
@@ -906,8 +922,10 @@ int copyStageSession(int argc, wchar_t** argv) {
       fields[4] != ascii(digestHex(pendingDigest))) return 2;
   const HANDLE parent = pending.size() == 1 ? targetRoot.back().value : pending[pending.size() - 2].value;
   if (!linkHeld(pending.back().value, parent, stageParts.back())) return 2;
+#ifdef AITEST_FAULT_FIXTURE
   if (GetEnvironmentVariableW(L"AITEST_NATIVE_STAGE_HALT_AFTER_LINK", fault, 2) == 1 &&
       fault[0] == L'1') { std::puts("LINK_CREATED"); std::fflush(stdout); Sleep(INFINITE); }
+#endif
   pending.back() = Handle{};
   Handle stage;
   Identity stageId;
@@ -1105,10 +1123,12 @@ int blobVerifySession(int argc, wchar_t** argv) {
             &written, nullptr) || written != terminalLine.size() ||
           !FlushFileBuffers(journal.back().value)) return 2;
       committed = true;
+#ifdef AITEST_FAULT_FIXTURE
       // Deterministic Windows fixture: exit after durable commit and before stdout ACK.
       wchar_t dropAck[2]{};
       if (GetEnvironmentVariableW(L"AITEST_NATIVE_BLOB_COMMIT_DROP_ACK", dropAck, 2) == 1 &&
           dropAck[0] == L'1') return 2;
+#endif
       std::puts("COMMITTED"); std::fflush(stdout); continue;
     }
     if (fields[0] == "CLOSE" && fields.size() == 1 && committed) {

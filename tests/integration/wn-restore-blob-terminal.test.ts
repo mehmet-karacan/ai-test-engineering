@@ -27,6 +27,7 @@ vi.mock("../../src/storage/restore-journal.js", async (importActual) => {
 });
 
 import { packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
+import { faultFixtureWindowsFileHelper } from "../../scripts/windows-file-helper-fault-fixture.mjs";
 import { createBackup, restoreBackup } from "../../src/storage/lifecycle-ops.js";
 import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
 
@@ -100,7 +101,7 @@ describe.skipIf(process.platform !== "win32")("WN13 terminal blob guard", () => 
       old.close();
       process.env.AITEST_NATIVE_BLOB_COMMIT_DROP_ACK = "1";
       await expect(restoreBackup(backup.backup_dir, targetDb, targetArtifacts,
-        { nativeHelper: packagedWindowsFileHelper() })).rejects.toMatchObject({
+        { nativeHelper: faultFixtureWindowsFileHelper() })).rejects.toMatchObject({
         code: "STORAGE_ERROR", details: { reason_code: "RESTORE_COMMIT_ACK_UNCERTAIN" },
       });
       expect(readRestoreJournal(journalPathForDb(targetDb))?.phase).toBe("COMMITTED");

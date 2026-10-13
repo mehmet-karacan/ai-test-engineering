@@ -10,6 +10,7 @@ import Database from "better-sqlite3";
 import { inspectWindowsPath, packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 import { createBackup, restoreBackup, sha256Data } from "../dist/storage/lifecycle-ops.js";
 import { journalPathForDb, readRestoreJournal } from "../dist/storage/restore-journal.js";
+import { faultFixtureWindowsFileHelper } from "./windows-file-helper-fault-fixture.mjs";
 
 assert.equal(process.platform, "win32");
 const top = mkdtempSync(join(tmpdir(), "aitest-stage-hardkill-"));
@@ -21,7 +22,9 @@ try {
   mkdirSync(join(sourceRoot, "blobs"), { recursive: true });
   mkdirSync(join(targetRoot, "blobs"), { recursive: true });
   writeFileSync(join(sourceRoot, "blobs", "large.bin"), payload);
-  const helper = packagedWindowsFileHelper();
+  const helper = faultFixtureWindowsFileHelper();
+  const productionHelper = packagedWindowsFileHelper();
+  assert.notEqual(helper.sha256, productionHelper.sha256, "fault fixture and product binary must differ");
   const sourceId = inspectWindowsPath(helper, sourceRoot);
   const targetId = inspectWindowsPath(helper, targetRoot);
   async function start(name, fault, command) {
@@ -130,7 +133,8 @@ try {
     const previousFault = process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE;
     process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE = "1";
     try {
-      await assert.rejects(restoreBackup(backup.backup_dir, targetDbPath, targetRoot));
+      await assert.rejects(restoreBackup(backup.backup_dir, targetDbPath, targetRoot,
+        { nativeHelper: helper }));
     } finally {
       if (previousFault === undefined) delete process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE;
       else process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE = previousFault;
@@ -142,6 +146,26 @@ try {
     assert.ok(readdirSync(targetRoot, { recursive: true }).every((name) =>
       !name.endsWith(".pending") && !/\.restore-[0-9a-f-]{36}$/u.test(name)), "no unowned partial stage remains");
     process.stdout.write("GREEN: restore kept old DB and nonterminal journal without partial-stage orphan\n");
+
+    const productDbPath = join(top, "runtime", "state-product.db");
+    const product = new Database(productDbPath);
+    product.exec(schema);
+    product.prepare("INSERT INTO test_jobs VALUES ('old', 'COMPLETED')").run();
+    product.close();
+    const priorProductFault = process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE;
+    process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE = "1";
+    try {
+      await restoreBackup(backup.backup_dir, productDbPath, targetRoot);
+    } finally {
+      if (priorProductFault === undefined) delete process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE;
+      else process.env.AITEST_NATIVE_STAGE_FAIL_AFTER_PARTIAL_WRITE = priorProductFault;
+    }
+    assert.equal(readRestoreJournal(journalPathForDb(productDbPath))?.phase, "COMMITTED");
+    const published = new Database(productDbPath, { readonly: true });
+    try { assert.deepEqual(published.prepare("SELECT id FROM test_jobs").all(), [{ id: "new" }]); }
+    finally { published.close(); }
+    assert.deepEqual(readFileSync(join(targetRoot, "blobs", "large.bin")), payload);
+    process.stdout.write("GREEN: public default restore used fault-free product helper\n");
   }
 } finally {
   if (running?.exitCode === null && running.pid) spawnSync("taskkill", ["/F", "/PID", String(running.pid)], { stdio: "ignore" });
