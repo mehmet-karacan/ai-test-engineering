@@ -81,6 +81,13 @@ describe("WN14/WN24 native customer entrypoint", () => {
       const result = await dispatcher.dispatch(job, dispatcher.buildGoalContract(job, [], project), project);
       expect(result.final_outcome).toBe("FAILED");
       expect(result.error).toMatch(/process ownership/i);
+      const acceptedRuns = services.storage!.db.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM test_run_provenance WHERE job_id = ?",
+      ).get(job.id)!.count;
+      const acceptedCheckpoints = services.storage!.db.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM checkpoints WHERE job_id = ?",
+      ).get(job.id)!.count;
+      expect({ acceptedRuns, acceptedCheckpoints }).toEqual({ acceptedRuns: 0, acceptedCheckpoints: 0 });
       expect(docker).not.toHaveBeenCalled();
       expect(maven).not.toHaveBeenCalled();
     } finally {
