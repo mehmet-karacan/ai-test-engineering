@@ -54,8 +54,19 @@ describe("S01 native restore session adapter", () => {
       await restoreBackup(backup.backup_dir, target, targetArtifacts,
         { nativeHelper: packagedWindowsFileHelper() });
       expect(readFileSync(join(targetArtifacts, "blobs", "x.bin"), "utf8")).toBe("new blob bytes");
-      expect(readRestoreJournal(journalPathForDb(target))?.phase).toBe("COMMITTED");
+      const firstJournal = readRestoreJournal(journalPathForDb(target));
+      expect(firstJournal?.phase).toBe("COMMITTED");
+      const journalLines = readFileSync(journalPathForDb(target), "utf8").trimEnd().split("\n")
+        .map((line) => JSON.parse(JSON.parse(line).json) as RestoreJournalRecord);
+      expect(journalLines.slice(0, 3).map((record) => record.phase))
+        .toEqual(["PREPARED", "PREPARED", "BLOBS_READY"]);
+      expect(journalLines[0]?.stageIntents?.[0]?.identity).toBeNull();
+      expect(journalLines[1]?.stageIntents?.[0]?.identity?.fileId).toMatch(/^[a-f0-9]{32}$/u);
+      expect(firstJournal?.stageIntents).toHaveLength(1);
+      expect(firstJournal?.stageIntents?.[0]?.sha256).toBe(sha);
+      expect(firstJournal?.stageIntents?.[0]?.identity?.fileId).toMatch(/^[a-f0-9]{32}$/u);
       const originalBlobId = inspectWindowsPath(packagedWindowsFileHelper(), join(targetArtifacts, "blobs", "x.bin")).fileId;
+      expect(firstJournal?.stageIntents?.[0]?.identity?.fileId).toBe(originalBlobId);
       await restoreBackup(backup.backup_dir, target, targetArtifacts,
         { nativeHelper: packagedWindowsFileHelper() });
       expect(inspectWindowsPath(packagedWindowsFileHelper(), join(targetArtifacts, "blobs", "x.bin")).fileId)

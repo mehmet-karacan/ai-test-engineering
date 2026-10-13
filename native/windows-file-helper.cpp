@@ -78,7 +78,7 @@ bool validHandle(HANDLE h, bool directory) {
 }
 
 bool openChild(HANDLE parent, const std::wstring& name, bool directory, bool create, DWORD access, Handle& result,
-  ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE, NTSTATUS* statusOut = nullptr) {
+  ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE, NTSTATUS* statusOut = nullptr, ULONG extraOptions = 0) {
   if (!safeComponent(name) || name.size() > 32767 / sizeof(wchar_t)) return false;
   UNICODE_STRING unicode{};
   unicode.Buffer = const_cast<PWSTR>(name.c_str());
@@ -89,7 +89,7 @@ bool openChild(HANDLE parent, const std::wstring& name, bool directory, bool cre
   IO_STATUS_BLOCK io{};
   HANDLE opened = INVALID_HANDLE_VALUE;
   const ULONG opts = FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_REPARSE_POINT | FILE_OPEN_FOR_BACKUP_INTENT |
-    (directory ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE);
+    (directory ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | extraOptions;
   const NTSTATUS status = NtCreateFile(&opened, access | SYNCHRONIZE, &attributes, &io, nullptr,
     FILE_ATTRIBUTE_NORMAL, share, create ? FILE_CREATE : FILE_OPEN,
     opts, nullptr, 0);
@@ -120,7 +120,8 @@ bool openAbsolute(const std::wstring& path, bool directory, DWORD access, std::v
 }
 
 bool openRelative(HANDLE root, const std::wstring& relative, bool createParents, DWORD finalAccess,
-  std::vector<Handle>& chain, bool createFinal, ULONG finalShare = FILE_SHARE_READ | FILE_SHARE_WRITE) {
+  std::vector<Handle>& chain, bool createFinal, ULONG finalShare = FILE_SHARE_READ | FILE_SHARE_WRITE,
+  ULONG finalOptions = 0) {
   std::wstring ignored;
   std::vector<std::wstring> parts;
   if (!splitPath(relative, false, ignored, parts)) return false;
@@ -130,7 +131,8 @@ bool openRelative(HANDLE root, const std::wstring& relative, bool createParents,
     Handle child;
     if (!openChild(parent, parts[i], directory, !directory && createFinal,
       directory ? FILE_READ_ATTRIBUTES : finalAccess, child,
-      directory ? FILE_SHARE_READ | FILE_SHARE_WRITE : finalShare)) {
+      directory ? FILE_SHARE_READ | FILE_SHARE_WRITE : finalShare, nullptr,
+      directory ? 0 : finalOptions)) {
       if (!directory || !createParents) return false;
       // The held parent chain disallows rename/delete; a newly inserted junction
       // cannot be followed because the subsequent open is relative + no-follow.
@@ -239,6 +241,23 @@ bool renameHeld(HANDLE source, HANDLE targetDirectory, const std::wstring& targe
   IO_STATUS_BLOCK io{};
   return NtSetInformationFile(source, &io, rename, static_cast<ULONG>(buffer.size()),
     static_cast<FILE_INFORMATION_CLASS>(10)) >= 0;
+}
+
+struct NativeLinkInfo { BOOLEAN ReplaceIfExists; HANDLE RootDirectory; ULONG FileNameLength; WCHAR FileName[1]; };
+
+bool linkHeld(HANDLE source, HANDLE targetDirectory, const std::wstring& targetName) {
+  if (!safeComponent(targetName)) return false;
+  const size_t nameBytes = targetName.size() * sizeof(wchar_t);
+  if (nameBytes > 32767) return false;
+  std::vector<unsigned char> buffer(offsetof(NativeLinkInfo, FileName) + nameBytes);
+  auto* link = reinterpret_cast<NativeLinkInfo*>(buffer.data());
+  link->ReplaceIfExists = FALSE;
+  link->RootDirectory = targetDirectory;
+  link->FileNameLength = static_cast<ULONG>(nameBytes);
+  std::memcpy(link->FileName, targetName.data(), nameBytes);
+  IO_STATUS_BLOCK io{};
+  return NtSetInformationFile(source, &io, link, static_cast<ULONG>(buffer.size()),
+    static_cast<FILE_INFORMATION_CLASS>(11)) >= 0;
 }
 
 bool decodeName(const std::wstring& encoded, std::wstring& name) {
@@ -776,6 +795,9 @@ int copyOwned(int argc, wchar_t** argv) {
   if (!std::getline(std::cin, line) || line != "COPY" ||
       !openRelative(targetRoot.back().value, argv[5], true,
         GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, target, true, 0)) return 2;
+  wchar_t oldFault[2]{};
+  if (GetEnvironmentVariableW(L"AITEST_NATIVE_OLD_COPY_HALT_AFTER_CREATE", oldFault, 2) == 1 &&
+      oldFault[0] == L'1') { std::puts("CREATED_OLD"); std::fflush(stdout); Sleep(INFINITE); }
   unsigned char copiedDigest[32]{}, targetDigest[32]{};
   unsigned long long copied = 0;
   Identity targetId, sourceAfter;
@@ -789,6 +811,79 @@ int copyOwned(int argc, wchar_t** argv) {
     return 2;
   }
   printIdentity(targetId, copiedDigest);
+  return 0;
+}
+
+int copyStageSession(int argc, wchar_t** argv) {
+  if (argc != 10) return 2;
+  std::wstring ignored;
+  std::vector<std::wstring> stageParts;
+  if (!splitPath(argv[5], false, ignored, stageParts) ||
+      stageParts.back().size() > 247) return 2;
+  std::wstring pendingRelative(argv[5]);
+  pendingRelative += L".pending";
+  std::vector<Handle> sourceRoot, source, targetRoot, pending;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, sourceRoot) ||
+      !openAbsolute(argv[4], true, FILE_READ_ATTRIBUTES, targetRoot)) return 2;
+  Identity sourceRootId, targetRootId, sourceBefore;
+  if (!identity(sourceRoot.back().value, sourceRootId) ||
+      !identity(targetRoot.back().value, targetRootId) ||
+      !expectedRoot(sourceRootId, argv[6], argv[7]) ||
+      !expectedRoot(targetRootId, argv[8], argv[9]) ||
+      sourceRootId.id.VolumeSerialNumber != targetRootId.id.VolumeSerialNumber ||
+      !openRelative(sourceRoot.back().value, argv[3], false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES, source, false, FILE_SHARE_READ) ||
+      !identity(source.back().value, sourceBefore) || sourceBefore.links != 1) return 2;
+  std::puts("COPY_READY"); std::fflush(stdout);
+  std::string line;
+  if (!std::getline(std::cin, line) || line != "COPY" ||
+      !openRelative(targetRoot.back().value, pendingRelative, true,
+        GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE,
+        pending, true, 0, FILE_DELETE_ON_CLOSE)) return 2;
+  wchar_t fault[2]{};
+  if (GetEnvironmentVariableW(L"AITEST_NATIVE_STAGE_HALT_AFTER_CREATE", fault, 2) == 1 &&
+      fault[0] == L'1') { std::puts("CREATED"); std::fflush(stdout); Sleep(INFINITE); }
+  unsigned char copiedDigest[32]{}, pendingDigest[32]{};
+  unsigned long long copied = 0;
+  Identity pendingId, sourceAfter;
+  if (!copyHeld(source.back().value, pending.back().value, copiedDigest, copied) ||
+      !snapshot(pending.back().value, pendingId, pendingDigest) || pendingId.bytes != copied ||
+      !identity(source.back().value, sourceAfter) || !sameIdentity(sourceBefore, sourceAfter) ||
+      std::memcmp(copiedDigest, pendingDigest, 32) != 0) return 2;
+  char serial[17]{};
+  std::snprintf(serial, sizeof(serial), "%016llx", pendingId.id.VolumeSerialNumber);
+  std::printf("COPIED\t%s\t%s\t%llu\t%s\n", serial,
+    ascii(fileIdHex(pendingId)).c_str(), pendingId.bytes, ascii(digestHex(pendingDigest)).c_str());
+  std::fflush(stdout);
+  if (!std::getline(std::cin, line)) return 2;
+  std::vector<std::string> fields;
+  size_t fieldStart = 0;
+  for (;;) {
+    const size_t fieldEnd = line.find('\t', fieldStart);
+    fields.push_back(line.substr(fieldStart, fieldEnd == std::string::npos ? fieldEnd : fieldEnd - fieldStart));
+    if (fieldEnd == std::string::npos) break;
+    fieldStart = fieldEnd + 1;
+  }
+  if (fields.size() != 5 || fields[0] != "LINK" || fields[1] != serial ||
+      fields[2] != ascii(fileIdHex(pendingId)) ||
+      fields[3] != std::to_string(pendingId.bytes) ||
+      fields[4] != ascii(digestHex(pendingDigest))) return 2;
+  const HANDLE parent = pending.size() == 1 ? targetRoot.back().value : pending[pending.size() - 2].value;
+  if (!linkHeld(pending.back().value, parent, stageParts.back())) return 2;
+  if (GetEnvironmentVariableW(L"AITEST_NATIVE_STAGE_HALT_AFTER_LINK", fault, 2) == 1 &&
+      fault[0] == L'1') { std::puts("LINK_CREATED"); std::fflush(stdout); Sleep(INFINITE); }
+  pending.back() = Handle{};
+  Handle stage;
+  Identity stageId;
+  unsigned char stageDigest[32]{};
+  if (!openChild(parent, stageParts.back(), false, false,
+        GENERIC_READ | FILE_READ_ATTRIBUTES, stage, FILE_SHARE_READ) ||
+      !snapshot(stage.value, stageId, stageDigest) ||
+      stageId.id.VolumeSerialNumber != pendingId.id.VolumeSerialNumber ||
+      std::memcmp(stageId.id.FileId.Identifier, pendingId.id.FileId.Identifier, 16) != 0 ||
+      stageId.bytes != pendingId.bytes ||
+      std::memcmp(stageDigest, pendingDigest, 32) != 0) return 2;
+  std::puts("LINKED"); std::fflush(stdout);
   return 0;
 }
 
@@ -997,6 +1092,7 @@ int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"delete-owned-session") == 0) return deleteOwnedSession(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"delete-owned-probe") == 0) return deleteOwnedSession(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"copy-owned") == 0) return copyOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"copy-stage-session") == 0) return copyStageSession(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"rename-owned") == 0) return renameOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"verify-owned") == 0) return verifyOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"blob-verify-session") == 0) return blobVerifySession(argc, argv);
