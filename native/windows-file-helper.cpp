@@ -5,6 +5,7 @@
 #include <winternl.h>
 #include <bcrypt.h>
 #include <cstdio>
+#include <cstddef>
 #include <cstring>
 #include <cwctype>
 #include <memory>
@@ -13,6 +14,9 @@
 
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "bcrypt.lib")
+
+extern "C" NTSYSAPI NTSTATUS NTAPI NtSetInformationFile(HANDLE file, PIO_STATUS_BLOCK io,
+  PVOID information, ULONG length, FILE_INFORMATION_CLASS kind);
 
 namespace {
 struct Handle {
@@ -205,9 +209,54 @@ bool hashHeld(HANDLE file, unsigned char digest[32]) {
   BCryptCloseAlgorithmProvider(alg, 0);
   return ok;
 }
+
+std::wstring fileIdHex(const Identity& item) {
+  wchar_t chars[33]{};
+  for (size_t i = 0; i < sizeof(item.id.FileId.Identifier); ++i) {
+    std::swprintf(chars + i * 2, 3, L"%02x", item.id.FileId.Identifier[i]);
+  }
+  return chars;
+}
+
+std::wstring digestHex(const unsigned char digest[32]) {
+  wchar_t chars[65]{};
+  for (size_t i = 0; i < 32; ++i) std::swprintf(chars + i * 2, 3, L"%02x", digest[i]);
+  return chars;
+}
+
+bool renameHeld(HANDLE source, HANDLE targetDirectory, const std::wstring& targetName) {
+  if (!safeComponent(targetName)) return false;
+  const size_t nameBytes = targetName.size() * sizeof(wchar_t);
+  if (nameBytes > 32767) return false;
+  std::vector<unsigned char> buffer(offsetof(FILE_RENAME_INFO, FileName) + nameBytes);
+  auto* rename = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
+  rename->ReplaceIfExists = FALSE;
+  rename->RootDirectory = targetDirectory;
+  rename->FileNameLength = static_cast<DWORD>(nameBytes);
+  std::memcpy(rename->FileName, targetName.data(), nameBytes);
+  IO_STATUS_BLOCK io{};
+  return NtSetInformationFile(source, &io, rename, static_cast<ULONG>(buffer.size()),
+    static_cast<FILE_INFORMATION_CLASS>(10)) >= 0;
+}
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
+    if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;
+    std::vector<Handle> root;
+    if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root)) { std::fwprintf(stderr, L"root\n"); return 2; }
+    Handle source;
+    if (!openChild(root.back().value, argv[3], false, false,
+      GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE, source, FILE_SHARE_READ)) { std::fwprintf(stderr, L"source %lu\n", GetLastError()); return 2; }
+    Identity before, after;
+    unsigned char digest[32]{};
+    if (!identity(source.value, before) || before.links != 1 || !hashHeld(source.value, digest) ||
+        fileIdHex(before) != argv[5] || digestHex(digest) != argv[6]) { std::fwprintf(stderr, L"evidence\n"); return 2; }
+    if (!renameHeld(source.value, root.back().value, argv[4])) { std::fwprintf(stderr, L"rename %lu\n", GetLastError()); return 2; }
+    if (!identity(source.value, after) || !sameIdentity(before, after)) { std::fwprintf(stderr, L"post\n"); return 2; }
+    printIdentity(after, digest);
+    return 0;
+  }
   if (argc == 3 && wcscmp(argv[1], L"hold-transition") == 0) {
     std::vector<Handle> renameChain, readChain;
     if (!openAbsolute(argv[2], false, GENERIC_READ | FILE_READ_ATTRIBUTES | DELETE,

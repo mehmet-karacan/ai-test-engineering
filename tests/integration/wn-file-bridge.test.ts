@@ -179,4 +179,25 @@ describe.skipIf(process.platform !== "win32")("WN27 native file bridge", () => {
       await new Promise<void>((resolveExit) => transitioned.once("exit", () => resolveExit()));
     }
   });
+
+  it("renames a pinned file within its directory without replacing another file", () => {
+    const root = join(sandbox, "rename-root");
+    mkdirSync(root);
+    const source = join(root, "old.db");
+    const occupied = join(root, "occupied.db");
+    writeFileSync(source, "old-data");
+    writeFileSync(occupied, "occupied-data");
+    const original = inspectWindowsPath(helper, source);
+    const digest = createHash("sha256").update(readFileSync(source)).digest("hex");
+    const args = ["rename-probe", root, "old.db", "occupied.db", original.fileId, digest];
+    expect(spawnSync(helper.path, args, { windowsHide: true }).status).not.toBe(0);
+    expect(readFileSync(occupied, "utf8")).toBe("occupied-data");
+    args[3] = "preserved.db";
+    const moved = spawnSync(helper.path, args, { windowsHide: true, encoding: "utf8" });
+    expect(moved.status, moved.stderr).toBe(0);
+    expect(existsSync(source)).toBe(false);
+    expect(inspectWindowsPath(helper, join(root, "preserved.db"))).toMatchObject({
+      volumeSerial: original.volumeSerial, fileId: original.fileId,
+    });
+  });
 });
