@@ -43,18 +43,15 @@ describe("WN14/WN24 native customer entrypoint", () => {
     processRun.mockRestore();
   });
 
-  it.skipIf(process.platform !== "win32")("prepares a typed version identity using only a synthetic fixture after a test-only readiness stub", async () => {
+  it.skipIf(process.platform !== "win32")("keeps a customer preflight closed without an owned lifecycle after a test-only readiness stub", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-preflight-"));
     try {
       const executable = join(root, "mvn.cmd");
       writeFileSync(executable, "@echo off\r\necho Apache Maven 3.9.16\r\necho Java version: 25.0.3, vendor: Fixture\r\n");
       const factory = new CustomerRunnerFactory();
       vi.spyOn(factory, "assertNativeCustomerReady").mockImplementation(() => undefined);
-      const plan = await factory.prepareNativeCustomerToolchain({ cwd: root, env: process.env, executable });
-      expect(plan.mavenVersion).toBe("3.9.16");
-      expect(plan.javaVersion).toBe("25.0.3");
-      expect(plan.identity).not.toBe(plan.baseIdentity);
-      expect(plan.identity).toMatch(/^[a-f0-9]{64}$/);
+      await expect(factory.prepareNativeCustomerToolchain({ cwd: root, env: process.env, executable }))
+        .rejects.toMatchObject({ details: { reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED" } });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -132,7 +129,7 @@ describe("WN14/WN24 native customer entrypoint", () => {
       const result = await dispatcher.dispatch(job, dispatcher.buildGoalContract(job, [], project), project);
       const baseline = join(root, "workspace", "jobs", job.id, "baseline");
       expect(result.final_outcome).toBe("FAILED");
-      expect(result.error).toMatch(/pinning unavailable|input pinning unavailable/i);
+      expect(result.error).toMatch(/Complete installed Maven\/JDK manifest required/i);
       expect(result.phases_completed).not.toContain("baseline_ok");
       expect(existsSync(join(baseline, "target", "surefire-reports", "TEST-Fixture.xml"))).toBe(false);
       expect(existsSync(join(project, "target"))).toBe(false);

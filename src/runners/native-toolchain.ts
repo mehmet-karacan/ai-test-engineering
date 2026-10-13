@@ -137,6 +137,11 @@ export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: No
 }
 
 export async function verifyNativeToolchain(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal, lifecycle?: import("./windows-process-supervisor.js").NativeProcessLifecycle): Promise<VerifiedNativeToolchainPlan> {
+  if (lifecycle && !plan.distributionManifestComplete) {
+    throw new AppError("BLOCKED_ISOLATION", "Complete installed Maven/JDK manifest required for owned native execution", {
+      reason_code: "TOOLCHAIN_DISTRIBUTION_UNVERIFIED",
+    });
+  }
   const version = await probeNativeMavenVersion(plan, env, signal, lifecycle);
   return {
     ...plan,

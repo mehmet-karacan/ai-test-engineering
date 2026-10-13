@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { processPinPaths, WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
 
 async function runHelper(args: string[]): Promise<number | null> {
@@ -75,6 +76,47 @@ describe.skipIf(process.platform !== "win32")("WN15 native manifest pin transpor
       const result = await new WindowsProcessSupervisor().run({ ...plan, pinnedInputs: [...required, ...extra] });
       expect(result).toMatchObject({ status: "spawn_error", errorCode: "pin_unavailable", preSpawnNoChild: true, ownedTreeDrained: true });
       expect(() => readFileSync(sentinel)).toThrow();
+    } finally {
+      const target = resolve(root);
+      const inside = relative(resolve(tmpdir()), target);
+      if (inside && !inside.startsWith("..") && !isAbsolute(inside) && basename(target).startsWith("aitest-wn-manifest-helper-")) {
+        rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      }
+    }
+  }, 30000);
+
+  it("shows that held file and directory handles cannot exclude a new installed file", async () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-wn-manifest-helper-"));
+    try {
+      const lib = join(root, "lib");
+      mkdirSync(lib);
+      const jar = join(lib, "old.jar");
+      const batch = join(root, "mvn.cmd");
+      const ready = join(root, "ready.txt");
+      writeFileSync(jar, "old");
+      writeFileSync(batch, `@echo off\r\necho ready>"${ready}"\r\nping -n 10 127.0.0.1 >nul\r\n`);
+      const digest = (path: string): string => createHash("sha256").update(readFileSync(path)).digest("hex");
+      const manifest = join(root, "pins.txt");
+      writeFileSync(manifest, `${digest(batch)}\t${batch}\n${digest(jar)}\t${jar}\n`);
+      const status = join(root, "status.json");
+      const cmd = join(process.env.SystemRoot!, "System32", "cmd.exe");
+      const command = `"${cmd}" /d /s /v:off /c ""${batch}""`;
+      const child = spawn(resolve("native/bin/windows-process-helper.exe"),
+        [status, root, cmd, command, "@manifest", digest(manifest), manifest], { stdio: ["pipe", "pipe", "pipe"] });
+      const closed = new Promise<number | null>((resolveClosed) => child.once("close", resolveClosed));
+      try {
+        for (let attempt = 0; attempt < 200 && !existsSync(ready); attempt += 1) await delay(25);
+        expect(existsSync(ready)).toBe(true);
+        // The initial deny-creation oracle failed on real Windows. Preserve
+        // the observed gap so the customer gate cannot infer frozen membership.
+        expect(() => writeFileSync(join(lib, "new.jar"), "new")).not.toThrow();
+        expect(readFileSync(join(lib, "new.jar"), "utf8")).toBe("new");
+      } finally {
+        child.stdin.write("C");
+        const exit = await Promise.race([closed, delay(15000).then(() => { child.kill(); throw new Error("Helper did not close"); })]);
+        expect(exit).toBe(101);
+        expect(JSON.parse(readFileSync(status, "utf8"))).toMatchObject({ kind: "cancelled" });
+      }
     } finally {
       const target = resolve(root);
       const inside = relative(resolve(tmpdir()), target);
