@@ -35,7 +35,7 @@ static bool pin_path(const wchar_t* path, const wchar_t* expected_hex, HeldPaths
     if (!((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'))) return false;
   }
   std::wstring current(path, 3);
-  HANDLE root = CreateFileW(current.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
+  HANDLE root = CreateFileW(current.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
     nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
   if (root == INVALID_HANDLE_VALUE) return false;
   held.handles.push_back(root);
@@ -49,7 +49,7 @@ static bool pin_path(const wchar_t* path, const wchar_t* expected_hex, HeldPaths
         (end - start == 2 && path[start] == L'.' && path[start + 1] == L'.')) return false;
     current.assign(path, end);
     HANDLE opened = CreateFileW(current.c_str(), last ? GENERIC_READ : FILE_READ_ATTRIBUTES,
-      last ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE,
+      FILE_SHARE_READ,
       nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | (last ? 0 : FILE_FLAG_BACKUP_SEMANTICS), nullptr);
     if (opened == INVALID_HANDLE_VALUE) return false;
     held.handles.push_back(opened);
@@ -146,6 +146,12 @@ int wmain(int argc, wchar_t** argv) {
   }
   HeldPaths pinned;
   for (int i = 5; i < argc; i += 2) {
+    // A missing config cannot be held against later creation on a writable
+    // workspace. Keep the gate closed until a frozen tree can supply it.
+    if (wcscmp(argv[i], L"-") == 0) {
+      write_status("pin_unavailable", ERROR_FILE_NOT_FOUND);
+      return 102;
+    }
     if (!pin_path(argv[i + 1], argv[i], pinned)) {
       write_status("pin_mismatch", ERROR_SHARING_VIOLATION);
       return 102;
