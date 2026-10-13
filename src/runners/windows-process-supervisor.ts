@@ -1,7 +1,7 @@
 /** One Windows .cmd invocation through the owned Job Object helper. */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -141,16 +141,27 @@ function collectPinnedFiles(plan: NativeProcessPlan): Array<{ path: string; sha2
       if (expected.has(key)) throw new AppError("BLOCKED_ISOLATION", "Duplicate native pin", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
       expected.set(key, input);
     }
-    if (expected.size !== paths.length || paths.some((path) => !expected.has(path.toLowerCase()))) {
+    if (paths.some((path) => !expected.has(path.toLowerCase()))) {
       throw new AppError("BLOCKED_ISOLATION", "Incomplete native pin snapshot", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
     }
-    return paths.map((path) => ({ path, sha256: expected.get(path.toLowerCase())!.sha256 ?? "-" }));
+    return [...expected.values()].map((input) => ({ path: resolve(input.path), sha256: input.sha256 ?? "-" }));
   }
   // Standalone version probes may capture a fresh local snapshot. A goal run
   // supplies pinnedInputs from the approved resolver identity instead.
   return paths.filter((path) => existsSync(path)).map((path) => ({
     path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
   }));
+}
+
+function pinnedManifestBytes(files: ReadonlyArray<{ path: string; sha256: string }>): Buffer {
+  if (files.length === 0 || files.length > 4096 || files.some((input) => /[\t\r\n\0]/u.test(input.path))) {
+    throw new AppError("BLOCKED_ISOLATION", "Native pin manifest invalid", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+  }
+  const bytes = Buffer.from(files.map(({ path, sha256 }) => `${sha256}\t${path}\n`).join(""), "utf8");
+  if (bytes.length > 1024 * 1024) {
+    throw new AppError("BLOCKED_ISOLATION", "Native pin manifest exceeds budget", { reason_code: "TOOLCHAIN_DISTRIBUTION_UNVERIFIED" });
+  }
+  return bytes;
 }
 
 class BoundedOutput {
@@ -222,6 +233,7 @@ export class WindowsProcessSupervisor {
     }
     const cmd = cmdExecutable(plan.env);
     const pinnedFiles = collectPinnedFiles(plan);
+    const manifestBytes = plan.pinnedInputs ? pinnedManifestBytes(pinnedFiles) : undefined;
     // /s removes only the outer pair. Every executable/argument remains quoted.
     const commandLine = `"${[plan.executable, ...plan.argv].map(quote).join(" ")}"`;
     const stdout = new BoundedOutput(budget);
@@ -234,11 +246,13 @@ export class WindowsProcessSupervisor {
     const controlRoot = mkdtempSync(join(tmpdir(), "aitest-owned-process-"));
     const statusPath = join(controlRoot, "status.json");
     const stagedHelper = join(controlRoot, "windows-process-helper.exe");
+    const pinnedManifestPath = join(controlRoot, "pinned-inputs.txt");
     try {
       copyFileSync(HELPER, stagedHelper);
       const manifest = JSON.parse(readFileSync(HELPER_MANIFEST, "utf8")) as { binary_sha256: string };
       const copiedHash = createHash("sha256").update(readFileSync(stagedHelper)).digest("hex");
       if (copiedHash !== manifest.binary_sha256) throw new Error("staged helper digest mismatch");
+      if (manifestBytes) writeFileSync(pinnedManifestPath, manifestBytes, { flag: "wx" });
     } catch {
       const cleaned = await cleanupOwnedProcessControlRoot(controlRoot);
       return { status: "spawn_error", exitCode: null, stdout: "", stderr: "", stdoutTruncatedBytes: 0, stderrTruncatedBytes: 0,
@@ -255,7 +269,9 @@ export class WindowsProcessSupervisor {
     try {
       const nativeCommand = `"${cmd}" /d /s /v:off /c ${commandLine}`;
       child = spawn(stagedHelper, [statusPath, plan.cwd, cmd, nativeCommand,
-        ...pinnedFiles.flatMap(({ path, sha256 }) => [sha256, path])], {
+        ...(manifestBytes
+          ? ["@manifest", createHash("sha256").update(manifestBytes).digest("hex"), pinnedManifestPath]
+          : pinnedFiles.flatMap(({ path, sha256 }) => [sha256, path]))], {
         cwd: plan.cwd, env: plan.env, shell: false,
         windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
       });

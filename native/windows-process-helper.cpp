@@ -84,6 +84,46 @@ static bool pin_path(const wchar_t* path, const wchar_t* expected_hex, HeldPaths
   return true;
 }
 
+// The manifest is itself held by pin_path before any of its entries are used.
+// This keeps the approved bytes stable while the Job Object owns the child.
+static bool read_pinned_manifest(HANDLE file, std::string& bytes) {
+  LARGE_INTEGER size{};
+  if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > 1024 * 1024) return false;
+  LARGE_INTEGER start{};
+  if (!SetFilePointerEx(file, start, nullptr, FILE_BEGIN)) return false;
+  bytes.resize(static_cast<size_t>(size.QuadPart));
+  DWORD count = 0;
+  return ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &count, nullptr) && count == bytes.size();
+}
+
+static bool pin_manifest_entries(const std::string& bytes, HeldPaths& held, bool& absent) {
+  if (bytes.empty() || bytes.back() != '\n') return false;
+  size_t start = 0;
+  size_t entries = 0;
+  while (start < bytes.size()) {
+    const size_t end = bytes.find('\n', start);
+    const size_t separator = bytes.find('\t', start);
+    if (end == std::string::npos || separator == std::string::npos || separator >= end ||
+        ++entries > 4096 || separator + 1 == end ||
+        (separator - start != 64 && separator - start != 1) ||
+        bytes.find('\t', separator + 1) < end) return false;
+    const std::string digest = bytes.substr(start, separator - start);
+    const std::string path_bytes = bytes.substr(separator + 1, end - separator - 1);
+    if (path_bytes.find('\0') != std::string::npos || path_bytes.find('\r') != std::string::npos) return false;
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+      path_bytes.data(), static_cast<int>(path_bytes.size()), nullptr, 0);
+    if (count <= 0) return false;
+    std::wstring path(static_cast<size_t>(count), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path_bytes.data(),
+          static_cast<int>(path_bytes.size()), path.data(), count) != count) return false;
+    if (digest == "-") { absent = true; return false; }
+    std::wstring wide_digest(digest.begin(), digest.end());
+    if (!pin_path(path.c_str(), wide_digest.c_str(), held)) return false;
+    start = end + 1;
+  }
+  return entries > 0;
+}
+
 static std::string json_status(const char* kind, DWORD error, DWORD exit_code) {
   char bytes[192];
   std::snprintf(bytes, sizeof(bytes), "{\"kind\":\"%s\",\"win32_error\":%lu,\"exit_code\":%lu}\n",
@@ -120,7 +160,8 @@ static void stop_watcher(HANDLE watcher) {
 }
 
 int wmain(int argc, wchar_t** argv) {
-  if (argc < 7 || (argc - 5) % 2 != 0) return 90;
+  const bool manifest_mode = argc == 8 && wcscmp(argv[5], L"@manifest") == 0;
+  if (!manifest_mode && (argc < 7 || (argc - 5) % 2 != 0)) return 90;
   const wchar_t* status_path = argv[1];
   const wchar_t* cwd = argv[2];
   const wchar_t* executable = argv[3];
@@ -145,7 +186,19 @@ int wmain(int argc, wchar_t** argv) {
     return 93;
   }
   HeldPaths pinned;
-  for (int i = 5; i < argc; i += 2) {
+  if (manifest_mode) {
+    if (!pin_path(argv[7], argv[6], pinned)) {
+      write_status("pin_mismatch", ERROR_SHARING_VIOLATION);
+      return 102;
+    }
+    std::string bytes;
+    const HANDLE manifest_file = pinned.handles.back();
+    bool absent = false;
+    if (!read_pinned_manifest(manifest_file, bytes) || !pin_manifest_entries(bytes, pinned, absent)) {
+      write_status(absent ? "pin_unavailable" : "pin_mismatch", absent ? ERROR_FILE_NOT_FOUND : ERROR_INVALID_DATA);
+      return 102;
+    }
+  } else for (int i = 5; i < argc; i += 2) {
     // A missing config cannot be held against later creation on a writable
     // workspace. Keep the gate closed until a frozen tree can supply it.
     if (wcscmp(argv[i], L"-") == 0) {
