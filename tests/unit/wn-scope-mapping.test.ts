@@ -3,7 +3,8 @@
  * - WN02/WN03: 320 legacy ID tekil envanter; AC70+RG52+RT28+PRO60+N64+PP46 birebir.
  * - WN02/WN68: Docker/Linux/macOS ozgul her ID acik reason + WN karsiligi tasiyor.
  * - WN67: scope gate'i default NO_GO; local/full ayrimi acik.
- * - WN68: validator duplicate/universe disi/eksik replacement/gecersiz scope durumlarinda non-zero.
+ * - WN68: validator duplicate/universe disi/eksik satir/eksik replacement/gecersiz WN
+ *   karsiligi/gecersiz scope durumlarinda non-zero.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
