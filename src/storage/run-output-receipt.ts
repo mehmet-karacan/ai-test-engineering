@@ -18,6 +18,31 @@ export interface RunOutputReceipt {
   existingReady: boolean;
 }
 
+/** Bounded, metadata-only reconciliation view; it grants no delete authority. */
+export function listPendingRunOutputReceipts(db: BetterSqlite3.Database, artifacts: ArtifactStore, jobId: string, limit = 64): Array<{
+  id: string; kind: RunOutputKind; sha256: string; relativeStorePath: string; relativeTempPath: string;
+}> {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 256) throw new AppError("INVALID_PARAMETERS", "Invalid receipt audit limit");
+  const rows = db.prepare<[string, number], { id: string; kind: RunOutputKind; sha256: string; relative_store_path: string }>(
+    "SELECT id, kind, sha256, relative_store_path FROM artifacts WHERE job_id = ? AND status = 'PENDING' AND kind IN ('run_output_truncation', 'run_output_terminal') ORDER BY created_at, id LIMIT ?",
+  ).all(jobId, limit + 1);
+  if (rows.length > limit) throw new AppError("STORAGE_ERROR", "Run output receipt audit limit exceeded", {
+    reason_code: "RUN_OUTPUT_RECEIPT_AUDIT_OVERFLOW",
+  });
+  return rows.map((row) => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(row.id) ||
+        !/^[0-9a-f]{64}$/u.test(row.sha256)) {
+      throw new AppError("STORAGE_ERROR", "Run output receipt identity invalid", { reason_code: "RUN_OUTPUT_RECEIPT_INVALID" });
+    }
+    const expected = relative(artifacts.rootPath, artifacts.blobPath(row.sha256)).replace(/\\/gu, "/");
+    if (row.relative_store_path !== expected) {
+      throw new AppError("STORAGE_ERROR", "Run output receipt path invalid", { reason_code: "RUN_OUTPUT_RECEIPT_INVALID" });
+    }
+    return { id: row.id, kind: row.kind, sha256: row.sha256, relativeStorePath: expected,
+      relativeTempPath: `${expected}.tmp-${row.id}` };
+  });
+}
+
 export function assertNoPendingRunOutputReceipt(db: BetterSqlite3.Database, jobId: string, kind: RunOutputKind): void {
   const pending = db.prepare<[string, RunOutputKind], { id: string }>(
     "SELECT id FROM artifacts WHERE job_id = ? AND kind = ? AND status = 'PENDING' LIMIT 1",
@@ -62,7 +87,9 @@ export function reserveRunOutputReceipt(db: BetterSqlite3.Database, artifacts: A
 
 export function publishRunOutputReceipt(artifacts: ArtifactStore, receipt: RunOutputReceipt, data: string): void {
   if (receipt.existingReady) return;
-  const published = artifacts.publish(receipt.kind, data, { schemaVersion: "1", sensitivity: "internal" });
+  const published = artifacts.publish(receipt.kind, data, {
+    schemaVersion: "1", sensitivity: "internal", ownedAttemptId: receipt.id,
+  });
   if (published.sha256 !== receipt.sha256 || published.bytes !== receipt.bytes ||
       published.relativeStorePath !== receipt.relativeStorePath) {
     throw new AppError("STORAGE_ERROR", "Run output published bytes differ from receipt");

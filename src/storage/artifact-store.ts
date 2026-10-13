@@ -46,7 +46,11 @@ export class ArtifactStore {
     return join(this.root, "blobs", "sha256", sha256.slice(0, 2), sha256.slice(2, 4), sha256);
   }
 
-  publish(kind: string, data: Buffer | string, options?: { schemaVersion?: string; sensitivity?: "public" | "internal" | "sensitive" }): ArtifactRecord {
+  publish(kind: string, data: Buffer | string, options?: { schemaVersion?: string; sensitivity?: "public" | "internal" | "sensitive"; ownedAttemptId?: string }): ArtifactRecord {
+    const ownedAttemptId = options?.ownedAttemptId;
+    if (ownedAttemptId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(ownedAttemptId)) {
+      throw new AppError("INVALID_PARAMETERS", "Invalid owned artifact publish attempt");
+    }
     const release = acquireMaintenanceLock(this.root, "publish");
     try {
     const buffer = typeof data === "string" ? Buffer.from(data, "utf8") : data;
@@ -62,8 +66,10 @@ export class ArtifactStore {
         throw new AppError("STORAGE_ERROR", "Mevcut blob hash uyusmazligi");
       }
     } else {
-      const tmpPath = `${target}.tmp-${process.pid}-${Date.now()}`;
-      writeFileSync(tmpPath, buffer);
+      // Run-output writers have already committed a PENDING artifact with
+      // this id. A hard-killed temp file can therefore be located from DB.
+      const tmpPath = ownedAttemptId ? `${target}.tmp-${ownedAttemptId}` : `${target}.tmp-${process.pid}-${Date.now()}`;
+      writeFileSync(tmpPath, buffer, { flag: ownedAttemptId ? "wx" : "w" });
       renameSync(tmpPath, target);
     }
     return {
