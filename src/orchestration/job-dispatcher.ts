@@ -11,6 +11,7 @@ import { AppError } from "../domain/errors.js";
 import type { Services } from "../application/services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { InventoryRepository, type RunOutputTruncation } from "../storage/inventory-repository.js";
+import { recordTerminalRunOutput, terminalOutputFromError } from "./terminal-run-output.js";
 import { LeaseManager } from "./lease-manager.js";
 import { CheckpointStore, resumeBudgetFromManifest, type AcceptedBlob } from "./checkpoint-store.js";
 import { RecoveryManager } from "./recovery-manager.js";
@@ -1012,7 +1013,20 @@ export class JobDispatcher {
 
       return { job_id: job.id, phases_completed: phases, final_outcome: reportOutcome, best_coverage: bestCoverage, error: null };
     } catch (error) {
-      const message = error instanceof AppError ? `${error.code}: ${error.message}` : String(error);
+      let evidenceError: unknown = null;
+      try {
+        const terminal = terminalOutputFromError(error, this.workspaceRoot);
+        if (terminal) {
+          assertLease();
+          if (!this.services.artifacts) throw new AppError("STORAGE_ERROR", "Terminal Maven kesinti artifact deposu yok");
+          recordTerminalRunOutput({ db: storage.db, artifacts: this.services.artifacts, jobId: job.id,
+            phase: jobs.getJob(job.id).phase, output: terminal });
+        }
+      } catch (writeError) {
+        evidenceError = writeError;
+      }
+      const failure = evidenceError ?? error;
+      const message = failure instanceof AppError ? `${failure.code}: ${failure.message}` : String(failure);
       process.stderr.write(`[aitest-dispatch] job ${job.id} FAILED (${phases.join(",")}): ${message}\n`);
       // Hata/cancel yolunda bu dispatch'in owned kaynaklari kapanir; yeni
       // dispatcher instance'i da module registry uzerinden ayni job'u bulur.
@@ -1023,7 +1037,7 @@ export class JobDispatcher {
         // Cancel/pause sonrasi gec hata bu lifecycle'i COMPLETED/FAILED ile
         // overwrite edemez (N37). Normal hata typed FAILED/BLOCKED olarak kalir.
         if (currentJob.lifecycle !== "CANCELLED" && currentJob.lifecycle !== "PAUSED") {
-          const errorCode = error instanceof AppError ? error.code : "INTERNAL_ERROR";
+          const errorCode = failure instanceof AppError ? failure.code : "INTERNAL_ERROR";
           // P04/PR04: typed blocker'lar outcome'ta ayrisir; hepsi generic BLOCKED_ENVIRONMENT ezilmez
           const outcome = errorCode === "REPORT_EXPORT_FAILED"
             ? "FINAL_VERIFICATION_FAILED"
