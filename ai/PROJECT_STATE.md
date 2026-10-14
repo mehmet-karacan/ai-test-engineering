@@ -197,3 +197,5 @@
 - Sonraki somut is: P10 teknik devir kaydini koru. Original full gate icin gercek evidence manifest + live/platform kanitlari olmadan production GO verme. Docker/egress sonraki aktif goreve devredildi.
 - Docker/Docker egress/PP16-PP17 kanit kosusu sonraki aktif goreve devredildi; bu gorevde calistirilmayacak ve kalan is sayisina dahil edilmeyecek.
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir
+
+- 2026-10-14 G1 follow-up: kullanici onayi ile owned snapshot POM'unda `tr.com.innova.yz:yz-core:0.1.0-SNAPSHOT` tanimlandi ve JDK25 Lombok processor acildi; normal MCP job `46b4f18d-3ea6-43f0-b930-6cd5e612ec08` native preflight sonrasi 13 GpuReportService/YzRapor* API uyumsuzlugu nedeniyle `BASELINE_FAILED` oldu. Customer checkout degismedi; model/candidate/pause-resume acilmadi. Ayrinti `ai/checkpoints/2026-10-14-windows-native-006-g1-yzcorefix-baseline-blocked.md`.

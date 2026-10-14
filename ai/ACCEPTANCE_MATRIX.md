@@ -90,3 +90,5 @@ Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kism
 - Test: 473/473 PASSED (56 dosya; 2026-10-11)
 - F01-F18: uygulama mevcut; tam runtime/pilot kaniti NOT_VERIFIED
 - Canli kurum kabulleri: kullanici onayi ile ayri kosuda surer; bu gorev baslatmaz
+
+2026-10-14 G1 follow-up: Owned snapshot POM'unda `yz-core` ve JDK25 Lombok processor tanisal duzeltmesiyle yeni normal MCP job `46b4f18d-3ea6-43f0-b930-6cd5e612ec08` calisti; native preflight gecti, baseline 13 `GpuReportService`/`YzRapor*` source/API uyumsuzlugunda `BASELINE_FAILED` oldu. Model/candidate/pause-resume/Report06 yok; customer checkout degismedi. WN70-WN75 PASSED degil. Ayrinti `ai/checkpoints/2026-10-14-windows-native-006-g1-yzcorefix-baseline-blocked.md`.

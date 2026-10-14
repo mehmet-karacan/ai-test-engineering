@@ -119,3 +119,5 @@ Yeni blocker/sema kanitlari: GLM P07-B `ai/checkpoints/2026-10-12-production-005
 - AITE-FOUNDATION-001 (W01-W30): ai/tasks/archive/AITE-FOUNDATION-001.md
 - AITE-REMEDIATION-002 (D00-D10): ai/tasks/archive/AITE-REMEDIATION-002.md
 - AITE-RUNTIME-ACCEPTANCE-003 v1.0/v2.0: ai/tasks/archive/
+
+- 2026-10-14 G1 follow-up: owned snapshot'ta yz-core dependency ve JDK25 Lombok processor duzeltmesiyle baseline yeniden kosuldu (job `46b4f18d-3ea6-43f0-b930-6cd5e612ec08`); native preflight gecti, Maven 13 GpuReportService/YzRapor* API uyumsuzlugunda BASELINE_FAILED oldu. Model/candidate/pause-resume acilmadi; checkpoint `ai/checkpoints/2026-10-14-windows-native-006-g1-yzcorefix-baseline-blocked.md`.
