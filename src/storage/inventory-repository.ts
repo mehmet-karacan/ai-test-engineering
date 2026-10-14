@@ -8,12 +8,76 @@ import type { ArtifactStore } from "./artifact-store.js";
 import { assertNoPendingRunOutputReceipt, promoteRunOutputReceipt, publishRunOutputReceipt, reserveRunOutputReceipt } from "./run-output-receipt.js";
 import type { JavaSymbol, TestInventory } from "../discovery/java-inventory.js";
 import type { PomModule } from "../discovery/pom-discovery.js";
+import type { FileInventoryEntry, FileInventoryPage } from "../discovery/file-inventory.js";
 
 export interface InventoryWriteResult {
   snapshot_id: string;
   module_id: string;
   symbols_written: number;
   test_cases_written: number;
+}
+
+export interface InventoryScanRow {
+  scan_id: string;
+  project_id: string;
+  location_id: string;
+  root_file_id: string | null;
+  generation: number;
+  required_paths_digest: string;
+  state: "STAGING" | "COMPLETE" | "PARTIAL" | "STALE";
+  owner_id: string | null;
+  fence_token: number;
+  row_version: number;
+  last_key: string | null;
+  scanned_count: number;
+  error_count: number;
+  errors_json: string;
+  digest: string | null;
+  created_at: number;
+  finished_at: number | null;
+}
+
+export interface DurableFileInventoryRow {
+  scan_id: string;
+  canonical_relative_path: string;
+  kind: "file" | "directory" | "symlink" | "junction" | "other";
+  size: number | null;
+  mtime: number | null;
+  sha256: string | null;
+  hash_status: "KNOWN" | "UNAVAILABLE" | "INVALID" | "NOT_APPLICABLE";
+  sensitivity: "PUBLIC" | "INTERNAL" | "SENSITIVE" | "UNKNOWN";
+  read_status: "READ" | "UNREADABLE" | "SKIPPED";
+  parser_status: "PARSED" | "UNSUPPORTED" | "ERROR" | "NOT_APPLICABLE";
+  tombstone: number;
+  created_at: number;
+  row_version: number;
+}
+
+function durableInventoryEntry(scanId: string, entry: FileInventoryEntry): DurableFileInventoryRow {
+  const kind = entry.kind === "unknown" ? "other" : entry.kind;
+  const hashStatus = entry.hashStatus === "COMPUTED" ? "KNOWN" : entry.hashStatus === "NOT_COMPUTED" ? "UNAVAILABLE" : entry.hashStatus === "ERROR" ? "INVALID" : "NOT_APPLICABLE";
+  const readStatus = entry.readStatus === "OK" ? "READ" : entry.readStatus === "ERROR" ? "UNREADABLE" : "UNREADABLE";
+  return {
+    scan_id: scanId,
+    canonical_relative_path: entry.relativePath,
+    kind,
+    size: entry.size,
+    mtime: entry.mtimeMs === null ? null : Math.trunc(entry.mtimeMs),
+    sha256: entry.hash,
+    hash_status: hashStatus,
+    sensitivity: "UNKNOWN",
+    read_status: readStatus,
+    parser_status: "NOT_APPLICABLE",
+    tombstone: 0,
+    created_at: Date.now(),
+    row_version: 0,
+  };
+}
+
+function sameInventoryRow(left: DurableFileInventoryRow, right: DurableFileInventoryRow): boolean {
+  return left.kind === right.kind && left.size === right.size && left.mtime === right.mtime && left.sha256 === right.sha256 &&
+    left.hash_status === right.hash_status && left.sensitivity === right.sensitivity && left.read_status === right.read_status &&
+    left.parser_status === right.parser_status && left.tombstone === right.tombstone;
 }
 
 export interface RunOutputTruncation {
@@ -32,6 +96,168 @@ export class InventoryRepository {
   constructor(db: BetterSqlite3.Database, artifacts?: ArtifactStore) {
     this.db = db;
     this.artifacts = artifacts;
+  }
+
+  /**
+   * S03/S04: scan nesli kalici olarak acilir. Her location+generation tekildir;
+   * ayni istek tekrarlandiginda ayni staging satiri doner.
+   */
+  beginInventoryScan(input: {
+    scan_id?: string;
+    project_id: string;
+    location_id: string;
+    root_file_id?: string | null;
+    generation: number;
+    required_paths_digest: string;
+    owner_id: string;
+  }): InventoryScanRow {
+    if (!Number.isSafeInteger(input.generation) || input.generation < 0 || !/^[0-9a-f]{64}$/u.test(input.required_paths_digest) || !input.owner_id.trim()) {
+      throw new AppError("INVALID_PARAMETERS", "Inventory scan parametreleri gecersiz");
+    }
+    const now = Date.now();
+    const scanId = input.scan_id ?? randomUUID();
+    const tx = this.db.transaction((): InventoryScanRow => {
+      const existing = this.db
+        .prepare<[string, number], InventoryScanRow>("SELECT * FROM inventory_scans WHERE location_id = ? AND generation = ?")
+        .get(input.location_id, input.generation);
+      if (existing) {
+        if (existing.project_id !== input.project_id || existing.required_paths_digest !== input.required_paths_digest) {
+          throw new AppError("STORAGE_ERROR", "Inventory generation identity cakismasi", { reason_code: "STALE_GENERATION" });
+        }
+        if (existing.state !== "STAGING") {
+          throw new AppError("STORAGE_ERROR", "Sealed inventory generation yeniden acilamaz", { reason_code: "GENERATION_SEALED" });
+        }
+        return existing;
+      }
+      this.db
+        .prepare(
+          `INSERT INTO inventory_scans (
+             scan_id, project_id, location_id, root_file_id, generation,
+             required_paths_digest, state, owner_id, fence_token, row_version,
+             last_key, scanned_count, error_count, errors_json, digest, created_at, finished_at
+           ) VALUES (?, ?, ?, ?, ?, ?, 'STAGING', ?, 1, 0, NULL, 0, 0, '[]', NULL, ?, NULL)`,
+        )
+        .run(scanId, input.project_id, input.location_id, input.root_file_id ?? null, input.generation, input.required_paths_digest, input.owner_id, now);
+      const created = this.db.prepare<[string], InventoryScanRow>("SELECT * FROM inventory_scans WHERE scan_id = ?").get(scanId);
+      if (!created) throw new AppError("STORAGE_ERROR", "Inventory scan olusturulamadi", { reason_code: "INVENTORY_SCAN_INSERT_FAILED" });
+      return created;
+    });
+    return tx();
+  }
+
+  /** S03: bir sayfayi kisa fence transaction'inda append eder; ayni satir retry'da degismez. */
+  appendInventoryPage(scanId: string, ownerId: string, fenceToken: number, page: FileInventoryPage): InventoryScanRow {
+    const tx = this.db.transaction((): InventoryScanRow => {
+      const scan = this.getInventoryScan(scanId);
+      if (scan.state !== "STAGING") {
+        throw new AppError("STORAGE_ERROR", "Sealed inventory scan'e sayfa eklenemez", { reason_code: "GENERATION_SEALED" });
+      }
+      this.assertInventoryLease(scan, ownerId, fenceToken);
+      let inserted = 0;
+      for (const entry of page.entries) {
+        const normalized = durableInventoryEntry(scanId, entry);
+        const result = this.db
+          .prepare(
+            `INSERT INTO file_inventory (
+               scan_id, canonical_relative_path, kind, size, mtime, sha256,
+               hash_status, sensitivity, read_status, parser_status, tombstone,
+               created_at, row_version
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'UNKNOWN', ?, ?, 0, ?, 0)
+             ON CONFLICT(scan_id, canonical_relative_path) DO NOTHING`,
+          )
+          .run(
+            normalized.scan_id,
+            normalized.canonical_relative_path,
+            normalized.kind,
+            normalized.size,
+            normalized.mtime,
+            normalized.sha256,
+            normalized.hash_status,
+            normalized.read_status,
+            normalized.parser_status,
+            normalized.created_at,
+          );
+        if (result.changes === 1) {
+          inserted++;
+        } else {
+          const existing = this.db
+            .prepare<[string, string], DurableFileInventoryRow>("SELECT * FROM file_inventory WHERE scan_id = ? AND canonical_relative_path = ?")
+            .get(scanId, normalized.canonical_relative_path);
+          if (!existing || !sameInventoryRow(existing, normalized)) {
+            throw new AppError("STORAGE_ERROR", `Inventory satiri retry uyusmazligi: ${entry.relativePath}`, { reason_code: "INVENTORY_ROW_CONFLICT" });
+          }
+        }
+      }
+      const lastKey = page.entries.length > 0 ? page.entries[page.entries.length - 1]!.relativePath : scan.last_key;
+      const updated = this.db
+        .prepare(
+          `UPDATE inventory_scans
+           SET last_key = ?, scanned_count = scanned_count + ?, error_count = error_count + ?,
+               errors_json = ?, row_version = row_version + 1
+           WHERE scan_id = ? AND state = 'STAGING' AND owner_id = ? AND fence_token = ? AND row_version = ?`,
+        )
+        .run(lastKey, inserted, page.errors.length, JSON.stringify(page.errors), scanId, ownerId, fenceToken, scan.row_version);
+      if (updated.changes !== 1) {
+        throw new AppError("POLICY_VIOLATION", "Inventory page fence/row_version cakismasi", { reason_code: "INVENTORY_CAS_CONFLICT" });
+      }
+      return this.getInventoryScan(scanId);
+    });
+    return tx();
+  }
+
+  /** S03: staging generation'i digest ile seal eder veya kontrollu stale isaretler. */
+  finishInventoryScan(input: {
+    scan_id: string;
+    owner_id: string;
+    fence_token: number;
+    state: "COMPLETE" | "PARTIAL" | "STALE";
+    digest?: string | null;
+    finished_at?: number;
+  }): InventoryScanRow {
+    if (input.state === "COMPLETE" && (!input.digest || !/^[0-9a-f]{64}$/u.test(input.digest))) {
+      throw new AppError("INVALID_PARAMETERS", "Complete inventory scan digest'i zorunlu");
+    }
+    const now = input.finished_at ?? Date.now();
+    const tx = this.db.transaction((): InventoryScanRow => {
+      const scan = this.getInventoryScan(input.scan_id);
+      if (scan.state !== "STAGING") {
+        if (scan.state === input.state && scan.digest === (input.digest ?? null)) return scan;
+        throw new AppError("STORAGE_ERROR", "Inventory generation zaten sealed", { reason_code: "GENERATION_SEALED" });
+      }
+      this.assertInventoryLease(scan, input.owner_id, input.fence_token);
+      const result = this.db
+        .prepare(
+          `UPDATE inventory_scans SET state = ?, digest = ?, finished_at = ?, owner_id = NULL,
+             row_version = row_version + 1
+           WHERE scan_id = ? AND state = 'STAGING' AND owner_id = ? AND fence_token = ? AND row_version = ?`,
+        )
+        .run(input.state, input.digest ?? null, now, input.scan_id, input.owner_id, input.fence_token, scan.row_version);
+      if (result.changes !== 1) {
+        throw new AppError("STORAGE_ERROR", "Inventory scan seal guncellemesi basarisiz", { reason_code: "INVENTORY_CAS_CONFLICT" });
+      }
+      return this.getInventoryScan(input.scan_id);
+    });
+    return tx();
+  }
+
+  getInventoryScan(scanId: string): InventoryScanRow {
+    const row = this.db.prepare<[string], InventoryScanRow>("SELECT * FROM inventory_scans WHERE scan_id = ?").get(scanId);
+    if (!row) throw new AppError("INVALID_PARAMETERS", `Inventory scan bulunamadi: ${scanId}`);
+    return row;
+  }
+
+  listDurableInventory(scanId: string, afterPath: string | null = null, limit = 100): DurableFileInventoryRow[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new AppError("INVALID_PARAMETERS", "Inventory page limiti gecersiz");
+    if (afterPath === null) {
+      return this.db.prepare<[string, number], DurableFileInventoryRow>("SELECT * FROM file_inventory WHERE scan_id = ? ORDER BY canonical_relative_path LIMIT ?").all(scanId, limit);
+    }
+    return this.db.prepare<[string, string, number], DurableFileInventoryRow>("SELECT * FROM file_inventory WHERE scan_id = ? AND canonical_relative_path > ? ORDER BY canonical_relative_path LIMIT ?").all(scanId, afterPath, limit);
+  }
+
+  private assertInventoryLease(scan: InventoryScanRow, ownerId: string, fenceToken: number): void {
+    if (scan.owner_id !== ownerId || scan.fence_token !== fenceToken) {
+      throw new AppError("POLICY_VIOLATION", "Inventory fence eslesmiyor", { reason_code: "STALE_FENCE" });
+    }
   }
 
   /** P06/PP31: Maven run + Surefire/Failsafe inventory authoritative kaydi. */

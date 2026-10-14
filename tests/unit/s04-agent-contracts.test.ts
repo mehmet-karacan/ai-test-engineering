@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { AgentTaskContractSchema, AgentTaskResultSchema, assertAgentTaskResultMatchesContract } from "../../src/domain/agent-contracts.js";
+import { AgentTaskContractSchema, AgentTaskResultSchema, InventoryScanResultSchema, assertAgentTaskResultMatchesContract } from "../../src/domain/agent-contracts.js";
 
 function contractFixture() {
   const jobId = randomUUID();
@@ -37,5 +37,16 @@ describe("S04 agent runtime contract", () => {
     expect(() => assertAgentTaskResultMatchesContract(contract, result)).not.toThrow();
     expect(() => AgentTaskResultSchema.parse({ ...result, summary: "x".repeat(6145) })).toThrow();
     expect(() => assertAgentTaskResultMatchesContract(contract, { ...result, job_revision: 4 })).toThrow();
+  });
+
+  it("InventoryScanResult sayim, partial ve cursor sinirlarini korur", () => {
+    const contract = AgentTaskContractSchema.parse(contractFixture());
+    const result = InventoryScanResultSchema.parse({
+      schema_version: 1, scan_id: randomUUID(), project_id: contract.project_id, location_id: contract.location_id,
+      generation: 2, scanned_count: 4, error_count: 1, complete: false, partial: true,
+      errors: [{ relative_path: "secret.env", code: "ACCESS_DENIED" }], metadata_artifact_ref: null, next_cursor: "cursor-1",
+    });
+    expect(result.next_cursor).toBe("cursor-1");
+    expect(() => InventoryScanResultSchema.parse({ ...result, complete: true, partial: true })).toThrow();
   });
 });

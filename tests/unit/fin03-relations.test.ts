@@ -80,8 +80,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     };
   }
 
-  it("schema v7: coverage_snapshots + worker_attempts + candidate_attempts + benchmark_trials + checkpoint_blobs + job_target_concretes + test_run_provenance var", () => {
-    expect(storage.schemaVersion()).toBe(7);
+  it("schema v8: coverage + envanter + ajan gorev iliskileri var", () => {
+    expect(storage.schemaVersion()).toBe(8);
     const tables = storage.db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
@@ -102,6 +102,12 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
       expect(targetCols).toContain(col);
     }
     expect(tables).toContain("test_run_provenance");
+    expect(tables).toContain("inventory_scans");
+    expect(tables).toContain("file_inventory");
+    expect(tables).toContain("agent_tasks");
+    expect(tables).toContain("agent_attempts");
+    expect(tables).toContain("job_approvals");
+    expect(tables).toContain("owned_processes");
   });
 
   it("baseline/candidate/final run envanteri ayni provenance anahtariyla idempotent yazilir", () => {
@@ -355,7 +361,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("migration idempotent: migrate tekrar cagrildiginda hata yok", () => {
     expect(() => storage.migrate()).not.toThrow();
-    expect(storage.schemaVersion()).toBe(7);
+    expect(storage.schemaVersion()).toBe(8);
   });
 
   it("future schema fail-closed: bilinmeyen yuksek version yazmayi durdurur", () => {

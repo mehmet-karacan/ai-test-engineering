@@ -113,6 +113,33 @@ export const AgentTaskResultSchema = z.object({
 });
 export type AgentTaskResult = z.infer<typeof AgentTaskResultSchema>;
 
+/** S03 sayfali metadata envanterinin MCP'ye donen bounded sonucu. */
+export const InventoryScanResultSchema = z.object({
+  schema_version: z.literal(1),
+  scan_id: IdSchema,
+  project_id: IdSchema,
+  location_id: IdSchema,
+  generation: z.number().int().nonnegative(),
+  scanned_count: z.number().int().nonnegative(),
+  error_count: z.number().int().nonnegative(),
+  complete: z.boolean(),
+  partial: z.boolean(),
+  errors: z.array(z.object({
+    relative_path: z.string().min(1).max(1024),
+    code: z.string().min(1).max(128),
+  })).max(512),
+  metadata_artifact_ref: ArtifactRefSchema.nullable(),
+  next_cursor: z.string().max(4096).nullable(),
+}).superRefine((result, context) => {
+  if (result.complete && result.partial) {
+    context.addIssue({ code: "custom", path: ["partial"], message: "complete ve partial ayni anda true olamaz" });
+  }
+  if (result.error_count < result.errors.length) {
+    context.addIssue({ code: "custom", path: ["error_count"], message: "error_count hata listesinden kucuk olamaz" });
+  }
+});
+export type InventoryScanResult = z.infer<typeof InventoryScanResultSchema>;
+
 export function assertAgentTaskResultMatchesContract(contract: AgentTaskContract, result: AgentTaskResult): void {
   if (contract.task_id !== result.task_id || contract.job_id !== result.job_id || contract.job_revision !== result.job_revision) {
     throw new Error("AgentTaskResult task/job/revision fence'i ile eslesmiyor");

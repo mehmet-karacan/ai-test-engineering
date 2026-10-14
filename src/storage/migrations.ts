@@ -460,6 +460,148 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
   ALTER TABLE test_run_provenance ADD COLUMN coverage_report_paths_json TEXT NOT NULL DEFAULT '[]';
   `,
     },
+    {
+      version: 8,
+      name: "envanter-ajan-gorevleri-ve-sahipli-surecler",
+      sql: `
+  -- S03/S04: append-only envanter nesilleri; sealed generation geriye donuk yazilmaz.
+  CREATE TABLE IF NOT EXISTS inventory_scans (
+    scan_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    location_id TEXT NOT NULL REFERENCES project_locations(id),
+    root_file_id TEXT,
+    generation INTEGER NOT NULL CHECK (generation >= 0),
+    required_paths_digest TEXT NOT NULL CHECK (length(required_paths_digest) = 64),
+    state TEXT NOT NULL CHECK (state IN ('STAGING','COMPLETE','PARTIAL','STALE')),
+    owner_id TEXT,
+    fence_token INTEGER NOT NULL DEFAULT 0 CHECK (fence_token >= 0),
+    row_version INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+    last_key TEXT,
+    scanned_count INTEGER NOT NULL DEFAULT 0 CHECK (scanned_count >= 0),
+    error_count INTEGER NOT NULL DEFAULT 0 CHECK (error_count >= 0),
+    errors_json TEXT NOT NULL DEFAULT '[]',
+    digest TEXT CHECK (digest IS NULL OR length(digest) = 64),
+    created_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    UNIQUE (location_id, generation),
+    CHECK (finished_at IS NULL OR finished_at >= created_at)
+  );
+
+  CREATE TABLE IF NOT EXISTS file_inventory (
+    scan_id TEXT NOT NULL REFERENCES inventory_scans(scan_id),
+    canonical_relative_path TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('file','directory','symlink','junction','other')),
+    size INTEGER CHECK (size IS NULL OR size >= 0),
+    mtime INTEGER,
+    sha256 TEXT CHECK (sha256 IS NULL OR length(sha256) = 64),
+    hash_status TEXT NOT NULL CHECK (hash_status IN ('KNOWN','UNAVAILABLE','INVALID','NOT_APPLICABLE')),
+    sensitivity TEXT NOT NULL CHECK (sensitivity IN ('PUBLIC','INTERNAL','SENSITIVE','UNKNOWN')),
+    read_status TEXT NOT NULL CHECK (read_status IN ('READ','UNREADABLE','SKIPPED')),
+    parser_status TEXT NOT NULL CHECK (parser_status IN ('PARSED','UNSUPPORTED','ERROR','NOT_APPLICABLE')),
+    tombstone INTEGER NOT NULL DEFAULT 0 CHECK (tombstone IN (0,1)),
+    created_at INTEGER NOT NULL,
+    row_version INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+    PRIMARY KEY (scan_id, canonical_relative_path)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_inventory_scans_location_state ON inventory_scans(location_id, state, generation);
+  CREATE INDEX IF NOT EXISTS idx_file_inventory_scan_path ON file_inventory(scan_id, canonical_relative_path);
+  CREATE INDEX IF NOT EXISTS idx_file_inventory_hash ON file_inventory(scan_id, sha256);
+
+  -- S04: modelden gelen gorev kontrati ve per-attempt durable fence kaydi.
+  CREATE TABLE IF NOT EXISTS agent_tasks (
+    task_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES test_jobs(id),
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    location_id TEXT NOT NULL REFERENCES project_locations(id),
+    role TEXT NOT NULL CHECK (role IN ('explorer','test_architect','test_developer','reviewer')),
+    parent_task_id TEXT REFERENCES agent_tasks(task_id),
+    dependency_task_ids_json TEXT NOT NULL DEFAULT '[]',
+    input_artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+    contract_json TEXT NOT NULL,
+    contract_digest TEXT NOT NULL CHECK (length(contract_digest) = 64),
+    state TEXT NOT NULL CHECK (state IN ('QUEUED','RUNNING','COMPLETED','FAILED','CANCELLED','INTERRUPTED','BLOCKED','WAITING_APPROVAL')),
+    idempotency_key TEXT NOT NULL,
+    job_revision INTEGER NOT NULL CHECK (job_revision >= 0),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    lease_owner_id TEXT,
+    lease_fence_token INTEGER NOT NULL DEFAULT 0 CHECK (lease_fence_token >= 0),
+    lease_expires_at INTEGER,
+    accepted_output_artifact_id TEXT REFERENCES artifacts(id),
+    source_digest TEXT NOT NULL CHECK (length(source_digest) = 64),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    row_version INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+    UNIQUE (job_id, idempotency_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES agent_tasks(task_id),
+    job_id TEXT NOT NULL REFERENCES test_jobs(id),
+    attempt_ordinal INTEGER NOT NULL CHECK (attempt_ordinal > 0),
+    owner_id TEXT NOT NULL,
+    fence_token INTEGER NOT NULL CHECK (fence_token >= 0),
+    provider_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    model_revision INTEGER NOT NULL CHECK (model_revision >= 0),
+    status TEXT NOT NULL CHECK (status IN ('RUNNING','COMPLETED','FAILED','CANCELLED','INTERRUPTED','BLOCKED','WAITING_APPROVAL')),
+    input_digest TEXT,
+    output_digest TEXT,
+    input_artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+    output_artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+    session_id TEXT,
+    message_id TEXT,
+    error_class TEXT,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    row_version INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+    UNIQUE (task_id, attempt_ordinal)
+  );
+
+  CREATE TABLE IF NOT EXISTS job_approvals (
+    approval_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES test_jobs(id),
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    approval_kind TEXT NOT NULL,
+    scope_digest TEXT NOT NULL CHECK (length(scope_digest) = 64),
+    model_digest TEXT NOT NULL CHECK (length(model_digest) = 64),
+    budget_digest TEXT NOT NULL CHECK (length(budget_digest) = 64),
+    decision TEXT NOT NULL CHECK (decision IN ('APPROVED','REJECTED','PENDING')),
+    decided_by TEXT,
+    decided_at INTEGER,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS owned_processes (
+    process_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES test_jobs(id),
+    run_id TEXT,
+    attempt_id TEXT,
+    process_identity TEXT NOT NULL,
+    parent_process_identity TEXT,
+    executable_fingerprint TEXT NOT NULL,
+    workspace_fingerprint TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    cleanup_state TEXT NOT NULL CHECK (cleanup_state IN ('ACTIVE','CLOSED','LOST','BLOCKED')),
+    row_version INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+    UNIQUE (job_id, process_identity, started_at)
+  );
+
+  ALTER TABLE worker_attempts ADD COLUMN task_id TEXT REFERENCES agent_tasks(task_id);
+  ALTER TABLE worker_attempts ADD COLUMN input_artifact_refs_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE worker_attempts ADD COLUMN output_artifact_refs_json TEXT NOT NULL DEFAULT '[]';
+
+  CREATE INDEX IF NOT EXISTS idx_agent_tasks_job_state ON agent_tasks(job_id, state, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_agent_tasks_parent ON agent_tasks(parent_task_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_attempts_task ON agent_attempts(task_id, attempt_ordinal);
+  CREATE INDEX IF NOT EXISTS idx_agent_attempts_job ON agent_attempts(job_id, started_at);
+  CREATE INDEX IF NOT EXISTS idx_job_approvals_job ON job_approvals(job_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_owned_processes_job_state ON owned_processes(job_id, cleanup_state);
+  CREATE INDEX IF NOT EXISTS idx_worker_attempts_task ON worker_attempts(task_id, attempt_ordinal);
+  `,
+    },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

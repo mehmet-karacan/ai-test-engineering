@@ -15,6 +15,16 @@ export { createServices, createDefaultServicesForTest } from "./application/serv
 export { Storage } from "./storage/storage.js";
 export { migrate, currentSchemaVersion, MIGRATIONS } from "./storage/migrations.js";
 export { JobRepository } from "./storage/job-repository.js";
+export { InventoryRepository } from "./storage/inventory-repository.js";
+export type { InventoryScanRow, DurableFileInventoryRow } from "./storage/inventory-repository.js";
+export { AgentTaskRepository } from "./storage/agent-task-repository.js";
+export type {
+  AgentTaskRow,
+  AgentTaskClaim,
+  AgentAttemptRow,
+  RecordAgentAttemptInput,
+  CompleteAgentTaskInput,
+} from "./storage/agent-task-repository.js";
 export { ArtifactStore } from "./storage/artifact-store.js";
 export { loadConfig, saveConfig, defaultConfig } from "./configuration/config-loader.js";
 export { AppConfigSchema, defaultStorageRoot } from "./configuration/config-schema.js";
@@ -26,6 +36,7 @@ export {
   ModelBindingSchema,
   AgentTaskContractSchema,
   AgentTaskResultSchema,
+  InventoryScanResultSchema,
   assertAgentTaskResultMatchesContract,
 } from "./domain/agent-contracts.js";
 export type {
@@ -36,4 +47,5 @@ export type {
   ModelBinding,
   AgentTaskContract,
   AgentTaskResult,
+  InventoryScanResult,
 } from "./domain/agent-contracts.js";

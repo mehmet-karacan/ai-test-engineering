@@ -120,7 +120,7 @@ describe("P08/PP44: upgrade/migration veri korunumu", () => {
     expect(readRestoreJournal(journalPathForDb(restoredDb))?.phase).toBe("COMMITTED");
     const restored = new Storage({ dbPath: restoredDb });
     try {
-      expect(restored.schemaVersion()).toBeGreaterThanOrEqual(7);
+      expect(restored.schemaVersion()).toBeGreaterThanOrEqual(8);
       const jobs = new JobRepository(restored.db);
       expect(jobs.getJob(jobId).lifecycle).toBe("COMPLETED");
       expect(jobs.getJob(jobId).outcome).toBe("TARGET_REACHED");
