@@ -88,10 +88,20 @@ async function prepareJob(): Promise<PreparedJob> {
   );
 
   // Synthetic -v fixture pins the same native toolchain contract the real
-  // preflight would persist. It never runs customer Maven goals.
-  const executable = join(dir, "mvn.cmd");
+  // preflight would persist. A minimal Maven/JDK distribution tree is built
+  // so the owned-resume tests reach post-preflight logic without weakening
+  // the production complete-manifest gate. It never runs customer Maven goals.
+  const mavenRoot = join(dir, "maven");
+  const javaRoot = join(dir, "jdk");
+  for (const part of ["bin", "boot", "lib", "conf"]) mkdirSync(join(mavenRoot, part), { recursive: true });
+  for (const part of ["bin", "lib", "conf"]) mkdirSync(join(javaRoot, part), { recursive: true });
+  writeFileSync(join(javaRoot, "release"), "JAVA_VERSION=\"25.0.3\"\n", "utf8");
+  const executable = join(mavenRoot, "bin", "mvn.cmd");
   writeFileSync(executable, "@echo off\r\necho Apache Maven 3.9.16\r\necho Java version: 25.0.3, vendor: Fixture\r\n");
-  const options = { cwd: projectDir, env: process.env, executable };
+  // Resume resolves the effective environment from process.env, so keep the
+  // fixture's JAVA_HOME identical until this test's cleanup restores it.
+  vi.stubEnv("JAVA_HOME", javaRoot);
+  const options = { cwd: projectDir, env: { ...process.env }, executable };
   const env = effectiveMavenEnvironment(options.env);
   const verified = await verifyNativeToolchain(NativeToolchainResolver.resolve({ ...options, env }), env);
   new NativeToolchainRecordStore(services.storage!.db, artifactRoot).pin(started.job_id, options, verified);
@@ -126,6 +136,7 @@ describe("P05-B resume zinciri", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     while (cleanups.length > 0) {
       cleanups.pop()!();
     }
@@ -230,8 +241,10 @@ describe("P05-B resume zinciri", () => {
     await expect(dispatcher.resumeDispatch(prepared.services.jobs!.getJob(prepared.jobId), prepared.projectDir, "litellm/GLM-5.3-Flash-IT"))
       .rejects.toMatchObject({ code: "POLICY_VIOLATION", details: { reason_code: "CONTRACT_CONFLICT" } });
     expect(dispatchSpy).not.toHaveBeenCalled();
-    expect(prepared.services.storage!.db.prepare<[string], { expires_at: number }>("SELECT expires_at FROM job_leases WHERE job_id = ?").get(prepared.jobId)!.expires_at)
-      .toBeLessThan(Date.now());
+    // Contract conflicts are rejected before a resume lease is acquired or
+    // any native probe starts.
+    expect(prepared.services.storage!.db.prepare<[string], { expires_at: number }>("SELECT expires_at FROM job_leases WHERE job_id = ?").get(prepared.jobId))
+      .toBeUndefined();
   });
 
   it("legacy runner job'u RUNNING yapmadan explicit revision ister", async () => {

@@ -9,7 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { AppError } from "../../domain/errors.js";
 import { OpenCodeWorkerClient } from "./worker-client.js";
 
@@ -54,6 +54,10 @@ function buildAllowedEnv(): Record<string, string> {
   if (password !== undefined) {
     allowed["OPENCODE_SERVER_PASSWORD"] = password;
   }
+  const username = process.env["OPENCODE_SERVER_USERNAME"];
+  if (username !== undefined) {
+    allowed["OPENCODE_SERVER_USERNAME"] = username;
+  }
   return allowed;
 }
 
@@ -74,7 +78,17 @@ export class WorkerServerManager {
     }
     const exe = resolve(this.options.opencodeExecutable);
     const env = this.buildIsolatedEnv();
-    const child = spawn(exe, [...(this.options.extraArgs ?? []), "serve", "--port", String(this.options.port), "--hostname", "127.0.0.1", "--pure"], {
+    // OpenCode 2.x protects the /api surface with Basic Auth. Keep the
+    // credential process-local; reuse an explicitly supplied sentinel, or
+    // generate an unlogged per-worker secret when none was configured.
+    const serverPassword = env["OPENCODE_SERVER_PASSWORD"] ?? randomBytes(32).toString("base64url");
+    const serverUsername = env["OPENCODE_SERVER_USERNAME"] ?? "opencode";
+    env["OPENCODE_SERVER_PASSWORD"] = serverPassword;
+    env["OPENCODE_SERVER_USERNAME"] = serverUsername;
+    // OpenCode 2.x no longer exposes the historical --pure serve flag. The
+    // worker config is isolated through XDG_* roots above; passing --pure
+    // makes current OpenCode exit before the HTTP endpoint is ready.
+    const child = spawn(exe, [...(this.options.extraArgs ?? []), "serve", "--port", String(this.options.port), "--hostname", "127.0.0.1"], {
       stdio: "ignore",
       shell: false,
       windowsHide: true,
@@ -82,7 +96,12 @@ export class WorkerServerManager {
       env,
     });
     this.server = child;
-    const client = new OpenCodeWorkerClient({ base_url: `http://127.0.0.1:${this.options.port}` });
+    const client = new OpenCodeWorkerClient({
+      base_url: `http://127.0.0.1:${this.options.port}`,
+      api_prefix: "/api",
+      username: serverUsername,
+      password: serverPassword,
+    });
     const attempts = Math.max(1, Math.ceil(this.options.startupTimeoutMs / 1000));
     for (let i = 0; i < attempts; i++) {
       await new Promise((r) => setTimeout(r, 1000));
@@ -208,8 +227,12 @@ export function defaultWorkerServerManager(workDir: string, options?: { config_i
   let args: string[] = [];
   if (process.platform === "win32") {
     const appData = process.env["APPDATA"] ?? "";
-    const realExe = join(appData, "npm", "node_modules", "opencode-ai", "bin", "opencode.exe");
-    if (appData.length > 0 && existsSync(realExe)) {
+    const realExeCandidates = [
+      join(appData, "npm", "node_modules", "@opencode", "cli", "bin", "opencode.exe"),
+      join(appData, "npm", "node_modules", "opencode-ai", "bin", "opencode.exe"),
+    ];
+    const realExe = realExeCandidates.find((candidate) => existsSync(candidate));
+    if (realExe) {
       exe = realExe;
     } else {
       exe = join(process.env["ComSpec"] ?? "cmd.exe");

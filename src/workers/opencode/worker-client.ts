@@ -1,7 +1,8 @@
 /**
- * OpenCode worker adapter: yonetilen worker server'a baglanir; prompt_async ile rol bazli gorev yollar.
+ * OpenCode worker adapter: yonetilen worker server'a baglanir; rol bazli gorev yollar.
  * Server crash olursa ayni job'da yeni session olusturulur; sonlanma/cancellation kayitli olur.
- * Gercek OpenCode HTTP API'si (dogrulandi): POST /session, POST /session/{id}/prompt_async, POST /session/{id}/abort.
+ * Hem legacy (`/session`) hem OpenCode 2.x (`/api/session`) HTTP yuzeyleri
+ * desteklenir. 2.x, prompt/interrupt ve envelope response semasini kullanir.
  */
 import { defaultWorkerConfig, workerToolFlags, type WorkerConfig } from "./worker-config.js";
 import { extractJsonCandidate } from "./model-schemas.js";
@@ -47,6 +48,8 @@ export class WorkerRequestFailure extends Error {
 
 export interface OpenCodeServerOptions {
   base_url: string;
+  /** Empty for the legacy API; `/api` for OpenCode 2.x. */
+  api_prefix?: string;
   username?: string;
   password?: string;
   startup_timeout_ms?: number;
@@ -54,11 +57,14 @@ export interface OpenCodeServerOptions {
 
 export class OpenCodeWorkerClient {
   private readonly baseUrl: string;
+  private readonly apiPrefix: string;
   private readonly username: string;
   private readonly password: string | undefined;
 
   constructor(options: OpenCodeServerOptions) {
     this.baseUrl = options.base_url.replace(/\/$/, "");
+    const prefix = options.api_prefix ?? "";
+    this.apiPrefix = prefix.length === 0 ? "" : `/${prefix.replace(/^\/+|\/+$/gu, "")}`;
     this.username = options.username ?? "opencode";
     this.password = options.password;
   }
@@ -72,12 +78,29 @@ export class OpenCodeWorkerClient {
     return headers;
   }
 
+  private endpoint(path: string): string {
+    return `${this.baseUrl}${this.apiPrefix}${path}`;
+  }
+
+  private unwrapEnvelope(value: unknown): unknown {
+    if (value && typeof value === "object" && !Array.isArray(value) && Object.hasOwn(value, "data")) {
+      return (value as { data: unknown }).data;
+    }
+    return value;
+  }
+
   async health(timeoutMs: number): Promise<boolean> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(`${this.baseUrl}/global/health`, { signal: controller.signal });
-      return response.ok;
+      const response = await fetch(this.endpoint(this.apiPrefix ? "/project" : "/global/health"), {
+        signal: controller.signal,
+        headers: this.headers(),
+      });
+      if (!response.ok) return false;
+      if (!this.apiPrefix) return true;
+      const body = await response.text();
+      return body.trim().length > 0;
     } catch {
       return false;
     } finally {
@@ -86,19 +109,30 @@ export class OpenCodeWorkerClient {
   }
 
   async createSession(directory?: string): Promise<SessionInfo> {
-    const response = await fetch(`${this.baseUrl}/session`, {
+    const response = await fetch(this.endpoint("/session"), {
       method: "POST",
       headers: this.headers(),
-      body: JSON.stringify(directory ? { directory } : {}),
+      body: JSON.stringify(this.apiPrefix
+        ? (directory ? { location: { directory } } : {})
+        : (directory ? { directory } : {})),
     });
     if (!response.ok) {
       throw new Error(`Session olusturma basarisiz: HTTP ${response.status}`);
     }
-    const data = (await response.json()) as Record<string, unknown>;
+    const raw = (await response.json()) as unknown;
+    const data = this.unwrapEnvelope(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error("Session cevabi beklenen nesne degil");
+    }
+    const session = data as Record<string, unknown>;
     return {
-      session_id: String(data["id"] ?? ""),
-      project_id: data["projectID"] !== undefined ? String(data["projectID"]) : undefined,
-      directory: data["directory"] !== undefined ? String(data["directory"]) : undefined,
+      session_id: String(session["id"] ?? ""),
+      project_id: session["projectID"] !== undefined ? String(session["projectID"]) : undefined,
+      directory: session["directory"] !== undefined
+        ? String(session["directory"])
+        : session["location"] && typeof session["location"] === "object"
+          ? String((session["location"] as Record<string, unknown>)["directory"] ?? "")
+          : undefined,
     };
   }
 
@@ -116,18 +150,32 @@ export class OpenCodeWorkerClient {
     const controller = new AbortController();
     const timer = options.timeout_ms ? setTimeout(() => controller.abort(), options.timeout_ms) : undefined;
     try {
-      response = await fetch(`${this.baseUrl}/session/${options.session_id}/prompt_async`, {
-        method: "POST",
-        headers: this.headers(),
-        signal: controller.signal,
-        body: JSON.stringify({
+      const text = options.parts
+        .map((part) => typeof part["text"] === "string" ? part["text"] : "")
+        .filter((part) => part.length > 0)
+        .join("\n");
+      const body = this.apiPrefix
+        ? {
+          text,
+          ...(options.model ? { model: options.model } : {}),
+          ...(options.agent ? { agent: options.agent } : {}),
+          ...(options.no_reply !== undefined ? { resume: !options.no_reply } : {}),
+        }
+        : {
           parts: options.parts,
           ...(options.model ? { model: options.model } : {}),
           ...(options.agent ? { agent: options.agent } : {}),
           ...(options.tools ? { tools: options.tools } : {}),
           ...(options.system ? { system: options.system } : {}),
           ...(options.no_reply !== undefined ? { noReply: options.no_reply } : {}),
-        }),
+        };
+      response = await fetch(this.endpoint(this.apiPrefix
+        ? `/session/${options.session_id}/prompt`
+        : `/session/${options.session_id}/prompt_async`), {
+        method: "POST",
+        headers: this.headers(),
+        signal: controller.signal,
+        body: JSON.stringify(body),
       });
     } catch (error) {
       // W01/N13: baglanti hatasi typed transport hatasi; provider ayrintisi maskelenir
@@ -144,7 +192,8 @@ export class OpenCodeWorkerClient {
     if (!response.ok) {
       throw new WorkerRequestFailure(classifyHttpFailure(response.status), `prompt_async basarisiz: HTTP ${response.status}`);
     }
-    // prompt_async resmi cevabi 204 No Content olabilir (D04/E01); kosulsuz response.json() parse hatasi uretir.
+    // prompt_async resmi cevabi 204 No Content olabilir (D04/E01); v2 prompt
+    // ise kabul makbuzunu {data:{id}} envelope'u icinde doner.
     if (response.status === 204) {
       return { message_id: null, accepted: true };
     }
@@ -157,8 +206,9 @@ export class OpenCodeWorkerClient {
       return { message_id: null, accepted: true };
     }
     try {
-      const data = JSON.parse(text) as Record<string, unknown>;
-      return { message_id: data["id"] !== undefined ? String(data["id"]) : null, accepted: true };
+      const data = this.unwrapEnvelope(JSON.parse(text) as unknown);
+      const record = data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {};
+      return { message_id: record["id"] !== undefined ? String(record["id"]) : null, accepted: true };
     } catch {
       throw new WorkerRequestFailure("INVALID_JSON", "prompt_async cevabi JSON degil");
     }
@@ -169,7 +219,7 @@ export class OpenCodeWorkerClient {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}/session/${session_id}/message`, {
+      response = await fetch(this.endpoint(`/session/${session_id}/message`), {
         headers: this.headers(),
         signal: controller.signal,
       });
@@ -191,11 +241,33 @@ export class OpenCodeWorkerClient {
     if (bodyText.trim().length === 0) {
       return [];
     }
-    return JSON.parse(bodyText) as Array<Record<string, unknown>>;
+    const unwrapped = this.unwrapEnvelope(JSON.parse(bodyText) as unknown);
+    if (!Array.isArray(unwrapped)) return [];
+    // OpenCode 2.x returns compact v2 messages (`type`, `text`) while the
+    // legacy endpoint returns `{info, parts}`. Normalize both for the bounded
+    // completion classifier below.
+    return unwrapped.map((message) => {
+      if (!message || typeof message !== "object" || Array.isArray(message)) return {};
+      const record = message as Record<string, unknown>;
+      if (record["info"] && typeof record["info"] === "object") return record;
+      const role = record["type"] === "assistant" ? "assistant" : record["type"] === "user" ? "user" : String(record["role"] ?? record["type"] ?? "");
+      const text = typeof record["text"] === "string" ? record["text"] : "";
+      return {
+        info: {
+          id: record["id"],
+          role,
+          sessionID: record["sessionID"] ?? session_id,
+          ...(record["finish"] !== undefined ? { finish: record["finish"] } : {}),
+          ...(record["completed"] !== undefined ? { completed: record["completed"] } : {}),
+          ...(record["error"] !== undefined ? { error: record["error"] } : {}),
+        },
+        parts: text.length > 0 ? [{ type: "text", text }] : [],
+      };
+    });
   }
 
   async abortSession(session_id: string): Promise<boolean> {
-    const response = await fetch(`${this.baseUrl}/session/${session_id}/abort`, {
+    const response = await fetch(this.endpoint(this.apiPrefix ? `/session/${session_id}/interrupt` : `/session/${session_id}/abort`), {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({}),

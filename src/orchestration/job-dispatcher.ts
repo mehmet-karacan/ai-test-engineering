@@ -1300,6 +1300,18 @@ export class JobDispatcher {
       throw new AppError("INVALID_PARAMETERS", `Job icin proje koku cozumlenemedi: ${job.id}`);
     }
 
+    // A requested model change is an immutable contract conflict. Reject it
+    // before acquiring a resume lease or probing native Maven, so a stale
+    // caller cannot trigger any owned child process for a job it cannot resume.
+    const contractModelBeforeResume = this.readJobContractModelProfile(storage, job);
+    if (requestedModel !== undefined && requestedModel !== null && requestedModel !== contractModelBeforeResume) {
+      throw new AppError("POLICY_VIOLATION", "Resume model_profile immutable contract ile degistirilemez", {
+        reason_code: "CONTRACT_CONFLICT",
+        requested_model: requestedModel,
+        contract_model: contractModelBeforeResume,
+      });
+    }
+
     // Acquire ownership before any native -v child starts. Checkpoint events,
     // accepted-file restore and lifecycle mutation still follow verification.
     const recoveryOwnerId = ownerIdOverride ?? `resume-${process.pid}-${job.id}-${randomUUID()}`;

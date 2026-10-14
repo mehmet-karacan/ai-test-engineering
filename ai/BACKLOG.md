@@ -12,7 +12,7 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | S01 | Backup otoritesi ve hata atomik restore | VERIFIED | WN05-WN13 zorunlu fail/skip yok; odak suite 54/55 + fin11 tekil 3x 7/7 PASS (batch inline timeout makine-yuku), probe ailesi 19/19, typecheck/lint/build exit 0, release-verify --local LOCAL_PASS; kapanis checkpoint `ai/checkpoints/2026-10-14-windows-native-006-s01-loop-close.md`. Public restore hook-free native helper; GC silme kimligi root+FileId+bytes+sha256 (WINDOWS_OWNED_DELETE_UNCERTAIN fail-closed, eski blob orphan, DELETED marker commit'li); terminal COMMIT/ACK, stage DELETE_ON_CLOSE receipt, sentetik partial-write, PREPARED tek blob bos ad/stage-only/destination-only recovery hardkill, iki blob/yedi kesit RED, N=2 pinned GUARD, iki blob disposition receipt ve partial/flush-atlanmis/ACK terminal WAL fixture kanitli. Kalanlar kod gap'i degil: gercek FlushFileBuffers EIO/disk-dolu surucu seviyesi enjeksiyonu (driver/admin), 8192 cap derin-kok limiti (fail-closed), N=2 uretim terminal/ACK uzlasmasi (tasarim karari), root-alias non-native dal production-ulasilamaz tanisi; katalog WN05-WN13 full gate'e kadar NOT_RUN (S09 yuzeyi) |
 | S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; WN20 ENOENT/spawn fault, WN21 PENDING final/temp receipt hardkill; WN19 normal MCP sentetik settings negatif gizlilik kaniti var ama tam zincir NOT_RUN; low-integrity child Temp clone'a yeni JAR yazamadi fakat medium peer ekle-sil yapti; WN23 parent/torun RED ust Job tanisi ve immutable-owner audit kayitli; immutable install, ust Job disi owner_lost, fiziksel GC/customer gate acik |
 | S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; durable generation/page/tombstone/keyset ve caller wiring PASS; migration v9 per-entry native FileId receipt persistence eklendi; full partial/permission/context kabul kaniti acik |
-| S04 | SQLite proje kimligi, agent task ve resume | IN_PROGRESS | WN32-WN42; identity normalization + AgentTaskResult/InventoryScanResult, migration v8->v9, durable inventory/task/attempt store, lease/fence/CAS, restart/model revision ve Windows path identity fix PASS; complete native manifest/ownership, checkpoint recovery ve full WN acceptance acik |
+| S04 | SQLite proje kimligi, agent task ve resume | IN_PROGRESS | WN32-WN42; identity normalization + AgentTaskResult/InventoryScanResult, migration v8->v9, durable inventory/task/attempt store, lease/fence/CAS, restart/model revision ve Windows path identity fix PASS; P05-B fixture'i complete native manifest ile 13/13 PASS; complete native ownership, checkpoint recovery ve full WN acceptance acik |
 | S05 | Gercek subagent oturumlari ve context butcesi | IN_PROGRESS | WN43-WN52; scheduler + bounded context + role binding mevcut; production JobDispatcher bridge, durable task/artifact, deterministic replay ve 15/15 bridge contract PASS; gercek model session/runtime acceptance ve bagimsiz review acik |
 | S06 | Native Maven/coverage/iteration | IN_PROGRESS | WN53-WN60; typed baseline/candidate classification PASS; static effective Maven model parent/profile/pluginManagement/toolchain digest + BuildPlan wiring PASS; gercek native Maven/JaCoCo/provenance/final replay matrisi acik |
 | S07 | Report06, kurulum, readiness | IN_PROGRESS | WN61-WN66; summary parity + model/Maven readiness siniflandirmasi ve install/verify wiring PASS; clean Windows install, full readiness, upgrade/restore/uninstall runtime kaniti acik |
@@ -38,6 +38,20 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 - Uygulama config'inde worker profili yok ve worker etkin degil; model readiness bu nedenle NOT_READY kaliyor. Maven readiness ve MCP handshake PASS.
 - `scripts/install.mjs` Windows UTF-8 BOM'lu config okumasi icin normalize edildi; ikinci kurulum denemesi `npm ci` icindeki Windows `better-sqlite3` EPERM kilidi yuzunden tamamlanmadi, bagimliliklar `npm install` ile onarildi.
 - Lockfile geri alindiktan sonra yeniden build ve `release-verify --local` **LOCAL_PASS**; full evidence manifesti yoklugu nedeniyle production kabul acilmadi.
+
+## 2026-10-14 P05-B resume kapisi
+
+- P05-B resume fixture'i minimal Maven/JDK dagitim agaci ile production `TOOLCHAIN_DISTRIBUTION_UNVERIFIED` kapisini gevsetmeden guncellendi.
+- Resume'da immutable `model_profile` uyusmazligi lease/native probe oncesi reddediliyor; stale caller child process baslatamiyor.
+- `tests/integration/p05b-resume.test.ts`: **13/13 PASS**; typecheck/lint/diff check PASS.
+- Tek isci full suite (son kosu): **118 dosya, 945/950 PASS**. P05-B ve OpenCode odaklari temiz; kalan 5 fail iki canli pilot kapisi (RG41/RG42), iki gercek model stdout evidence dosyasi (AC67) ve kaynak degisikligi sonrasi build stamp eskimesi yuzunden onceki kosuda gorulen P01 testi. Build sonrasi P01 odagi **40/40 PASS**, `release-verify --local` **LOCAL_PASS**.
+
+## 2026-10-14 OpenCode v2 worker ve regresyon
+
+- OpenCode 2.x worker adapter'i `/api` endpoint, Basic Auth, `POST /prompt`, `POST /interrupt` ve `{data: ...}` envelope semasi ile uyumlu hale getirildi; legacy adapter semasi korunuyor.
+- Worker server artik kaldirilmis `--pure` flag'ini gondermiyor; XDG izolasyonu korunuyor, Windows'ta kurulu `@opencode/cli/bin/opencode.exe` ve eski `opencode-ai` yolu taniniyor. Worker sifresi process-local uretiliyor, loglanmiyor.
+- Gercek OpenCode smoke: **3/3 PASS**; S05/S04 worker odak suite: **33/33 PASS**; P05-B: **13/13 PASS**.
+- Tek isci tam regresyon: **118 dosya, 945/950 PASS**. Yerel kod acigi kalmadi; kalan 5 test canli model/pilot veya evidence kapisi. Build + P01 odak **40/40 PASS**, `release-verify --local` **LOCAL_PASS**.
 
 ## Tarihsel 005 kaydi (korunur)
 
