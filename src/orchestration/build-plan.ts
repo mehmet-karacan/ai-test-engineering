@@ -8,6 +8,7 @@ import { AppError } from "../domain/errors.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { resolveEffectiveMavenModel, type EffectiveMavenModel } from "../discovery/effective-maven-model.js";
 import { MavenRunner, strictTestExecutionProperties, type RunResult, type MavenRunOptions } from "../runners/maven-runner.js";
+import { scanTestFile } from "../discovery/java-inventory.js";
 
 export interface BuildPlan {
   reactor_root: string;
@@ -150,6 +151,35 @@ export interface BaselineOptions {
   workspace_root?: string;
   /** P06/PP27: baseline run'inda JaCoCo report hedefini de calistir. */
   collect_coverage?: boolean;
+  /** WN54: mevcut hedefe karsilik gelen test siniflarini secerek calistir. */
+  test_selectors?: string[];
+}
+
+/**
+ * WN54: tek bir main sinifi icin deterministik test sinifi secimi.
+ *
+ * Maven'in `-Dtest` filtresi hedef sinifinin test esini kullanir; es dosya
+ * bulunamazsa filtre uygulanmaz ve Maven'in normal test kesfi korunur. Bu
+ * yardimci sadece owned snapshot'ta statik dosya kaniti okur; test uydurmaz.
+ */
+export function deriveTargetTestSelectors(
+  projectRoot: string,
+  targets: Array<{ fqn: string; relative_path: string; source_set?: string }>,
+): string[] {
+  const selectors = new Set<string>();
+  for (const target of targets) {
+    if (target.source_set !== undefined && target.source_set !== "main") continue;
+    const normalized = target.relative_path.replace(/\\/g, "/");
+    const marker = "/main/";
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex < 0 || !normalized.endsWith(".java")) continue;
+    const testRelative = `${normalized.slice(0, markerIndex)}/test/${normalized.slice(markerIndex + marker.length, -5)}Test.java`;
+    const testPath = join(resolve(projectRoot), ...testRelative.split("/"));
+    if (!existsSync(testPath)) continue;
+    const scanned = scanTestFile(testPath, resolve(projectRoot));
+    if (scanned.testClass?.fqn) selectors.add(scanned.testClass.fqn);
+  }
+  return [...selectors].sort();
 }
 
 /** P06/PP20: customer checkout'u degistirmeden frozen baseline workspace uretir. */
@@ -390,10 +420,13 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
     assertCoverageConfigured(plan, []);
   }
 
+  const properties = strictTestExecutionProperties();
+  const selectors = [...new Set((options.test_selectors ?? []).filter((selector) => selector.length > 0))].sort();
+  if (selectors.length > 0) properties.test = selectors.join(",");
   const runOptions: MavenRunOptions = {
     working_dir: executionRoot,
     goals: options.collect_coverage ? plan.maven_goals_coverage : plan.maven_goals_test,
-    properties: strictTestExecutionProperties(),
+    properties,
     timeout_ms: timeoutMs,
     log_dir: join(executionRoot, "target", "aitest-baseline-logs"),
   };

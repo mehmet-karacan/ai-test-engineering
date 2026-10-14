@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildPlan } from "../../src/orchestration/build-plan.js";
+import { buildPlan, deriveTargetTestSelectors } from "../../src/orchestration/build-plan.js";
 import { assertEffectiveMavenModelReplay, resolveEffectiveMavenModel } from "../../src/discovery/effective-maven-model.js";
 
 const temporaryRoots: string[] = [];
@@ -73,11 +73,28 @@ describe("S06 effective Maven model", () => {
     expect(plan.effective_maven_model.model_digest).toMatch(/^[a-f0-9]{64}$/u);
   });
 
+  it("Spring Boot test bundle'ini JUnit 5 framework kaniti olarak tanir", () => {
+    const root = fixture();
+    const pom = join(root, "app", "pom.xml");
+    writeFileSync(pom, readFileSync(pom, "utf8").replace("org.junit.jupiter</groupId><artifactId>junit-jupiter", "org.springframework.boot</groupId><artifactId>spring-boot-starter-test"), "utf8");
+    const app = resolveEffectiveMavenModel(root).modules.find((module) => module.module_relative_path === "app");
+    expect(app?.junit5_present).toBe(true);
+  });
+
   it("model input degisince final replay fail-closed olur", () => {
     const root = fixture();
     const before = resolveEffectiveMavenModel(root, { active_profiles: ["coverage"] });
     writeFileSync(join(root, "app", "pom.xml"), readFileSync(join(root, "app", "pom.xml"), "utf8").replace("<artifactId>app</artifactId>", "<artifactId>app-renamed</artifactId>"), "utf8");
     const after = resolveEffectiveMavenModel(root, { active_profiles: ["coverage"] });
     expect(() => assertEffectiveMavenModelReplay(before, after)).toThrowError(/Effective Maven modeli replay/iu);
+  });
+
+  it("target sinifi icin mevcut Test esini deterministic secime baglar", () => {
+    const root = fixture();
+    mkdirSync(join(root, "app", "src", "main", "java", "com", "example"), { recursive: true });
+    mkdirSync(join(root, "app", "src", "test", "java", "com", "example"), { recursive: true });
+    writeFileSync(join(root, "app", "src", "main", "java", "com", "example", "Calc.java"), "package com.example; public class Calc {}\n", "utf8");
+    writeFileSync(join(root, "app", "src", "test", "java", "com", "example", "CalcTest.java"), "package com.example;\nimport org.junit.jupiter.api.Test;\nclass CalcTest {\n  @Test void ok() {}\n}\n", "utf8");
+    expect(deriveTargetTestSelectors(root, [{ fqn: "com.example.Calc", relative_path: "app/src/main/java/com/example/Calc.java", source_set: "main" }])).toEqual(["com.example.CalcTest"]);
   });
 });

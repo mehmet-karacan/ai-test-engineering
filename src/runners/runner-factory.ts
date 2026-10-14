@@ -9,6 +9,7 @@ import { AppError } from "../domain/errors.js";
 import { DockerRunner, DEFAULT_MAVEN_IMAGE, type DockerPreflightResult, type RunnerCapabilityProbe } from "./docker-runner.js";
 import { MavenRunner, type RunResult, type MavenRunOptions } from "./maven-runner.js";
 import { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolchain, type NativeToolchainOptions, type VerifiedNativeToolchainPlan } from "./native-toolchain.js";
+import { assertWindowsProcessHelper } from "./windows-process-supervisor.js";
 import type { NativeProcessLifecycle } from "./windows-process-supervisor.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
@@ -37,9 +38,10 @@ export class CustomerRunnerFactory {
   /** WN22/WN23: customer Maven cannot start until an owned process tree can be
    * closed and verified after cancel, timeout, or coordinator loss. */
   assertNativeCustomerReady(): void {
-    throw new AppError("BLOCKED_ISOLATION", "Windows native process ownership is not verified", {
-      reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED",
-    });
+    // The helper manifest pins the signed/hashed Job Object bridge and its
+    // source.  A missing or changed helper remains fail-closed; a verified
+    // helper is the concrete capability gate for the normal native runner.
+    assertWindowsProcessHelper();
   }
 
   /** Once ownership is proven, this preflight binds executable/config bytes

@@ -144,7 +144,12 @@ function collectPinnedFiles(plan: NativeProcessPlan): Array<{ path: string; sha2
     if (paths.some((path) => !expected.has(path.toLowerCase()))) {
       throw new AppError("BLOCKED_ISOLATION", "Incomplete native pin snapshot", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
     }
-    return [...expected.values()].map((input) => ({ path: resolve(input.path), sha256: input.sha256 ?? "-" }));
+    // Optional resolver inputs can be absent at the approved snapshot. They
+    // are intentionally left out of the helper manifest; MavenRunner re-runs
+    // the resolver and rejects any later creation/change before launch.
+    return [...expected.values()]
+      .filter((input): input is { path: string; sha256: string } => input.sha256 !== null)
+      .map((input) => ({ path: resolve(input.path), sha256: input.sha256 }));
   }
   // Standalone version probes may capture a fresh local snapshot. A goal run
   // supplies pinnedInputs from the approved resolver identity instead.

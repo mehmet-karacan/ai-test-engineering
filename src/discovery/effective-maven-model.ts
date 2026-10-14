@@ -240,8 +240,13 @@ function loadHierarchy(pomPath: string, projectRoot: string): LoadedPom[] {
     result.unshift(current);
     const next = parentPath(current);
     if (!next) break;
-    assertWithinRoot(projectRoot, next, "Maven parent POM");
+    // Maven falls back to repository coordinates when the default or
+    // explicitly requested relative parent is absent. Do not reject that
+    // normal external-parent case merely because the default path resolves
+    // above the frozen workspace. An existing file outside the root remains
+    // prohibited and is never read.
     if (!existsSync(next)) break;
+    assertWithinRoot(projectRoot, next, "Maven parent POM");
     current = loadPom(next);
   }
   return result;
@@ -449,9 +454,20 @@ function modelModule(root: string, pom: LoadedPom, requested: ReadonlySet<string
     dependencies,
     jacoco_configured: plugins.some((plugin) => plugin.artifact_id === "jacoco-maven-plugin"),
     surefire_configured: plugins.some((plugin) => plugin.artifact_id === "maven-surefire-plugin"),
-    junit4_present: dependencies.some((dependency) => dependency.artifact_id === "junit" && dependency.group_id === "junit"),
-    junit5_present: dependencies.some((dependency) => dependency.artifact_id === "junit-jupiter"),
-    mockito_present: dependencies.some((dependency) => dependency.artifact_id === "mockito-core"),
+    junit4_present: dependencies.some((dependency) =>
+      (dependency.artifact_id === "junit" && dependency.group_id === "junit") ||
+      dependency.artifact_id === "junit-vintage-engine"),
+    // A Maven model exposes only declared dependencies; common test bundles
+    // (notably Spring Boot's starter-test) bring JUnit Jupiter transitively.
+    // Treat those supported bundles as framework evidence instead of
+    // classifying a real test project as framework-free before Maven runs.
+    junit5_present: dependencies.some((dependency) =>
+      dependency.artifact_id === "junit-jupiter" ||
+      dependency.artifact_id === "junit-jupiter-api" ||
+      (dependency.group_id === "org.springframework.boot" && dependency.artifact_id === "spring-boot-starter-test")),
+    mockito_present: dependencies.some((dependency) =>
+      dependency.artifact_id === "mockito-core" ||
+      (dependency.group_id === "org.springframework.boot" && dependency.artifact_id === "spring-boot-starter-test")),
     toolchain,
     model_digest: "",
   };

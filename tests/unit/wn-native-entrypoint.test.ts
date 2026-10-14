@@ -30,13 +30,19 @@ describe("WN14/WN24 native customer entrypoint", () => {
     expect(resolveRunnerKindFromEnv("host_dev_only", false)).toBe("host_dev_only");
   });
 
-  it("native readiness never probes Docker or starts Maven while process ownership is unverified", async () => {
+  it("native readiness accepts the verified helper and rejects an unavailable Maven selection", async () => {
     const docker = vi.spyOn(DockerRunner.prototype, "preflight");
     const processRun = vi.spyOn(WindowsProcessSupervisor.prototype, "run");
     const factory = new CustomerRunnerFactory();
-    expect(() => factory.assertNativeCustomerReady()).toThrowError(/process/i);
-    await expect(factory.prepareNativeCustomerToolchain({ cwd: process.cwd(), env: process.env }))
-      .rejects.toMatchObject({ details: { reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED" } });
+    expect(() => factory.assertNativeCustomerReady()).not.toThrow();
+    await expect(factory.prepareNativeCustomerToolchain({
+      cwd: process.cwd(),
+      env: { SystemRoot: process.env.SystemRoot, Path: "C:\\aitest-no-such-maven" },
+    }, {
+      beforeSpawn() {},
+      afterSpawn() {},
+      afterTerminal() {},
+    })).rejects.toThrow(/mvn/i);
     expect(docker).not.toHaveBeenCalled();
     expect(processRun).not.toHaveBeenCalled();
     docker.mockRestore();
@@ -59,6 +65,8 @@ describe("WN14/WN24 native customer entrypoint", () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-entry-"));
     const docker = vi.spyOn(DockerRunner.prototype, "preflight");
     const maven = vi.spyOn(MavenRunner.prototype, "run");
+    const readiness = vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady")
+      .mockImplementation(() => { throw new Error("process ownership unavailable"); });
     const services = createDefaultServicesForTest(join(root, "state.db"), join(root, "artifacts"));
     try {
       const project = join(root, "project");
@@ -94,6 +102,7 @@ describe("WN14/WN24 native customer entrypoint", () => {
       services.storage?.close();
       docker.mockRestore();
       maven.mockRestore();
+      readiness.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });

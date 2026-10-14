@@ -16,7 +16,7 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | S05 | Gercek subagent oturumlari ve context butcesi | IN_PROGRESS | WN43-WN52; scheduler + bounded context + role binding mevcut; production JobDispatcher bridge, durable task/artifact, deterministic replay ve 15/15 bridge contract PASS; gercek model session/runtime acceptance ve bagimsiz review acik |
 | S06 | Native Maven/coverage/iteration | IN_PROGRESS | WN53-WN60; typed baseline/candidate classification PASS; static effective Maven model parent/profile/pluginManagement/toolchain digest + BuildPlan wiring PASS; gercek native Maven/JaCoCo/provenance/final replay matrisi acik |
 | S07 | Report06, kurulum, readiness | IN_PROGRESS | WN61-WN66; summary parity + model/Maven readiness siniflandirmasi ve install/verify wiring PASS; clean Windows install, full readiness, upgrade/restore/uninstall runtime kaniti acik |
-| S08 | GPU Fusion kontrollu pilot | G1_BEKLIYOR | WN70-WN75; ilk Maven/model G1 onayi ister |
+| S08 | GPU Fusion kontrollu pilot | G1_BASELINE_BLOCKED | WN70-WN75; G1 onayi alindi, normal MCP/native baseline gercek customer snapshotinda eksik upstream `tr.com.innova.yz.*` paketleri nedeniyle BASELINE_FAILED |
 | S09 | Yeni scope release gate ve final review | IN_PROGRESS | WN67-WN69/WN76-WN80; scope/mapping kimligi ve 391-ID mandatory universe verifier'a baglandi; legacy-only NO_GO testi PASS; gercek evidence manifest, full regression ve final review acik |
 
 ## 2026-10-14 coordinator kapanis dilimi
@@ -25,6 +25,7 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 - `npm.cmd run build`, `npm.cmd run typecheck`, `npm.cmd run lint` (0 error), focused 5 dosya/62 PASS, `git diff --check` PASS.
 - `release-verify --local` LOCAL_PASS (391 zorunlu evren); full verifier fail-closed NO_GO (`EVIDENCE_MANIFEST_EKSIK`).
 - S08 G1/G2 ve gercek customer checkout/model/Maven calistirmasi bu dilimde acilmadi.
+- 2026-10-14 G1 onayi sonrasi normal MCP pilotu gercek owned snapshotta kosuldu (job `16910a74-677e-4608-88ba-0551f237e146`); target-only `-Dtest=tr.com.innova.gpu.validation.AccumulatorFormulaValidatorTest` provenance'a yazildi, fakat Maven derlemesi ilan edilmemis `tr.com.innova.yz.*` upstream paketleri nedeniyle exit 1 oldu. Model/candidate/pause-resume acilmadi; kanit checkpoint'i `ai/checkpoints/2026-10-14-windows-native-006-g1-pilot-baseline-blocked.md`.
 ## 2026-10-14 tek isci regresyon kapanisi
 
 - Native ve local gruplar makine paralelliginin disinda ayri dogrulandi: S03-S07 92/92, S02 native 86/86, P08 restore/upgrade 26/26 PASS.

@@ -328,6 +328,8 @@ export interface IterateOptions {
   baseline_coverage?: { line: { covered: number; missed: number } | undefined; branch: { covered: number; missed: number } | undefined };
   /** P06/PP22: effective Maven test root; project-relative path. */
   target_test_root?: string;
+  /** WN54: frozen test class selectors for the concrete target. */
+  test_selectors?: string[];
   /** P06/PP28: JaCoCo class-source identity icin frozen kaynak yolu. */
   target_relative_path?: string;
   /** P05-B: resume'da logical limit start iteration'dan bagimsiz korunur. */
@@ -723,10 +725,13 @@ export class CandidateLoop {
       let afterBranchBps: number | null = null;
       const remainingDeadline = options.deadline_at === undefined ? null : Math.max(1, options.deadline_at - Date.now());
       const runStartedAt = Date.now();
+      const properties = strictTestExecutionProperties();
+      const selectors = [...new Set((options.test_selectors ?? []).filter((selector) => selector.length > 0))].sort();
+      if (selectors.length > 0) properties.test = selectors.join(",");
       const run: RunResult = await this.runner.run({
         working_dir: candidateWorkspace,
         goals,
-        properties: strictTestExecutionProperties(),
+        properties,
         timeout_ms: Math.min(options.timeout_ms_per_run ?? 600000, remainingDeadline ?? Number.MAX_SAFE_INTEGER),
         log_dir: join(candidateWorkspace, "target", `aitest-iter-${iteration}-logs`),
       });
@@ -1023,16 +1028,20 @@ export class CandidateLoop {
     staging_root: string;
     workspace_root: string;
     timeout_ms?: number;
+    test_selectors?: string[];
   }): Promise<{ workspace: string; run: RunResult; coverage: Map<string, ReturnType<CoverageLookup>>; test_inventory: SurefireSuite[]; started_at: number; finished_at: number }> {
     const frozenSourceRoot = options.frozen_source_root ?? options.project_root;
     const workspace = this.buildCandidateWorkspace(frozenSourceRoot, [], options.workspace_root, 0, options.staging_root, options.accepted_snapshot_dir);
     const plan = buildPlan(frozenSourceRoot, [...new Set(options.target_module_paths)]);
     assertCoverageConfigured(plan, [...new Set(options.target_module_paths)]);
     const runStartedAt = Date.now();
+    const properties = strictTestExecutionProperties();
+    const selectors = [...new Set((options.test_selectors ?? []).filter((selector) => selector.length > 0))].sort();
+    if (selectors.length > 0) properties.test = selectors.join(",");
     const run = await this.runner.run({
       working_dir: workspace,
       goals: plan.maven_goals_coverage,
-      properties: strictTestExecutionProperties(),
+      properties,
       timeout_ms: options.timeout_ms ?? 600000,
       log_dir: join(workspace, "target", "aitest-final-replay-logs"),
     });

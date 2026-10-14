@@ -91,6 +91,28 @@ describe("W03/F06: baseline ayrisimlari", () => {
     }
   }, 60000);
 
+  it("WN54 hedef test secicisini Maven properties'e tasir", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aitest-w03-test-selector-"));
+    try {
+      writeFileSync(join(dir, "pom.xml"), `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>selector</artifactId><version>1</version><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies></project>`);
+      let properties: Record<string, string> | undefined;
+      const fakeRunner = {
+        run: async (options: { working_dir: string; log_dir: string; properties?: Record<string, string> }): Promise<RunResult> => {
+          properties = options.properties;
+          mkdirSync(join(options.working_dir, "target", "surefire-reports"), { recursive: true });
+          writeFileSync(join(options.working_dir, "target", "surefire-reports", "TEST-TargetTest.xml"), `<testsuite name="TargetTest" tests="1" failures="0" errors="0" skipped="0"><testcase name="ok" classname="TargetTest"/></testsuite>`);
+          return { exit_code: 0, duration_ms: 1, stdout_log_path: join(options.log_dir, "stdout.log"), stderr_log_path: join(options.log_dir, "stderr.log"), command: ["fake-maven"], timed_out: false };
+        },
+      } as unknown as MavenRunner;
+      const baseline = await runBaseline(dir, fakeRunner, 60000, { test_selectors: ["com.example.TargetTest"] });
+      expect(baseline.status).toBe("PASSED");
+      expect(properties?.test).toBe("com.example.TargetTest");
+      expect(properties?.failIfNoTests).toBe("true");
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
   it("coverage istenip JaCoCo yoksa Maven kosmadan typed blocker doner", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-w03-no-jacoco-"));
     try {

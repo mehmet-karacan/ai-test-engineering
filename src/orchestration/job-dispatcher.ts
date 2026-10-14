@@ -19,7 +19,7 @@ import { RecoveryManager } from "./recovery-manager.js";
 import { SourceSnapshot, computeSourceIdentity, type SourceIdentity, type SnapshotManifest } from "../discovery/source-snapshot.js";
 import type { JobContract } from "../domain/job-contract.js";
 import { CandidateLoop, readCoverageAfterRun, readCoverageEvidenceAfterRun, basisPointsFrom, type IterateOptions, type IterationLoopResult, type CandidateGenerationFeedback, type CoverageEvidence } from "./candidate-loop.js";
-import { compareTestInventory, runBaseline, summarizeTestReports, type BaselineResult } from "./build-plan.js";
+import { compareTestInventory, deriveTargetTestSelectors, runBaseline, summarizeTestReports, type BaselineResult } from "./build-plan.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { MavenRunner, type RunResult } from "../runners/maven-runner.js";
@@ -303,6 +303,10 @@ export class JobDispatcher {
       jobs.updatePhase(job.id, "baseline", jobs.getJob(job.id).row_version);
       phases.push("baseline");
       const baselineWorkspace = join(this.workspaceRoot, "jobs", job.id, "baseline");
+      // WN54: keep the selected target test class stable across baseline,
+      // candidate and final replay. The helper only returns selectors backed
+      // by a real test source file in the owned snapshot.
+      const targetTestSelectors = deriveTargetTestSelectors(projectRoot, goal.targets.flatMap((target) => target.concrete_targets));
       let baselineExecutionRoot: string | null = null;
       let baselineEvidence: BaselineResult | null = null;
       let baselineRunId: string | null = null;
@@ -323,7 +327,11 @@ export class JobDispatcher {
 
       // baseline: mevcut testler gercekten calisir (guvenli runner contract'indan)
       if ((this.runnerKind === "host_dev_only" || this.runnerKind === "windows_native") && hostRunner) {
-        const baseline = await runBaseline(projectRoot, hostRunner, 600000, { workspace_root: baselineWorkspace, collect_coverage: true });
+        const baseline = await runBaseline(projectRoot, hostRunner, 600000, {
+          workspace_root: baselineWorkspace,
+          collect_coverage: true,
+          test_selectors: targetTestSelectors,
+        });
         baselineEvidence = baseline;
         baselineExecutionRoot = baseline.execution_root;
         if (baseline.status !== "PASSED") {
@@ -344,7 +352,11 @@ export class JobDispatcher {
         // asamasi izinli mirror'a gider; execution run'i yine network:none ile sandbox'lanir.
         const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, baselineWorkspace, job.id, dockerImage);
         ownedRunners.set(job.id, baselineRunner);
-        const baseline = await runBaseline(projectRoot, baselineRunner, 600000, { workspace_root: baselineWorkspace, collect_coverage: true });
+        const baseline = await runBaseline(projectRoot, baselineRunner, 600000, {
+          workspace_root: baselineWorkspace,
+          collect_coverage: true,
+          test_selectors: targetTestSelectors,
+        });
         baselineEvidence = baseline;
         baselineExecutionRoot = baseline.execution_root;
         if (baseline.status !== "PASSED") {
@@ -558,6 +570,7 @@ export class JobDispatcher {
           target_module_path: resolved.module.module_relative_path,
           target_test_root: resolved.module.test_root,
           target_relative_path: resolved.relative_path,
+          test_selectors: targetTestSelectors,
           line_target_bps: targetSpec.line_target_bps,
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
@@ -737,6 +750,7 @@ export class JobDispatcher {
         staging_root: stagingRoot,
         workspace_root: join(this.workspaceRoot, "jobs", job.id, "final"),
         timeout_ms: 600000,
+        test_selectors: targetTestSelectors,
       });
       const finalReplayRunId = inventory.writeTestRunProvenance({
         job_id: job.id,
