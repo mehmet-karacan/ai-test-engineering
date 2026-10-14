@@ -30,6 +30,12 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 - Native ve local gruplar makine paralelliginin disinda ayri dogrulandi: S03-S07 92/92, S02 native 86/86, P08 restore/upgrade 26/26 PASS.
 - Tam suite parallel 883/950 sonucu fixture/makine yukunu karistiriyor; tek isci kosular native gruplari temiz geciyor. Ayrinti: `ai/checkpoints/2026-10-14-windows-native-006-local-regression.md`.
 
+## 2026-10-14 runtime migration uyumu
+
+- `src/storage/migrations.ts` icindeki v3 SQL'i tarihsel checksum ile byte uyumlu hale getirildi; migration kaydi yalniz bicimsel degisiklik yuzunden bozulmayacak.
+- Gercek runtime DB'nin yazilabilir kopyasinda v3->v9 migrate, SQLite `integrity_check` ve `source_identities` tablo kaniti PASS. Kullanici runtime DB'si degistirilmedi.
+- `verify-install.mjs` sonrasi kalan dis ortam eksikleri: OpenCode config'inde `ai-test-engineering` MCP entry yok; uygulama config'inde worker profili yok ve worker etkin degil. Maven readiness ve MCP handshake PASS.
+
 ## Tarihsel 005 kaydi (korunur)
 
 Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P08 Windows kapsaminda dogrulandi; P09 verifier/reconciliation local olarak kapali. Docker/Docker execution/Docker egress/PP17 bu gorevde acikca kapsam disidir ve sonraki aktif goreve devredilmistir. Ana kalan formal paket sayisi: 1 (P10; macOS da kapsam disi).

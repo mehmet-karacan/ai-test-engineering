@@ -312,7 +312,9 @@ CREATE INDEX IF NOT EXISTS idx_candidate_iterations_job ON candidate_iterations(
 CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id, model_profile);
 `,
    },
-   {
+  // Migration v3 SQL'i uygulanmis runtime DB'lerde checksum ile kimliklidir;
+  // SQL metnini yeniden bicimlendirmek yeni migration eklemeden yasaklanir.
+  {
      version: 3,
      name: "checkpoint-accepted-blob-baglanti",
      sql: `
@@ -327,18 +329,18 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
    UNIQUE (checkpoint_id, blob_path)
  );
 
-  CREATE INDEX IF NOT EXISTS idx_checkpoint_blobs_artifact ON checkpoint_blobs(artifact_id);
+ CREATE INDEX IF NOT EXISTS idx_checkpoint_blobs_artifact ON checkpoint_blobs(artifact_id);
 
-  CREATE TABLE IF NOT EXISTS source_identities (
-    snapshot_id TEXT PRIMARY KEY REFERENCES project_snapshots(id),
-    head_commit TEXT,
-    dirty_digest TEXT,
-    source_digest TEXT NOT NULL,
-    build_digest TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-  `,
-    },
+ CREATE TABLE IF NOT EXISTS source_identities (
+   snapshot_id TEXT PRIMARY KEY REFERENCES project_snapshots(id),
+   head_commit TEXT,
+   dirty_digest TEXT,
+   source_digest TEXT NOT NULL,
+   build_digest TEXT NOT NULL,
+   created_at INTEGER NOT NULL
+ );
+ `,
+   },
     {
       version: 4,
       name: "job-targets-concrete-frozen",
