@@ -15,6 +15,7 @@ export { createServices, createDefaultServicesForTest } from "./application/serv
 export { Storage } from "./storage/storage.js";
 export { migrate, currentSchemaVersion, MIGRATIONS } from "./storage/migrations.js";
 export { JobRepository } from "./storage/job-repository.js";
+export type { JobApprovalRow } from "./storage/job-repository.js";
 export { InventoryRepository } from "./storage/inventory-repository.js";
 export type { InventoryScanRow, DurableFileInventoryRow } from "./storage/inventory-repository.js";
 export { AgentTaskRepository } from "./storage/agent-task-repository.js";

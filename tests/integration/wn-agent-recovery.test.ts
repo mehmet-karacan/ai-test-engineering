@@ -43,10 +43,14 @@ describe("WN40-WN42: durable task recovery", () => {
     const base = Date.now();
     const firstClaim = firstRepo.claimTask(created.task_id, "owner-a", 1000, base);
     const firstAttempt = firstRepo.recordAttempt({ task_id: created.task_id, owner_id: "owner-a", fence_token: firstClaim.fence_token, attempt_ordinal: 1, provider_id: "opencode", model_id: "gpt-5.6-luna", model_revision: 1 });
+    const jobs = new JobRepository(storage.db);
+    const approval = jobs.recordApproval({ job_id: contract.job_id, project_id: contract.project_id, approval_kind: "MODEL_CHANGE", scope_digest: "3".repeat(64), model_digest: "4".repeat(64), budget_digest: "5".repeat(64), decision: "APPROVED", decided_by: "mehmet-karacan" });
+    expect(jobs.listApprovals(contract.job_id)).toHaveLength(1);
     storage.close();
 
     storage = new Storage({ dbPath });
     const recovered = new AgentTaskRepository(storage.db);
+    expect(new JobRepository(storage.db).listApprovals(contract.job_id)[0]?.approval_id).toBe(approval.approval_id);
     expect(recovered.getTask(created.task_id).state).toBe("RUNNING");
     const takeover = recovered.claimTask(created.task_id, "owner-b", 300000, base + 2001);
     const secondAttempt = recovered.recordAttempt({ task_id: created.task_id, owner_id: "owner-b", fence_token: takeover.fence_token, attempt_ordinal: 2, provider_id: "opencode", model_id: "glm-4.7", model_revision: 2 });

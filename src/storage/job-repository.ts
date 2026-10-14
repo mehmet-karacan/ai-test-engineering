@@ -53,6 +53,20 @@ export interface JobEventInput {
   occurred_at?: number;
 }
 
+export interface JobApprovalRow {
+  approval_id: string;
+  job_id: string;
+  project_id: string;
+  approval_kind: string;
+  scope_digest: string;
+  model_digest: string;
+  budget_digest: string;
+  decision: "APPROVED" | "REJECTED" | "PENDING";
+  decided_by: string | null;
+  decided_at: number | null;
+  created_at: number;
+}
+
 export class JobRepository {
   private readonly db: BetterSqlite3.Database;
 
@@ -261,5 +275,60 @@ export class JobRepository {
         "SELECT sequence, event_type, phase, origin, occurred_at FROM job_events WHERE job_id = ? ORDER BY sequence LIMIT ?",
       )
       .all(jobId, limit);
+  }
+
+  /** WN42: model/config degisikligi ayni job'da append-only kullanici onayi ister. */
+  recordApproval(input: {
+    approval_id?: string;
+    job_id: string;
+    project_id: string;
+    approval_kind: string;
+    scope_digest: string;
+    model_digest: string;
+    budget_digest: string;
+    decision: "APPROVED" | "REJECTED" | "PENDING";
+    decided_by?: string | null;
+    decided_at?: number | null;
+    created_at?: number;
+  }): JobApprovalRow {
+    for (const [name, value] of [["scope_digest", input.scope_digest], ["model_digest", input.model_digest], ["budget_digest", input.budget_digest]] as const) {
+      if (!/^[0-9a-f]{64}$/u.test(value)) throw new AppError("INVALID_PARAMETERS", `${name} SHA-256 olmali`);
+    }
+    if (!input.approval_kind.trim()) throw new AppError("INVALID_PARAMETERS", "approval_kind bos olamaz");
+    if (input.decision !== "PENDING" && !input.decided_by?.trim()) {
+      throw new AppError("INVALID_PARAMETERS", "Karar verilmis approval decided_by tasimali");
+    }
+    const job = this.db.prepare<[string], { project_id: string }>(
+      "SELECT p.id AS project_id FROM test_jobs j JOIN project_locations l ON l.id = j.location_id JOIN projects p ON p.id = l.project_id WHERE j.id = ?",
+    ).get(input.job_id);
+    if (!job || job.project_id !== input.project_id) {
+      throw new AppError("POLICY_VIOLATION", "Approval project/job kimligi uyusmuyor", { reason_code: "APPROVAL_PROJECT_MISMATCH" });
+    }
+    const approvalId = input.approval_id ?? randomUUID();
+    this.db.prepare(
+      `INSERT INTO job_approvals (
+         approval_id, job_id, project_id, approval_kind, scope_digest, model_digest,
+         budget_digest, decision, decided_by, decided_at, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      approvalId,
+      input.job_id,
+      input.project_id,
+      input.approval_kind,
+      input.scope_digest,
+      input.model_digest,
+      input.budget_digest,
+      input.decision,
+      input.decided_by ?? null,
+      input.decision === "PENDING" ? null : (input.decided_at ?? Date.now()),
+      input.created_at ?? Date.now(),
+    );
+    const row = this.db.prepare<[string], JobApprovalRow>("SELECT * FROM job_approvals WHERE approval_id = ?").get(approvalId);
+    if (!row) throw new AppError("STORAGE_ERROR", "Approval kaydi okunamadi", { reason_code: "APPROVAL_INSERT_FAILED" });
+    return row;
+  }
+
+  listApprovals(jobId: string): JobApprovalRow[] {
+    return this.db.prepare<[string], JobApprovalRow>("SELECT * FROM job_approvals WHERE job_id = ? ORDER BY created_at, approval_id").all(jobId);
   }
 }
