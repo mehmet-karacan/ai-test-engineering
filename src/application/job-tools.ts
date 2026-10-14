@@ -3,7 +3,7 @@
  * MCP handler'larin cagirdigi application katmani; is mantigi burada.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
@@ -21,6 +21,11 @@ import { NativeProcessRegistry } from "../orchestration/native-process-registry.
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { ReportExporter } from "../reporting/report-generator.js";
+
+function nativePathIdentity(value: string): string {
+  const normalized = resolve(value).replace(/\\/gu, "/").replace(/\/+$/u, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
 
 export interface TestResumeResult {
   job_id: string;
@@ -87,7 +92,7 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     const record = new NativeToolchainRecordStore(storage.db, services.config.storage.root);
     const options = record.optionsForResume(job.id, process.env);
     const locationRoot = new ProjectRepository(storage.db).getLocation(job.location_id).canonical_root;
-    if (options.cwd !== locationRoot || (parsed.project_root && canonicalProjectRoot(parsed.project_root) !== locationRoot)) {
+    if (nativePathIdentity(options.cwd) !== nativePathIdentity(locationRoot) || (parsed.project_root && nativePathIdentity(canonicalProjectRoot(parsed.project_root)) !== nativePathIdentity(locationRoot))) {
       throw new AppError("POLICY_VIOLATION", "Native toolchain project root differs from job location", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
     }
     verifyNativeResume = async (fencingToken, ownerId) => {

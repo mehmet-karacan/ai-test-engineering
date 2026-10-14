@@ -45,6 +45,11 @@ import { CandidateAgentSessionAdapter } from "./candidate-agent-session-adapter.
 import type { AgentTaskContract } from "../domain/agent-contracts.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
+function nativePathIdentity(value: string): string {
+  const normalized = resolve(value).replace(/\\/gu, "/").replace(/\/+$/u, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
 
 export interface GoalContract {
   job_id: string;
@@ -1306,7 +1311,7 @@ export class JobDispatcher {
       new CustomerRunnerFactory().assertNativeCustomerReady();
       const record = new NativeToolchainRecordStore(storage.db, this.workspaceRoot);
       const options = record.optionsForResume(job.id, process.env);
-      if (options.cwd !== projectRoot) {
+      if (nativePathIdentity(options.cwd) !== nativePathIdentity(projectRoot)) {
         throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
       // A native job that reached resume must retain its frozen baseline
