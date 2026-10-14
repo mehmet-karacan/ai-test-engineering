@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { XMLParser } from "fast-xml-parser";
 import { AppError } from "../domain/errors.js";
 import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
+import { resolveEffectiveMavenModel, type EffectiveMavenModel } from "../discovery/effective-maven-model.js";
 import { MavenRunner, strictTestExecutionProperties, type RunResult, type MavenRunOptions } from "../runners/maven-runner.js";
 
 export interface BuildPlan {
@@ -20,6 +21,16 @@ export interface BuildPlan {
   mockito_present: boolean;
   jacoco_present: boolean;
   settings_xml: string | null;
+  /** Frozen static effective model and its input provenance. */
+  effective_maven_model: EffectiveMavenModel;
+}
+
+export interface BuildPlanOptions {
+  active_profiles?: string[];
+  settings_path?: string;
+  toolchains_path?: string;
+  toolchain_version?: string;
+  toolchain_vendor?: string;
 }
 
 function scopedMavenGoals(modules: PomModule[], affectedModules: string[], goals: string[]): string[] {
@@ -41,26 +52,49 @@ function scopedMavenGoals(modules: PomModule[], affectedModules: string[], goals
   return ["-pl", scoped.join(","), "-am", ...goals];
 }
 
-export function buildPlan(projectRoot: string, affectedModulePaths: string[]): BuildPlan {
+export function buildPlan(projectRoot: string, affectedModulePaths: string[], options: BuildPlanOptions = {}): BuildPlan {
   const root = resolve(projectRoot);
   const discovery = discoverModules(root);
-  const hasJunit4 = discovery.modules.some((m) => m.junit4_present);
-  const hasJunit5 = discovery.modules.some((m) => m.junit5_present);
   const settingsPath = join(root, "settings.xml");
+  const effectiveOptions: BuildPlanOptions = options.settings_path === undefined && existsSync(settingsPath)
+    ? { ...options, settings_path: settingsPath }
+    : options;
+  const effectiveMavenModel = resolveEffectiveMavenModel(root, effectiveOptions);
+  const effectiveByPath = new Map(effectiveMavenModel.modules.map((module) => [module.module_relative_path, module]));
+  // Effective model values are authoritative for inherited profile/pluginManagement
+  // settings. Keep PomModule paths relative because the discovery API consumes
+  // them relative to reactor_root.
+  const modules = discovery.modules.map((module) => {
+    const effective = effectiveByPath.get(module.module_relative_path);
+    if (!effective) return module;
+    return {
+      ...module,
+      source_root: effective.source_root,
+      test_root: effective.test_root,
+      jacoco_configured: effective.jacoco_configured,
+      surefire_configured: effective.surefire_configured,
+      junit4_present: effective.junit4_present,
+      junit5_present: effective.junit5_present,
+      mockito_present: effective.mockito_present,
+    };
+  });
+  const hasJunit4 = modules.some((m) => m.junit4_present);
+  const hasJunit5 = modules.some((m) => m.junit5_present);
   const normalizedAffectedModules = [...new Set(affectedModulePaths.map((modulePath) => modulePath.replace(/[\\/]/g, "/").replace(/^\.\/$/, "").replace(/\/+$/, "")))];
 
   return {
     reactor_root: discovery.reactor_root,
-    modules: discovery.modules,
+    modules,
     affected_modules: normalizedAffectedModules,
     maven_goals_build: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test-compile"]),
     maven_goals_test: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test"]),
     maven_goals_coverage: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test", "jacoco:report"]),
     jdk_version: process.env["JAVA_HOME"] ? "from_env" : "default",
     test_framework: hasJunit4 && hasJunit5 ? "both" : hasJunit4 ? "junit4" : hasJunit5 ? "junit5" : "none",
-    mockito_present: discovery.modules.some((m) => m.mockito_present),
-    jacoco_present: discovery.modules.some((m) => m.jacoco_configured),
+    mockito_present: modules.some((m) => m.mockito_present),
+    jacoco_present: modules.some((m) => m.jacoco_configured),
     settings_xml: existsSync(settingsPath) ? settingsPath : null,
+    effective_maven_model: effectiveMavenModel,
   };
 }
 

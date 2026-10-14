@@ -77,6 +77,10 @@ const localMode = singleFlags.has("--local");
 const mode = localMode ? "local" : "full";
 const EVIDENCE_MANIFEST_REL = "ai/acceptance/evidence-manifest.json";
 const evidenceManifestPath = manifestPathArg ? resolve(manifestPathArg) : join(repoRoot, EVIDENCE_MANIFEST_REL);
+const WINDOWS_SCOPE_REL = "ai/acceptance/scope-windows-native-v1.json";
+const WINDOWS_MAPPING_REL = "ai/acceptance/legacy-to-006.json";
+const WINDOWS_TASK_ID = "AITE-WINDOWS-SUBAGENT-PILOT-006";
+const WINDOWS_TASK_VERSION = "1.0";
 
 const MANDATORY_FILES = [
   "package.json",
@@ -154,6 +158,64 @@ function checkWindowsScopeIntegrity() {
   if (result.error || result.status !== 0) {
     addReason("WINDOWS_SCOPE_GECERSIZ", (result.stderr || result.error?.message || `exit ${result.status}`).slice(0, 2000));
   }
+}
+
+/**
+ * S09 scope kaydini verifier'in kendi obligation evrenine baglar.  Ayrik
+ * validate-windows-scope script'i per-row hash ve onayli mapping hash'ini
+ * denetler; burada ise ayni scope kimliginin evidence manifestine ve WN
+ * obligation'larina tasindigini kontrol ediyoruz.
+ */
+function readWindowsScopeContract() {
+  const scopePath = join(repoRoot, WINDOWS_SCOPE_REL);
+  const mappingPath = join(repoRoot, WINDOWS_MAPPING_REL);
+  if (!existsSync(scopePath) || !existsSync(mappingPath)) {
+    return null;
+  }
+  let scope;
+  let mapping;
+  try {
+    scope = JSON.parse(readFileSync(scopePath, "utf8"));
+    mapping = JSON.parse(readFileSync(mappingPath, "utf8"));
+  } catch (error) {
+    addReason("WINDOWS_SCOPE_PARSE", String(error));
+    return null;
+  }
+  if (scope.scope_id !== requestedScope || scope.task !== WINDOWS_TASK_ID || scope.task_version !== WINDOWS_TASK_VERSION ||
+      mapping.scope_id !== requestedScope || mapping.task !== WINDOWS_TASK_ID) {
+    addReason("WINDOWS_SCOPE_KIMLIK_UYUSMAZ", "scope/mapping windows-native-v1 ve aktif 006 goreviyle uyusmuyor");
+  }
+  const expected = [];
+  for (const [prefix, count] of [["AC", 70], ["RG", 52], ["RT", 28], ["PRO", 60], ["N", 64], ["PP", 46]]) {
+    for (let i = 1; i <= count; i += 1) expected.push(`${prefix}${String(i).padStart(2, "0")}`);
+  }
+  const scopeIds = Array.isArray(scope.legacy_ids) ? scope.legacy_ids : [];
+  const rows = Array.isArray(mapping.mappings) ? mapping.mappings : [];
+  const rowIds = rows.map((row) => row?.legacy_id);
+  if (scopeIds.length !== expected.length || scopeIds.some((id, index) => id !== expected[index])) {
+    addReason("WINDOWS_SCOPE_LEGACY_EVREN", "scope.legacy_ids 320 legacy kimligiyle birebir uyusmuyor");
+  }
+  if (rowIds.length !== expected.length || new Set(rowIds).size !== expected.length || expected.some((id) => !rowIds.includes(id))) {
+    addReason("WINDOWS_SCOPE_MAPPING_EVREN", "legacy-to-006 mapping eksik, mukerrer veya evren disi kimlik tasiyor");
+  }
+  const statuses = new Set(["RETAINED", "REPLACED", "OUT_OF_SCOPE_BY_USER"]);
+  const counts = { RETAINED: 0, REPLACED: 0, OUT_OF_SCOPE_BY_USER: 0 };
+  for (const row of rows) {
+    if (!statuses.has(row?.status)) {
+      addReason("WINDOWS_SCOPE_STATUS", `${row?.legacy_id ?? "?"}: gecersiz scope statusu`);
+      continue;
+    }
+    counts[row.status] += 1;
+    if (!Array.isArray(row.wn) || row.wn.length === 0) {
+      addReason("WINDOWS_SCOPE_WN_ESLESME", `${row?.legacy_id ?? "?"}: WN karsiligi yok`);
+    }
+  }
+  for (const status of Object.keys(counts)) {
+    if (scope.status_counts?.[status] !== counts[status] || mapping.status_counts?.[status] !== counts[status]) {
+      addReason("WINDOWS_SCOPE_STATUS_SAYACI", `${status}: scope/mapping sayaci ${counts[status]} ile uyusmuyor`);
+    }
+  }
+  return { scope, mapping, expectedLegacyIds: expected };
 }
 
 // W10/F17/N01: referans/arsiv hash butunlugu - onayli 06 HTML referansi beklenen hash ile eslesmeli;
@@ -336,9 +398,19 @@ function expandGroupIdRange(groupId) {
   return ids;
 }
 
-function mandatoryObligationUniverse(catalog) {
+function mandatoryObligationUniverse(catalog, windowsScope) {
   const ids = new Set();
   const groups = [];
+  if (windowsScope) {
+    const wnIds = Array.from({ length: 80 }, (_, index) => `WN${String(index + 1).padStart(2, "0")}`);
+    for (const id of wnIds) ids.add(id);
+    groups.push({ ids: "WN01-WN80", count: wnIds.length });
+    const mapped = windowsScope.mapping?.mappings ?? [];
+    const retainedOrReplaced = mapped.filter((row) => row?.status === "RETAINED" || row?.status === "REPLACED");
+    for (const row of retainedOrReplaced) ids.add(row.legacy_id);
+    groups.push({ ids: "legacy RETAINED+REPLACED", count: retainedOrReplaced.length });
+    return { idList: [...ids].sort(), groups };
+  }
   if (catalog) {
     for (const group of catalog.groups ?? []) {
       const expanded = expandGroupIdRange(group?.ids ?? "");
@@ -585,6 +657,11 @@ function verifyEvidenceManifest(identity, catalog, universe) {
   }
   if (!runManifest.task) {
     problems.push({ code: "EVIDENCE_MANIFEST_TASK", detail: "task yok" });
+  } else if (runManifest.task !== WINDOWS_TASK_ID) {
+    problems.push({ code: "EVIDENCE_MANIFEST_TASK_UYUSMAZ", detail: `manifest task ${runManifest.task}, aktif scope task ${WINDOWS_TASK_ID} olmali` });
+  }
+  if (manifest.scope_id !== requestedScope) {
+    problems.push({ code: "EVIDENCE_SCOPE_KIMLIK_UYUSMAZ", detail: `manifest scope_id ${JSON.stringify(manifest.scope_id ?? null)}, beklenen ${requestedScope}` });
   }
 
   const source = manifest.source ?? {};
@@ -676,6 +753,11 @@ function verifyEvidenceManifest(identity, catalog, universe) {
 
   const catalogLevels = catalogEvidenceLevels(catalog);
   const knownLevels = catalogKnownLevels(catalog);
+  // WN kayitlari scope manifestinde tanimlidir; eski catalog satirlari henüz
+  // evidence_levels tasimiyorsa scope'un onayli seviyeleri gecerlidir.
+  for (const level of ["UNIT", "INTEGRATION_LOCAL", "WINDOWS_RUNTIME", "LIVE_PILOT", "USER_REVIEW"]) {
+    knownLevels.add(level);
+  }
   const ctx = { run, catalogLevels, knownLevels };
   const seen = new Map();
   const duplicateIds = new Set();
@@ -795,21 +877,21 @@ function main() {
 
   checkMandatoryFiles();
   checkWindowsScopeIntegrity();
+  const windowsScope = readWindowsScopeContract();
   const catalog = checkCatalogIntegrity();
   checkCorpusIntegrity();
   checkSecurityDoc();
   checkNoSecretsInReleaseInventory();
   checkReferenceHtmlIntegrity();
   checkBuildStamp(identity);
-  const universe = mandatoryObligationUniverse(catalog);
-  const knownLevels = [...catalogKnownLevels(catalog)].sort();
+  const universe = mandatoryObligationUniverse(catalog, windowsScope);
+  const knownLevels = [...catalogKnownLevels(catalog), ...(windowsScope?.scope?.evidence_levels ?? [])]
+    .filter((value, index, values) => typeof value === "string" && values.indexOf(value) === index)
+    .sort();
 
   let evidence = null;
 
   if (mode === "full") {
-    // S00: 005'in 274-ID verifier'i 006'nin WN ve PP kapsamini henüz
-    // degerlendiremez. S09 yeni evidence zincirini tamamlayana dek GO kapali.
-    addReason("WINDOWS_006_FULL_GATE_PENDING", "WN01-WN80 ve PP01-PP46 evidence gate'i S09'da tamamlanacak");
     evidence = verifyEvidenceManifest(identity, catalog, universe);
     for (const problem of evidence.problems) {
       reasons.push(problem);
@@ -825,7 +907,7 @@ function main() {
     mode,
     scope: {
       id: requestedScope,
-      manifest_path: "ai/acceptance/scope-windows-native-v1.json",
+      manifest_path: WINDOWS_SCOPE_REL,
       structural_checks: ["mandatory_files", "build_stamp_dist_provenance", "catalog_integrity", "corpus_integrity", "security_doc", "secret_scan_release_inventory", "reference_html_integrity", "source_tree_digest"],
       obligation_universe: { count: universe.idList.length, groups: universe.groups },
       evidence_manifest_path: relative(repoRoot, evidenceManifestPath) || evidenceManifestPath,

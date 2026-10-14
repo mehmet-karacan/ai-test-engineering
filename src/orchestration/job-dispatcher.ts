@@ -39,6 +39,10 @@ import { NativeToolchainRecordStore } from "./native-toolchain-record.js";
 import { NativeProcessRegistry } from "./native-process-registry.js";
 import { NativeExecutionToolchainRecordStore } from "./native-execution-toolchain-record.js";
 import { verifyNativeToolchain } from "../runners/native-toolchain.js";
+import { AgentScheduler } from "./agent-scheduler.js";
+import { FileSystemContextProvider, type AgentContextPackage, type AgentContextProvider } from "../workers/opencode/context-provider.js";
+import { CandidateAgentSessionAdapter } from "./candidate-agent-session-adapter.js";
+import type { AgentTaskContract } from "../domain/agent-contracts.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 
@@ -668,7 +672,7 @@ export class JobDispatcher {
               });
             }
           },
-          generate_candidate: async (feedback) => {
+          generate_candidate: async (feedback, generationIteration = goal.start_iteration ?? 1) => {
             assertLease();
             const latest = jobs.getJob(job.id);
             if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
@@ -677,7 +681,31 @@ export class JobDispatcher {
             if (!this.workerEnabled) {
               return null;
             }
-            return this.generateCandidateFromWorker(projectRoot, resolved.fqn, resolved.module, job.id, goal.model_profile, feedback, jobDeadlineAt);
+            const projectId = storage.db
+              .prepare<[string], { project_id: string }>("SELECT project_id FROM project_locations WHERE id = ?")
+              .get(job.location_id)?.project_id;
+            if (!projectId) {
+              throw new AppError("STORAGE_ERROR", "AgentTask project kimligi bulunamadi", { reason_code: "AGENT_TASK_PROJECT_MISSING" });
+            }
+            return this.generateCandidateFromWorker(
+              projectRoot,
+              resolved.fqn,
+              resolved.module,
+              resolved.relative_path,
+              job.id,
+              generationIteration,
+              goal.model_profile,
+              feedback,
+              jobDeadlineAt,
+              {
+                project_id: projectId,
+                location_id: job.location_id,
+                source_snapshot_id: snapshotId,
+                source_digest: sourceIdentity.source_digest,
+                root_digest: sourceIdentity.source_digest,
+                job_revision: jobs.getJob(job.id).row_version,
+              },
+            );
           },
           generation_failure_reason: () => this.workerEnabled ? null : "WORKER_DISABLED",
         };
@@ -1620,10 +1648,20 @@ export class JobDispatcher {
     projectRoot: string,
     targetFqn: string,
     module: PomModule,
+    targetRelativePath: string,
     jobId: string,
+    generationIteration: number,
     requestedModel: string | null = null,
     feedback?: CandidateGenerationFeedback,
     deadlineAt?: number,
+    agentContext?: {
+      project_id: string;
+      location_id: string;
+      source_snapshot_id: string;
+      source_digest: string;
+      root_digest: string;
+      job_revision: number;
+    },
   ): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
     // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
     const portOffset = Number.parseInt(createHash("sha256").update(jobId, "utf8").digest("hex").slice(0, 6), 16) % 2000;
@@ -1632,7 +1670,6 @@ export class JobDispatcher {
     this.registerOwnedWorkerServer(jobId, serverManager);
     const client = await serverManager.ensureRunning();
     const profile = readWorkerProfileFromOpencodeConfig(undefined, requestedModel ?? undefined);
-    const session = await client.createSession();
     // FIN03/14.2 + FIN05/6.3: worker attempt kaydi DB'ye yazilir; her request job/attempt/session
     // ile korele edilir; baska session'dan eski cevap kabul edilemez.
     const storage = this.services.storage;
@@ -1719,6 +1756,120 @@ export class JobDispatcher {
     const { workerToolFlags } = await import("../workers/opencode/worker-config.js");
     const { defaultWorkerConfig } = await import("../workers/opencode/worker-config.js");
     const flags = workerToolFlags(defaultWorkerConfig("http://127.0.0.1"));
+
+    // S05 production bridge: CandidateLoop'un OpenCode adayi artik once
+    // durable AgentTask + fenced AgentScheduler akisine girer. Context
+    // provider hedef dosyayi gercekten scope icinde okur; prompt ise ayni
+    // dogrulanmis kaynak baglaminin bounded ve hash'li temsilidir.
+    if (agentContext) {
+      if (!storage || !this.services.artifacts) {
+        throw new AppError("INTERNAL_ERROR", "Durable agent bridge storage/artifact servisi olmadan calisamaz", { reason_code: "AGENT_BRIDGE_STORAGE_MISSING" });
+      }
+      const baseContextProvider = new FileSystemContextProvider({
+        rootPath: projectRoot,
+        rootDigest: agentContext.root_digest,
+        maxFileBytes: 4 * 1024 * 1024,
+      });
+      const contextProvider: AgentContextProvider = {
+        provide: async (contract: AgentTaskContract): Promise<AgentContextPackage> => {
+          const base = await baseContextProvider.provide(contract);
+          const bytes = Buffer.byteLength(prompt, "utf8");
+          if (bytes > contract.allowed_context_scope.max_bytes) {
+            throw new AppError("POLICY_VIOLATION", "Candidate agent prompt context byte butcesini asiyor", { reason_code: "CONTEXT_BUDGET_EXCEEDED" });
+          }
+          return {
+            ...base,
+            text: prompt,
+            bytes,
+            manifest_digest: createHash("sha256").update(prompt, "utf8").digest("hex"),
+          };
+        },
+      };
+      const tasks = new AgentTaskRepository(storage.db);
+      const repairOrdinal = feedback?.repair_ordinal ?? 0;
+      const taskKey = [jobId, agentContext.source_snapshot_id, targetFqn, targetRelativePath, generationIteration, repairOrdinal, profile.provider_id, profile.model_id].join("|");
+      const taskDigest = createHash("sha256").update(taskKey, "utf8").digest("hex");
+      const taskId = `${taskDigest.slice(0, 8)}-${taskDigest.slice(8, 12)}-5${taskDigest.slice(13, 16)}-a${taskDigest.slice(17, 20)}-${taskDigest.slice(20, 32)}`;
+      const remainingMinutes = deadlineAt === undefined
+        ? 5
+        : Math.max(1 / 60, Math.min(24 * 60, (deadlineAt - Date.now()) / 60000));
+      const relativeTargetPath = targetRelativePath.replace(/\\/g, "/");
+      const contract: AgentTaskContract = {
+        schema_version: 1,
+        task_id: taskId,
+        job_id: jobId,
+        project_id: agentContext.project_id,
+        location_id: agentContext.location_id,
+        job_revision: agentContext.job_revision,
+        source_snapshot_id: agentContext.source_snapshot_id,
+        source_digest: agentContext.source_digest,
+        role: "test_developer",
+        parent_task_id: null,
+        dependency_task_ids: [],
+        input_artifact_refs: [],
+        allowed_context_scope: {
+          snapshot_id: agentContext.source_snapshot_id,
+          root_digest: agentContext.root_digest,
+          relative_paths: [relativeTargetPath],
+          line_ranges: [],
+          max_bytes: 128 * 1024,
+          secrets_excluded: true,
+        },
+        expected_output_schema: "candidate-change-set-v1",
+        budget: {
+          max_attempts: 1,
+          remaining_attempts: 1,
+          max_minutes: remainingMinutes,
+          remaining_minutes: remainingMinutes,
+          max_output_bytes: 512 * 1024,
+        },
+        model_binding: {
+          provider_id: profile.provider_id,
+          model_id: profile.model_id,
+          revision: 0,
+        },
+        idempotency_key: `candidate-${taskDigest}`,
+      };
+      const task = tasks.createTask(contract);
+      if (task.state === "COMPLETED" && task.accepted_output_artifact_id) {
+        const completed = storage.db.prepare<[string], { job_id: string; sha256: string; status: string }>(
+          "SELECT job_id, sha256, status FROM artifacts WHERE id = ?",
+        ).get(task.accepted_output_artifact_id);
+        if (!completed || completed.job_id !== jobId || completed.status !== "READY" || !this.services.artifacts.verify(completed.sha256)) {
+          throw new AppError("STORAGE_ERROR", "Tamamlanmis aday gorevinin artifact kaniti yok", { reason_code: "AGENT_CANDIDATE_ARTIFACT_MISSING", task_id: task.task_id });
+        }
+        return CandidateChangeSetSchema.parse(JSON.parse(this.services.artifacts.read(completed.sha256).toString("utf8")));
+      }
+      const adapter = new CandidateAgentSessionAdapter(client, {
+        db: storage.db,
+        artifacts: this.services.artifacts,
+        jobId,
+        toolFlags: flags,
+      });
+      const scheduler = new AgentScheduler({
+        tasks,
+        adapter,
+        contextProvider,
+        maxConcurrency: 1,
+        ownerId: `candidate-agent-${jobId}`,
+        leaseTtlMs: Math.max(1000, Math.min(300000, Math.floor(remainingMinutes * 60000))),
+      });
+      const report = (await scheduler.run({ taskIds: [taskId], parentSessionId: `dispatch:${jobId}` }))[0];
+      if (!report || report.status !== "COMPLETED" || !report.accepted || !report.result) {
+        throw new AppError("POLICY_VIOLATION", `Durable candidate agent tamamlanamadi: ${report?.outcome_kind ?? "NO_REPORT"}`, {
+          reason_code: "AGENT_TASK_NOT_COMPLETED",
+          task_id: taskId,
+        });
+      }
+      const ref = report.result.artifact_refs.find((candidate) => candidate.kind === "agent_candidate_changeset");
+      if (!ref || !this.services.artifacts.verify(ref.sha256)) {
+        throw new AppError("STORAGE_ERROR", "Durable candidate changeset artifact kaniti yok", { reason_code: "AGENT_CANDIDATE_ARTIFACT_MISSING", task_id: taskId });
+      }
+      const changeset = JSON.parse(this.services.artifacts.read(ref.sha256).toString("utf8")) as unknown;
+      return CandidateChangeSetSchema.parse(changeset);
+    }
+
+    const session = await client.createSession();
 
     // W01/F02: attempt kaydi istek ONCESI yazilir (durable); sonuc sonrasina guncellenir.
     const promptDigest = createHash("sha256").update(prompt, "utf8").digest("hex");

@@ -44,6 +44,8 @@ export type {
 export { ArtifactStore } from "./storage/artifact-store.js";
 export { loadConfig, saveConfig, defaultConfig } from "./configuration/config-loader.js";
 export { AppConfigSchema, defaultStorageRoot } from "./configuration/config-schema.js";
+export { evaluateMavenReadiness, evaluateWorkerReadiness } from "./configuration/readiness.js";
+export type { MavenReadinessInput, ReadinessEvidenceLevel, ReadinessResult, ReadinessStatus, WorkerReadinessInput } from "./configuration/readiness.js";
 export {
   ArtifactRefSchema,
   AllowedContextScopeSchema,

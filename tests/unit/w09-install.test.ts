@@ -132,6 +132,7 @@ describe("W09/N61+N51: rapor asset paketi", () => {
 
 describe("P08/PP43: kurulum readiness ayrimi (handshake pass urun-ready degildir)", () => {
   const install = () => readFileSync(join(repoRoot, "scripts", "install.mjs"), "utf8");
+  const verify = () => readFileSync(join(repoRoot, "scripts", "verify-install.mjs"), "utf8");
 
   it("test uretimi hazirlik sonucu worker flag VE worker_profiles'e bagli; handshake tek basina urun-kanit sayilmaz", () => {
     const content = install();
@@ -164,5 +165,22 @@ describe("P08/PP43: kurulum readiness ayrimi (handshake pass urun-ready degildir
     expect(content).toMatch(/BLOCKED: MCP handshake smoke basarisiz/);
     // Smoke basarisi sonrasi da urun hazirlik sonucu READY/NOT_READY olarak ayrilir.
     expect(content).toContain("KURULUM TAMAMLANDI");
+  });
+
+  it("verify-install MCP, model ve Maven readiness durumlarini ayri raporlar", () => {
+    const content = verify();
+    expect(content).toContain('console.log("[verify] model readiness")');
+    expect(content).toContain('console.log("[verify] Maven readiness")');
+    expect(content).toContain("evaluateWorkerReadiness");
+    expect(content).toContain("evaluateMavenReadiness");
+    expect(content).toContain("AITEST_WORKER_ENABLED");
+    // Docker yoklugu bu Windows native verifier'da readiness sonucu degildir.
+    expect(content).not.toContain("DOCKER_UNAVAILABLE");
+  });
+
+  it("install ve verify ayni ortak readiness modulunu kullanir", () => {
+    expect(install()).toContain("../dist/configuration/readiness.js");
+    expect(install()).toContain("evaluateMavenReadiness");
+    expect(verify()).toContain("../dist/configuration/readiness.js");
   });
 });

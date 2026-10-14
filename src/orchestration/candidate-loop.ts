@@ -332,7 +332,9 @@ export interface IterateOptions {
   target_relative_path?: string;
   /** P05-B: resume'da logical limit start iteration'dan bagimsiz korunur. */
   iteration_limit?: number;
-  generate_candidate: (feedback?: CandidateGenerationFeedback) => Promise<CandidateChangeSet | null>;
+  /** iteration is supplied so a restart can reuse the same durable task for
+   * the same logical candidate instead of creating a fresh UUID. */
+  generate_candidate: (feedback?: CandidateGenerationFeedback, iteration?: number) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
   /** PR06/PP26: tum aday ve repair denemeleri icin job'a ait mutlak deadline. */
@@ -572,7 +574,7 @@ export class CandidateLoop {
       const attemptOrdinal = iterations.length + 1;
       let candidate: CandidateChangeSet | null;
       try {
-        candidate = await options.generate_candidate(currentFeedback);
+        candidate = await options.generate_candidate(currentFeedback, iteration);
       } catch (error) {
         const reason = `Worker aday uretimi basarisiz: ${String(error).slice(0, 500)}`;
         const errorFingerprint = sha256Data(reason);

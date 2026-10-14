@@ -153,6 +153,7 @@ function writeMinimalValidManifest(dir: string, overrides: Record<string, unknow
     predicate: id,
     evidence_level: level,
     scope: "AFFECTED_SCOPE",
+    passed: true,
     command: "npm.cmd test -- --run",
     exit_code: 0,
     job_id: run.job_id,
@@ -163,7 +164,8 @@ function writeMinimalValidManifest(dir: string, overrides: Record<string, unknow
     schema_version: 1,
     kind: "acceptance_evidence",
     manifest_id: "manifest-p01-test",
-    task: "AITE-PRODUCTION-READINESS-005",
+    task: "AITE-WINDOWS-SUBAGENT-PILOT-006",
+    scope_id: "windows-native-v1",
     source: { commit: identity.source.commit, tree_digest: identity.source.tree_digest, dirty: identity.source.dirty },
     build: {
       lockfile_sha256: identity.build.lockfile_sha256,
@@ -215,6 +217,7 @@ function allObligationEntries(dir: string, job_id: string, run_id: string): Arra
     scope: "AFFECTED_SCOPE",
     command: "npm.cmd test -- --run",
     exit_code: 0,
+    passed: true,
     job_id,
     run_id,
     artifact,
@@ -745,8 +748,8 @@ describe("P09/PR01: kabul ledger'i kaynak kimligina girer; manifest dairesel ref
   });
 });
 
-describe("P01/PP01: eski 274-ID manifest 006 full kabulune yetmez", () => {
-  it("274 zorunlu id + tutarli kimlik zinciri + PASSED pilot/platform bile 006 gate'inde NO_GO", () => {
+describe("S09: legacy-only manifest Windows scope gate'ini gecemez", () => {
+  it("274 legacy id + tutarli kimlik zinciri + PASSED pilot/platform bile WN evidence eksigiyle NO_GO", () => {
     const dir = copyRepoForNegative();
     try {
       const obligations = allObligationEntries(dir, "job-p01-go", "run-p01-go");
@@ -758,11 +761,11 @@ describe("P01/PP01: eski 274-ID manifest 006 full kabulune yetmez", () => {
       const gate = runGate(dir, []);
       expect(gate.status).not.toBe(0);
       expect(gate.resultJson?.decision).toBe("NO_GO");
-      expect(gate.resultJson?.reasons?.some((reason: { code: string }) => reason.code === "WINDOWS_006_FULL_GATE_PENDING")).toBe(true);
-      expect(gate.resultJson?.obligations?.mandatory).toBe(274);
-      expect(gate.resultJson?.obligations?.verified).toBe(274);
-      expect(gate.resultJson?.obligations?.missing).toBe(0);
-      expect(gate.resultJson?.obligations?.invalid).toBe(0);
+      expect(gate.resultJson?.reasons?.some((reason: { code: string }) => reason.code === "OBLIGATION_EKSIK")).toBe(true);
+      expect(gate.resultJson?.obligations?.mandatory).toBe(391);
+      expect(gate.resultJson?.obligations?.verified).toBe(267);
+      expect(gate.resultJson?.obligations?.missing).toBe(124);
+      expect(gate.resultJson?.obligations?.invalid).toBe(7);
       expect(gate.resultJson?.live_pilot).toBe("PASSED");
       expect(gate.resultJson?.platform_evidence).toBe("PASSED");
     } finally {

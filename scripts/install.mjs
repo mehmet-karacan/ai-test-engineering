@@ -150,14 +150,53 @@ export async function mainInstall() {
   }
 
   const persistedConfig = JSON.parse(readFileSync(configPath, "utf8"));
-  const workerReady = process.env["AITEST_WORKER_ENABLED"] === "1"
-    && Array.isArray(persistedConfig.worker_profiles)
-    && persistedConfig.worker_profiles.length > 0;
-  if (workerReady) {
-    step("  READY: MCP handshake + worker profile hazirlik ayari mevcut");
-  } else {
-    step("  NOT_READY: MCP handshake basarili; test uretimi icin AITEST_WORKER_ENABLED=1 ve worker_profiles gerekir");
+  const { evaluateWorkerReadiness } = await import("../dist/configuration/readiness.js");
+  let opencodeConfig = {};
+  try {
+    opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf8"));
+  } catch {
+    // Config merge daha once basarili olsa da readiness, bozuk provider
+    // config'ini sessizce READY saymaz.
   }
+  const selectedModelReadiness = evaluateWorkerReadiness({
+    enabled: process.env["AITEST_WORKER_ENABLED"] === "1",
+    profiles: Array.isArray(persistedConfig.worker_profiles) ? persistedConfig.worker_profiles : [],
+    default_profile: typeof persistedConfig.default_worker_profile === "string" ? persistedConfig.default_worker_profile : undefined,
+    configured_model: typeof opencodeConfig.model === "string" ? opencodeConfig.model : undefined,
+    configured_providers: opencodeConfig.provider && typeof opencodeConfig.provider === "object" ? opencodeConfig.provider : {},
+  });
+  if (selectedModelReadiness.status === "READY") {
+    step(`  READY: MCP handshake + model (${selectedModelReadiness.evidence_level})`);
+  } else {
+    step(`  NOT_READY: MCP handshake basarili; model (${selectedModelReadiness.reason_code}) - ${selectedModelReadiness.detail}; worker_profiles/provider/model kontrolu gerekli`);
+  }
+
+  const { evaluateMavenReadiness } = await import("../dist/configuration/readiness.js");
+  let mavenReadiness;
+  try {
+    const { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolchain } = await import("../dist/runners/native-toolchain.js");
+    const env = effectiveMavenEnvironment(process.env);
+    const plan = NativeToolchainResolver.resolve({ cwd: repoRoot, env });
+    const verified = await verifyNativeToolchain(plan, env);
+    mavenReadiness = evaluateMavenReadiness({
+      platform: process.platform,
+      executable_found: true,
+      version_probe_passed: true,
+      maven_version: verified.mavenVersion,
+      java_version: verified.javaVersion,
+    });
+  } catch (error) {
+    const reason = error && typeof error === "object" && "details" in error
+      && error.details && typeof error.details === "object" && "reason_code" in error.details
+      && typeof error.details.reason_code === "string" ? error.details.reason_code : "MAVEN_READINESS_FAILED";
+    mavenReadiness = evaluateMavenReadiness({
+      platform: process.platform,
+      executable_found: false,
+      version_probe_passed: false,
+      failure_reason: reason,
+    });
+  }
+  step(`  ${mavenReadiness.status}: Maven (${mavenReadiness.reason_code ?? mavenReadiness.evidence_level})`);
 
   console.log("");
   console.log("KURULUM TAMAMLANDI.");

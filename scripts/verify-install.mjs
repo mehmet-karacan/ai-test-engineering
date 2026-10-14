@@ -36,6 +36,8 @@ async function main() {
   let configPath = null;
   let dbPath = null;
   let openCodeConfigPath = null;
+  let appConfig = null;
+  let openCodeConfig = null;
   if (existsSync(join(repoRoot, "dist", "configuration", "runtime-paths.js"))) {
     const paths = await import("../dist/configuration/runtime-paths.js");
     appRoot = paths.resolveRuntimeRoot();
@@ -43,8 +45,14 @@ async function main() {
     openCodeConfigPath = paths.resolveOpenCodeConfigPath();
     let configuredRoot = appRoot;
     if (existsSync(configPath)) {
-      const { loadConfig } = await import("../dist/configuration/config-loader.js");
-      configuredRoot = loadConfig(configPath).storage.root;
+      try {
+        const { loadConfig } = await import("../dist/configuration/config-loader.js");
+        appConfig = loadConfig(configPath);
+        configuredRoot = appConfig.storage.root;
+      } catch {
+        console.log("  BASARISIZ: config schema okunamadi");
+        ok = false;
+      }
     }
     dbPath = paths.resolveDbPath(configuredRoot);
   }
@@ -53,6 +61,7 @@ async function main() {
   if (openCodeConfigPath && existsSync(openCodeConfigPath)) {
     try {
       const entryConfig = JSON.parse(readFileSync(openCodeConfigPath, "utf8"));
+      openCodeConfig = entryConfig;
       const entry = entryConfig?.mcp?.["ai-test-engineering"];
       const environment = entry?.environment;
       const entryOk = entry?.type === "local"
@@ -84,6 +93,57 @@ async function main() {
     console.log("  EKSIK: config yok");
     ok = false;
   }
+
+  // Readiness kontrolleri ayri yuzeylerdir: handshake PASS olmasi model veya
+  // native Maven yetenegini otomatik READY yapmaz.
+  console.log("[verify] model readiness");
+  if (appConfig && openCodeConfig) {
+    const { evaluateWorkerReadiness } = await import("../dist/configuration/readiness.js");
+    const registeredEnvironment = openCodeConfig?.mcp?.["ai-test-engineering"]?.environment;
+    const workerEnabled = process.env["AITEST_WORKER_ENABLED"] === "1"
+      || registeredEnvironment?.AITEST_WORKER_ENABLED === "1";
+    const model = evaluateWorkerReadiness({
+      enabled: workerEnabled,
+      profiles: appConfig.worker_profiles,
+      default_profile: appConfig.default_worker_profile,
+      configured_model: typeof openCodeConfig.model === "string" ? openCodeConfig.model : undefined,
+      configured_providers: openCodeConfig.provider && typeof openCodeConfig.provider === "object" ? openCodeConfig.provider : {},
+    });
+    console.log(`  ${model.status}: model (${model.reason_code ?? model.evidence_level})`);
+    if (model.status !== "READY") ok = false;
+  } else {
+    console.log("  NOT_READY: model (CONFIG_OR_OPENCODE_MISSING)");
+    ok = false;
+  }
+
+  console.log("[verify] Maven readiness");
+  const { evaluateMavenReadiness } = await import("../dist/configuration/readiness.js");
+  let maven;
+  try {
+    const { NativeToolchainResolver, effectiveMavenEnvironment, verifyNativeToolchain } = await import("../dist/runners/native-toolchain.js");
+    const env = effectiveMavenEnvironment(process.env);
+    const plan = NativeToolchainResolver.resolve({ cwd: repoRoot, env });
+    const verified = await verifyNativeToolchain(plan, env);
+    maven = evaluateMavenReadiness({
+      platform: process.platform,
+      executable_found: true,
+      version_probe_passed: true,
+      maven_version: verified.mavenVersion,
+      java_version: verified.javaVersion,
+    });
+  } catch (error) {
+    const reason = error && typeof error === "object" && "details" in error
+      && error.details && typeof error.details === "object" && "reason_code" in error.details
+      && typeof error.details.reason_code === "string" ? error.details.reason_code : "MAVEN_READINESS_FAILED";
+    maven = evaluateMavenReadiness({
+      platform: process.platform,
+      executable_found: false,
+      version_probe_passed: false,
+      failure_reason: reason,
+    });
+  }
+  console.log(`  ${maven.status}: Maven (${maven.reason_code ?? maven.evidence_level})`);
+  if (maven.status !== "READY") ok = false;
 
   console.log("[verify] MCP handshake smoke");
   const smoke = spawnSync(process.execPath, [join(repoRoot, "scripts", "mcp-handshake-smoke.mjs")], {

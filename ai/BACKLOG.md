@@ -13,12 +13,18 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 | S02 | Windows native runner ve Docker'in kaldirilmasi | IN_PROGRESS | WN14-WN24; WN20 ENOENT/spawn fault, WN21 PENDING final/temp receipt hardkill; WN19 normal MCP sentetik settings negatif gizlilik kaniti var ama tam zincir NOT_RUN; low-integrity child Temp clone'a yeni JAR yazamadi fakat medium peer ekle-sil yapti; WN23 parent/torun RED ust Job tanisi ve immutable-owner audit kayitli; immutable install, ust Job disi owner_lost, fiziksel GC/customer gate acik |
 | S03 | Tam metadata envanteri ve source snapshot | IN_PROGRESS | WN25-WN31; durable generation/page/tombstone/keyset ve caller wiring PASS; migration v9 per-entry native FileId receipt persistence eklendi; full partial/permission/context kabul kaniti acik |
 | S04 | SQLite proje kimligi, agent task ve resume | IN_PROGRESS | WN32-WN42; identity normalization + AgentTaskResult/InventoryScanResult, migration v8->v9, durable inventory/task/attempt store, lease/fence/CAS ve restart/model revision testleri PASS; checkpoint/recovery/S05 dispatcher wiring ve full WN acceptance acik |
-| S05 | Gercek subagent oturumlari ve context butcesi | IN_PROGRESS | WN43-WN52; scheduler, bounded context, role tanimlari ve OpenCode adapter contract testleri eklendi; production dispatcher wiring ve full runtime acceptance acik |
-| S06 | Native Maven/coverage/iteration | IN_PROGRESS | WN53-WN60; typed baseline/candidate classification ve malformed/all-skipped regression PASS; effective model, JaCoCo/provenance/final replay matrisi acik |
-| S07 | Report06, kurulum, readiness | IN_PROGRESS | WN61-WN66; summary parity projection PASS; browser, clean Windows install/readiness ve upgrade/restore/uninstall runtime kaniti acik |
+| S05 | Gercek subagent oturumlari ve context butcesi | IN_PROGRESS | WN43-WN52; scheduler + bounded context + role binding mevcut; production JobDispatcher bridge, durable task/artifact, deterministic replay ve 15/15 bridge contract PASS; gercek model session/runtime acceptance ve bagimsiz review acik |
+| S06 | Native Maven/coverage/iteration | IN_PROGRESS | WN53-WN60; typed baseline/candidate classification PASS; static effective Maven model parent/profile/pluginManagement/toolchain digest + BuildPlan wiring PASS; gercek native Maven/JaCoCo/provenance/final replay matrisi acik |
+| S07 | Report06, kurulum, readiness | IN_PROGRESS | WN61-WN66; summary parity + model/Maven readiness siniflandirmasi ve install/verify wiring PASS; clean Windows install, full readiness, upgrade/restore/uninstall runtime kaniti acik |
 | S08 | GPU Fusion kontrollu pilot | G1_BEKLIYOR | WN70-WN75; ilk Maven/model G1 onayi ister |
-| S09 | Yeni scope release gate ve final review | TODO | WN67-WN69/WN76-WN80 |
+| S09 | Yeni scope release gate ve final review | IN_PROGRESS | WN67-WN69/WN76-WN80; scope/mapping kimligi ve 391-ID mandatory universe verifier'a baglandi; legacy-only NO_GO testi PASS; gercek evidence manifest, full regression ve final review acik |
 
+## 2026-10-14 coordinator kapanis dilimi
+
+- S05-S07 uygulama dilimleri ve S09 scope-aware verifier eklendi; checkpoint: `ai/checkpoints/2026-10-14-windows-native-006-coordinator-s05-s09.md`.
+- `npm.cmd run build`, `npm.cmd run typecheck`, `npm.cmd run lint` (0 error), focused 5 dosya/62 PASS, `git diff --check` PASS.
+- `release-verify --local` LOCAL_PASS (391 zorunlu evren); full verifier fail-closed NO_GO (`EVIDENCE_MANIFEST_EKSIK`).
+- S08 G1/G2 ve gercek customer checkout/model/Maven calistirmasi bu dilimde acilmadi.
 ## Tarihsel 005 kaydi (korunur)
 
 Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P08 Windows kapsaminda dogrulandi; P09 verifier/reconciliation local olarak kapali. Docker/Docker execution/Docker egress/PP17 bu gorevde acikca kapsam disidir ve sonraki aktif goreve devredilmistir. Ana kalan formal paket sayisi: 1 (P10; macOS da kapsam disi).
