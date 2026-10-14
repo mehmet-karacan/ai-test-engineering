@@ -25,6 +25,11 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 - `npm.cmd run build`, `npm.cmd run typecheck`, `npm.cmd run lint` (0 error), focused 5 dosya/62 PASS, `git diff --check` PASS.
 - `release-verify --local` LOCAL_PASS (391 zorunlu evren); full verifier fail-closed NO_GO (`EVIDENCE_MANIFEST_EKSIK`).
 - S08 G1/G2 ve gercek customer checkout/model/Maven calistirmasi bu dilimde acilmadi.
+## 2026-10-14 tek isci regresyon kapanisi
+
+- Native ve local gruplar makine paralelliginin disinda ayri dogrulandi: S03-S07 92/92, S02 native 86/86, P08 restore/upgrade 26/26 PASS.
+- Tam suite parallel 883/950 sonucu fixture/makine yukunu karistiriyor; tek isci kosular native gruplari temiz geciyor. Ayrinti: `ai/checkpoints/2026-10-14-windows-native-006-local-regression.md`.
+
 ## Tarihsel 005 kaydi (korunur)
 
 Aktif gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md). P00-P08 Windows kapsaminda dogrulandi; P09 verifier/reconciliation local olarak kapali. Docker/Docker execution/Docker egress/PP17 bu gorevde acikca kapsam disidir ve sonraki aktif goreve devredilmistir. Ana kalan formal paket sayisi: 1 (P10; macOS da kapsam disi).
