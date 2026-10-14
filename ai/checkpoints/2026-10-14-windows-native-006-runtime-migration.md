@@ -19,8 +19,10 @@ Branch: `codex/windows-native-006`
 - `npm.cmd run build` -> PASS; Windows process/file/snapshot helper dogrulamalari PASS.
 - `node scripts/verify-install.mjs` -> MCP handshake PASS, Maven `READY/CAPABILITY_PROBED`; migration checksum hatasi kalkti.
 
-## Kalan dis ortam kaniti
+## Kurulum devam kaniti
 
-- OpenCode kullanici config'inde `ai-test-engineering` MCP entry'si bulunmuyor.
-- Uygulama config'inde worker profili yok; worker etkin degil. Bu nedenle model readiness `WORKER_DISABLED` kaliyor.
-- Bu checkpoint icin kullanici runtime DB/config dosyalarina yazilmadi; ayri kurulum ve model etkinlestirme karari olarak kaldi.
+- `node scripts/install.mjs` Bolum 5'te minimal OpenCode merge yapti; mevcut ayarlar korunarak backup olusturuldu.
+- `verify-install.mjs` tekrarinda kayitli entry'nin config/DB ile eslesmesi PASS, MCP handshake PASS ve Maven `READY/CAPABILITY_PROBED`.
+- Ilk kurulumun son readiness adimi, mevcut config basindaki UTF-8 BOM nedeniyle hata verdi; `scripts/install.mjs` config ve OpenCode JSON okumalarinda BOM normalizasyonu ile duzeltildi.
+- Sonraki `npm ci` denemesi Windows `better-sqlite3` native dosya kilidi (`EPERM`) ile durdu; `npm install --no-fund --no-audit`, `npm.cmd run build` ve `verify-install.mjs` sonrasi bagimliliklar yeniden kullanilabilir durumda.
+- Model worker readiness bilincli olarak acilmadi: mevcut uygulama config'inde profil yok ve OpenCode entry'sinde etkinlestirme bayragi yok. Gercek model session'i ve G1 kapisi icin kullanici model/provider karari gerekir.

@@ -149,11 +149,13 @@ export async function mainInstall() {
     step("  OK: mevcut install manifest korundu");
   }
 
-  const persistedConfig = JSON.parse(readFileSync(configPath, "utf8"));
+  // Windows editorleri config basina UTF-8 BOM koyabilir; loader ayni
+  // normalizasyonu yaptigi icin kurulumun son readiness adimi da bunu kullanir.
+  const persistedConfig = JSON.parse(readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""));
   const { evaluateWorkerReadiness } = await import("../dist/configuration/readiness.js");
   let opencodeConfig = {};
   try {
-    opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf8"));
+    opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf8").replace(/^\uFEFF/, ""));
   } catch {
     // Config merge daha once basarili olsa da readiness, bozuk provider
     // config'ini sessizce READY saymaz.

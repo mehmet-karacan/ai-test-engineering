@@ -34,7 +34,9 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 
 - `src/storage/migrations.ts` icindeki v3 SQL'i tarihsel checksum ile byte uyumlu hale getirildi; migration kaydi yalniz bicimsel degisiklik yuzunden bozulmayacak.
 - Gercek runtime DB'nin yazilabilir kopyasinda v3->v9 migrate, SQLite `integrity_check` ve `source_identities` tablo kaniti PASS. Kullanici runtime DB'si degistirilmedi.
-- `verify-install.mjs` sonrasi kalan dis ortam eksikleri: OpenCode config'inde `ai-test-engineering` MCP entry yok; uygulama config'inde worker profili yok ve worker etkin degil. Maven readiness ve MCP handshake PASS.
+- `node scripts/install.mjs` minimal merge adimiyla OpenCode `ai-test-engineering` MCP entry'si eklendi ve backup alindi; `verify-install.mjs` entry/config/DB eslesmesini PASS raporluyor.
+- Uygulama config'inde worker profili yok ve worker etkin degil; model readiness bu nedenle NOT_READY kaliyor. Maven readiness ve MCP handshake PASS.
+- `scripts/install.mjs` Windows UTF-8 BOM'lu config okumasi icin normalize edildi; ikinci kurulum denemesi `npm ci` icindeki Windows `better-sqlite3` EPERM kilidi yuzunden tamamlanmadi, bagimliliklar `npm install` ile onarildi.
 
 ## Tarihsel 005 kaydi (korunur)
 
