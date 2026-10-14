@@ -11,7 +11,7 @@ import Database from "better-sqlite3";
 import { createBackup, sha256Data } from "../dist/storage/lifecycle-ops.js";
 import { prepareRestorePhaseLine, readRestoreJournal, journalPathForDb } from "../dist/storage/restore-journal.js";
 import { Storage } from "../dist/storage/storage.js";
-import { packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
+import { inspectWindowsPath, packagedWindowsFileHelper } from "../dist/discovery/windows-file-bridge.js";
 import { captureExpectedWindowsRestoreFile } from "../dist/storage/windows-restore-session.js";
 import { faultFixtureWindowsFileHelper } from "./windows-file-helper-fault-fixture.mjs";
 
@@ -26,6 +26,8 @@ assert.ok(!reverseLayout || selected === "PUBLISH_1", "--reverse-layout needs PU
 const trace = process.argv.includes("--trace");
 const guardAfterCut = process.argv.includes("--guard-after-cut");
 assert.ok(!guardAfterCut || selected === "PUBLISH_1", "--guard-after-cut needs PUBLISH_1");
+const validItemBoundary = process.argv.includes("--valid-item-boundary");
+assert.ok(!validItemBoundary || guardAfterCut, "--valid-item-boundary needs --guard-after-cut");
 const armCut = process.argv.find((value) => value.startsWith("--arm-cut="))?.slice(10);
 assert.ok(!armCut || ["first", "second"].includes(armCut));
 assert.ok(!armCut || guardAfterCut, "--arm-cut needs --guard-after-cut");
@@ -197,6 +199,21 @@ try {
       const journalPath = journalPathForDb(targetDb);
       const journalBeforeGuard = readFileSync(journalPath);
       const helper = armCut ? faultFixtureWindowsFileHelper() : packagedWindowsFileHelper();
+      const guardRootPath = validItemBoundary ? join(fixture, "long-root",
+        ...Array.from({ length: 27 }, (_, index) =>
+          `p${String(index).padStart(3, "0")}${"x".repeat(64)}`), "store") : journal.artifactRoot;
+      if (validItemBoundary) {
+        mkdirSync(dirname(guardRootPath), { recursive: true });
+        renameSync(journal.artifactRoot, guardRootPath);
+        const observedRoot = inspectWindowsPath(helper, guardRootPath);
+        assert.equal(observedRoot.volumeSerial, journal.emptyBlobGuard.root.volumeSerial);
+        assert.equal(observedRoot.fileId, journal.emptyBlobGuard.root.fileId);
+      }
+      const guardPath = (path) => {
+        assert.ok(path.startsWith(journal.artifactRoot));
+        return join(guardRootPath, path.slice(journal.artifactRoot.length).replace(/^[/\\]/u, ""));
+      };
+      let boundaryItemBytes = 0;
       const hex = (value) => Buffer.from(value, "utf16le").toString("hex");
       const armMarker = join(fixture, `arm-${armCut}.marker`);
       const native = spawn(helper.path, ["recover-session", dirname(targetDb), hex(basename(targetDb)),
@@ -224,33 +241,76 @@ try {
           const destination = journal.publishedBlobs[index].path;
           const parent = dirname(destination);
           const parentRelative = parent.slice(journal.artifactRoot.length).replace(/^[/\\]/u, "");
-          const mode = existsSync(stage.path) ? "stage" : "destination";
+          const mode = existsSync(guardPath(stage.path)) ? "stage" : "destination";
           const owned = stage.identity;
           assert.ok(owned, "published blob needs durable stage receipt");
           const rootId = journal.emptyBlobGuard.root;
           const parentId = journal.emptyBlobGuard.parents[index];
           assert.ok(parentId, "existing parent identity required");
-          native.stdin.write(["GUARD_ITEM", index, hex(journal.artifactRoot), hex(parentRelative),
+          if (validItemBoundary) {
+            const observedParent = inspectWindowsPath(helper, guardPath(parent));
+            const observedOwned = inspectWindowsPath(helper,
+              guardPath(mode === "stage" ? stage.path : destination));
+            assert.equal(observedParent.volumeSerial, parentId.volumeSerial);
+            assert.equal(observedParent.fileId, parentId.fileId);
+            assert.equal(observedOwned.volumeSerial, owned.volumeSerial);
+            assert.equal(observedOwned.fileId, owned.fileId);
+            assert.equal(observedOwned.bytes, owned.bytes);
+          }
+          const itemLine = ["GUARD_ITEM", index, hex(guardRootPath), hex(parentRelative),
             hex(basename(destination)), hex(basename(stage.path)), rootId.volumeSerial, rootId.fileId,
             parentId.volumeSerial, parentId.fileId, mode, owned.volumeSerial, owned.fileId,
-            owned.bytes, owned.sha256].join("\t") + "\n");
+            owned.bytes, owned.sha256].join("\t") + "\n";
+          if (validItemBoundary) {
+            assert.equal(index, 0);
+            boundaryItemBytes = Buffer.byteLength(itemLine.slice(0, -1), "utf8");
+            assert.ok(boundaryItemBytes > 8192 && boundaryItemBytes < 1024 * 1024,
+              "otherwise valid ITEM must cross only the 8192-byte cap");
+            native.stdin.write(itemLine);
+            const closed = await lines.next();
+            assert.equal(closed.done, true, "over-cap valid ITEM must not be acknowledged");
+            const exitCode = native.exitCode === null ? await new Promise((done) => native.once("exit", done)) : native.exitCode;
+            assert.equal(exitCode, 2, "over-cap valid ITEM must fail closed");
+            break;
+          }
+          native.stdin.write(itemLine);
           assert.equal(await next(), `GUARD_ITEM_OK\t${index}`);
         }
-        native.stdin.write("GUARD_FINAL\n");
-        assert.equal(await next(), "GUARD_READY\t2");
-        if (armCut) {
-          native.stdin.write("GUARD_ARM\n");
-          for (let attempt = 0; attempt < 200 && !existsSync(armMarker); attempt++) {
-            if (native.exitCode !== null) break;
-            await new Promise((done) => setTimeout(done, 50));
+        if (!validItemBoundary) {
+          native.stdin.write("GUARD_FINAL\n");
+          assert.equal(await next(), "GUARD_READY\t2");
+          if (armCut) {
+            native.stdin.write("GUARD_ARM\n");
+            for (let attempt = 0; attempt < 200 && !existsSync(armMarker); attempt++) {
+              if (native.exitCode !== null) break;
+              await new Promise((done) => setTimeout(done, 50));
+            }
+            assert.equal(existsSync(armMarker), true, `${armCut}: native disposition marker missing`);
           }
-          assert.equal(existsSync(armMarker), true, `${armCut}: native disposition marker missing`);
+          const killed = spawnSync("taskkill", ["/F", "/PID", String(native.pid)], { encoding: "utf8" });
+          assert.equal(killed.status, 0, killed.stderr);
+          if (native.exitCode === null) await new Promise((done) => native.once("exit", done));
         }
-        const killed = spawnSync("taskkill", ["/F", "/PID", String(native.pid)], { encoding: "utf8" });
-        assert.equal(killed.status, 0, killed.stderr);
-        if (native.exitCode === null) await new Promise((done) => native.once("exit", done));
       } finally {
         if (native.exitCode === null && native.pid) spawnSync("taskkill", ["/F", "/PID", String(native.pid)]);
+      }
+      if (validItemBoundary) {
+        assert.equal(readFileSync(journalPath).equals(journalBeforeGuard), true, "over-cap ITEM changed journal");
+        assert.equal(hashFile(targetDb), oldHash, "over-cap ITEM changed old DB");
+        for (let index = 0; index < 2; index++) {
+          assert.equal(existsSync(guardPath(journal.stageIntents[index].path)), expected[1][index] === "stage");
+          assert.equal(existsSync(guardPath(journal.publishedBlobs[index].path)), expected[1][index] === "destination");
+          const ownedPath = guardPath(expected[1][index] === "stage" ?
+            journal.stageIntents[index].path : journal.publishedBlobs[index].path);
+          assert.equal(hashFile(ownedPath), journal.stageIntents[index].sha256);
+        }
+        let blocked = false;
+        try { new Storage({ dbPath: targetDb }).close(); }
+        catch (error) { blocked = error?.details?.reason_code === "RESTORE_RECOVERY_REQUIRED"; if (!blocked) throw error; }
+        assert.equal(blocked, true, "over-cap ITEM must leave startup fail-closed");
+        results.push({ cut, validItemBoundary: true, itemBytes: boundaryItemBytes,
+          blocked, itemRejected: true });
+        continue;
       }
       if (armCut) for (let index = 0; index < (armCut === "first" ? 1 : 2); index++) {
         assertDispositionReceipt(`${armMarker}.receipt-${index}`, journal, index, expected[1][index]);
