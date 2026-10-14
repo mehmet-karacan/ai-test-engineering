@@ -85,34 +85,37 @@ try {
     } finally { release(); }
     try {
       thrown = undefined;
-      const sweep = gcSweep(storageDb, dryRun, root, helper);
-      // Native path accepted the swap: either outcome is a real Windows proof.
-      assert.equal(sweep.swept.length, 1);
-      assert.equal(existsSync(join(moved, "x.bin")), false, "old FileId must be removed");
-      assert.equal(readFileSync(join(nested, "x.bin"), "utf8"), "replacement user data",
-        "replacement bytes must be preserved");
-      process.stdout.write("GREEN_CLOSED: gcSweep native delete removed old FileId and preserved replacement\n");
+      gcSweep(storageDb, dryRun, root, helper);
+      // Unreachable with this fixture: the swap guarantees an expected
+      // bytes/sha mismatch, so the sweep must throw. Kept only as a guard
+      // against a silently weakened helper contract.
+      assert.ok(false, "swapped physical file must not pass the sweep");
     } catch (error) {
       thrown = error;
     } finally { storageDb.close(); }
   } catch (error) {
     thrown = thrown ?? error;
   }
-  if (thrown) {
-    // Fail-closed outcome: the helper's delete-owned-session revalidation
-    // (root + FileId + bytes + sha256) rejected the swapped physical file, so
-    // the DELETED marker stays, the replacement user data is untouched and the
-    // old blob is an orphan for a later dry-run; nothing user-visible broke.
-    assert.equal(thrown?.details?.reason_code, "WINDOWS_OWNED_DELETE_UNCERTAIN",
-      `unexpected sweep failure: ${thrown?.details?.reason_code ?? thrown?.message}`);
-    assert.equal(existsSync(join(moved, "x.bin")), true, "old blob must stay an orphan, not be recreated");
-    assert.equal(readFileSync(join(moved, "x.bin"), "utf8"), movedBytes);
-    assert.equal(readFileSync(join(nested, "x.bin"), "utf8"), "replacement user data",
-      "replacement user data must be preserved");
-    assert.equal(existsSync(join(greenTop, ".aitest-maintenance.lock")), false,
-      "legacy lock path must not be recreated");
-    process.stdout.write("GREEN_CLOSED: gcSweep fail-closed on swapped physical file; replacement preserved, old blob orphaned\n");
+  // Fail-closed outcome: the helper's delete-owned-session revalidation
+  // (root + FileId + bytes + sha256) rejected the swapped physical file, so
+  // the DELETED marker stays, the replacement user data is untouched and the
+  // old blob is an orphan for a later dry-run; nothing user-visible broke.
+  assert.equal(thrown?.details?.reason_code, "WINDOWS_OWNED_DELETE_UNCERTAIN",
+    `unexpected sweep failure: ${thrown?.details?.reason_code ?? thrown?.message}`);
+  assert.equal(existsSync(join(moved, "x.bin")), true, "old blob must stay an orphan, not be recreated");
+  assert.equal(readFileSync(join(moved, "x.bin"), "utf8"), movedBytes);
+  assert.equal(readFileSync(join(nested, "x.bin"), "utf8"), "replacement user data",
+    "replacement user data must be preserved");
+  assert.equal(existsSync(join(greenTop, ".aitest-maintenance.lock")), false,
+    "legacy lock path must not be recreated");
+  {
+    const after = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      assert.equal(after.prepare("SELECT status FROM artifacts WHERE id = '11111111-1111-4111-8111-111111111111'")
+        .get()?.status, "DELETED", "DELETED marker must stay committed after the failed unlink");
+    } finally { after.close(); }
   }
+  process.stdout.write("GREEN_CLOSED: gcSweep fail-closed on swapped physical file; replacement preserved, old blob orphaned\n");
 } finally {
   assert.ok(resolve(greenTop).startsWith(resolve(tmpdir())));
   for (let attempt = 0; attempt < 10 && existsSync(greenTop); attempt++) {
