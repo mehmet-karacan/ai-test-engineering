@@ -37,6 +37,7 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 - `node scripts/install.mjs` minimal merge adimiyla OpenCode `ai-test-engineering` MCP entry'si eklendi ve backup alindi; `verify-install.mjs` entry/config/DB eslesmesini PASS raporluyor.
 - Uygulama config'inde worker profili yok ve worker etkin degil; model readiness bu nedenle NOT_READY kaliyor. Maven readiness ve MCP handshake PASS.
 - `scripts/install.mjs` Windows UTF-8 BOM'lu config okumasi icin normalize edildi; ikinci kurulum denemesi `npm ci` icindeki Windows `better-sqlite3` EPERM kilidi yuzunden tamamlanmadi, bagimliliklar `npm install` ile onarildi.
+- Lockfile geri alindiktan sonra yeniden build ve `release-verify --local` **LOCAL_PASS**; full evidence manifesti yoklugu nedeniyle production kabul acilmadi.
 
 ## Tarihsel 005 kaydi (korunur)
 

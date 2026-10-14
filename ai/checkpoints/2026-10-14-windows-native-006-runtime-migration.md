@@ -26,3 +26,4 @@ Branch: `codex/windows-native-006`
 - Ilk kurulumun son readiness adimi, mevcut config basindaki UTF-8 BOM nedeniyle hata verdi; `scripts/install.mjs` config ve OpenCode JSON okumalarinda BOM normalizasyonu ile duzeltildi.
 - Sonraki `npm ci` denemesi Windows `better-sqlite3` native dosya kilidi (`EPERM`) ile durdu; `npm install --no-fund --no-audit`, `npm.cmd run build` ve `verify-install.mjs` sonrasi bagimliliklar yeniden kullanilabilir durumda.
 - Model worker readiness bilincli olarak acilmadi: mevcut uygulama config'inde profil yok ve OpenCode entry'sinde etkinlestirme bayragi yok. Gercek model session'i ve G1 kapisi icin kullanici model/provider karari gerekir.
+- `package-lock.json` repo haline geri alindiktan sonra `npm.cmd run build` ve `node scripts/release-verify.mjs --local` yeniden calistirildi: **LOCAL_PASS**; full acceptance evidence manifesti halen yok.
