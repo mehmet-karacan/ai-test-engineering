@@ -1,6 +1,6 @@
 # Kabul Matrisi - AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0
 
-Yeni Windows scope icin WN01-WN80 ve 320 eski ID'nin acik mapping'i zorunludur. S00 mapping/baseline LOCAL_VERIFIED (286 RETAINED / 25 REPLACED / 9 OUT_OF_SCOPE_BY_USER); WN67-WN69'un full evidence predicate'leri S09'a aciktir. 006 full kabul NO_GO (runtime/evidence/pilot henuz yok). Eski 005'in 274-ID full gate ve NO_GO sonucu tarihsel olarak korunur; yeni scope'a otomatik PASSED aktarilmaz. G0 acik; GPU Fusion G1, apply G2 ve yayin G3 ayri karardir. Ayrinti `AKTIF_GOREV.md` bolum 1, 9-12 ve `ai/acceptance/` kayitlarindadir.
+Yeni Windows scope icin WN01-WN80 ve 320 eski ID'nin acik mapping'i zorunludur. S00 mapping/baseline LOCAL_VERIFIED (286 RETAINED / 25 REPLACED / 9 OUT_OF_SCOPE_BY_USER); WN67-WN69'un full evidence predicate'leri S09'a aciktir. S01 backup otoritesi ve hata atomik restore VERIFIED (2026-10-14, zorunlu fail/skip yok; odak suite + probe ailesi 19/19 + typecheck/lint/build + release-verify --local LOCAL_PASS; kapanis checkpoint `ai/checkpoints/2026-10-14-windows-native-006-s01-loop-close.md`). WN01-WN13 katalog kayitlari full gate'e kadar NOT_RUN kalir. 006 full kabul NO_GO (evidence/pilot henuz yok). Eski 005'in 274-ID full gate ve NO_GO sonucu tarihsel olarak korunur; yeni scope'a otomatik PASSED aktarilmaz. G0 acik; GPU Fusion G1, apply G2 ve yayin G3 ayri karardir. Ayrinti `AKTIF_GOREV.md` bolum 1, 9-12 ve `ai/acceptance/` kayitlarindadir.
 
 ## Tarihsel 005 matrisi (korunur)
 
