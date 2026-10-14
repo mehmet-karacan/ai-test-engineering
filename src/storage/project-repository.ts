@@ -3,6 +3,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
+import { AppError } from "../domain/errors.js";
 
 export interface ProjectRow {
   id: string;
@@ -42,17 +43,39 @@ export class ProjectRepository {
   ensureLocation(canonicalRoot: string, normalizedName: string, normalizedRemote: string | null): EnsureLocationResult {
     const tx = this.db.transaction((): EnsureLocationResult => {
       const now = Date.now();
-      let project = this.db
-        .prepare<[string], ProjectRow>("SELECT * FROM projects WHERE name = ?")
-        .get(normalizedName);
+      // S04 kimlik kurali: gorunen proje adi tek basina birlestirme anahtari
+      // olamaz. Remote'lu checkout'lar ayni remote ile ayni project'e, farkli
+      // remote'lar farkli project'e gider; remote'suz kayitlar yalniz ayni
+      // fiziksel canonical root ile idempotenttir.
+      const candidates = normalizedRemote !== null
+        ? this.db.prepare<[string, string], ProjectRow>(
+          "SELECT * FROM projects WHERE name = ? AND normalized_remote = ? ORDER BY created_at, id",
+        ).all(normalizedName, normalizedRemote)
+        : this.db.prepare<[string, string], ProjectRow>(
+          `SELECT DISTINCT p.* FROM projects p
+           JOIN project_locations l ON l.project_id = p.id
+           WHERE p.name = ? AND p.normalized_remote IS NULL AND l.canonical_root = ?
+           ORDER BY p.created_at, p.id`,
+        ).all(normalizedName, canonicalRoot);
+      if (candidates.length > 1) {
+        throw new AppError("STORAGE_ERROR", "Proje kimligi mevcut kayitlarda belirsiz", {
+          reason_code: "PROJECT_IDENTITY_AMBIGUOUS",
+          name: normalizedName,
+          canonical_root: canonicalRoot,
+          normalized_remote: normalizedRemote,
+          candidate_project_ids: candidates.map((candidate) => candidate.id),
+        });
+      }
+      let project = candidates[0];
       if (!project) {
         const identityKind = normalizedRemote ? "git_remote" : "local_only";
+        const projectId = randomUUID();
         this.db
           .prepare(
             "INSERT INTO projects (id, name, normalized_remote, identity_kind, latest_snapshot_id, created_at, updated_at, row_version) VALUES (?, ?, ?, ?, NULL, ?, ?, 0)",
           )
-          .run(randomUUID(), normalizedName, normalizedRemote, identityKind, now, now);
-        project = this.db.prepare<[string], ProjectRow>("SELECT * FROM projects WHERE name = ?").get(normalizedName)!;
+          .run(projectId, normalizedName, normalizedRemote, identityKind, now, now);
+        project = this.db.prepare<[string], ProjectRow>("SELECT * FROM projects WHERE id = ?").get(projectId)!;
       }
 
       let location = this.db

@@ -18,3 +18,22 @@ export { JobRepository } from "./storage/job-repository.js";
 export { ArtifactStore } from "./storage/artifact-store.js";
 export { loadConfig, saveConfig, defaultConfig } from "./configuration/config-loader.js";
 export { AppConfigSchema, defaultStorageRoot } from "./configuration/config-schema.js";
+export {
+  ArtifactRefSchema,
+  AllowedContextScopeSchema,
+  AgentBudgetSchema,
+  AgentRoleSchema,
+  ModelBindingSchema,
+  AgentTaskContractSchema,
+  AgentTaskResultSchema,
+  assertAgentTaskResultMatchesContract,
+} from "./domain/agent-contracts.js";
+export type {
+  ArtifactRef,
+  AllowedContextScope,
+  AgentBudget,
+  AgentRole,
+  ModelBinding,
+  AgentTaskContract,
+  AgentTaskResult,
+} from "./domain/agent-contracts.js";
