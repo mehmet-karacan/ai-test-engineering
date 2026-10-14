@@ -18,10 +18,17 @@ import { ArtifactStore } from "../../src/storage/artifact-store.js";
 import { CheckpointStore } from "../../src/orchestration/checkpoint-store.js";
 import { LeaseManager } from "../../src/orchestration/lease-manager.js";
 
-const gcDeleteFault = vi.hoisted(() => ({ secondDelete: false, count: 0, beforeDelete: null as (() => void) | null }));
+const gcDeleteFault = vi.hoisted(() => ({
+  secondDelete: false, count: 0, beforeDelete: null as (() => void) | null,
+  rmSyncCalls: [] as string[],
+  realRmSync: null as null | ((path: string, options?: { force?: boolean }) => void),
+}));
+const gcNativeMock = vi.hoisted(() => ({ active: false as boolean, deleteCalls: [] as Array<{ root: string; relativePath: string; expectedRoot: unknown; expectedFile: unknown }> }));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
+  gcDeleteFault.realRmSync = actual.rmSync;
   const rmSync: typeof actual.rmSync = (path, options) => {
+    gcDeleteFault.rmSyncCalls.push(String(path));
     if (gcDeleteFault.beforeDelete && String(path).includes("blobs")) {
       const callback = gcDeleteFault.beforeDelete;
       gcDeleteFault.beforeDelete = null;
@@ -35,6 +42,27 @@ vi.mock("node:fs", async (importOriginal) => {
     return actual.rmSync(path, options);
   };
   return { ...actual, rmSync };
+});
+vi.mock("../../src/discovery/windows-file-bridge.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/discovery/windows-file-bridge.js")>();
+  return {
+    ...actual,
+    inspectWindowsPath: (helper: unknown, path: string) => {
+      if (!gcNativeMock.active) return actual.inspectWindowsPath(helper as never, path);
+      return { volumeSerial: "1111111111111111", fileId: "a".repeat(32), linkCount: 1, bytes: 0 };
+    },
+    deleteWindowsOwnedFile: (helper: unknown, root: string, relativePath: string,
+      expectedRoot: unknown, expectedFile: { volumeSerial: string; fileId: string; bytes: number; sha256: string }) => {
+      if (!gcNativeMock.active) {
+        return actual.deleteWindowsOwnedFile(helper as never, root, relativePath,
+          expectedRoot as never, expectedFile as never);
+      }
+      gcNativeMock.deleteCalls.push({ root, relativePath, expectedRoot, expectedFile });
+      // Simulate the successful owned delete: the helper removed exactly this FileId.
+      const separator = process.platform === "win32" ? "\\" : "/";
+      gcDeleteFault.realRmSync?.(`${root}${separator}${relativePath}`, { force: true });
+    },
+  };
 });
 
 function healthyInput(): DiagnosticInput {
@@ -140,6 +168,10 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
   });
 
   afterEach(() => {
+    gcNativeMock.active = false;
+    gcNativeMock.deleteCalls = [];
+    gcDeleteFault.secondDelete = false;
+    gcDeleteFault.beforeDelete = null;
     try {
       storage.close();
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
@@ -324,6 +356,39 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
     expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(first.id)?.status).toBe("DELETED");
     expect(existsSync(second.path)).toBe(true);
     expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(second.id)?.status).toBe("DELETED");
+  });
+
+  it("GC helper verilince rmSync devre disina iner; silme FileId kimligiyle native olarak yapilir", () => {
+    const job = jobs.createJob({ locationId, requestDigest: "digest-gc-native-helper" });
+    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    const artifact = insertArtifact(job.id, "temp", "native-helper-blob", -2 * 24 * 60 * 60 * 1000);
+    const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates).toHaveLength(1);
+    // The node:fs mock above records every rmSync path in gcDeleteFault.rmSyncCalls;
+    // the sweep must never touch rmSync when a native helper is provided.
+    gcDeleteFault.rmSyncCalls = [];
+    gcDeleteFault.secondDelete = true;
+    gcNativeMock.active = true;
+    try {
+      // With secondDelete armed, a path-based rmSync on the second blob would throw
+      // EACCES. The native helper path never calls rmSync, so the sweep completes.
+      const sweep = gcSweep(storage.db, dryRun, artifactRoot, { path: "C:/fake/windows-file-helper.exe", sha256: "b".repeat(64) });
+      expect(sweep.swept).toHaveLength(1);
+      expect(gcDeleteFault.rmSyncCalls.filter((entry) => entry.includes("blobs"))).toEqual([]);
+    } finally {
+      gcNativeMock.active = false;
+      gcDeleteFault.secondDelete = false;
+    }
+    // DB row is DELETED and the fake native delete removed the candidate file.
+    expect(storage.db.prepare<[string], { status: string }>("SELECT status FROM artifacts WHERE id = ?").get(artifact.id)?.status).toBe("DELETED");
+    expect(existsSync(artifact.path)).toBe(false);
+    expect(gcNativeMock.deleteCalls).toHaveLength(1);
+    const call = gcNativeMock.deleteCalls[0]!;
+    expect(call.relativePath.replace(/\\/g, "/")).toBe(dryRun.candidates[0]!.relative_store_path);
+    expect(call.expectedRoot).toEqual({ volumeSerial: "1111111111111111", fileId: "a".repeat(32), linkCount: 1, bytes: 0 });
+    const expectedFile = call.expectedFile as { volumeSerial: string; fileId: string; bytes: number; sha256: string };
+    expect(expectedFile.bytes).toBe(dryRun.candidates[0]!.snapshot!.bytes);
+    expect(expectedFile.sha256).toBe(dryRun.candidates[0]!.sha256);
   });
 
   it("checkpoint manifest artifact'i her zaman pin (GC silinmez)", () => {

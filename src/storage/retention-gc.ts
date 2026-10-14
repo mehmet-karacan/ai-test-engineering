@@ -8,6 +8,8 @@ import { isAbsolute, relative, resolve, sep as pathSep } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 import { acquireMaintenanceLock } from "./maintenance-lock.js";
 import { AppError } from "../domain/errors.js";
+import { deleteWindowsOwnedFile, inspectWindowsPath } from "../discovery/windows-file-bridge.js";
+import type { WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 
 export interface RetentionPolicy {
   /** Rejected/untrusted artifact TTL (ms) */
@@ -107,8 +109,12 @@ export interface GcSweepResult {
 /**
  * Onayli sweep: dry-run candidates'tan blob dosyalarini kaldirir; DB satiri DELETED isaretlenir.
  * Active/pinned ref silinmez (14.4); silme islemi audit kaydi birakir (event).
+ * Windows'ta helper verilirse silme path-tabanli rmSync yerine FileId+root identity ile yapilir;
+ * stat->rmSync penceresinde nested rename+replacement ile path drift ederse eski FileId silinir,
+ * replacement dosya korunur. Helper verilmediginde mevcut rmSync davranisi aynen korunur.
  */
-export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, artifactRoot: string): GcSweepResult {
+export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, artifactRoot: string,
+  nativeHelper?: WindowsFileHelperSpec): GcSweepResult {
   const release = acquireMaintenanceLock(artifactRoot, "gc");
   try {
   const root = resolve(artifactRoot);
@@ -208,6 +214,11 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
   // Commit all DELETED markers before unlinking any blob. A later unlink error
   // leaves an orphan, rather than rolling a missing blob back to READY.
   const result = sweep.immediate();
+  const useNativeDelete = nativeHelper !== undefined && process.platform === "win32";
+  // Root identity is captured while the maintenance lock is still held, before the
+  // unlink transaction. safeBlobPath already lstat-verified each candidate path, so
+  // this single inspect stays bounded and never leaves the locked section.
+  const rootIdentity = useNativeDelete ? inspectWindowsPath(nativeHelper, root) : null;
   const unlink = db.transaction(() => {
     // A raw SQLite writer may have added a new reference after the DELETED commit.
     // Recheck under a fresh write lock, then hold it through every unlink.
@@ -234,8 +245,25 @@ export function gcSweep(db: BetterSqlite3.Database, dryRun: GcDryRunResult, arti
         });
       }
     }
-    for (const blobPath of paths) {
-      if (existsSync(blobPath)) rmSync(blobPath, { force: true });
+    if (!useNativeDelete) {
+      for (const blobPath of paths) {
+        if (existsSync(blobPath)) rmSync(blobPath, { force: true });
+      }
+      return;
+    }
+    // Native delete path: each file identity is captured immediately before its
+    // delete. A nested rename+replacement between inspect and native open keeps the
+    // old FileId; the helper's own delete-owned-session revalidation (root + FileId)
+    // removes exactly that old FileId and preserves the replacement file.
+    for (const [index, candidate] of dryRun.candidates.entries()) {
+      const blobPath = paths[index]!;
+      if (!existsSync(blobPath)) continue;
+      const fileIdentity = inspectWindowsPath(nativeHelper!, blobPath);
+      deleteWindowsOwnedFile(nativeHelper!, root, candidate.relative_store_path.replace(/\//g, pathSep),
+        rootIdentity!, {
+          volumeSerial: fileIdentity.volumeSerial, fileId: fileIdentity.fileId, linkCount: fileIdentity.linkCount,
+          bytes: candidate.snapshot!.bytes, sha256: candidate.sha256,
+        });
     }
   });
   unlink.immediate();
