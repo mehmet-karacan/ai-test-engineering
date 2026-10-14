@@ -27,7 +27,7 @@ Branch: `codex/windows-native-006`
 ## Acik kapilar
 
 - `ai/acceptance/evidence-manifest.json` yok; full release verifier fail-closed kalir.
-- Worker profili uygulama config'inde etkin degil (`WORKER_DISABLED`); gercek model/pilot ve GPU Fusion G1 karari kullanici kapisidir.
+- Dis readiness tekrar kontrolu: LiteLLM anahtari ortamda mevcut (degeri okunmadi/kaydedilmedi), `JAVA_HOME` mevcut ve Maven `READY/CAPABILITY_PROBED`; uygulama config'inde `worker_profiles` bos, `AITEST_WORKER_ENABLED` etkin degil (`WORKER_DISABLED`). Gercek model/pilot ve GPU Fusion G1 karari kullanici kapisidir.
 - G1/G2/G3, gercek Maven/model ve musteri checkout'u bu checkpoint'te acilmadi.
 
 Devam noktasi: evidence manifestinin gercek kanitlarla tamamlanmasi ve kullanici acik karari verilen live pilot kapilarinin ayri kosuda yurutilmesi.
