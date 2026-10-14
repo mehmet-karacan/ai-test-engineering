@@ -8,6 +8,7 @@ Durum: IN_PROGRESS. Bu checkpoint migration ve kalici store diliminin kanitidir;
 - `InventoryRepository` generation acma, owner/fence kontrollu page append, ayni page retry idempotency, row_version CAS, COMPLETE/PARTIAL/STALE seal ve OFFSET kullanmayan keyset listesi sagliyor. Sealed generation'a yeni satir yazimi reddediliyor.
 - `AgentTaskRepository` Zod kontratini kalici JSON/digest olarak sakliyor. `claimTask`, `recordAttempt`, `completeTask` kisa transaction'larda owner/fence/lease expiry, task revision, row_version ve result task/job fence'ini kontrol ediyor. Model cagrisi transaction icinde tutulmuyor.
 - `JobRepository.recordApproval` scope/model/budget digest, project/job kimligi ve karar sahibi ile append-only model degisikligi onayi sakliyor; restart sonrasi approval ve onceki attempt lineage'i korunuyor.
+- `NativeProcessRegistry` spawn ve trusted terminal sonucunu `owned_processes` tablosuna ACTIVE/CLOSED olarak yazar; mevcut job lease fence'i korunur ve unresolved marker temizlenmeden yeni owner acilmaz.
 - Remote URL/scp credential bilgileri kimlikten ayiklaniyor; `.git`/son slash varyantlari ayni remote'a, remote'suz canonical root'lar ayri local project'e baglaniyor. Case-normalizasyonu Windows root anahtarinda uygulanıyor; eski remote adaylari normalize edilerek okunuyor.
 - `InventoryScanResultSchema` S03/S05 ortak bounded result olarak export edildi; 6 KiB AgentTaskResult ozet ve artifact/job fence kurallari korunuyor.
 

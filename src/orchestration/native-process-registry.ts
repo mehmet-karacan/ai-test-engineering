@@ -58,6 +58,15 @@ export class NativeProcessRegistry implements NativeProcessLifecycle {
       }
       this.db.prepare("UPDATE job_leases SET process_identity = ? WHERE job_id = ? AND owner_id = ? AND fencing_token = ?")
         .run(JSON.stringify(row), this.jobId, this.ownerId, this.fencingToken);
+      this.db.prepare(
+        `INSERT INTO owned_processes (
+           process_id, job_id, run_id, attempt_id, process_identity, parent_process_identity,
+           executable_fingerprint, workspace_fingerprint, started_at, closed_at, cleanup_state, row_version
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'ACTIVE', 0)`,
+      ).run(
+        randomUUID(), this.jobId, row.run_id, row.attempt_id, JSON.stringify(row), String(row.parent_pid),
+        row.executable_path_sha256, row.workspace_path_sha256, row.started_at,
+      );
     });
     tx();
     this.active = row;
@@ -73,6 +82,9 @@ export class NativeProcessRegistry implements NativeProcessLifecycle {
       "UPDATE job_leases SET process_identity = ? WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
     ).run(JSON.stringify(next), this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
     if (result.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native process fence changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
+    this.db.prepare(
+      "UPDATE owned_processes SET process_identity = ?, row_version = row_version + 1 WHERE job_id = ? AND attempt_id = ? AND cleanup_state = 'ACTIVE'",
+    ).run(JSON.stringify(next), this.jobId, next.attempt_id);
     this.active = next;
   }
 
@@ -86,6 +98,9 @@ export class NativeProcessRegistry implements NativeProcessLifecycle {
       "UPDATE job_leases SET process_identity = NULL WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
     ).run(this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
     if (updated.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native terminal fence changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
+    this.db.prepare(
+      "UPDATE owned_processes SET cleanup_state = 'CLOSED', closed_at = ?, row_version = row_version + 1 WHERE job_id = ? AND attempt_id = ? AND cleanup_state = 'ACTIVE'",
+    ).run(Date.now(), this.jobId, current.attempt_id);
     this.active = null;
   }
 }

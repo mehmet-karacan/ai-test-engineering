@@ -49,6 +49,7 @@ describe("S02 durable native process registry", () => {
     expect(() => leases.acquire(jobId, "old", 300000)).toThrowError();
     const before = storage.db.prepare<[string], { process_identity: string }>("SELECT process_identity FROM job_leases WHERE job_id = ?").get(jobId)!.process_identity;
     expect(JSON.parse(before)).toMatchObject({ job_id: jobId, helper_pid: 4242, parent_pid: process.pid, state: "spawned" });
+    expect(storage.db.prepare<[string], { cleanup_state: string }>("SELECT cleanup_state FROM owned_processes WHERE job_id = ?").get(jobId)?.cleanup_state).toBe("ACTIVE");
     leases.release(jobId, "old");
     expect(() => leases.acquire(jobId, "new", 300000)).toThrowError();
     expect(storage.db.prepare<[string], { process_identity: string }>("SELECT process_identity FROM job_leases WHERE job_id = ?").get(jobId)!.process_identity).toBe(before);
@@ -64,6 +65,7 @@ describe("S02 durable native process registry", () => {
     registry.afterTerminal({ ...done, status: "cancelled", ownedTreeDrained: false });
     expect(() => leases.acquire(jobId, "new", 300000)).toThrowError();
     registry.afterTerminal(done);
+    expect(storage.db.prepare<[string], { cleanup_state: string }>("SELECT cleanup_state FROM owned_processes WHERE job_id = ?").get(jobId)?.cleanup_state).toBe("CLOSED");
     leases.release(jobId, "old");
     expect(leases.acquire(jobId, "new", 300000).lease.fencing_token).toBe(2);
   });
