@@ -12,6 +12,12 @@ const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), "..");
 
 async function main() {
+  // K01/K03: desteklenmeyen platformda readiness sonucu uretilmez.
+  // Aksi halde handshake veya mevcut dist dosyalari Windows hazirligi gibi raporlanabilir.
+  if (process.platform !== "win32") {
+    console.log("[verify] BLOCKED: Windows native kurulum yalniz Windows'ta dogrulanir");
+    return 1;
+  }
   let ok = true;
   console.log("[verify] prerequisite");
   console.log(`  OK: node ${process.version}`);

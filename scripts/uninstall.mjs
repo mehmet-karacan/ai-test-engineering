@@ -5,15 +5,23 @@
 import { existsSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { removeConfigRecord } from "../dist/configuration/config-merge.js";
-import { resolveOpenCodeConfigPath, resolveRuntimeRoot } from "../dist/configuration/runtime-paths.js";
-import { ownedUninstall } from "../dist/storage/lifecycle-ops.js";
 
 // K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
 const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), "..");
 
-function main() {
+async function main() {
+  // K01/K03: desteklenmeyen platformda ownership/uninstall islemi calistirilmaz.
+  // Bu guard, dist veya OpenCode config'ine dokunulmadan once uygulanir.
+  if (process.platform !== "win32") {
+    console.error("[uninstall] BLOCKED: Windows native kaldirma yalniz Windows'ta desteklenir");
+    return 2;
+  }
+  // Dist/config imports are deliberately after the platform guard. A clean
+  // non-Windows checkout must fail closed without loading a missing build.
+  const { removeConfigRecord } = await import("../dist/configuration/config-merge.js");
+  const { resolveOpenCodeConfigPath, resolveRuntimeRoot } = await import("../dist/configuration/runtime-paths.js");
+  const { ownedUninstall } = await import("../dist/storage/lifecycle-ops.js");
   console.log("[uninstall] Bolum 1: OpenCode MCP girdisi (sadece ai-test-engineering)");
   const opencodeConfigPath = resolveOpenCodeConfigPath();
   const appRoot = resolveRuntimeRoot();
@@ -62,4 +70,7 @@ function main() {
   return 0;
 }
 
-process.exit(main());
+main().then((code) => process.exit(code)).catch((error) => {
+  console.error(`[uninstall] beklenmeyen hata: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+});

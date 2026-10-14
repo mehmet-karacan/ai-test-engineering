@@ -510,6 +510,12 @@ function validateEvidenceArtifact(id, artifact, problems) {
 function validateEvidenceEntry(entry, ctx) {
   const problems = [];
   const id = entry?.requirement_id;
+  // WN69: required obligation kaydi ancak gercekten PASSED ise dogrulanmis
+  // sayilir. NOT_RUN/BLOCKED/FAILED veya eksik passed alani evidence'i
+  // tamamlanmis gibi saydiramaz; partial manifest full GO'ya donemez.
+  if (entry?.passed !== true) {
+    problems.push({ code: "EVIDENCE_NOT_PASSED", detail: `${id ?? "?"}: required predicate passed:true olmali` });
+  }
   if (entry.predicate !== undefined && entry.predicate !== id) {
     problems.push({ code: "EVIDENCE_PREDICATE_UYUSMAZ", detail: `${id}: predicate ${JSON.stringify(entry.predicate ?? null)} requirement_id ile uyusmuyor` });
   }

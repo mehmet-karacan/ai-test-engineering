@@ -80,6 +80,9 @@ export const AgentTaskContractSchema = z.object({
   if (new Set(contract.dependency_task_ids).size !== contract.dependency_task_ids.length) {
     context.addIssue({ code: "custom", path: ["dependency_task_ids"], message: "dependency task id'leri tekrar edemez" });
   }
+  if (contract.allowed_context_scope.snapshot_id !== contract.source_snapshot_id) {
+    context.addIssue({ code: "custom", path: ["allowed_context_scope", "snapshot_id"], message: "context snapshot source snapshot ile ayni olmali" });
+  }
   if (contract.input_artifact_refs.some((ref) => ref.job_id !== contract.job_id)) {
     context.addIssue({ code: "custom", path: ["input_artifact_refs"], message: "artifact ref baska job'a ait" });
   }

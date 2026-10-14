@@ -223,6 +223,48 @@ export interface TestReportSummary {
   malformed_reports: string[];
 }
 
+export interface TestRunClassification {
+  status: "PASSED" | "FAILED" | "UNSTABLE" | "NO_TESTS";
+  reason_code: string | null;
+}
+
+/**
+ * Surefire/Failsafe raporu ile Maven process sonucunu tek bir fail-closed
+ * karara indirger. Exit 0 tek basina test kaniti degildir: bozuk rapor,
+ * testsiz veya tamamen skip kosu coverage kazanci olarak kullanilamaz.
+ */
+export function classifyTestRun(
+  run: Pick<RunResult, "exit_code" | "timed_out">,
+  summary: Pick<TestReportSummary, "total_tests" | "failures" | "errors" | "skipped" | "malformed_reports">,
+): TestRunClassification {
+  if (summary.malformed_reports.length > 0) {
+    return { status: "UNSTABLE", reason_code: "MALFORMED_TEST_REPORT" };
+  }
+  if (summary.failures + summary.errors > 0) {
+    return {
+      status: "FAILED",
+      reason_code: summary.failures > 0 && summary.errors > 0
+        ? "TEST_FAILURES_AND_ERRORS"
+        : summary.failures > 0
+          ? "TEST_FAILURES"
+          : "TEST_ERRORS",
+    };
+  }
+  if (run.timed_out) {
+    return { status: "FAILED", reason_code: "MAVEN_RUN_TIMEOUT" };
+  }
+  if (run.exit_code !== 0) {
+    return { status: "FAILED", reason_code: "MAVEN_EXIT_NONZERO" };
+  }
+  if (summary.total_tests === 0) {
+    return { status: "NO_TESTS", reason_code: "NO_DISCOVERED_TESTS" };
+  }
+  if (summary.skipped === summary.total_tests) {
+    return { status: "UNSTABLE", reason_code: "ALL_TESTS_SKIPPED" };
+  }
+  return { status: "PASSED", reason_code: null };
+}
+
 export interface TestInventoryRegression {
   missing_tests: string[];
   newly_skipped_tests: string[];
@@ -333,38 +375,17 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
   const skipped = reportSummary.skipped;
   const failedTests = reportSummary.failed_tests;
 
-  // W03/F06: run exit0 olsa bile XML failure/error varken PASSED OLAMAZ
-  let status: BaselineResult["status"] = "PASSED";
-  let reasonCode: string | null = null;
-  if (failures + errors > 0) {
-    status = "FAILED";
-    reasonCode = failures > 0 && errors > 0 ? "TEST_FAILURES_AND_ERRORS" : failures > 0 ? "TEST_FAILURES" : "TEST_ERRORS";
-  } else if (run.timed_out) {
-    status = "FAILED";
-    reasonCode = "MAVEN_RUN_TIMEOUT";
-  } else if (run.exit_code !== 0) {
-    status = "FAILED";
-    reasonCode = "MAVEN_EXIT_NONZERO";
-  } else if (totalTests === 0) {
-    status = "NO_TESTS";
-    reasonCode = "NO_DISCOVERED_TESTS";
-  } else if (skipped === totalTests) {
-    status = "UNSTABLE";
-    reasonCode = "ALL_TESTS_SKIPPED";
-  } else if (malformedReports.length > 0) {
-    status = "UNSTABLE";
-    reasonCode = "MALFORMED_TEST_REPORT";
-  }
+  const classification = classifyTestRun(run, reportSummary);
 
   return {
-    status,
+    status: classification.status,
     run,
     failed_tests: failedTests,
     total_tests: totalTests,
     failures,
     errors,
     skipped,
-    reason_code: reasonCode,
+    reason_code: classification.reason_code,
     malformed_reports: malformedReports,
     skip_config_detected: skipConfig,
     execution_root: executionRoot,
@@ -375,9 +396,10 @@ export async function runBaseline(projectRoot: string, runner: MavenRunner, time
 }
 
 export function assertBaselineUsable(baseline: BaselineResult): void {
-  if (baseline.status === "FAILED") {
-    throw new AppError("INTERNAL_ERROR", `Baseline testler basarisiz: ${baseline.failed_tests.join(", ")}`, {
-      reason_code: "BASELINE_FAILED",
+  if (baseline.status !== "PASSED") {
+    const reasonCode = baseline.reason_code ?? `BASELINE_${baseline.status}`;
+    throw new AppError("INTERNAL_ERROR", `Baseline trusted degil: ${baseline.status}`, {
+      reason_code: reasonCode,
       failed_tests: baseline.failed_tests,
     });
   }

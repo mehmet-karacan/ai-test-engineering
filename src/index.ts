@@ -12,6 +12,21 @@ export { ToolRegistry } from "./mcp/tool-registry.js";
 export type { ToolDefinition, ToolResult, ToolContext } from "./mcp/tool-registry.js";
 export { createMcpServer, createToolRegistry, registerToolsOnServer } from "./mcp/server-setup.js";
 export { createServices, createDefaultServicesForTest } from "./application/services.js";
+export { InventoryScanService } from "./application/inventory-scan-service.js";
+export type { InventoryScanRequest } from "./application/inventory-scan-service.js";
+export { AgentScheduler } from "./orchestration/agent-scheduler.js";
+export type {
+  AgentExecutionKind,
+  AgentExecutionOutcome,
+  AgentSessionDescriptor,
+  AgentSessionAdapter,
+  AgentRunReport,
+  AgentSchedulerOptions,
+  AgentSchedulerRunRequest,
+} from "./orchestration/agent-scheduler.js";
+export { FileSystemContextProvider } from "./workers/opencode/context-provider.js";
+export type { AgentContextPackage, AgentContextProvider, FileSystemContextProviderOptions } from "./workers/opencode/context-provider.js";
+export { OpenCodeAgentSessionAdapter } from "./workers/opencode/agent-session-adapter.js";
 export { Storage } from "./storage/storage.js";
 export { migrate, currentSchemaVersion, MIGRATIONS } from "./storage/migrations.js";
 export { JobRepository } from "./storage/job-repository.js";

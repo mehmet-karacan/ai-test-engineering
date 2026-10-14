@@ -25,10 +25,10 @@ describe("SQLite storage kalicilik", () => {
     }
   });
 
-  it("migration sonrasi schema version 8 olmali (S04 envanter ve ajan tablolari dahil)", () => {
+  it("migration sonrasi schema version 9 olmali (S03 FileId makbuzlari dahil)", () => {
     const storage = new Storage({ dbPath });
     storage.migrate();
-    expect(storage.schemaVersion()).toBe(8);
+    expect(storage.schemaVersion()).toBe(9);
     storage.close();
   });
 

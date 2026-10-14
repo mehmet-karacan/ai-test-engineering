@@ -17,6 +17,16 @@ export interface FileInventoryEntry {
   hashStatus: HashStatus;
   readStatus: ReadStatus;
   linkTarget: string | null;
+  /** Native FileId evidence, when the caller supplies a trusted provider. */
+  fileIdentity?: FileInventoryIdentityReceipt | null;
+}
+
+/** A compact, read-only identity receipt when a native provider can supply one. */
+export interface FileInventoryIdentityReceipt {
+  volumeSerial: string;
+  fileId: string;
+  linkCount: number;
+  bytes: number;
 }
 
 export interface FileInventoryOptions {
@@ -26,6 +36,8 @@ export interface FileInventoryOptions {
   requiredHashPaths?: string[];
   /** Directory reader override for deterministic permission fault injection. */
   readDir?: (path: string) => Dirent[];
+  /** Optional native identity reader. It is never required for a metadata scan. */
+  fileIdentity?: (path: string) => FileInventoryIdentityReceipt | null;
 }
 
 export interface FileInventoryPage {
@@ -36,7 +48,7 @@ export interface FileInventoryPage {
   errors: Array<{ relativePath: string; code: string }>;
 }
 
-/** A digest for a complete single-page scan. Paged/generation-stable digests await S04 persistence. */
+/** A digest for a complete single-page scan. Durable paged digests are computed by InventoryRepository. */
 export function inventoryDigestFromCompletePage(page: FileInventoryPage): string {
   if (!page.complete || page.partial || page.nextCursor !== null || page.errors.length > 0 ||
       page.entries.some((entry) => entry.readStatus !== "OK")) {
@@ -51,8 +63,8 @@ export function inventoryDigestFromCompletePage(page: FileInventoryPage): string
       throw new AppError("INVALID_PARAMETERS", "Invalid or duplicate inventory path");
     }
   }
-  const canonical = ordered.map(({ relativePath, kind, size, mtimeMs, hash, hashStatus, readStatus, linkTarget }) =>
-    [relativePath, kind, size, mtimeMs, hash, hashStatus, readStatus, linkTarget]);
+  const canonical = ordered.map(({ relativePath, kind, size, mtimeMs, hash, hashStatus, readStatus, linkTarget, fileIdentity }) =>
+    [relativePath, kind, size, mtimeMs, hash, hashStatus, readStatus, linkTarget, fileIdentity ?? null]);
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
@@ -69,6 +81,7 @@ async function hashFile(path: string): Promise<string> {
 interface WalkContext {
   required: Set<string>;
   readDir: (path: string) => Dirent[];
+  fileIdentity?: (path: string) => FileInventoryIdentityReceipt | null;
 }
 
 async function* walk(root: string, relativePath: string, context: WalkContext): AsyncGenerator<FileInventoryEntry> {
@@ -78,7 +91,8 @@ async function* walk(root: string, relativePath: string, context: WalkContext): 
     info = lstatSync(absolute);
   } catch (error) {
     yield { relativePath, kind: "unknown", size: null, mtimeMs: null, hash: null,
-      hashStatus: "ERROR", readStatus: errorCode(error) === "EACCES" || errorCode(error) === "EPERM" ? "ACCESS_DENIED" : "ERROR", linkTarget: null };
+      hashStatus: "ERROR", readStatus: errorCode(error) === "EACCES" || errorCode(error) === "EPERM" ? "ACCESS_DENIED" : "ERROR", linkTarget: null,
+      fileIdentity: null };
     return;
   }
   const kind: InventoryKind = info.isSymbolicLink() ? "symlink" : info.isDirectory() ? "directory" : info.isFile() ? "file" : "other";
@@ -107,7 +121,12 @@ async function* walk(root: string, relativePath: string, context: WalkContext): 
       readStatus = errorCode(error) === "EACCES" || errorCode(error) === "EPERM" ? "ACCESS_DENIED" : "ERROR";
     }
   }
-  yield { relativePath, kind, size: info.size, mtimeMs: info.mtimeMs, hash, hashStatus, readStatus, linkTarget };
+  let fileIdentity: FileInventoryIdentityReceipt | null = null;
+  if (context.fileIdentity && readStatus === "OK" && kind !== "symlink") {
+    try { fileIdentity = context.fileIdentity(absolute); }
+    catch { fileIdentity = null; }
+  }
+  yield { relativePath, kind, size: info.size, mtimeMs: info.mtimeMs, hash, hashStatus, readStatus, linkTarget, fileIdentity };
   if (kind === "directory" && readStatus === "OK") {
     for (const child of children) {
       yield* walk(root, `${relativePath}/${child.name}`, context);
@@ -115,17 +134,27 @@ async function* walk(root: string, relativePath: string, context: WalkContext): 
   }
 }
 
+export function inventoryCursorForPath(rootPath: string, generation: number, requiredHashPaths: string[],
+    afterPath: string | null, partial = false, requiredSeen: string[] = []): string {
+  const root = resolve(rootPath);
+  const requiredDigest = createHash("sha256").update(JSON.stringify([...new Set(requiredHashPaths)].sort())).digest("hex");
+  return Buffer.from(JSON.stringify({ v: 3, root, generation, requiredDigest, afterPath, partial,
+    requiredSeen: [...new Set(requiredSeen)].sort() })).toString("base64url");
+}
+
 function cursorState(cursor: string | null | undefined, root: string, generation: number,
-    requiredDigest: string): { index: number; partial: boolean } {
-  if (!cursor) return { index: 0, partial: false };
+    requiredDigest: string): { afterPath: string | null; partial: boolean; requiredSeen: Set<string> } {
+  if (!cursor) return { afterPath: null, partial: false, requiredSeen: new Set() };
   try {
     const value: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
     if (typeof value !== "object" || value === null) throw new Error("bad cursor");
     const parsed = value as Record<string, unknown>;
-    if (parsed["v"] !== 2 || parsed["root"] !== root || parsed["generation"] !== generation ||
+    if (parsed["v"] !== 3 || parsed["root"] !== root || parsed["generation"] !== generation ||
       parsed["requiredDigest"] !== requiredDigest ||
-      !Number.isSafeInteger(parsed["index"]) || (parsed["index"] as number) < 0 || typeof parsed["partial"] !== "boolean") throw new Error("bad cursor");
-    return { index: parsed["index"] as number, partial: parsed["partial"] as boolean };
+      (parsed["afterPath"] !== null && typeof parsed["afterPath"] !== "string") || typeof parsed["partial"] !== "boolean" ||
+      !Array.isArray(parsed["requiredSeen"]) || parsed["requiredSeen"].some((path) => typeof path !== "string")) throw new Error("bad cursor");
+    return { afterPath: parsed["afterPath"] as string | null, partial: parsed["partial"] as boolean,
+      requiredSeen: new Set(parsed["requiredSeen"] as string[]) };
   } catch {
     throw new AppError("INVALID_PARAMETERS", "Invalid inventory cursor");
   }
@@ -149,12 +178,11 @@ export async function scanFileInventory(rootPath: string, options: FileInventory
   const required = new Set(requiredPaths);
   const requiredDigest = createHash("sha256").update(JSON.stringify([...required].sort())).digest("hex");
   const previous = cursorState(options.cursor, root, generation, requiredDigest);
-  const start = previous.index;
-  const requiredSeen = new Set<string>();
+  const afterPath = previous.afterPath;
+  const requiredSeen = new Set(previous.requiredSeen);
   const readDir = options.readDir ?? ((path: string) => readdirSync(path, { withFileTypes: true }));
   const entries: FileInventoryEntry[] = [];
   const errors: FileInventoryPage["errors"] = [];
-  let seen = 0;
   let hasNext = false;
   let top: Dirent[];
   try { top = readDir(root).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0); }
@@ -162,14 +190,18 @@ export async function scanFileInventory(rootPath: string, options: FileInventory
     return { entries: [], nextCursor: null, complete: false, partial: true, errors: [{ relativePath: ".", code: errorCode(error) }] };
   }
   for (const child of top) {
-    for await (const entry of walk(root, child.name, { required, readDir })) {
-      if (entry.readStatus !== "OK") errors.push({ relativePath: entry.relativePath, code: entry.readStatus });
+    for await (const entry of walk(root, child.name, options.fileIdentity ? { required, readDir, fileIdentity: options.fileIdentity } : { required, readDir })) {
+      const isAfterCursor = entry.relativePath > (afterPath ?? "");
+      if (isAfterCursor && entry.readStatus !== "OK") errors.push({ relativePath: entry.relativePath, code: entry.readStatus });
       if (required.has(entry.relativePath)) {
+        const wasSeen = requiredSeen.has(entry.relativePath);
         requiredSeen.add(entry.relativePath);
-        if (entry.kind !== "file") errors.push({ relativePath: entry.relativePath, code: "REQUIRED_INPUT_UNSUPPORTED" });
-        else if (entry.hashStatus !== "COMPUTED") errors.push({ relativePath: entry.relativePath, code: "REQUIRED_INPUT_UNHASHED" });
+        if (isAfterCursor || !wasSeen) {
+          if (entry.kind !== "file") errors.push({ relativePath: entry.relativePath, code: "REQUIRED_INPUT_UNSUPPORTED" });
+          else if (entry.hashStatus !== "COMPUTED") errors.push({ relativePath: entry.relativePath, code: "REQUIRED_INPUT_UNHASHED" });
+        }
       }
-      if (seen++ < start) continue;
+      if (!isAfterCursor) continue;
       if (entries.length >= pageSize) { hasNext = true; break; }
       entries.push(entry);
     }
@@ -179,7 +211,7 @@ export async function scanFileInventory(rootPath: string, options: FileInventory
     if (!requiredSeen.has(path)) errors.push({ relativePath: path, code: "REQUIRED_INPUT_MISSING" });
   }
   const partial = previous.partial || errors.length > 0;
-  const nextCursor = hasNext ? Buffer.from(JSON.stringify({ v: 2, root, generation, requiredDigest,
-    index: start + entries.length, partial })).toString("base64url") : null;
+  const nextCursor = hasNext ? inventoryCursorForPath(root, generation, [...required], entries.at(-1)?.relativePath ?? afterPath,
+    partial, [...requiredSeen]) : null;
   return { entries, nextCursor, complete: !hasNext && !partial, partial, errors };
 }

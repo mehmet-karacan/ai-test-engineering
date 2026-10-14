@@ -2,12 +2,20 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { Storage } from "../../src/storage/storage.js";
 import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { JobRepository } from "../../src/storage/job-repository.js";
 import { AgentTaskRepository } from "../../src/storage/agent-task-repository.js";
 import type { AgentTaskContract } from "../../src/domain/agent-contracts.js";
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(",")}}`;
+}
+function digest(value: unknown): string { return createHash("sha256").update(stableJson(value), "utf8").digest("hex"); }
 
 describe("WN40-WN42: durable task recovery", () => {
   let dir: string;
@@ -23,10 +31,11 @@ describe("WN40-WN42: durable task recovery", () => {
     const projects = new ProjectRepository(storage.db);
     const { project, location } = projects.ensureLocation("C:/work/agent-recovery", "agent-recovery", null);
     const job = new JobRepository(storage.db).createJob({ locationId: location.id, requestDigest: randomUUID() });
+    const sourceSnapshotId = randomUUID();
     contract = {
       schema_version: 1, task_id: randomUUID(), job_id: job.id, project_id: project.id, location_id: location.id, job_revision: 4,
-      source_snapshot_id: randomUUID(), source_digest: "1".repeat(64), role: "test_architect", parent_task_id: null,
-      dependency_task_ids: [], input_artifact_refs: [], allowed_context_scope: { snapshot_id: randomUUID(), root_digest: "2".repeat(64), relative_paths: [], line_ranges: [], max_bytes: 2048, secrets_excluded: true },
+      source_snapshot_id: sourceSnapshotId, source_digest: "1".repeat(64), role: "test_architect", parent_task_id: null,
+      dependency_task_ids: [], input_artifact_refs: [], allowed_context_scope: { snapshot_id: sourceSnapshotId, root_digest: "2".repeat(64), relative_paths: [], line_ranges: [], max_bytes: 2048, secrets_excluded: true },
       expected_output_schema: "agent-task-result-v1", budget: { max_attempts: 4, remaining_attempts: 3, max_minutes: 20, remaining_minutes: 17, max_output_bytes: 4096 },
       model_binding: { provider_id: "opencode", model_id: "gpt-5.6-luna", revision: 1 }, idempotency_key: `recovery-${randomUUID()}`,
     };
@@ -44,7 +53,7 @@ describe("WN40-WN42: durable task recovery", () => {
     const firstClaim = firstRepo.claimTask(created.task_id, "owner-a", 1000, base);
     const firstAttempt = firstRepo.recordAttempt({ task_id: created.task_id, owner_id: "owner-a", fence_token: firstClaim.fence_token, attempt_ordinal: 1, provider_id: "opencode", model_id: "gpt-5.6-luna", model_revision: 1 });
     const jobs = new JobRepository(storage.db);
-    const approval = jobs.recordApproval({ job_id: contract.job_id, project_id: contract.project_id, approval_kind: "MODEL_CHANGE", scope_digest: "3".repeat(64), model_digest: "4".repeat(64), budget_digest: "5".repeat(64), decision: "APPROVED", decided_by: "mehmet-karacan" });
+    const approval = jobs.recordApproval({ job_id: contract.job_id, project_id: contract.project_id, approval_kind: "MODEL_CHANGE", scope_digest: digest(contract.allowed_context_scope), model_digest: digest({ provider_id: "opencode", model_id: "glm-4.7", revision: 2 }), budget_digest: digest(contract.budget), decision: "APPROVED", decided_by: "mehmet-karacan" });
     expect(jobs.listApprovals(contract.job_id)).toHaveLength(1);
     storage.close();
 

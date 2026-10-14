@@ -113,4 +113,33 @@ describe("S02 durable native process registry", () => {
       "SELECT process_identity FROM job_leases WHERE job_id = ?",
     ).get(jobId)!.process_identity).toBe("!damaged");
   });
+
+  it("rolls back the lease when the owned process record cannot enter spawned state", () => {
+    const lease = leases.acquireNative(jobId, "old", 300000).lease;
+    const registry = new NativeProcessRegistry(storage.db, jobId, "old", lease.fencing_token);
+    registry.beforeSpawn(plan);
+    storage.db.exec("CREATE TRIGGER reject_owned_spawn BEFORE UPDATE ON owned_processes BEGIN SELECT RAISE(ABORT, 'fixture owned process failure'); END");
+
+    expect(() => registry.afterSpawn(4242)).toThrow(/fixture owned process failure/);
+    const leaseIdentity = storage.db.prepare<[string], { process_identity: string }>("SELECT process_identity FROM job_leases WHERE job_id = ?").get(jobId)!.process_identity;
+    const processIdentity = storage.db.prepare<[string], { process_identity: string; cleanup_state: string }>("SELECT process_identity, cleanup_state FROM owned_processes WHERE job_id = ?").get(jobId)!;
+    expect(JSON.parse(leaseIdentity)).toMatchObject({ state: "starting", helper_pid: null });
+    expect(JSON.parse(processIdentity.process_identity)).toMatchObject({ state: "starting", helper_pid: null });
+    expect(processIdentity.cleanup_state).toBe("ACTIVE");
+  });
+
+  it("rolls back lease clearing when the owned process cannot close", () => {
+    const lease = leases.acquireNative(jobId, "old", 300000).lease;
+    const registry = new NativeProcessRegistry(storage.db, jobId, "old", lease.fencing_token);
+    registry.beforeSpawn(plan);
+    registry.afterSpawn(4242);
+    storage.db.exec("CREATE TRIGGER reject_owned_close BEFORE UPDATE ON owned_processes WHEN NEW.cleanup_state = 'CLOSED' BEGIN SELECT RAISE(ABORT, 'fixture owned close failure'); END");
+
+    expect(() => registry.afterTerminal(done)).toThrow(/fixture owned close failure/);
+    const leaseIdentity = storage.db.prepare<[string], { process_identity: string }>("SELECT process_identity FROM job_leases WHERE job_id = ?").get(jobId)!.process_identity;
+    const process = storage.db.prepare<[string], { process_identity: string; cleanup_state: string }>("SELECT process_identity, cleanup_state FROM owned_processes WHERE job_id = ?").get(jobId)!;
+    expect(JSON.parse(leaseIdentity)).toMatchObject({ state: "spawned", helper_pid: 4242 });
+    expect(JSON.parse(process.process_identity)).toMatchObject({ state: "spawned", helper_pid: 4242 });
+    expect(process.cleanup_state).toBe("ACTIVE");
+  });
 });

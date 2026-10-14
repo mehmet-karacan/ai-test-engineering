@@ -70,6 +70,24 @@ describe("P07 facts projection", () => {
 });
 
 describe("P07 export fail-closed", () => {
+  it("summary.txt JSON/HTML facts parity icin test eklenen ve degisen sayaclarini tasir", () => {
+    const root = mkdtempSync(join(tmpdir(), "aitest-p07-summary-parity-"));
+    try {
+      const reportsDir = join(root, "reports");
+      const exporter = new ReportExporter(reportsDir);
+      const result = exporter.export(reportData());
+      expect(result.verification_passed).toBe(true);
+
+      const summary = readFileSync(join(reportsDir, "summary.txt"), "utf8");
+      expect(summary).toContain("Test eklenen: 1");
+      expect(summary).toContain("Test degisen: 1");
+      expect(summary).toContain("Run: 7 test, 5 gecti, 1 basarisiz, 1 atlandi");
+      expect(summary).toContain("Production degisikligi: 0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("binary extra artifacti byte-birebir korur ve manifest bytes/hash kontrol eder", () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-p07-export-"));
     try {

@@ -29,6 +29,7 @@ describe("FIN15: release verifier kurallari (23.4)", () => {
     expect(content).toContain("checkCorpusIntegrity");
     expect(content).toContain("checkNoSecretsInReleaseInventory");
     expect(content).toContain("SOURCE_TREE_BOS");
+    expect(content).toContain("EVIDENCE_NOT_PASSED");
   });
 
   it("zorunlu kabulde non-zero exit: exitCode fail-closed hesaplanir", () => {

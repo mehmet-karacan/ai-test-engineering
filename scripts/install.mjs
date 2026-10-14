@@ -34,6 +34,12 @@ function sha256File(path) {
 }
 
 export async function mainInstall() {
+  // K01/K03: bu kurulum girisi yalniz Windows native dagitimini destekler.
+  // Desteklenmeyen platformda npm/build veya kullanici config merge'i baslamaz.
+  if (process.platform !== "win32") {
+    console.error("  BLOCKED: Windows native kurulum yalniz Windows'ta desteklenir");
+    return 2;
+  }
   step("Bolum 1: prerequisite kontrolu");
   const nodeVersion = process.version.replace("v", "");
   const nodeMajor = Number.parseInt(nodeVersion.split(".")[0], 10);

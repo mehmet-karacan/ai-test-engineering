@@ -78,13 +78,17 @@ export class NativeProcessRegistry implements NativeProcessLifecycle {
       throw new AppError("BLOCKED_ISOLATION", "Native helper PID unavailable", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
     }
     const next: RecordV1 = { ...current, state: "spawned", helper_pid: pid ?? null };
-    const result = this.db.prepare(
-      "UPDATE job_leases SET process_identity = ? WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
-    ).run(JSON.stringify(next), this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
-    if (result.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native process fence changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
-    this.db.prepare(
-      "UPDATE owned_processes SET process_identity = ?, row_version = row_version + 1 WHERE job_id = ? AND attempt_id = ? AND cleanup_state = 'ACTIVE'",
-    ).run(JSON.stringify(next), this.jobId, next.attempt_id);
+    const tx = this.db.transaction(() => {
+      const result = this.db.prepare(
+        "UPDATE job_leases SET process_identity = ? WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
+      ).run(JSON.stringify(next), this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
+      if (result.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native process fence changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
+      const owned = this.db.prepare(
+        "UPDATE owned_processes SET process_identity = ?, row_version = row_version + 1 WHERE job_id = ? AND attempt_id = ? AND cleanup_state = 'ACTIVE'",
+      ).run(JSON.stringify(next), this.jobId, next.attempt_id);
+      if (owned.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native process record changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
+    });
+    tx();
     this.active = next;
   }
 
@@ -94,13 +98,17 @@ export class NativeProcessRegistry implements NativeProcessLifecycle {
       (result.errorCode === "pin_unavailable" || result.errorCode === "pin_mismatch");
     if (!current || result.ownedTreeDrained !== true ||
         (!provenNoChildPinFailure && !["success", "nonzero", "timeout", "cancelled"].includes(result.status))) return;
-    const updated = this.db.prepare(
-      "UPDATE job_leases SET process_identity = NULL WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
-    ).run(this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
-    if (updated.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native terminal fence changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
-    this.db.prepare(
-      "UPDATE owned_processes SET cleanup_state = 'CLOSED', closed_at = ?, row_version = row_version + 1 WHERE job_id = ? AND attempt_id = ? AND cleanup_state = 'ACTIVE'",
-    ).run(Date.now(), this.jobId, current.attempt_id);
+    const tx = this.db.transaction(() => {
+      const updated = this.db.prepare(
+        "UPDATE job_leases SET process_identity = NULL WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
+      ).run(this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
+      if (updated.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native terminal fence changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
+      const owned = this.db.prepare(
+        "UPDATE owned_processes SET cleanup_state = 'CLOSED', closed_at = ?, row_version = row_version + 1 WHERE job_id = ? AND attempt_id = ? AND cleanup_state = 'ACTIVE'",
+      ).run(Date.now(), this.jobId, current.attempt_id);
+      if (owned.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native process record changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
+    });
+    tx();
     this.active = null;
   }
 }

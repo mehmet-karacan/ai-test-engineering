@@ -162,10 +162,38 @@ export class AgentTaskRepository {
       if (!job || job.location_id !== contract.location_id) {
         throw new AppError("POLICY_VIOLATION", "AgentTask job/location kimligi uyusmuyor", { reason_code: "AGENT_TASK_JOB_LOCATION_MISMATCH" });
       }
+      if (contract.parent_task_id !== null) {
+        const parent = this.db.prepare<[string], { job_id: string; project_id: string; location_id: string }>(
+          "SELECT job_id, project_id, location_id FROM agent_tasks WHERE task_id = ?",
+        ).get(contract.parent_task_id);
+        if (!parent || parent.job_id !== contract.job_id || parent.project_id !== contract.project_id || parent.location_id !== contract.location_id) {
+          throw new AppError("POLICY_VIOLATION", "AgentTask parent baska veya bilinmeyen job'a ait", {
+            reason_code: "AGENT_TASK_PARENT_INVALID",
+            parent_task_id: contract.parent_task_id,
+          });
+        }
+      }
+      for (const dependencyTaskId of contract.dependency_task_ids) {
+        const dependency = this.db.prepare<[string], { job_id: string; project_id: string; location_id: string }>(
+          "SELECT job_id, project_id, location_id FROM agent_tasks WHERE task_id = ?",
+        ).get(dependencyTaskId);
+        if (!dependency || dependency.job_id !== contract.job_id || dependency.project_id !== contract.project_id || dependency.location_id !== contract.location_id) {
+          throw new AppError("POLICY_VIOLATION", "AgentTask dependency baska veya bilinmeyen job'a ait", {
+            reason_code: "AGENT_TASK_DEPENDENCY_INVALID",
+            dependency_task_id: dependencyTaskId,
+          });
+        }
+      }
       for (const ref of contract.input_artifact_refs) {
-        const artifact = this.db.prepare<[string], { job_id: string | null }>("SELECT job_id FROM artifacts WHERE id = ?").get(ref.artifact_id);
-        if (artifact && artifact.job_id !== contract.job_id) {
+        const artifact = this.db.prepare<[string], { job_id: string | null; sha256: string; bytes: number; status: string }>("SELECT job_id, sha256, bytes, status FROM artifacts WHERE id = ?").get(ref.artifact_id);
+        if (!artifact) {
+          throw new AppError("STORAGE_ERROR", "AgentTask input artifact kaydi yok", { reason_code: "AGENT_TASK_ARTIFACT_MISSING", artifact_id: ref.artifact_id });
+        }
+        if (artifact.job_id !== contract.job_id) {
           throw new AppError("POLICY_VIOLATION", "AgentTask input artifact baska job'a ait", { reason_code: "AGENT_TASK_FOREIGN_ARTIFACT" });
+        }
+        if (artifact.sha256 !== ref.sha256 || artifact.bytes !== ref.bytes || artifact.status !== "READY") {
+          throw new AppError("POLICY_VIOLATION", "AgentTask input artifact hash/ready kimligi uyusmuyor", { reason_code: "AGENT_TASK_ARTIFACT_UNTRUSTED", artifact_id: ref.artifact_id });
         }
       }
       this.db
@@ -308,6 +336,41 @@ export class AgentTaskRepository {
       if (ordinalConflict) {
         throw new AppError("STORAGE_ERROR", "AgentTask attempt ordinal cakismasi", { reason_code: "AGENT_ATTEMPT_ORDINAL_CONFLICT" });
       }
+      const contract = parseContract(task);
+      if (!Number.isSafeInteger(input.attempt_ordinal) || input.attempt_ordinal < 1 || input.attempt_ordinal > contract.budget.max_attempts || input.attempt_ordinal > contract.budget.remaining_attempts) {
+        throw new AppError("POLICY_VIOLATION", "AgentTask attempt butcesi asildi", {
+          reason_code: "AGENT_ATTEMPT_BUDGET_EXCEEDED",
+          task_id: input.task_id,
+          attempt_ordinal: input.attempt_ordinal,
+          max_attempts: contract.budget.max_attempts,
+          remaining_attempts: contract.budget.remaining_attempts,
+        });
+      }
+      const previous = this.db
+        .prepare<[string], { model_id: string; model_revision: number; started_at: number }>(
+          "SELECT model_id, model_revision, started_at FROM agent_attempts WHERE task_id = ? ORDER BY attempt_ordinal DESC LIMIT 1",
+        )
+        .get(input.task_id);
+      if (previous && (previous.model_id !== input.model_id || previous.model_revision !== input.model_revision)) {
+        const approved = this.db
+          .prepare<[string, number, string, string, string], { approval_id: string }>(
+            `SELECT approval_id FROM job_approvals
+             WHERE job_id = ? AND approval_kind = 'MODEL_CHANGE' AND decision = 'APPROVED' AND created_at >= ?
+               AND scope_digest = ? AND model_digest = ? AND budget_digest = ?
+             ORDER BY created_at DESC, approval_id DESC LIMIT 1`,
+          )
+          .get(task.job_id, previous.started_at, digest(contract.allowed_context_scope), digest({ provider_id: input.provider_id, model_id: input.model_id, revision: input.model_revision }), digest(contract.budget));
+        if (!approved) {
+          throw new AppError("POLICY_VIOLATION", "AgentTask model degisikligi acik onay olmadan baslatilamaz", {
+            reason_code: "MODEL_CHANGE_APPROVAL_REQUIRED",
+            task_id: input.task_id,
+            previous_model_id: previous.model_id,
+            previous_model_revision: previous.model_revision,
+            requested_model_id: input.model_id,
+            requested_model_revision: input.model_revision,
+          });
+        }
+      }
       this.db
         .prepare(
           `INSERT INTO agent_attempts (
@@ -344,6 +407,42 @@ export class AgentTaskRepository {
     return tx();
   }
 
+  /**
+   * S04/WN40: restart/resume girisinde suresi dolmus calisan task'lari
+   * deterministik olarak INTERRUPTED'a alir. Lease'i halen gecerli task'a
+   * dokunulmaz; yeni owner claimTask ile yeni fence/attempt alir.
+   */
+  recoverExpiredTasks(jobId: string, now = Date.now()): AgentTaskRow[] {
+    if (!Number.isSafeInteger(now) || now < 0) {
+      throw new AppError("INVALID_PARAMETERS", "Recovery zamani gecersiz");
+    }
+    const tx = this.db.transaction((): AgentTaskRow[] => {
+      const rows = this.db
+        .prepare<[string, number], AgentTaskDbRow>(
+          `SELECT * FROM agent_tasks
+           WHERE job_id = ? AND state = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
+           ORDER BY created_at, task_id`,
+        )
+        .all(jobId, now);
+      for (const row of rows) {
+        const updated = this.db
+          .prepare(
+            `UPDATE agent_tasks
+             SET state = 'INTERRUPTED', lease_owner_id = NULL, lease_expires_at = NULL,
+                 revision = revision + 1, updated_at = ?, row_version = row_version + 1
+             WHERE task_id = ? AND state = 'RUNNING' AND row_version = ?
+               AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`,
+          )
+          .run(now, row.task_id, row.row_version, now);
+        if (updated.changes !== 1) {
+          throw new AppError("POLICY_VIOLATION", "Expired AgentTask recovery CAS basarisiz", { reason_code: "AGENT_TASK_RECOVERY_CAS_CONFLICT" });
+        }
+      }
+      return rows.map((row) => toTaskRow(this.rawTaskById(row.task_id) as AgentTaskDbRow));
+    });
+    return tx();
+  }
+
   completeTask(input: CompleteAgentTaskInput): AgentTaskRow {
     const parsedResult = AgentTaskResultSchema.parse(input.result);
     const finishedAt = input.finished_at ?? Date.now();
@@ -366,11 +465,19 @@ export class AgentTaskRepository {
         throw leaseError("STALE_FENCE", "AgentTask sonucu bilinmeyen veya stale attempt tasiyor");
       }
       const acceptedArtifactId = parsedResult.artifact_refs.find((ref) => {
-        const artifact = this.db.prepare<[string], { id: string; job_id: string | null }>("SELECT id, job_id FROM artifacts WHERE id = ?").get(ref.artifact_id);
-        if (artifact && artifact.job_id !== parsedResult.job_id) {
+        const artifact = this.db.prepare<[string], { id: string; job_id: string | null; sha256: string; bytes: number; status: string }>(
+          "SELECT id, job_id, sha256, bytes, status FROM artifacts WHERE id = ?",
+        ).get(ref.artifact_id);
+        if (!artifact) {
+          throw new AppError("STORAGE_ERROR", "AgentTask output artifact kaydi yok", { reason_code: "AGENT_TASK_ARTIFACT_MISSING", artifact_id: ref.artifact_id });
+        }
+        if (artifact.job_id !== parsedResult.job_id) {
           throw new AppError("POLICY_VIOLATION", "AgentTask output artifact baska job'a ait", { reason_code: "AGENT_TASK_FOREIGN_ARTIFACT" });
         }
-        return artifact !== undefined;
+        if (artifact.sha256 !== ref.sha256 || artifact.bytes !== ref.bytes || artifact.status !== "READY") {
+          throw new AppError("POLICY_VIOLATION", "AgentTask output artifact hash/ready kimligi uyusmuyor", { reason_code: "AGENT_TASK_ARTIFACT_UNTRUSTED", artifact_id: ref.artifact_id });
+        }
+        return true;
       })?.artifact_id ?? null;
       const attemptUpdate = this.db
         .prepare(

@@ -134,7 +134,7 @@ describe("S03 metadata inventory phase A", () => {
     } finally { removeFixture(sandbox); }
   });
 
-  it.fails("WN28: a persisted generation must not omit a row after deletion between pages", async () => {
+  it("WN28: a persisted generation must not omit a row after deletion between pages", async () => {
     const sandbox = mkdtempSync(join(tmpdir(), "wn-inventory-cursor-drift-"));
     try {
       const root = join(sandbox, "root");

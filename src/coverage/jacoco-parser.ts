@@ -56,15 +56,53 @@ function toInt(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function parseCounterInteger(value: unknown, counterType: string, attribute: "missed" | "covered"): number {
+  const text = String(value ?? "");
+  if (!/^\d+$/.test(text)) {
+    throw new AppError("INVALID_COVERAGE_EVIDENCE", `JaCoCo ${counterType}.${attribute} sayaci gecersiz: ${text || "missing"}`, {
+      reason_code: "JACOCO_COUNTER_INVALID",
+      counter_type: counterType,
+      attribute,
+    });
+  }
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new AppError("INVALID_COVERAGE_EVIDENCE", `JaCoCo ${counterType}.${attribute} sayaci guvenli aralik disinda`, {
+      reason_code: "JACOCO_COUNTER_INVALID",
+      counter_type: counterType,
+      attribute,
+    });
+  }
+  return parsed;
+}
+
 function parseCounters(raw: unknown): Counter[] {
   if (!raw || !Array.isArray(raw)) {
     return [];
   }
-  return raw.map((c: Record<string, unknown>) => ({
-    type: String(c["@_type"] ?? "") as CounterKind,
-    missed: toInt(c["@_missed"]),
-    covered: toInt(c["@_covered"]),
-  })).filter((c: Counter) => ["LINE", "BRANCH", "INSTRUCTION", "COMPLEXITY", "METHOD", "CLASS"].includes(c.type));
+  const supported = new Set<CounterKind>(["LINE", "BRANCH", "INSTRUCTION", "COMPLEXITY", "METHOD", "CLASS"]);
+  const seen = new Set<CounterKind>();
+  const counters: Counter[] = [];
+  for (const rawCounter of raw) {
+    const c = rawCounter as Record<string, unknown>;
+    const type = String(c["@_type"] ?? "") as CounterKind;
+    if (!supported.has(type)) {
+      continue;
+    }
+    if (seen.has(type)) {
+      throw new AppError("INVALID_COVERAGE_EVIDENCE", `JaCoCo counter tekrari: ${type}`, {
+        reason_code: "JACOCO_COUNTER_DUPLICATE",
+        counter_type: type,
+      });
+    }
+    seen.add(type);
+    counters.push({
+      type,
+      missed: parseCounterInteger(c["@_missed"], type, "missed"),
+      covered: parseCounterInteger(c["@_covered"], type, "covered"),
+    });
+  }
+  return counters;
 }
 
 function arrayify<T>(value: T | T[] | undefined): T[] {

@@ -602,6 +602,18 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
   CREATE INDEX IF NOT EXISTS idx_worker_attempts_task ON worker_attempts(task_id, attempt_ordinal);
   `,
     },
+  {
+    version: 9,
+    name: "envanter-dosya-kimligi-makbuzlari",
+    sql: `
+  -- S03/WN25-WN30: trusted native FileId receipts are durable per inventory row.
+  -- Nullable columns preserve metadata-only scans where the native helper is unavailable.
+  ALTER TABLE file_inventory ADD COLUMN native_volume_serial TEXT;
+  ALTER TABLE file_inventory ADD COLUMN native_file_id TEXT;
+  ALTER TABLE file_inventory ADD COLUMN native_link_count INTEGER;
+  ALTER TABLE file_inventory ADD COLUMN native_bytes INTEGER;
+  `,
+    },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

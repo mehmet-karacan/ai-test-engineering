@@ -560,7 +560,9 @@ export function buildSummary(data: ReportData): string {
     ...data.targets.map((t) => `  ${t.fqn}: LINE ${t.line ? `${t.line.covered}/${t.line.total} ${(t.line.bps / 100).toFixed(2)}%` : "N/A"} | BRANCH ${t.branch ? `${t.branch.covered}/${t.branch.total} ${(t.branch.bps / 100).toFixed(2)}%` : "N/A"}`),
     "",
     `Iterasyon: ${data.iterations.length} (kabul: ${data.iterations.filter((i) => i.decision === "adopted").length}, red: ${data.iterations.filter((i) => i.decision === "rejected").length})`,
-    `Run: ${data.run_summary.total} test, ${data.run_summary.passed} gecti, ${data.run_summary.failed} basarisiz`,
+    `Run: ${data.run_summary.total} test, ${data.run_summary.passed} gecti, ${data.run_summary.failed} basarisiz, ${data.run_summary.skipped} atlandi`,
+    `Test eklenen: ${data.tests_added}`,
+    `Test degisen: ${data.tests_modified}`,
     `Production degisikligi: ${data.production_changed_files}`,
   ];
   return lines.join("\n") + "\n";

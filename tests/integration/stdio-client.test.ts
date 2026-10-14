@@ -76,11 +76,13 @@ describe("stdio MCP entegrasyonu (gercek client)", () => {
     expect(textContent).toBeDefined();
     const parsed = JSON.parse((textContent as { type: "text"; text: string }).text) as {
       status: string;
-      data?: { inventory?: { kind?: string; module_count?: number } };
+      data?: { inventory?: { kind?: string; module_count?: number; metadata_scan?: { complete?: boolean; scan_id?: string } | null } };
     };
     expect(parsed.status).toBe("ok");
     expect(parsed.data?.inventory?.kind).toBe("maven_single");
     expect(parsed.data?.inventory?.module_count).toBe(1);
+    expect(parsed.data?.inventory?.metadata_scan?.scan_id).toBeTruthy();
+    expect(parsed.data?.inventory?.metadata_scan?.complete).toBe(true);
   });
 
   it("test_start job baslatmali, hedefi cozmeli ve idempotent olmali", async () => {

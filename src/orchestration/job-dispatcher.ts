@@ -11,6 +11,7 @@ import { AppError } from "../domain/errors.js";
 import type { Services } from "../application/services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { InventoryRepository, type RunOutputTruncation } from "../storage/inventory-repository.js";
+import { AgentTaskRepository } from "../storage/agent-task-repository.js";
 import { recordTerminalRunOutput, terminalOutputFromError } from "./terminal-run-output.js";
 import { LeaseManager } from "./lease-manager.js";
 import { CheckpointStore, resumeBudgetFromManifest, type AcceptedBlob } from "./checkpoint-store.js";
@@ -1296,6 +1297,18 @@ export class JobDispatcher {
     const snapshotManifest = snapshot.buildManifest();
     const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
     const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity });
+    // S04/WN40: session/process kaybi sonrasi lease'i bitmis agent task'lari
+    // resume dispatch'e girmeden once INTERRUPTED olarak kapat. Yeni scheduler
+    // ayni task'i claimTask ile yeni fence ve attempt ordinal'iyle devralir.
+    const recoveredAgentTasks = new AgentTaskRepository(storage.db).recoverExpiredTasks(job.id);
+    if (recoveredAgentTasks.length > 0) {
+      jobs.appendEvent({
+        job_id: job.id,
+        event_type: "agent_tasks_recovered",
+        phase: job.phase,
+        origin: "resumeDispatch",
+      });
+    }
     if (this.runnerKind === "windows_native" && plan.checkpoint_manifest) {
       const pinned = new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id);
       if (plan.checkpoint_manifest.toolchain["native_maven"] !== pinned.identity) {

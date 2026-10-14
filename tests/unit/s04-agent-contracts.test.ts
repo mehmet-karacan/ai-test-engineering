@@ -4,11 +4,12 @@ import { AgentTaskContractSchema, AgentTaskResultSchema, InventoryScanResultSche
 
 function contractFixture() {
   const jobId = randomUUID();
+  const snapshotId = randomUUID();
   return {
     schema_version: 1 as const, task_id: randomUUID(), job_id: jobId, project_id: randomUUID(), location_id: randomUUID(),
-    job_revision: 3, source_snapshot_id: randomUUID(), source_digest: "a".repeat(64), role: "reviewer" as const,
+    job_revision: 3, source_snapshot_id: snapshotId, source_digest: "a".repeat(64), role: "reviewer" as const,
     parent_task_id: null, dependency_task_ids: [], input_artifact_refs: [],
-    allowed_context_scope: { snapshot_id: randomUUID(), root_digest: "b".repeat(64), relative_paths: ["src/A.java"],
+    allowed_context_scope: { snapshot_id: snapshotId, root_digest: "b".repeat(64), relative_paths: ["src/A.java"],
       line_ranges: [{ relative_path: "src/A.java", start: 1, end: 20 }], max_bytes: 4096, secrets_excluded: true as const },
     expected_output_schema: "agent-task-result-v1",
     budget: { max_attempts: 3, remaining_attempts: 2, max_minutes: 20, remaining_minutes: 20, max_output_bytes: 6144 },
@@ -27,6 +28,11 @@ describe("S04 agent runtime contract", () => {
     const fixture = contractFixture();
     const bad = { ...fixture, parent_task_id: fixture.task_id, input_artifact_refs: [{ artifact_id: randomUUID(), job_id: randomUUID(), kind: "ctx", sha256: "a".repeat(64), bytes: 1, schema_version: "1" }] };
     expect(() => AgentTaskContractSchema.parse(bad)).toThrow();
+  });
+
+  it("context snapshot'i source snapshot'tan ayrilamaz", () => {
+    const fixture = contractFixture();
+    expect(() => AgentTaskContractSchema.parse({ ...fixture, allowed_context_scope: { ...fixture.allowed_context_scope, snapshot_id: randomUUID() } })).toThrow(/snapshot/i);
   });
 
   it("result ozetini UTF-8 6 KiB ile sinirlar ve fence eslesmesini ister", () => {

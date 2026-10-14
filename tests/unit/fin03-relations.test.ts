@@ -80,8 +80,8 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
     };
   }
 
-  it("schema v8: coverage + envanter + ajan gorev iliskileri var", () => {
-    expect(storage.schemaVersion()).toBe(8);
+  it("schema v9: coverage + envanter + ajan gorev iliskileri var", () => {
+    expect(storage.schemaVersion()).toBe(9);
     const tables = storage.db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
@@ -361,7 +361,7 @@ describe("FIN03: migration v2 + gercek veri akisi", () => {
 
   it("migration idempotent: migrate tekrar cagrildiginda hata yok", () => {
     expect(() => storage.migrate()).not.toThrow();
-    expect(storage.schemaVersion()).toBe(8);
+    expect(storage.schemaVersion()).toBe(9);
   });
 
   it("future schema fail-closed: bilinmeyen yuksek version yazmayi durdurur", () => {

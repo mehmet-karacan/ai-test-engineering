@@ -10,7 +10,7 @@ import { PatchApplier } from "../application/patch-applier.js";
 import { assertQualityGate, isSutShadowing, type QualityFinding } from "../policies/quality-gate.js";
 import { MavenRunner, strictTestExecutionProperties, type RunResult } from "../runners/maven-runner.js";
 import { parseJacocoXml, findClassInReport } from "../coverage/jacoco-parser.js";
-import { summarizeTestReports, assertCoverageConfigured, buildPlan, type SurefireSuite } from "../orchestration/build-plan.js";
+import { summarizeTestReports, assertCoverageConfigured, buildPlan, classifyTestRun, type SurefireSuite } from "../orchestration/build-plan.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 
 export interface IterationBudget {
@@ -749,6 +749,38 @@ export class CandidateLoop {
         coverage_report_path: join(candidateWorkspace, options.target_module_path, "target", "site", "jacoco", "jacoco.xml"),
       });
       const regressionFailures = suites.flatMap((s) => s.failed_test_names);
+      const testClassification = classifyTestRun(run, testSummary);
+
+      // WN55/WN57: exit 0, bozuk rapor veya tamamen skip edilmis testleri
+      // coverage kazanimi olarak kullanma. Failed run'lar asagidaki mevcut
+      // regression/non-zero yollarinda ayrintili feedback almaya devam eder.
+      if (testClassification.status === "UNSTABLE") {
+        const reason = `Maven test sonucu gecersiz: ${testClassification.reason_code ?? testClassification.status}`;
+        options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: null });
+        iterations.push({
+          attempt_ordinal: attemptOrdinal,
+          iteration,
+          repair_for_attempt: currentFeedback?.repair_ordinal ?? null,
+          decision: "rejected",
+          reason,
+          coverage_before_bps: bestCoverageBps,
+          coverage_after_bps: null,
+          quality_findings: [],
+          regression_failures: regressionFailures,
+          run_exit_code: run.exit_code,
+        });
+        const retry = scheduleRetry({
+          previous_failure: reason,
+          failed_tests: regressionFailures,
+          quality_findings: [],
+          run_exit_code: run.exit_code,
+          coverage_after_bps: null,
+        });
+        if (retry === "stop") {
+          break;
+        }
+        continue;
+      }
 
       const afterCoverage = this.workspaceCoverage(candidateWorkspace, options.target_fqn, options.target_module_path, runStartedAt, options.target_relative_path ? basename(options.target_relative_path) : undefined, options.target_relative_path);
       afterBps = basisPointsFrom(afterCoverage?.line);

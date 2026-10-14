@@ -20,6 +20,7 @@ import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { collectJavaFiles, scanJavaFile, scanTestFile } from "../discovery/java-inventory.js";
 import { buildFrozenTargetList, type ConcreteTarget } from "../discovery/target-resolver.js";
 import { InventoryQueryService } from "./inventory-query.js";
+import { InventoryScanService } from "./inventory-scan-service.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
@@ -88,6 +89,7 @@ export interface ProjectInspectResult {
     build_files: string[];
     module_count: number;
     snapshot_id: string | null;
+    metadata_scan: import("../domain/agent-contracts.js").InventoryScanResult | null;
   };
   preflight: {
     status: "ok" | "blocked";
@@ -118,6 +120,7 @@ export async function handleProjectInspect(input: unknown, services: Services): 
 
   let projectId: string;
   let snapshotId: string | null = null;
+  let metadataScan: import("../domain/agent-contracts.js").InventoryScanResult | null = null;
   if (services.storage) {
     const projects = new ProjectRepository(services.storage.db);
     const { project, location } = projects.ensureLocation(
@@ -166,6 +169,19 @@ export async function handleProjectInspect(input: unknown, services: Services): 
           }
         }
       }
+      // S03/WN25-WN31: refresh istegi metadata envanterini kalici generation/page
+      // store'a yazar. Parser/source snapshot ile metadata envanteri ayridir;
+      // tarama kaynak kokune yazmaz ve partial sonucu saklar.
+      const requiredHashPaths = [".mvn/maven.config", ".mvn/wrapper/maven-wrapper.properties"]
+        .filter((path) => existsSync(resolve(canonicalRoot, path)));
+      metadataScan = await new InventoryScanService(inventory).scan({
+        project_id: projectId,
+        location_id: location.id,
+        root_path: canonicalRoot,
+        required_hash_paths: requiredHashPaths,
+        page_size: 250,
+        owner_id: `project-inspect:${process.pid}`,
+      });
     }
   } else {
     projectId = requestDigest({ root: canonicalRoot }).slice(0, 36);
@@ -179,6 +195,7 @@ export async function handleProjectInspect(input: unknown, services: Services): 
       build_files: modules.length > 0 ? modules.map((m) => `${m.module_relative_path || "."} -> ${m.artifact_id}`) : [],
       module_count: modules.length,
       snapshot_id: snapshotId,
+      metadata_scan: metadataScan,
     },
     preflight: { status: "ok", reasons: [] },
   };

@@ -85,6 +85,26 @@ describe("W09/N61: PS1'siz temiz kurulum", () => {
     expect(content).toContain("AITEST_CONFIG");
     expect(content).toContain("AITEST_DB_PATH");
   });
+
+  it("install/verify/uninstall Windows disinda state degisikligine baslamadan fail-closed olur", () => {
+    const install = readFileSync(join(repoRoot, "scripts", "install.mjs"), "utf8");
+    const verify = readFileSync(join(repoRoot, "scripts", "verify-install.mjs"), "utf8");
+    const uninstall = readFileSync(join(repoRoot, "scripts", "uninstall.mjs"), "utf8");
+
+    expect(install).toMatch(/if \(process\.platform !== "win32"\)/);
+    expect(install.indexOf("process.platform !== \"win32\"")).toBeLessThan(install.indexOf('runNpm(["ci"'));
+    expect(install).toContain("BLOCKED: Windows native kurulum");
+
+    expect(verify).toMatch(/if \(process\.platform !== "win32"\)/);
+    expect(verify.indexOf("process.platform !== \"win32\"")).toBeLessThan(verify.indexOf("resolveRuntimeRoot"));
+    expect(verify).toContain("BLOCKED: Windows native kurulum");
+
+    expect(uninstall).toMatch(/if \(process\.platform !== "win32"\)/);
+    expect(uninstall.indexOf("process.platform !== \"win32\"")).toBeLessThan(uninstall.indexOf("ownedUninstall(installManifestPath)"));
+    expect(uninstall.indexOf("import(\"../dist/configuration/config-merge.js\")")).toBeGreaterThan(uninstall.indexOf("process.platform !== \"win32\""));
+    expect(uninstall.indexOf("import(\"../dist/configuration/runtime-paths.js\")")).toBeGreaterThan(uninstall.indexOf("process.platform !== \"win32\""));
+    expect(uninstall).toContain("BLOCKED: Windows native kaldirma");
+  });
 });
 
 describe("W09/N61+N51: rapor asset paketi", () => {

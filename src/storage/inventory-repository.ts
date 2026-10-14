@@ -48,6 +48,10 @@ export interface DurableFileInventoryRow {
   sensitivity: "PUBLIC" | "INTERNAL" | "SENSITIVE" | "UNKNOWN";
   read_status: "READ" | "UNREADABLE" | "SKIPPED";
   parser_status: "PARSED" | "UNSUPPORTED" | "ERROR" | "NOT_APPLICABLE";
+  native_volume_serial: string | null;
+  native_file_id: string | null;
+  native_link_count: number | null;
+  native_bytes: number | null;
   tombstone: number;
   created_at: number;
   row_version: number;
@@ -68,6 +72,10 @@ function durableInventoryEntry(scanId: string, entry: FileInventoryEntry): Durab
     sensitivity: "UNKNOWN",
     read_status: readStatus,
     parser_status: "NOT_APPLICABLE",
+    native_volume_serial: entry.fileIdentity?.volumeSerial ?? null,
+    native_file_id: entry.fileIdentity?.fileId ?? null,
+    native_link_count: entry.fileIdentity?.linkCount ?? null,
+    native_bytes: entry.fileIdentity?.bytes ?? null,
     tombstone: 0,
     created_at: Date.now(),
     row_version: 0,
@@ -77,7 +85,9 @@ function durableInventoryEntry(scanId: string, entry: FileInventoryEntry): Durab
 function sameInventoryRow(left: DurableFileInventoryRow, right: DurableFileInventoryRow): boolean {
   return left.kind === right.kind && left.size === right.size && left.mtime === right.mtime && left.sha256 === right.sha256 &&
     left.hash_status === right.hash_status && left.sensitivity === right.sensitivity && left.read_status === right.read_status &&
-    left.parser_status === right.parser_status && left.tombstone === right.tombstone;
+    left.parser_status === right.parser_status && left.native_volume_serial === right.native_volume_serial &&
+    left.native_file_id === right.native_file_id && left.native_link_count === right.native_link_count &&
+    left.native_bytes === right.native_bytes && left.tombstone === right.tombstone;
 }
 
 export interface RunOutputTruncation {
@@ -161,8 +171,9 @@ export class InventoryRepository {
             `INSERT INTO file_inventory (
                scan_id, canonical_relative_path, kind, size, mtime, sha256,
                hash_status, sensitivity, read_status, parser_status, tombstone,
-               created_at, row_version
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'UNKNOWN', ?, ?, 0, ?, 0)
+               created_at, row_version, native_volume_serial, native_file_id,
+               native_link_count, native_bytes
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'UNKNOWN', ?, ?, 0, ?, 0, ?, ?, ?, ?)
              ON CONFLICT(scan_id, canonical_relative_path) DO NOTHING`,
           )
           .run(
@@ -176,6 +187,10 @@ export class InventoryRepository {
             normalized.read_status,
             normalized.parser_status,
             normalized.created_at,
+            normalized.native_volume_serial,
+            normalized.native_file_id,
+            normalized.native_link_count,
+            normalized.native_bytes,
           );
         if (result.changes === 1) {
           inserted++;
@@ -189,6 +204,12 @@ export class InventoryRepository {
         }
       }
       const lastKey = page.entries.length > 0 ? page.entries[page.entries.length - 1]!.relativePath : scan.last_key;
+      let priorErrors: Array<{ relativePath: string; code: string }> = [];
+      try {
+        const parsed: unknown = JSON.parse(scan.errors_json);
+        if (Array.isArray(parsed)) priorErrors = parsed as Array<{ relativePath: string; code: string }>;
+      } catch { /* a malformed diagnostic history must not abort the page append */ }
+      const allErrors = [...priorErrors, ...page.errors].slice(0, 512);
       const updated = this.db
         .prepare(
           `UPDATE inventory_scans
@@ -196,7 +217,7 @@ export class InventoryRepository {
                errors_json = ?, row_version = row_version + 1
            WHERE scan_id = ? AND state = 'STAGING' AND owner_id = ? AND fence_token = ? AND row_version = ?`,
         )
-        .run(lastKey, inserted, page.errors.length, JSON.stringify(page.errors), scanId, ownerId, fenceToken, scan.row_version);
+        .run(lastKey, inserted, page.errors.length, JSON.stringify(allErrors), scanId, ownerId, fenceToken, scan.row_version);
       if (updated.changes !== 1) {
         throw new AppError("POLICY_VIOLATION", "Inventory page fence/row_version cakismasi", { reason_code: "INVENTORY_CAS_CONFLICT" });
       }
@@ -252,6 +273,80 @@ export class InventoryRepository {
       return this.db.prepare<[string, number], DurableFileInventoryRow>("SELECT * FROM file_inventory WHERE scan_id = ? ORDER BY canonical_relative_path LIMIT ?").all(scanId, limit);
     }
     return this.db.prepare<[string, string, number], DurableFileInventoryRow>("SELECT * FROM file_inventory WHERE scan_id = ? AND canonical_relative_path > ? ORDER BY canonical_relative_path LIMIT ?").all(scanId, afterPath, limit);
+  }
+
+  /** Return the newest sealed generation before an optional generation. */
+  getLatestSealedInventoryScan(locationId: string, beforeGeneration?: number): InventoryScanRow | null {
+    const row = beforeGeneration === undefined
+      ? this.db.prepare<[string], InventoryScanRow>(
+        "SELECT * FROM inventory_scans WHERE location_id = ? AND state <> 'STAGING' ORDER BY generation DESC LIMIT 1",
+      ).get(locationId)
+      : this.db.prepare<[string, number], InventoryScanRow>(
+        "SELECT * FROM inventory_scans WHERE location_id = ? AND generation < ? AND state <> 'STAGING' ORDER BY generation DESC LIMIT 1",
+      ).get(locationId, beforeGeneration);
+    return row ?? null;
+  }
+
+  /** Allocate the next monotonic generation without opening a write transaction. */
+  nextInventoryGeneration(locationId: string): number {
+    const row = this.db.prepare<[string], { generation: number | null }>(
+      "SELECT MAX(generation) AS generation FROM inventory_scans WHERE location_id = ?",
+    ).get(locationId);
+    const next = (row?.generation ?? 0) + 1;
+    if (!Number.isSafeInteger(next) || next < 1) throw new AppError("STORAGE_ERROR", "Inventory generation tasti");
+    return next;
+  }
+
+  /**
+   * Reconcile a sealed generation against its predecessor. Missing paths are
+   * copied as tombstones, preserving the old metadata and making deletes and
+   * renames visible without mutating the immutable predecessor.
+   */
+  appendInventoryTombstones(scanId: string, ownerId: string, fenceToken: number, previousScanId: string | null): InventoryScanRow {
+    if (!previousScanId) return this.getInventoryScan(scanId);
+    const tx = this.db.transaction((): InventoryScanRow => {
+      const scan = this.getInventoryScan(scanId);
+      if (scan.state !== "STAGING") throw new AppError("STORAGE_ERROR", "Sealed inventory scan'e tombstone eklenemez", { reason_code: "GENERATION_SEALED" });
+      this.assertInventoryLease(scan, ownerId, fenceToken);
+      const previous = this.db.prepare<[string], InventoryScanRow>("SELECT * FROM inventory_scans WHERE scan_id = ?").get(previousScanId);
+      if (!previous || previous.location_id !== scan.location_id || previous.project_id !== scan.project_id || previous.state === "STAGING") {
+        throw new AppError("STORAGE_ERROR", "Inventory predecessor identity gecersiz", { reason_code: "STALE_GENERATION" });
+      }
+      const oldRows = this.db.prepare<[string], DurableFileInventoryRow>(
+        "SELECT * FROM file_inventory WHERE scan_id = ? AND tombstone = 0 ORDER BY canonical_relative_path",
+      ).all(previousScanId);
+      const currentPaths = new Set(this.db.prepare<[string], { canonical_relative_path: string }>(
+        "SELECT canonical_relative_path FROM file_inventory WHERE scan_id = ? AND tombstone = 0",
+      ).all(scanId).map((row) => row.canonical_relative_path));
+      const insert = this.db.prepare(
+        `INSERT INTO file_inventory (
+           scan_id, canonical_relative_path, kind, size, mtime, sha256,
+           hash_status, sensitivity, read_status, parser_status, tombstone,
+           created_at, row_version, native_volume_serial, native_file_id,
+           native_link_count, native_bytes
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, ?, ?, ?, ?)
+         ON CONFLICT(scan_id, canonical_relative_path) DO NOTHING`,
+      );
+      for (const row of oldRows) {
+        if (currentPaths.has(row.canonical_relative_path)) continue;
+        insert.run(scanId, row.canonical_relative_path, row.kind, row.size, row.mtime, row.sha256,
+          row.hash_status, row.sensitivity, row.read_status, row.parser_status, Date.now(),
+          row.native_volume_serial, row.native_file_id, row.native_link_count, row.native_bytes);
+      }
+      return this.getInventoryScan(scanId);
+    });
+    return tx();
+  }
+
+  /** Stable digest over persisted metadata, including tombstones. */
+  inventoryDigest(scanId: string): string {
+    const rows = this.db.prepare<[string], DurableFileInventoryRow>(
+      "SELECT * FROM file_inventory WHERE scan_id = ? ORDER BY canonical_relative_path, tombstone",
+    ).all(scanId);
+    const canonical = rows.map((row) => [row.canonical_relative_path, row.kind, row.size, row.mtime, row.sha256,
+      row.hash_status, row.sensitivity, row.read_status, row.parser_status, row.native_volume_serial,
+      row.native_file_id, row.native_link_count, row.native_bytes, row.tombstone]);
+    return createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex");
   }
 
   private assertInventoryLease(scan: InventoryScanRow, ownerId: string, fenceToken: number): void {

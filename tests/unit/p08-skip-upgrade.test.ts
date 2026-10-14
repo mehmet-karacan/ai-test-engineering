@@ -1,8 +1,8 @@
 /**
  * P08/PP44 kalan kanit: gercek surum-atlayi upgrade/rollback e2e (yerel better-sqlite3).
  * - v1 schema DB (eski binary'nin urettigi tablolar) fiziksel olusturulur; guncel
- *   binary DB'yi acip v1->v8 migrate eder; trusted job verisi korunur (PP44).
- * - Eski binary senaryosu: v8 DB'nin migration kayitlari bozulursa (downgrade
+ *   binary DB'yi acip v1->v9 migrate eder; trusted job verisi korunur (PP44).
+ * - Eski binary senaryosu: v9 DB'nin migration kayitlari bozulursa (downgrade
  *   etiketi) migrate checksum uyusmazligi ile fail-closed olur (rollback yazim korumasi).
  * - Rollback: upgrade sonrasi online backup restore ile trusted veri geri gelir.
  * Gercek Windows CMD install + ayri OS process binary e2e ayri runtime kabul olarak
@@ -25,7 +25,7 @@ function checksumOf(sql: string): string {
   return createHash("sha256").update(sql, "utf8").digest("hex").slice(0, CHECKSUM_SLICE);
 }
 
-describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v8 migrate)", () => {
+describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v9 migrate)", () => {
   let dir: string;
   let dbPath: string;
   let artifactRoot: string;
@@ -68,18 +68,18 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v8 migrate)", (
     }
   });
 
-  it("upgrade: guncel binary v1 DB'yi v8'e migrate eder; trusted job verisi korunur", () => {
+  it("upgrade: guncel binary v1 DB'yi v9'a migrate eder; trusted job verisi korunur", () => {
     const upgraded = new Storage({ dbPath });
     upgraded.migrate();
     try {
-      expect(upgraded.schemaVersion()).toBe(8);
+      expect(upgraded.schemaVersion()).toBe(9);
       const integrity = upgraded.db.pragma("integrity_check", { simple: true });
       expect(integrity).toBe("ok");
       const versions = upgraded.db
         .prepare<[], { version: number }>("SELECT version FROM schema_migrations ORDER BY version")
         .all()
       .map((r) => r.version);
-      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
       const jobRow = upgraded.db.prepare<[], { lifecycle: string }>("SELECT lifecycle FROM test_jobs WHERE id = ?").get(jobId);
       expect(jobRow?.lifecycle).toBe("COMPLETED");
       // v4 frozen targets tablosu v1 verisiyle ayni DB'de olusur; eski job'a dokunulmemis:
@@ -93,14 +93,14 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v8 migrate)", (
   });
 
   it("rollback korumasi: migration kaydi bozulmus (downgrade benzeri) DB fail-closed acilmaz", () => {
-    // Once guncel binary ile v8'e cik:
+    // Once guncel binary ile v9'a cik:
     const upgraded = new Storage({ dbPath });
     upgraded.migrate();
     upgraded.close();
-    // Eski binary'nin "gormedigi" v8 kaydini boz (checksum/len uyumsuz); migrate tekrar fail-closed:
+    // Eski binary'nin "gormedigi" v9 kaydini boz (checksum/len uyumsuz); migrate tekrar fail-closed:
     const reopened = new Database(dbPath);
     reopened
-      .prepare("UPDATE schema_migrations SET checksum = ? WHERE version = 8")
+      .prepare("UPDATE schema_migrations SET checksum = ? WHERE version = 9")
       .run("0".repeat(64));
     reopened.close();
     const guarded = new Storage({ dbPath });
@@ -114,7 +114,7 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v8 migrate)", (
 
   it("rollback: upgrade sonrasi online backup restore ile trusted veri geri gelir", async () => {
     const { createBackup, restoreBackup, verifyBackup } = await import("../../src/storage/lifecycle-ops.js");
-    // Upgrade: v1 -> v8:
+    // Upgrade: v1 -> v9:
     const upgraded = new Storage({ dbPath });
     upgraded.migrate();
     // Trusted job'u artifact'e bagla (backup pin zinciri READY blob ister):
@@ -139,7 +139,7 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v8 migrate)", (
     await restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
     const restored = new Storage({ dbPath: restoredDb });
     try {
-      expect(restored.schemaVersion()).toBe(8);
+      expect(restored.schemaVersion()).toBe(9);
       const jobRow = restored.db.prepare<[], { lifecycle: string }>("SELECT lifecycle FROM test_jobs WHERE id = ?").get(jobId);
       expect(jobRow?.lifecycle).toBe("COMPLETED");
       const restoredBlob = restored.db
