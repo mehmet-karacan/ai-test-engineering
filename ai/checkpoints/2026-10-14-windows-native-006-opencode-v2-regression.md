@@ -21,6 +21,7 @@ Branch: `codex/windows-native-006`
 - `npm.cmd run build`: PASS.
 - `npm.cmd exec -- vitest run tests/unit/p01-release-gate.test.ts --maxWorkers=1`: **40/40 PASS**.
 - `node scripts/release-verify.mjs --local`: **LOCAL_PASS** (391 ID yapisal/fixture kapisi).
+- `node scripts/release-verify.mjs`: **NO_GO**; `EVIDENCE_MANIFEST_EKSIK`, mandatory **391**, verified **0**, missing **391**.
 - Tek isci full regression: **118 dosya, 945/950 PASS**. Kalan 5 fail: RG41/RG42 canli pilot, AC67 gercek model stdout evidence (2) ve eski kosunun build stamp kaynakli P01 testi; build sonrasi P01 40/40 PASS.
 
 ## Acik kapilar

@@ -52,6 +52,7 @@ Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G
 - Worker server artik kaldirilmis `--pure` flag'ini gondermiyor; XDG izolasyonu korunuyor, Windows'ta kurulu `@opencode/cli/bin/opencode.exe` ve eski `opencode-ai` yolu taniniyor. Worker sifresi process-local uretiliyor, loglanmiyor.
 - Gercek OpenCode smoke: **3/3 PASS**; S05/S04 worker odak suite: **33/33 PASS**; P05-B: **13/13 PASS**.
 - Tek isci tam regresyon: **118 dosya, 945/950 PASS**. Yerel kod acigi kalmadi; kalan 5 test canli model/pilot veya evidence kapisi. Build + P01 odak **40/40 PASS**, `release-verify --local` **LOCAL_PASS**.
+- Full `release-verify` yeniden calistirildi: **NO_GO**, neden tek ve acik `EVIDENCE_MANIFEST_EKSIK`; verifier mandatory evreni **391**, verified **0**, missing **391** raporladi. Manifest uydurulmadi.
 
 ## Tarihsel 005 kaydi (korunur)
 
