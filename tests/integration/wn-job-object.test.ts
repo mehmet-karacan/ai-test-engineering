@@ -12,6 +12,9 @@ import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { JobRepository } from "../../src/storage/job-repository.js";
 import { LeaseManager } from "../../src/orchestration/lease-manager.js";
 import { NativeProcessRegistry } from "../../src/orchestration/native-process-registry.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-job-object");
 
 async function waitForFile(path: string): Promise<number> {
   for (let attempt = 0; attempt < 200; attempt += 1) {

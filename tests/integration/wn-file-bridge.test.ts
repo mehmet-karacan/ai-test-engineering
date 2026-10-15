@@ -11,6 +11,9 @@ import Database from "better-sqlite3";
 import { inspectWindowsPath, copyWindowsFile, copyWindowsOwnedFile, renameWindowsOwnedFile, verifyWindowsOwnedFile,
   deleteWindowsOwnedFile,
   packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-file-bridge");
 
 function stdoutLineReader(stdout: Readable): () => Promise<string> {
   const lines = createInterface({ input: stdout, crlfDelay: Infinity })[Symbol.asyncIterator]();

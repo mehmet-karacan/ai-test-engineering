@@ -28,6 +28,9 @@ vi.mock("../../src/storage/restore-journal.js", async (importActual) => {
 
 import { packagedWindowsFileHelper } from "../../src/discovery/windows-file-bridge.js";
 import { faultFixtureWindowsFileHelper } from "../../scripts/windows-file-helper-fault-fixture.mjs";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-restore-blob-terminal");
 import { createBackup, restoreBackup } from "../../src/storage/lifecycle-ops.js";
 import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-journal.js";
 

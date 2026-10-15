@@ -1,0 +1,12 @@
+# Windows-native-006 native test contention fix checkpoint
+
+- Tarih: 2026-10-16; urun worktree: `C:\Users\mkaracan\.codex\worktrees\windows-native-006\ai-test-engineering`; branch: `codex/windows-native-006`.
+- Koken analizi: onceki full suite session `39304` iki failure verdi: Job Object owned PID markeri 5 saniyelik fixture beklemesinde olusmadi ve restore concurrent publish testi 30 saniyelik test timeout'una girdi. `wn-job-object` + `wn-restore-atomicity` ikilisi tek basina PASS idi; restore/copy/session/native helper dosyalari ayni iki Vitest worker'inda calisinca native helper/filesystem yuku sureleri 15-50 saniyeye cikti. Kod yarisi veya urun timeout degisikligi kaniti yok.
+- Duzeltme: `tests/support/windows-native-test-lock.ts` eklendi. Windows process-heavy integration dosyalari lock'u modul yuklemesinde aliyor; farkli Vitest worker'lari ayni anda native helper/restore fixture baslatmiyor. Kilit dead owner PID'sini fail-closed reclaim ediyor ve token kontroluyle yalniz sahibi kaldiriyor. `testTimeout`, `hookTimeout`, urun timeout'lari ve skip predicate degistirilmedi.
+- Kilit kaydeden dosyalar: `wn-copy-snapshot`, `wn-file-bridge`, `wn-install-manifest-helper`, `wn-job-object`, `wn-native-runner`, `wn-restore-atomicity`, `wn-restore-blob-rollback`, `wn-restore-blob-terminal`, `wn-restore-recovery-close`, `wn-restore-session`, `wn-run-output-receipt-hardkill`, `wn-toolchain-pin`.
+- Kanit: `npm.cmd exec -- vitest run tests/integration/wn-job-object.test.ts tests/integration/wn-restore-atomicity.test.ts --maxWorkers=2 --reporter dot` -> 2 dosya/31 test PASS, 63.75s. Genis native matris (ayni maxWorkers=2): 11 dosya/115 test PASS, exit 0, 356.44s. `npm.cmd run typecheck` PASS; `git diff --check` PASS.
+- Durum: bu asama kod/urun testi degil, test kosumunun deterministik kaynak kapisi. Commit/push sonrasi ayni private AC67 model artifact'i ile `npm.cmd test -- --maxWorkers=2` final full suite en son kosulacak. Final suite sonucu alinmadan WN76/WN80 PASS/GO yazilmayacak.
+
+## Devam promptu
+
+`AGENTS.md`, `AKTIF_GOREV.md`, bu checkpoint ve handoff'u oku. Windows native integration testlerinde cross-worker helper/filesystem contention icin test-only modul yukleme lock'u eklendi. 11 dosya/115 test maxWorkers=2 ile PASS; typecheck/diff-check PASS. Once branch status ve remote'u kontrol et, bu asamanin commit/push kanitini dogrula. Sonra ayni private AC67 artifact yolu ile final full suite'i bir kez kos; sonucu WN76/WN80 ve private manifest/verifier'a gercek kanitla yaz. Customer checkout'a yazma.

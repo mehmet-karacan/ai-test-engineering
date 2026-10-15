@@ -9,6 +9,9 @@ import { inspectWindowsPath, packagedWindowsFileHelper } from "../../src/discove
 import { captureExpectedWindowsRestoreFile, startWindowsFreshRestoreMoveSession,
   startWindowsRestoreMoveSession } from "../../src/storage/windows-restore-session.js";
 import { createBackup, restoreBackup } from "../../src/storage/lifecycle-ops.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-restore-session");
 import { captureRestoreEvidence, journalPathForDb, readRestoreJournal,
   type RestoreJournalRecord } from "../../src/storage/restore-journal.js";
 import { startWindowsRestoreRecoverySession } from "../../src/storage/windows-restore-recovery-session.js";

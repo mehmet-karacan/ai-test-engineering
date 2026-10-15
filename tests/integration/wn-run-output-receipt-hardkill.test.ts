@@ -11,6 +11,9 @@ import { ProjectRepository } from "../../src/storage/project-repository.js";
 import { JobRepository } from "../../src/storage/job-repository.js";
 import { defaultRetentionPolicy, gcDryRun } from "../../src/storage/retention-gc.js";
 import { listPendingRunOutputReceipts } from "../../src/storage/run-output-receipt.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-run-output-receipt-hardkill");
 
 describe.skipIf(process.platform !== "win32")("WN21 run output receipt hard-kill", () => {
   it("leaves a durable PENDING receipt when killed after blob publication", async () => {

@@ -9,6 +9,9 @@ import { SourceSnapshot } from "../../src/discovery/source-snapshot.js";
 import { AppError } from "../../src/domain/errors.js";
 import { packagedWindowsFileHelper, inspectWindowsPath } from "../../src/discovery/windows-file-bridge.js";
 import { assertSnapshotHelperResult, packagedSnapshotHelper } from "../../src/discovery/windows-snapshot-bridge.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-copy-snapshot");
 
 function fixture(): string {
   return mkdtempSync(join(tmpdir(), "wn-copy-snapshot-"));

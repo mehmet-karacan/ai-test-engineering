@@ -18,6 +18,9 @@ import { journalPathForDb, readRestoreJournal } from "../../src/storage/restore-
 import { ArtifactStore } from "../../src/storage/artifact-store.js";
 import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 import { Storage } from "../../src/storage/storage.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-restore-atomicity");
 
 type BlobEntry = { relative_path: string; sha256: string; bytes: number };
 const faults = vi.hoisted(() => ({ tamperStagedDb: false, afterDbStageCopy: null as null | (() => void),

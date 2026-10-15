@@ -5,6 +5,9 @@ import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { MavenRunner } from "../../src/runners/maven-runner.js";
 import { AppError } from "../../src/domain/errors.js";
 import { WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-native-runner");
 
 describe.skipIf(process.platform !== "win32")("S02 MavenRunner native path", () => {
   it("uses an explicitly selected installed Maven script without Docker or wrapper", async () => {

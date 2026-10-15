@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { WindowsProcessSupervisor, processPinPaths, type NativeProcessPlan } from "../../src/runners/windows-process-supervisor.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-toolchain-pin");
 
 function snapshot(plan: NativeProcessPlan): NonNullable<NativeProcessPlan["pinnedInputs"]> {
   return processPinPaths(plan).map((path) => ({

@@ -15,6 +15,9 @@ import type { RestoreJournalRecord } from "../../src/storage/restore-journal.js"
 import { Storage } from "../../src/storage/storage.js";
 import { acquireRestoreDbLock } from "../../src/storage/maintenance-lock.js";
 import Database from "better-sqlite3";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-restore-recovery-close");
 
 describe.skipIf(process.platform !== "win32")("S01 native recovery close", () => {
   it.each([0, 1])("recovers a fresh layout at physical count %i without creating an empty DB", (physicalCount) => {

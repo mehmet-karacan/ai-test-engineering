@@ -6,6 +6,8 @@
 
 # Kabul Matrisi - AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0
 
+2026-10-16 native test contention fix: 11 agir Windows native integration dosyasi 115/115 PASS (maxWorkers=2, 356.44s) ve typecheck/diff-check PASS. Cross-worker helper/filesystem contention test-only modul yukleme kilidiyle serilestirildi; final 120 dosyalik suite henuz yeniden kosulmadi. Checkpoint `ai/checkpoints/2026-10-16-windows-native-006-native-test-contention-fix.md`.
+
 2026-10-15 WN76 green follow-up: AC67 private model response `AITEST_AC67_MODEL_OUTPUT` ile acik artifact girdisine baglandi; P08/native restore uzun Windows filesystem testleri 120s timeout ile korunuyor. Private artifact ile `npm.cmd test -- --maxWorkers=2` **120/120 dosya, 978/978 test PASS, exit 0**, 614.69s; typecheck/build/lint, diff-check ve local release PASS. WN76 test predicate PASSED; r9 SHA `465367f5233c6d2fed1eee6baaf87c67ebbfc63a9eefff4eec2510092739afad`. Full verifier WN69/WN73/platform/legacy eksikleri nedeniyle NO_GO; r9 WN75/WN76 artifact/hash/bytes dogrulandi.
 
 2026-10-15 WN76 controlled worker: maxWorkers=4 tam suite 120 dosya, 975/978 PASS, 3 FAIL; native/helper fail'leri daraldi. Kalan 2 AC67 private artifact path ve 1 P08 skip-upgrade yuk timeout'u WN76'yi FAILED tutuyor. r7 SHA 71aed256f912eddd135390645d898a6d6894f1ac151a7a0da960187f5cf7933e; full gate NO_GO.

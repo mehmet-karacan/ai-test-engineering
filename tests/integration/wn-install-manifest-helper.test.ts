@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { processPinPaths, WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
+import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+
+registerWindowsNativeTestLock("wn-install-manifest-helper");
 
 async function runHelper(args: string[]): Promise<number | null> {
   const child = spawn(resolve("native/bin/windows-process-helper.exe"), args, { stdio: ["pipe", "pipe", "pipe"] });
