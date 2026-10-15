@@ -129,6 +129,21 @@ describe("S02 native Maven command contract", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it("bounds implicit config pins at an owned workspace root", () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-pin-root-"));
+    try {
+      const bin = join(root, "bin");
+      const workspace = join(root, "workspace");
+      mkdirSync(bin); mkdirSync(workspace);
+      mkdirSync(join(root, ".mvn"));
+      writeFileSync(join(bin, "mvn.cmd"), "@echo off\r\n");
+      writeFileSync(join(root, ".mvn", "maven.config"), "-Poutside");
+      const plan = NativeToolchainResolver.resolve({ cwd: workspace, pinRoot: workspace, env: { Path: bin }, platform: "win32" });
+      expect(plan.pinnedInputs.find((input) => input.path === join(root, ".mvn", "maven.config"))).toBeUndefined();
+      expect(plan.pinRoot).toBe(workspace);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it.skipIf(process.platform !== "win32")("probes actual Maven and Java versions through selected command", async () => {
     const root = mkdtempSync(join(tmpdir(), "wn-versions-"));
     try {

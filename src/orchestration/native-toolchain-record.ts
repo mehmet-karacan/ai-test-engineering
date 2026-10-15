@@ -13,6 +13,10 @@ interface ToolchainRecord {
   cwd: string;
   executable: string;
   source: VerifiedNativeToolchainPlan["source"];
+  baseIdentity?: string;
+  outputDigest?: string;
+  mavenVersion?: string;
+  javaVersion?: string;
   settingsPath?: string;
   toolchainsPath?: string;
   profiles?: string[];
@@ -34,6 +38,10 @@ export class NativeToolchainRecordStore {
     const record: ToolchainRecord = {
       schema_version: 1, job_id: jobId, identity: plan.identity, cwd: plan.cwd,
       executable: plan.executable, source: plan.source,
+      ...(plan.baseIdentity && /^[a-f0-9]{64}$/u.test(plan.baseIdentity) ? { baseIdentity: plan.baseIdentity } : {}),
+      ...(plan.outputDigest && /^[a-f0-9]{64}$/u.test(plan.outputDigest) ? { outputDigest: plan.outputDigest } : {}),
+      ...(plan.mavenVersion ? { mavenVersion: plan.mavenVersion } : {}),
+      ...(plan.javaVersion ? { javaVersion: plan.javaVersion } : {}),
       ...(options.settingsPath ? { settingsPath: options.settingsPath } : {}),
       ...(options.toolchainsPath ? { toolchainsPath: options.toolchainsPath } : {}),
       ...(options.profiles ? { profiles: options.profiles } : {}),
@@ -45,7 +53,20 @@ export class NativeToolchainRecordStore {
     const existing = this.rows(jobId);
     if (existing.length > 0) {
       const pinned = this.read(jobId);
-      if (pinned.identity !== plan.identity || existing.length !== 1) this.changed();
+      const mismatches: string[] = [];
+      if (existing.length !== 1) mismatches.push("record_count");
+      if (pinned.identity !== plan.identity) mismatches.push("identity");
+      // Older approved records may only carry the effective identity. That
+      // identity already binds the resolver inputs and version output, so
+      // optional diagnostic fields remain backward compatible.
+      if (pinned.baseIdentity !== undefined && pinned.baseIdentity !== plan.baseIdentity) mismatches.push("base_identity");
+      if (pinned.outputDigest !== undefined && pinned.outputDigest !== plan.outputDigest) mismatches.push("output_digest");
+      if (pinned.mavenVersion !== undefined && pinned.mavenVersion !== plan.mavenVersion) mismatches.push("maven_version");
+      if (pinned.javaVersion !== undefined && pinned.javaVersion !== plan.javaVersion) mismatches.push("java_version");
+      if (pinned.cwd !== plan.cwd) mismatches.push("cwd");
+      if (pinned.executable !== plan.executable) mismatches.push("executable");
+      if (pinned.source !== plan.source) mismatches.push("source");
+      if (mismatches.length > 0) this.changed(mismatches);
       return hash;
     }
     const dir = join(this.storageRoot, "jobs", jobId, "native-toolchain");
@@ -82,6 +103,12 @@ export class NativeToolchainRecordStore {
       !["explicit", "installed", "wrapper"].includes(record.source)) this.invalid();
     if (record.settingsPath !== undefined && typeof record.settingsPath !== "string") this.invalid();
     if (record.toolchainsPath !== undefined && typeof record.toolchainsPath !== "string") this.invalid();
+    for (const key of ["baseIdentity", "outputDigest"] as const) {
+      if (record[key] !== undefined && (typeof record[key] !== "string" || !/^[a-f0-9]{64}$/u.test(record[key]))) this.invalid();
+    }
+    for (const key of ["mavenVersion", "javaVersion"] as const) {
+      if (record[key] !== undefined && typeof record[key] !== "string") this.invalid();
+    }
     if (record.profiles !== undefined && (!Array.isArray(record.profiles) || record.profiles.some((x) => typeof x !== "string"))) this.invalid();
     if (record.preferWrapper !== undefined && typeof record.preferWrapper !== "boolean") this.invalid();
     return record;
@@ -92,8 +119,16 @@ export class NativeToolchainRecordStore {
     const env = effectiveMavenEnvironment(options.env);
     const selected = NativeToolchainResolver.resolve({ ...options, env });
     const current = await verifier(selected, env);
-    if (recorded.identity !== current.identity || recorded.cwd !== current.cwd ||
-      recorded.executable !== current.executable || recorded.source !== current.source) this.changed();
+    const mismatches: string[] = [];
+    if (recorded.identity !== current.identity) mismatches.push("identity");
+    if (recorded.baseIdentity !== undefined && recorded.baseIdentity !== current.baseIdentity) mismatches.push("base_identity");
+    if (recorded.outputDigest !== undefined && recorded.outputDigest !== current.outputDigest) mismatches.push("output_digest");
+    if (recorded.mavenVersion !== undefined && recorded.mavenVersion !== current.mavenVersion) mismatches.push("maven_version");
+    if (recorded.javaVersion !== undefined && recorded.javaVersion !== current.javaVersion) mismatches.push("java_version");
+    if (recorded.cwd !== current.cwd) mismatches.push("cwd");
+    if (recorded.executable !== current.executable) mismatches.push("executable");
+    if (recorded.source !== current.source) mismatches.push("source");
+    if (mismatches.length > 0) this.changed(mismatches);
     return current;
   }
 
@@ -109,7 +144,12 @@ export class NativeToolchainRecordStore {
     };
   }
 
-  private changed(): never { throw new AppError("BLOCKED_ISOLATION", "Native toolchain changed since job approval", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" }); }
+  private changed(mismatches: string[] = ["identity"]): never {
+    throw new AppError("BLOCKED_ISOLATION", `Native toolchain changed since job approval (${mismatches.join(",")})`, {
+      reason_code: "TOOLCHAIN_IDENTITY_CHANGED",
+      mismatches,
+    });
+  }
   private invalid(): never { throw new AppError("BLOCKED_ISOLATION", "Native toolchain record is invalid", { reason_code: "TOOLCHAIN_IDENTITY_INVALID" }); }
   private assertRealPathInside(path: string): void {
     try {

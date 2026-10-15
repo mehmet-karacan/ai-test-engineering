@@ -127,6 +127,15 @@ export function extractJsonCandidate(raw: string): string {
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     return trimmed;
   }
+  // Bazi saglayicilar JSON'u markdown fence yerine tek ters tirnakla sarar.
+  // Yalniz tum cikti bu sargiysa ve ic metin JSON ile basliyorsa kabul et;
+  // serbest metin icindeki rastgele code span'leri JSON diye yorumlama.
+  if (trimmed.startsWith("`") && trimmed.endsWith("`") && trimmed.length > 2) {
+    const inline = trimmed.slice(1, -1).trim();
+    if (inline.startsWith("{") || inline.startsWith("[")) {
+      return inline;
+    }
+  }
   const fenceMatch = /```(?:json)?\s*\n([\s\S]*?)\n```/.exec(trimmed);
   if (fenceMatch && (fenceMatch[1]!.trim().startsWith("{") || fenceMatch[1]!.trim().startsWith("["))) {
     return fenceMatch[1]!.trim();

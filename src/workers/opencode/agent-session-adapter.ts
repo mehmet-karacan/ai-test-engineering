@@ -7,7 +7,7 @@ import type {
 import type { AgentTaskContract } from "../../domain/agent-contracts.js";
 import type { AgentContextPackage } from "./context-provider.js";
 import { OpenCodeWorkerClient, promptForJsonResult, WorkerRequestFailure } from "./worker-client.js";
-import { defaultWorkerConfig, workerToolFlags } from "./worker-config.js";
+import { defaultWorkerConfig, MAX_WORKER_REQUEST_TIMEOUT_MS, workerToolFlags } from "./worker-config.js";
 
 const OutcomeSchema = z.object({
   kind: z.enum(["COMPLETED", "EMPTY_FINAL", "INTERMEDIATE_TOOL", "TRUNCATED_JSON", "PROVIDER_ERROR", "TIMEOUT", "CANCELLED", "BLOCKED"]),
@@ -79,7 +79,7 @@ export class OpenCodeAgentSessionAdapter implements AgentSessionAdapter {
     const abort = (): void => { void this.client.abortSession(input.session_id).catch(() => undefined); };
     input.signal.addEventListener("abort", abort, { once: true });
     try {
-      const timeoutMs = Math.max(1, Math.min(300000, Math.floor(input.contract.budget.remaining_minutes * 60_000)));
+      const timeoutMs = Math.max(1, Math.min(MAX_WORKER_REQUEST_TIMEOUT_MS, Math.floor(input.contract.budget.remaining_minutes * 60_000)));
       const response = await promptForJsonResult(this.client, {
         session_id: input.session_id,
         prompt: promptFor(input.contract, input.context.text, input.context.manifest_digest, input.parent_session_id, input.session_id),

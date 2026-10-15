@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildWorkerPrompt, DEFAULT_POLICY_RULES, WORKER_ROLES } from "../../src/workers/opencode/role-prompts.js";
-import { defaultWorkerConfig, workerToolFlags } from "../../src/workers/opencode/worker-config.js";
+import { defaultWorkerConfig, workerToolFlags, workerRequestBudget } from "../../src/workers/opencode/worker-config.js";
 import {
   TestPlanSchema,
   CandidateChangeSetSchema,
@@ -79,6 +79,14 @@ describe("worker config", () => {
     const config = defaultWorkerConfig("http://127.0.0.1:14096");
     expect(config.password_source).toBe("env:OPENCODE_SERVER_PASSWORD");
     expect(JSON.stringify(config)).not.toContain("password\":");
+  });
+
+  it("model timeout'i task lease tamamlanma payindan once bitmeli", () => {
+    const budget = workerRequestBudget(15 * 60_000);
+    expect(budget.request_timeout_ms).toBe(14 * 60_000);
+    expect(budget.task_lease_ttl_ms).toBe(15 * 60_000);
+    expect(budget.task_lease_ttl_ms).toBeGreaterThan(budget.request_timeout_ms);
+    expect(() => workerRequestBudget(-1)).toThrow("Worker kalan job suresi gecersiz");
   });
 });
 
@@ -161,6 +169,11 @@ describe("parseModelOutput", () => {
 
   it("markdown fence icindeki JSON cikarilmali", () => {
     const candidate = extractJsonCandidate('Iste plan:\n```json\n{"schema_version":1,"scenarios":[]}\n```');
+    expect(candidate).toBe('{"schema_version":1,"scenarios":[]}');
+  });
+
+  it("tek ters tirnakla sarilmis JSON cikarilmali", () => {
+    const candidate = extractJsonCandidate('`{"schema_version":1,"scenarios":[]}`');
     expect(candidate).toBe('{"schema_version":1,"scenarios":[]}');
   });
 

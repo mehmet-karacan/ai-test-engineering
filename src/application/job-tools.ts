@@ -21,6 +21,7 @@ import { NativeProcessRegistry } from "../orchestration/native-process-registry.
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { ReportExporter } from "../reporting/report-generator.js";
+import { MAX_WORKER_REQUEST_TIMEOUT_MS } from "../workers/opencode/worker-config.js";
 
 function nativePathIdentity(value: string): string {
   const normalized = resolve(value).replace(/\\/gu, "/").replace(/\/+$/u, "");
@@ -105,9 +106,11 @@ export async function handleTestResume(input: unknown, services: Services): Prom
   // resume must not mutate the state/event stream of the active owner.
   const leaseOwnerId = `resume-${process.pid}-${job.id}-${randomUUID()}`;
   const leaseManager = new LeaseManager(storage.db);
+  const deadlineAt = job.created_at + services.config.budgets.total_job_minutes * 60000;
+  const resumeLeaseTtlMs = Math.max(1000, Math.min(MAX_WORKER_REQUEST_TIMEOUT_MS + 300000, Math.max(1000, deadlineAt - Date.now())));
   const lease = runnerKind === "windows_native"
-    ? leaseManager.acquireNative(job.id, leaseOwnerId, 300000).lease
-    : leaseManager.acquire(job.id, leaseOwnerId, 300000, `resume-${process.pid}`).lease;
+    ? leaseManager.acquireNative(job.id, leaseOwnerId, resumeLeaseTtlMs).lease
+    : leaseManager.acquire(job.id, leaseOwnerId, resumeLeaseTtlMs, `resume-${process.pid}`).lease;
   try {
     // Version probing is a real child process; it must run under this lease's
     // durable Job Object registry, before publishing RUNNING.
@@ -165,12 +168,6 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
   }
 
   const leases = new LeaseManager((requireStorage(services)).storage.db);
-  try {
-    const currentLease = leases.get(job.id);
-    leases.release(job.id, currentLease.owner_id);
-  } catch {
-    // lease zaten yok olabilir
-  }
 
   // W05/F11/N37: cancel/pause - owned worker/Maven process'leri sonlandirilir (yalniz owned kaynaklar).
   // Gec cevap CANCELLED/PAUSED'i COMPLETED'e ceviremez; late-write fencing lease fence ile korunur.
@@ -183,20 +180,43 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
       workspaceRoot: services.config.storage.root,
     });
     dispatcher.stopOwnedProcesses(job.id);
+    await dispatcher.waitForOwnedProcessCleanup(job.id);
   } catch (stopError) {
     // owned process sonlandirma hatasi lifecycle akisini bozmaz; kayitli olur
     process.stderr.write(`[aitest-cancel] job ${job.id} owned process stop hatasi: ${String(stopError)}\n`);
   }
 
-  if (parsed.reason === "pause") {
-    jobs.updateLifecycle(job.id, "PAUSED", job.row_version);
-    jobs.appendEvent({ job_id: job.id, event_type: "test_paused", phase: job.phase, origin: "handleTestCancel" });
-    return { job_id: job.id, lifecycle: "PAUSED", paused: true, message: "Is duraklatildi; owned process'ler sonlandirildi; test_resume ile devam edilebilir" };
+  // NativeProcessRegistry closes the durable ownership row through the active
+  // lease. Keep that lease until the cleanup fence completes; releasing it
+  // first makes a legitimate helper terminal receipt look unresolved and
+  // permanently blocks resume.
+  const latest = jobs.getJob(job.id);
+  if (latest.lifecycle === "COMPLETED" || latest.lifecycle === "CANCELLED" || latest.lifecycle === "FAILED") {
+    try {
+      const currentLease = leases.get(job.id);
+      leases.release(job.id, currentLease.owner_id);
+    } catch {
+      // lease already gone or terminal cleanup owns the release
+    }
+    return { job_id: latest.id, lifecycle: latest.lifecycle, paused: false, message: `Is zaten ${latest.lifecycle}` };
   }
-
-  jobs.updateLifecycle(job.id, "CANCELLED", job.row_version);
-  jobs.appendEvent({ job_id: job.id, event_type: "test_cancelled", phase: job.phase, origin: "handleTestCancel" });
-  return { job_id: job.id, lifecycle: "CANCELLED", paused: false, message: "Iptal edildi; owned process'ler sonlandirildi; artifact'ler korunur" };
+  const nextLifecycle = parsed.reason === "pause" ? "PAUSED" : "CANCELLED";
+  const updated = jobs.updateLifecycle(latest.id, nextLifecycle, latest.row_version);
+  jobs.appendEvent({
+    job_id: latest.id,
+    event_type: parsed.reason === "pause" ? "test_paused" : "test_cancelled",
+    phase: latest.phase,
+    origin: "handleTestCancel",
+  });
+  try {
+    const currentLease = leases.get(job.id);
+    leases.release(job.id, currentLease.owner_id);
+  } catch {
+    // lease already gone or terminal cleanup owns the release
+  }
+  return parsed.reason === "pause"
+    ? { job_id: updated.id, lifecycle: "PAUSED", paused: true, message: "Is duraklatildi; owned process'ler sonlandirildi; test_resume ile devam edilebilir" }
+    : { job_id: updated.id, lifecycle: "CANCELLED", paused: false, message: "Iptal edildi; owned process'ler sonlandirildi; artifact'ler korunur" };
 }
 
 export interface TestResultResult {

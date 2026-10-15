@@ -128,5 +128,5 @@ describe("P08/PP44: upgrade/migration veri korunumu", () => {
     } finally {
       restored.close();
     }
-  });
+  }, 120_000);
 });

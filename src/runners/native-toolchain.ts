@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, lstatSync, openSync, readFileSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve, dirname, delimiter } from "node:path";
+import { isAbsolute, join, resolve, dirname, delimiter, relative } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { WindowsProcessSupervisor, processPinPaths } from "./windows-process-supervisor.js";
 
@@ -65,6 +65,8 @@ export interface NativeMavenArguments {
 
 export interface NativeToolchainOptions {
   cwd: string;
+  /** Optional owned root limiting inherited implicit Maven configuration. */
+  pinRoot?: string;
   env: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   executable?: string;
@@ -78,6 +80,7 @@ export interface NativeToolchainPlan {
   executable: string;
   source: "explicit" | "installed" | "wrapper";
   cwd: string;
+  pinRoot?: string;
   identity: string;
   /** Exact file snapshot that produced identity; null means verified absent. */
   pinnedInputs: ReadonlyArray<{ path: string; sha256: string | null }>;
@@ -102,7 +105,7 @@ export interface VerifiedNativeToolchainPlan extends NativeToolchainPlan {
 /** Probe the selected executable. The raw -v output stays local to this call. */
 export async function probeNativeMavenVersion(plan: NativeToolchainPlan, env: NodeJS.ProcessEnv, signal?: AbortSignal, lifecycle?: import("./windows-process-supervisor.js").NativeProcessLifecycle): Promise<NativeVersionEvidence> {
   const basePlan = {
-    executable: plan.executable, cwd: plan.cwd, argv: ["-v"], timeoutMs: 30000,
+    executable: plan.executable, cwd: plan.cwd, ...(plan.pinRoot ? { pinRoot: plan.pinRoot } : {}), argv: ["-v"], timeoutMs: 30000,
     maxLogBytes: 64 * 1024, env,
   };
   // Keep the complete approved installation snapshot for the version probe.
@@ -347,10 +350,18 @@ export class NativeToolchainResolver {
     pin(defaultToolchains, false);
     if (options.settingsPath !== undefined) pin(options.settingsPath, true);
     if (options.toolchainsPath !== undefined) pin(options.toolchainsPath, true);
+    const pinRoot = options.pinRoot === undefined ? null : resolve(options.pinRoot);
+    if (pinRoot !== null) {
+      const relativeCwd = relative(pinRoot, cwd);
+      if (relativeCwd.startsWith("..") || isAbsolute(relativeCwd)) {
+        throw new AppError("BLOCKED_ISOLATION", "Maven pin root must contain cwd", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+      }
+    }
     for (let cursor = cwd; ; cursor = dirname(cursor)) {
       for (const name of ["jvm.config", "maven.config", "extensions.xml"]) {
         pin(join(cursor, ".mvn", name), false);
       }
+      if (pinRoot !== null && cursor.toLowerCase() === pinRoot.toLowerCase()) break;
       if (dirname(cursor) === cursor) break;
     }
     if (source === "wrapper") {
@@ -365,9 +376,9 @@ export class NativeToolchainResolver {
       if (!SAFE_PROPERTY_KEY.test(profile)) throw new AppError("INVALID_PARAMETERS", "Invalid Maven profile");
     }
     const identity = createHash("sha256").update(JSON.stringify({
-      cwd, executable, source, envIdentity, profiles, pinnedInputs,
+      cwd, ...(pinRoot ? { pinRoot } : {}), executable, source, envIdentity, profiles, pinnedInputs,
       distributionManifestComplete: installedFiles !== null,
     })).digest("hex");
-    return { executable, source, cwd, identity, pinnedInputs, distributionManifestComplete: installedFiles !== null };
+    return { executable, source, cwd, ...(pinRoot ? { pinRoot } : {}), identity, pinnedInputs, distributionManifestComplete: installedFiles !== null };
   }
 }

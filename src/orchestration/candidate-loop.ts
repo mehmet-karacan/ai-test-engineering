@@ -11,6 +11,7 @@ import { assertQualityGate, isSutShadowing, type QualityFinding } from "../polic
 import { MavenRunner, strictTestExecutionProperties, type RunResult } from "../runners/maven-runner.js";
 import { parseJacocoXml, findClassInReport } from "../coverage/jacoco-parser.js";
 import { summarizeTestReports, assertCoverageConfigured, buildPlan, classifyTestRun, type SurefireSuite } from "../orchestration/build-plan.js";
+import { scanTestFile } from "../discovery/java-inventory.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 
 export interface IterationBudget {
@@ -257,6 +258,24 @@ function containedPath(root: string, path: string): string {
   return absPath;
 }
 
+/**
+ * Yeni candidate dosyalari Maven'in -Dtest filtresine eklenir. Baseline'dan
+ * gelen selector tek basina yeterli degildir: mevcut test sinifina dokunmadan
+ * yeni bir test sinifi ureten aday aksi halde hic calistirilmadan reddedilir.
+ */
+export function deriveCandidateTestSelectors(candidateWorkspace: string, candidatePaths: string[], baseSelectors: string[] = []): string[] {
+  const selectors = new Set(baseSelectors.filter((selector) => selector.length > 0));
+  for (const path of candidatePaths) {
+    const normalized = path.replace(/\\/g, "/");
+    if (!normalized.endsWith(".java")) continue;
+    const absolute = containedPath(candidateWorkspace, normalized);
+    if (!existsSync(absolute)) continue;
+    const scanned = scanTestFile(absolute, resolve(candidateWorkspace));
+    if (scanned.testClass?.fqn) selectors.add(scanned.testClass.fqn);
+  }
+  return [...selectors].sort();
+}
+
 function readDeletedFiles(acceptedDir: string): Set<string> {
   const marker = join(acceptedDir, DELETED_FILES_MANIFEST);
   if (!existsSync(marker)) {
@@ -419,7 +438,9 @@ export class CandidateLoop {
     mkdirSync(join(workspace, ".."), { recursive: true });
     // Ayni iteration numarasinin eski target/log ciktisini yeniden kullanmak
     // stale coverage ve rejected aday karisimini engellemez; her kurulum temizdir.
-    rmSync(workspace, { recursive: true, force: true });
+    // Native Windows cleanup can briefly race a child process or marker
+    // watcher; retry only the owned candidate subtree before giving up.
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 12, retryDelay: 50 });
     // W02/F08: orijinal projenin tam kopyasi workspace'e kurulur (pom/main/test dahil);
     // node_modules/target hariç (Maven kendi target'ini uretir; bagimliliklar cache'den).
     if (!existsSync(workspace)) {
@@ -627,7 +648,12 @@ export class CandidateLoop {
       }
       const candidateHash = sha256Data(JSON.stringify(candidate));
 
-      const applier = new PatchApplier(frozenSourceRoot, [{ module_relative_path: options.target_module_path, test_root: options.target_test_root ?? "src/test/java" }], options.staging_root);
+      const applier = new PatchApplier(
+        frozenSourceRoot,
+        [{ module_relative_path: options.target_module_path, test_root: options.target_test_root ?? "src/test/java" }],
+        options.staging_root,
+        { preserve_existing_tests: true },
+      );
       const applyResult = applier.apply(candidate);
 
       if (applyResult.failed.length > 0) {
@@ -726,7 +752,14 @@ export class CandidateLoop {
       const remainingDeadline = options.deadline_at === undefined ? null : Math.max(1, options.deadline_at - Date.now());
       const runStartedAt = Date.now();
       const properties = strictTestExecutionProperties();
-      const selectors = [...new Set((options.test_selectors ?? []).filter((selector) => selector.length > 0))].sort();
+      const acceptedTestPaths = this.acceptedSetDir && existsSync(this.acceptedSetDir)
+        ? collectAcceptedChanges(this.acceptedSetDir).filter((change) => change.action === "create").map((change) => change.path)
+        : [];
+      const candidateTestPaths = [
+        ...acceptedTestPaths,
+        ...candidate.changes.filter((change) => change.action !== "delete").map((change) => change.path),
+      ];
+      const selectors = deriveCandidateTestSelectors(candidateWorkspace, candidateTestPaths, options.test_selectors ?? []);
       if (selectors.length > 0) properties.test = selectors.join(",");
       const run: RunResult = await this.runner.run({
         working_dir: candidateWorkspace,
@@ -1036,7 +1069,10 @@ export class CandidateLoop {
     assertCoverageConfigured(plan, [...new Set(options.target_module_paths)]);
     const runStartedAt = Date.now();
     const properties = strictTestExecutionProperties();
-    const selectors = [...new Set((options.test_selectors ?? []).filter((selector) => selector.length > 0))].sort();
+    const acceptedTestPaths = collectAcceptedChanges(options.accepted_snapshot_dir)
+      .filter((change) => change.action === "create")
+      .map((change) => change.path);
+    const selectors = deriveCandidateTestSelectors(workspace, acceptedTestPaths, options.test_selectors ?? []);
     if (selectors.length > 0) properties.test = selectors.join(",");
     const run = await this.runner.run({
       working_dir: workspace,

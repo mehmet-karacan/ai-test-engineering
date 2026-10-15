@@ -64,6 +64,9 @@ const sha64 = (c: string) => c.repeat(64);
 
 const ACCEPTED_PATH = "src/test/java/com/example/calc/CalcServiceTest.java";
 const ACCEPTED_CONTENT = "package com.example.calc;\npublic class CalcServiceTest {\n}\n";
+const SECOND_ACCEPTED_PATH = "src/test/java/com/example/calc/CalcServiceEdgeCasesTest.java";
+const SECOND_ACCEPTED_CONTENT = "package com.example.calc;\npublic class CalcServiceEdgeCasesTest {\n}\n";
+const LOOP_ACCEPTED_PATH = "src/test/java/com/example/calc/CalcServiceGeneratedTest.java";
 
 function makeIdentity(overrides: Partial<SourceIdentity> = {}): SourceIdentity {
   return {
@@ -228,6 +231,40 @@ describe("P03/PP10 (R03): accepted content-addressed blob dogrulamasi", () => {
     const restoreDir = join(h.dir, "restored");
     h.store.restoreAcceptedFiles(h.jobId, verification.manifest!.accepted_changes, restoreDir);
     expect(readFileSync(join(restoreDir, ACCEPTED_PATH), "utf8")).toBe(ACCEPTED_CONTENT);
+  });
+
+  it("sonraki checkpoint onceki accepted blob artifact'ini yeniden kullanir", () => {
+    const firstEntry = acceptedEntry();
+    const firstManifest = baseManifest(h, 1, null, firstEntry, { max_candidate_iterations: 3 });
+    const firstBlobs = h.store.publishAcceptedBlobs(h.jobId, [{
+      path: ACCEPTED_PATH,
+      sha256: sha(ACCEPTED_CONTENT),
+      action: "create",
+      content: ACCEPTED_CONTENT,
+    }]);
+    const first = h.store.publishCheckpoint(firstManifest, null, null, firstBlobs);
+
+    const secondEntries = [
+      ...firstEntry,
+      { path: SECOND_ACCEPTED_PATH, sha256: sha(SECOND_ACCEPTED_CONTENT), action: "create" as const },
+    ];
+    const secondBlobs = h.store.publishAcceptedBlobs(h.jobId, [
+      ...firstBlobs.map((blob) => ({ ...blob, content: ACCEPTED_CONTENT })),
+      { path: SECOND_ACCEPTED_PATH, sha256: sha(SECOND_ACCEPTED_CONTENT), action: "create", content: SECOND_ACCEPTED_CONTENT },
+    ]);
+    const secondManifest = baseManifest(h, 2, first.checkpoint_id, secondEntries, { max_candidate_iterations: 3 });
+    const second = h.store.publishCheckpoint(secondManifest, null, 1, secondBlobs);
+
+    expect(h.store.verifyCheckpoint(first.checkpoint_id).valid).toBe(true);
+    expect(h.store.verifyCheckpoint(second.checkpoint_id).valid).toBe(true);
+    const acceptedArtifactCount = h.storage.db
+      .prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM artifacts WHERE job_id = ? AND kind = 'accepted_blob'")
+      .get(h.jobId)?.count;
+    const secondBlobLinkCount = h.storage.db
+      .prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM checkpoint_blobs WHERE checkpoint_id = ?")
+      .get(second.checkpoint_id)?.count;
+    expect(acceptedArtifactCount).toBe(2);
+    expect(secondBlobLinkCount).toBe(2);
   });
 });
 
@@ -569,7 +606,7 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
   }
 
   function candidateContent(): string {
-    return "package com.example.calc;\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.assertEquals;\npublic class CalcServiceTest {\n  @Test\n  public void add_positive() {\n    assertEquals(8, 3 + 5);\n  }\n}\n";
+    return "package com.example.calc;\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.assertEquals;\npublic class CalcServiceGeneratedTest {\n  @Test\n  public void add_positive() {\n    assertEquals(8, 3 + 5);\n  }\n}\n";
   }
 
   it("on_accepted publish basarisinda: adopted karar yazilmaz, accepted set onceki state'te kalir, loop hata verir", async () => {
@@ -583,7 +620,7 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
     runner.run = async (o: { working_dir: string }) => {
       writeWorkspaceJacoco(o.working_dir, 10, 0);
       mkdirSync(join(o.working_dir, "target/surefire-reports"), { recursive: true });
-      writeFileSync(join(o.working_dir, "target/surefire-reports/TEST-com.example.calc.CalcServiceTest.xml"), '<?xml version="1.0"?><testsuite name="com.example.calc.CalcServiceTest" tests="1" failures="0" errors="0" skipped="0"><testcase name="add_positive" classname="com.example.calc.CalcServiceTest"/></testsuite>', "utf8");
+      writeFileSync(join(o.working_dir, "target/surefire-reports/TEST-com.example.calc.CalcServiceGeneratedTest.xml"), '<?xml version="1.0"?><testsuite name="com.example.calc.CalcServiceGeneratedTest" tests="1" failures="0" errors="0" skipped="0"><testcase name="add_positive" classname="com.example.calc.CalcServiceGeneratedTest"/></testsuite>', "utf8");
       return { exit_code: 0, duration_ms: 10, stdout_log_path: "o", stderr_log_path: "e", command: ["mvn"], timed_out: false };
     };
     const loop = new CandidateLoop(runner, { accepted_set_dir: acceptedDir, staging_root: staging });
@@ -601,7 +638,7 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
       timeout_ms_per_run: 1000,
       generate_candidate: async (): Promise<CandidateChangeSet> => {
         const content = candidateContent();
-        return { schema_version: 1, changes: [{ path: ACCEPTED_PATH, action: "modify", new_content: content, after_hash: sha(content), scenario_ids: ["s1"] }] } as CandidateChangeSet;
+        return { schema_version: 1, changes: [{ path: LOOP_ACCEPTED_PATH, action: "create", new_content: content, after_hash: sha(content), scenario_ids: ["s1"] }] } as CandidateChangeSet;
       },
       on_accepted: () => {
         acceptedCalled++;
@@ -646,7 +683,7 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
       timeout_ms_per_run: 1000,
       generate_candidate: async (): Promise<CandidateChangeSet> => {
         const content = candidateContent();
-        return { schema_version: 1, changes: [{ path: ACCEPTED_PATH, action: "modify", new_content: content, after_hash: sha(content), scenario_ids: ["s1"] }] } as CandidateChangeSet;
+        return { schema_version: 1, changes: [{ path: LOOP_ACCEPTED_PATH, action: "create", new_content: content, after_hash: sha(content), scenario_ids: ["s1"] }] } as CandidateChangeSet;
       },
       on_accepted: () => {
         // publish basarili: accepted blob DB'ye girdi (simule)
@@ -658,8 +695,8 @@ describe("P03 loop seviyesi: checkpoint publish basarisinda aday accepted olmaz 
     // adopted karar kaydi var:
     expect(decisions.some((d) => d.decision === "adopted")).toBe(true);
     // accepted set birikti:
-    expect(existsSync(join(acceptedDir, ACCEPTED_PATH))).toBe(true);
-    expect(readFileSync(join(acceptedDir, ACCEPTED_PATH), "utf8")).toContain("add_positive");
+    expect(existsSync(join(acceptedDir, LOOP_ACCEPTED_PATH))).toBe(true);
+    expect(readFileSync(join(acceptedDir, LOOP_ACCEPTED_PATH), "utf8")).toContain("add_positive");
   });
 
   it("reddedilen repair denemeleri ayni logical iteration'da fiziksel attempt butcesini tuketir", async () => {

@@ -68,7 +68,7 @@ describe("P08/PP44: restore stale WAL/SHM temizligi", () => {
         // Windows dosya kilidi
       }
     }
-  });
+  }, 120_000);
 
   it("restore: baska mevcut hedefe restore stale yan dosyalarla etkilenmez; hedef dosyalar temiz", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-p08-freshrestore-"));

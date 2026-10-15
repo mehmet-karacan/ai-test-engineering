@@ -75,4 +75,31 @@ describe("RT21: prompt baglaminda hedef sinifin gercek govdesi (10.2)", () => {
       expect(prompt).toContain(`- ${rule}`);
     }
   });
+
+  it("mevcut test dosyalarini koruyan candidate kurali prompt'a gider", () => {
+    const prompt = buildWorkerPrompt(baseContext({ class_body: "public class Y {}" }));
+    expect(prompt).toContain("Mevcut test dosyalarini modify veya delete etme");
+    expect(prompt).toContain("Yeni testleri yeni bir dosyada create et");
+  });
+
+  it("candidate modeline arac cagrisi ve tam test yolu kurallari acikca verilir", () => {
+    const prompt = buildWorkerPrompt(baseContext({ class_body: "public class Y {}" }));
+    expect(prompt).toContain("Tool veya arac cagrisi yapma; dosya arama/okuma isteme; yalniz verilen baglami kullan.");
+    expect(prompt).toContain("changes[].path degeri mutlaka src/test/java/ ile baslamali");
+    expect(prompt).toContain("path alani src/test/java/<...>.java biciminde olmali; src/test/java oneki olmadan yol gecersizdir.");
+  });
+
+  it("candidate cikti boyutu ve dogrudan JSON kurali truncation riskini azaltir", () => {
+    const prompt = buildWorkerPrompt(baseContext({ class_body: "public class Y {}" }));
+    expect(prompt).toContain("Tek bir kucuk test dosyasi olustur; en fazla 5 @Test metodu ve 160 satir yaz.");
+    expect(prompt).toContain("Plan, analiz, gerekce veya ic muhakeme yazma; dogrudan JSON sonucunla basla.");
+    expect(prompt).toContain("new_content 12000 karakteri gecmemeli.");
+    expect(prompt).toContain("Yeni test dosyasi adi mevcut test siniflarindan farkli olmali; mevcut sinif yolunu tekrar kullanma.");
+  });
+
+  it("mevcut JUnit major surumu promptta sabitlenir", () => {
+    const prompt = buildWorkerPrompt(baseContext({ class_body: "public class Y {}", test_framework: "junit5" }));
+    expect(prompt).toContain("Mevcut test frameworku: JUnit 5 (org.junit.jupiter.api).");
+    expect(prompt).toContain("Yeni testlerde bu frameworku ve import stilini koru; baska JUnit major surumune gecme.");
+  });
 });

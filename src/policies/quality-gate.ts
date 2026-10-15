@@ -24,6 +24,7 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
 
   let inMethod = false;
   let methodBraceDepth = 0;
+  let methodDeclarationSeen = false;
   let methodStartLine = 0;
   let methodBody: string[] = [];
   let classBraceDepth = 0;
@@ -42,12 +43,14 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
       hasTestMethod = true;
       inMethod = true;
       methodBraceDepth = 0;
+      methodDeclarationSeen = false;
       methodStartLine = i + 1;
       methodBody = [];
       methodBody.push(line);
       const hasMethodDeclaration = /\(\s*[^)]*\s*\)\s*\{/.test(line) || /\(\s*\)\s*\{/.test(line);
+      methodDeclarationSeen = hasMethodDeclaration;
       methodBraceDepth += open - close;
-      if (methodBraceDepth <= 0 && hasMethodDeclaration) {
+      if (methodBraceDepth <= 0 && methodDeclarationSeen) {
         const bodyText = methodBody.join("\n");
         checkMethodBody(bodyText, path, methodStartLine, findings);
         inMethod = false;
@@ -59,7 +62,14 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
     if (inMethod) {
       methodBody.push(line);
       methodBraceDepth += open - close;
-      if (methodBraceDepth <= 0) {
+      // Bir test anotasyonu method bildiriminden once tek basina kapanmaz;
+      // @DisplayName/@Tag gibi anotasyonlar gorulene kadar method govdesini
+      // taramayi ertele. Aksi halde yalniz anotasyon satirlari NO_ASSERTION
+      // bulgusu uretir.
+      if (!methodDeclarationSeen && (methodBraceDepth > 0 || /\(\s*[^)]*\s*\)\s*(?:throws\s+[^\{]+)?\{/.test(line))) {
+        methodDeclarationSeen = true;
+      }
+      if (methodDeclarationSeen && methodBraceDepth <= 0) {
         const bodyText = methodBody.join("\n");
         checkMethodBody(bodyText, path, methodStartLine, findings);
         inMethod = false;

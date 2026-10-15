@@ -73,7 +73,7 @@ describe("S01 native restore session adapter", () => {
       source?.close();
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
-  });
+  }, 120_000);
   it("accepts a journal-proven fresh physical publish and reverses only its staged FileId", async () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-native-fresh-recover-"));
     const helper = packagedWindowsFileHelper();

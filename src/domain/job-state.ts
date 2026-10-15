@@ -63,6 +63,24 @@ export const VERIFICATION_VALUES = [
 
 export type VerificationLevel = (typeof VERIFICATION_VALUES)[number];
 
+const AFFECTED_SCOPE_OUTCOMES = new Set<Outcome>([
+  "TARGET_REACHED",
+  "TARGET_ALREADY_MET",
+  "TARGET_NOT_MET_PLATEAU",
+  "TARGET_NOT_MET_BUDGET",
+  "TARGET_NOT_MET_BLOCKED",
+]);
+
+/**
+ * Terminal rapor kanitinin job status alanina yansiyan guven seviyesini
+ * tek bir kurala baglar. Coverage raporu gercekten olculduyse etkilenmis
+ * kapsam dogrulanir; final evidence veya typed blocker varsa status
+ * unverified kalir.
+ */
+export function verificationLevelForReport(outcome: Outcome): VerificationLevel {
+  return AFFECTED_SCOPE_OUTCOMES.has(outcome) ? "AFFECTED_SCOPE" : "UNVERIFIED";
+}
+
 export const APPLY_STATE_VALUES = [
   "NOT_REQUESTED",
   "READY_FOR_REVIEW",

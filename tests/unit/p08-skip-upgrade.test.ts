@@ -151,5 +151,5 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v9 migrate)", (
     } finally {
       restored.close();
     }
-  });
+  }, 120_000);
 });

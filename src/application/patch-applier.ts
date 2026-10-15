@@ -14,13 +14,22 @@ export interface ApplyResult {
   failed: Array<{ path: string; reason: string; reason_code: string }>;
 }
 
+export interface PatchApplierOptions {
+  /** Candidate uretiminde mevcut test dosyalari immutable kalir; yeni dosya eklenebilir. */
+  preserve_existing_tests?: boolean;
+}
+
 export class PatchApplier {
   private readonly guard: PolicyGuard;
+  private readonly projectRoot: string;
   private readonly stagingRoot: string;
+  private readonly preserveExistingTests: boolean;
 
-  constructor(projectRoot: string, allowedTestRoots: AllowedTestRoot[], stagingRoot: string) {
-    this.guard = new PolicyGuard(projectRoot, allowedTestRoots);
+  constructor(projectRoot: string, allowedTestRoots: AllowedTestRoot[], stagingRoot: string, options: PatchApplierOptions = {}) {
+    this.projectRoot = resolve(projectRoot);
+    this.guard = new PolicyGuard(this.projectRoot, allowedTestRoots);
     this.stagingRoot = resolve(stagingRoot);
+    this.preserveExistingTests = options.preserve_existing_tests === true;
   }
 
   private stagingPath(relativePath: string): string {
@@ -49,6 +58,12 @@ export class PatchApplier {
         }
 
         const targetPath = this.stagingPath(change.path);
+        const sourcePath = resolve(this.projectRoot, change.path.replace(/\//g, sep));
+        if (this.preserveExistingTests && existsSync(sourcePath)) {
+          throw new AppError("POLICY_VIOLATION", `Mevcut test dosyasi candidate tarafindan degistirilemez: ${change.path}`, {
+            reason_code: "EXISTING_TEST_MUTATION",
+          });
+        }
 
         if (change.action === "delete") {
           if (existsSync(targetPath)) {

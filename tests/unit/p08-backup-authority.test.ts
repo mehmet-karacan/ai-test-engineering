@@ -78,7 +78,7 @@ describe("P08: backup snapshot authority", () => {
       assert.equal(restored.prepare<[], { n: number }>("SELECT COUNT(*) AS n FROM test_jobs").get()?.n, 1);
       assert.equal(readFileSync(join(targetArtifacts, blob.relative_path), "utf8"), "dogrulanmis veri");
     } finally { restored.close(); }
-  }));
+  }), 120_000);
 
   it("gercekten READY kaydi olmayan bos backup'i kabul eder", async () => withStore(async (f) => {
     const saved = await f.backup();

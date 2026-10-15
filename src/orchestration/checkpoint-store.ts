@@ -343,12 +343,37 @@ export class CheckpointStore {
 
       // P03: accepted content blob'lar DB registry'ye + checkpoint baglantisiyla
       // manifest'le ayni transaction'da girer (crash atomicligi: partial blob
-      // referansi DB'de kalamaz).
+      // referansi DB'de kalamaz). Ayni accepted set sonraki checkpoint'te
+      // tekrar geldigi icin artifact kaydi content-addressed kimlikle
+      // idempotent yeniden kullanilir; checkpoint_blobs baglantisi her
+      // checkpoint icin yeniden kurulur.
       for (const blob of acceptedBlobs) {
-        const blobArtifactId = randomUUID();
-        this.db
-          .prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, ?, ?, ?, ?, '1', 'internal', 'READY', ?, ?)")
-          .run(blobArtifactId, manifest.job_id, "accepted_blob", `blobs/accepted/${manifest.job_id}/${blob.sha256.slice(0, 2)}/${blob.sha256.slice(2, 4)}/${blob.sha256}`, blob.sha256, blob.bytes, blob.action, manifest.created_at);
+        const relativeStorePath = `blobs/accepted/${manifest.job_id}/${blob.sha256.slice(0, 2)}/${blob.sha256.slice(2, 4)}/${blob.sha256}`;
+        const existingArtifact = this.db
+          .prepare<
+            [string, string],
+            { id: string; job_id: string | null; kind: string; sha256: string; bytes: number; status: string; pin_reason: string | null }
+          >("SELECT id, job_id, kind, sha256, bytes, status, pin_reason FROM artifacts WHERE sha256 = ? AND relative_store_path = ?")
+          .get(blob.sha256, relativeStorePath);
+        let blobArtifactId: string;
+        if (existingArtifact) {
+          if (
+            existingArtifact.job_id !== manifest.job_id ||
+            existingArtifact.kind !== "accepted_blob" ||
+            existingArtifact.sha256 !== blob.sha256 ||
+            existingArtifact.bytes !== blob.bytes ||
+            existingArtifact.status !== "READY" ||
+            existingArtifact.pin_reason !== blob.action
+          ) {
+            throw new AppError("STORAGE_ERROR", `Accepted blob artifact cakismasi: ${blob.path}`, { reason_code: "ACCEPTED_ARTIFACT_CONFLICT" });
+          }
+          blobArtifactId = existingArtifact.id;
+        } else {
+          blobArtifactId = randomUUID();
+          this.db
+            .prepare("INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, ?, ?, ?, ?, '1', 'internal', 'READY', ?, ?)")
+            .run(blobArtifactId, manifest.job_id, "accepted_blob", relativeStorePath, blob.sha256, blob.bytes, blob.action, manifest.created_at);
+        }
         this.db
           .prepare("INSERT INTO checkpoint_blobs (checkpoint_id, artifact_id, blob_path, blob_sha256, bytes, action) VALUES (?, ?, ?, ?, ?, ?)")
           .run(checkpointId, blobArtifactId, blob.path, blob.sha256, blob.bytes, blob.action);

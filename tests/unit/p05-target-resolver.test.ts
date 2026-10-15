@@ -175,9 +175,9 @@ describe("P05-B: bounded repair feedback", () => {
       const candidate: CandidateChangeSet = {
         schema_version: 1,
         changes: [{
-          path: "src/test/java/com/example/calc/CalcServiceTest.java",
+          path: "src/test/java/com/example/calc/CalcServiceGeneratedTest.java",
           action: "create",
-          new_content: "package com.example.calc;\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.assertEquals;\npublic class CalcServiceTest {\n  @Test\n  void repair_scenario() {\n    assertEquals(5, new CalcService().add(2, 3));\n  }\n}",
+          new_content: "package com.example.calc;\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.assertEquals;\npublic class CalcServiceGeneratedTest {\n  @Test\n  void repair_scenario() {\n    assertEquals(5, new CalcService().add(2, 3));\n  }\n}",
           scenario_ids: ["repair-scenario"],
         }],
       };

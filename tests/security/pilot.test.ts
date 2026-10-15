@@ -17,6 +17,14 @@ import { scanTestQuality } from "../../src/policies/quality-gate.js";
 
 const sha = (data: string) => createHash("sha256").update(data).digest("hex");
 
+function readPilotModelOutput(): string {
+  const outputPath = process.env.AITEST_AC67_MODEL_OUTPUT;
+  if (!outputPath) {
+    throw new Error("AC67 private model artifact is required; set AITEST_AC67_MODEL_OUTPUT");
+  }
+  return readFileSync(outputPath, "utf8");
+}
+
 describe("AC67: gercek model profili + pilot akisi", () => {
   it("opencode.json'dan yetkili profil okunmali; secret degeri okunmamali", () => {
     const profile = readWorkerProfileFromOpencodeConfig();
@@ -28,7 +36,7 @@ describe("AC67: gercek model profili + pilot akisi", () => {
   });
 
   it("model'in gercek ciktisi urun akisindan dogrulanmali (parse -> policy -> kalite)", () => {
-    const modelOutput = readFileSync(join(process.cwd(), "tmp", "pilot-stdout.txt"), "utf8");
+    const modelOutput = readPilotModelOutput();
     const jsonMatch = /```json\s*\n([\s\S]*?)\n```/.exec(modelOutput);
     expect(jsonMatch).toBeTruthy();
     const parsed = JSON.parse(jsonMatch![1]!) as { changes: Array<{ path: string; action: string; new_content: string }> };
@@ -44,7 +52,7 @@ describe("AC67: gercek model profili + pilot akisi", () => {
   });
 
   it("model'in urettigi testlerle gercek Maven/JaCoCo run hedefi saglamali", () => {
-    const modelOutput = readFileSync(join(process.cwd(), "tmp", "pilot-stdout.txt"), "utf8");
+    const modelOutput = readPilotModelOutput();
     const jsonMatch = /```json\s*\n([\s\S]*?)\n```/.exec(modelOutput)!;
     const parsed = JSON.parse(jsonMatch[1]!) as { changes: Array<{ path: string; action: string; new_content: string }> };
     const change = parsed.changes[0]!;

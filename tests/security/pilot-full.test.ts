@@ -112,7 +112,6 @@ public class PilotServiceTest {
         ...process.env,
         AITEST_CONFIG: configPath,
         AITEST_DB_PATH: join(dir, "state.db"),
-        AITEST_RUNNER: "docker",
         AITEST_WORKER_ENABLED: "0",
       },
     });

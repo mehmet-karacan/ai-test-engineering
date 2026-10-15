@@ -25,6 +25,7 @@ export interface RunResult {
 
 export interface MavenRunOptions {
   working_dir: string;
+  pin_root?: string;
   goals: string[];
   profiles?: string[];
   properties?: Record<string, string>;
@@ -61,6 +62,7 @@ export class MavenRunner {
     const env = effectiveMavenEnvironment(process.env, options.env);
     const resolveOptions = {
       cwd: options.working_dir, env,
+      ...(options.pin_root !== undefined ? { pinRoot: options.pin_root } : { pinRoot: options.working_dir }),
       ...(options.executable !== undefined ? { executable: options.executable } : {}),
       ...(options.prefer_wrapper ? { preferWrapper: true } : {}),
       ...(options.settings_path !== undefined ? { settingsPath: options.settings_path } : {}),
@@ -101,12 +103,12 @@ export class MavenRunner {
       try { launchPlan = NativeToolchainResolver.resolve(resolveOptions); }
       catch { throw new AppError("BLOCKED_ISOLATION", "Maven launch inputs changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" }); }
       if (launchPlan.identity !== verified.baseIdentity || launchPlan.executable !== verified.executable ||
-          launchPlan.cwd !== verified.cwd || launchPlan.source !== verified.source) {
+          launchPlan.cwd !== verified.cwd || launchPlan.source !== verified.source || launchPlan.pinRoot !== verified.pinRoot) {
         throw new AppError("BLOCKED_ISOLATION", "Maven launch inputs changed", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
       mkdirSync(options.log_dir, { recursive: true });
       const goalPlan = {
-        executable: toolchain.executable, cwd: toolchain.cwd, argv,
+        executable: toolchain.executable, cwd: toolchain.cwd, ...(toolchain.pinRoot ? { pinRoot: toolchain.pinRoot } : {}), argv,
         timeoutMs: options.timeout_ms, env,
         ...(this.lifecycle ? { pinnedInputs: verified.pinnedInputs } : {}),
       };

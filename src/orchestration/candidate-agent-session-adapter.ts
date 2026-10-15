@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
 import { CandidateChangeSetSchema, type CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 import { OpenCodeWorkerClient, promptForJsonResult, WorkerRequestFailure } from "../workers/opencode/worker-client.js";
+import { MAX_WORKER_REQUEST_TIMEOUT_MS } from "../workers/opencode/worker-config.js";
 import type {
   AgentExecutionOutcome,
   AgentSessionAdapter,
@@ -83,7 +84,7 @@ export class CandidateAgentSessionAdapter implements AgentSessionAdapter {
     const abort = (): void => { void this.client.abortSession(input.session_id).catch(() => undefined); };
     input.signal.addEventListener("abort", abort, { once: true });
     try {
-      const timeoutMs = Math.max(1, Math.min(300000, Math.floor(input.contract.budget.remaining_minutes * 60_000)));
+      const timeoutMs = Math.max(1, Math.min(MAX_WORKER_REQUEST_TIMEOUT_MS, Math.floor(input.contract.budget.remaining_minutes * 60_000)));
       const response = await promptForJsonResult(this.client, {
         session_id: input.session_id,
         prompt: input.context.text,

@@ -14,6 +14,9 @@
  *
  * --manifest <path>: evidence manifest yolu (varsayilan: ai/acceptance/evidence-manifest.json).
  * --print-identity: kaynak/build kimlik digeslerini JSON olarak yazar (manifest uretimi icin).
+ * Partial manifestler `manifest_status: "PARTIAL"`, artan `revision` ve onceki
+ * manifestin SHA-256'sini tasiyabilir. Bu kayitlar saklanir ve denetlenir; tam
+ * obligation evreni PASSED olmadan full gate GO uretmez.
  *
  * Makine-okunur sonuc stdout'ta RESULT_JSON isaretinden sonra yazilir: scope, source
  * commit/tree/lockfile/build digest, run manifest kimligi, obligation bazinda durum,
@@ -130,6 +133,8 @@ const VERIFICATION_SCOPES = ["UNVERIFIED", "TARGET_ONLY", "AFFECTED_SCOPE", "FUL
 // seviyesi platform_evidence kaydi tarafindan ayrica zorunlu tutulur (PP01).
 const PLATFORM_EVIDENCE_LEVEL = "PLATFORM";
 const LIVE_PILOT_STATUSES = ["PASSED", "NOT_PASSED", "PAUSED_BY_USER", "NOT_RUN"];
+const MANIFEST_STATUSES = ["PARTIAL", "COMPLETE"];
+const EVIDENCE_ENTRY_STATUSES = ["NOT_RUN", "BLOCKED", "FAILED", "PASSED"];
 
 const reasons = [];
 const warnings = [];
@@ -582,11 +587,21 @@ function validateEvidenceArtifact(id, artifact, problems) {
 function validateEvidenceEntry(entry, ctx) {
   const problems = [];
   const id = entry?.requirement_id;
+  const status = entry?.status ?? (entry?.passed === true ? "PASSED" : "FAILED");
+  if (typeof status !== "string" || !EVIDENCE_ENTRY_STATUSES.includes(status)) {
+    problems.push({ code: "EVIDENCE_STATUS_GECERSIZ", detail: `${id ?? "?"}: status ${JSON.stringify(status ?? null)} tanimli degil` });
+  }
   // WN69: required obligation kaydi ancak gercekten PASSED ise dogrulanmis
-  // sayilir. NOT_RUN/BLOCKED/FAILED veya eksik passed alani evidence'i
-  // tamamlanmis gibi saydiramaz; partial manifest full GO'ya donemez.
-  if (entry?.passed !== true) {
+  // sayilir. NOT_RUN/BLOCKED/FAILED kayitlari private partial manifestte
+  // saklanabilir, fakat full gate icin yine eksik/gecersiz kanittir.
+  if (status !== "PASSED" || entry?.passed !== true) {
     problems.push({ code: "EVIDENCE_NOT_PASSED", detail: `${id ?? "?"}: required predicate passed:true olmali` });
+  }
+  if (status === "PASSED" && entry?.passed !== true) {
+    problems.push({ code: "EVIDENCE_STATUS_UYUSMAZ", detail: `${id ?? "?"}: status PASSED iken passed:true olmali` });
+  }
+  if (status !== "PASSED" && entry?.passed === true) {
+    problems.push({ code: "EVIDENCE_STATUS_UYUSMAZ", detail: `${id ?? "?"}: status ${status} iken passed:true olamaz` });
   }
   if (entry.predicate !== undefined && entry.predicate !== id) {
     problems.push({ code: "EVIDENCE_PREDICATE_UYUSMAZ", detail: `${id}: predicate ${JSON.stringify(entry.predicate ?? null)} requirement_id ile uyusmuyor` });
@@ -607,27 +622,51 @@ function validateEvidenceEntry(entry, ctx) {
   if (entry.passed === true && ((typeof entry.command !== "string" || entry.command.length === 0) || !entry.artifact)) {
     problems.push({ code: "EVIDENCE_YALNIZ_PASSED", detail: `${id}: passed:true, gercek komut/artifact olmadan kanit sayilmaz` });
   }
-  if (typeof entry.command !== "string" || entry.command.length === 0) {
+  // Partial NOT_RUN/BLOCKED/FAILED kayitlari gercek bir child/run artifact'i
+  // olmadan da saklanabilir. PASSED kaydi ise mevcut tam kanit kapilarinin
+  // tamamindan gecmelidir; partial kayitta verilen alanlar yine dogrulanir.
+  if (status === "PASSED" && (typeof entry.command !== "string" || entry.command.length === 0)) {
     problems.push({ code: "EVIDENCE_KOMUT_EKSIK", detail: id });
   }
-  if (typeof entry.exit_code !== "number") {
+  if (status === "PASSED" && typeof entry.exit_code !== "number") {
     problems.push({ code: "EVIDENCE_EXIT_EKSIK", detail: id });
-  } else if (entry.exit_code !== 0) {
+  } else if (typeof entry.exit_code === "number" && entry.exit_code !== 0 && status === "PASSED") {
     problems.push({ code: "EVIDENCE_EXIT_SIFIR_DEGIL", detail: `${id}: exit_code=${entry.exit_code}` });
   }
-  if (entry.job_id !== ctx.run.job_id) {
+  if (entry.job_id !== undefined && entry.job_id !== ctx.run.job_id) {
     problems.push({ code: "EVIDENCE_JOB_UYUSMAZ", detail: `${id}: evidence job_id, manifest run.job_id ile uyusmuyor` });
   }
-  if (entry.run_id !== ctx.run.run_id) {
+  if (entry.run_id !== undefined && entry.run_id !== ctx.run.run_id) {
     problems.push({ code: "EVIDENCE_RUN_UYUSMAZ", detail: `${id}: evidence run_id, manifest run.run_id ile uyusmuyor` });
   }
-  validateEvidenceArtifact(id, entry.artifact, problems);
+  if (entry.artifact !== undefined) validateEvidenceArtifact(id, entry.artifact, problems);
   return problems;
+}
+
+function validateManifestRevision(manifest, problems) {
+  const status = manifest?.manifest_status;
+  if (status !== undefined && (typeof status !== "string" || !MANIFEST_STATUSES.includes(status))) {
+    problems.push({ code: "EVIDENCE_MANIFEST_STATUS", detail: `manifest_status=${JSON.stringify(status ?? null)} gecersiz` });
+  }
+  const hasRevisionFields = manifest?.revision !== undefined || manifest?.previous_manifest_sha256 !== undefined;
+  if (!hasRevisionFields && status !== "PARTIAL") return;
+  if (!Number.isSafeInteger(manifest?.revision) || manifest.revision < 1) {
+    problems.push({ code: "EVIDENCE_REVISION_EKSIK", detail: "partial/linked manifest revision pozitif tam sayi olmali" });
+  }
+  const previous = manifest?.previous_manifest_sha256;
+  if (manifest?.revision === 1) {
+    if (previous !== null && previous !== undefined) {
+      problems.push({ code: "EVIDENCE_PREVIOUS_HASH_UYUSMAZ", detail: "revision 1 previous_manifest_sha256 null olmali" });
+    }
+  } else if (Number.isSafeInteger(manifest?.revision) && manifest.revision > 1 &&
+      (typeof previous !== "string" || !/^[a-f0-9]{64}$/u.test(previous))) {
+    problems.push({ code: "EVIDENCE_PREVIOUS_HASH_EKSIK", detail: "revision > 1 onceki manifest SHA-256 baglantisi olmali" });
+  }
 }
 
 function verifyEvidenceManifest(identity, catalog, universe) {
   const mandatoryIdSet = new Set(universe.idList);
-  const runManifest = { present: false, path: relative(repoRoot, evidenceManifestPath) || evidenceManifestPath, id: null, task: null, schema_version: null, run: null, evaluated: true };
+  const runManifest = { present: false, path: relative(repoRoot, evidenceManifestPath) || evidenceManifestPath, id: null, task: null, schema_version: null, manifest_status: null, revision: null, previous_manifest_sha256: null, run: null, evaluated: true };
   const fail = (problems, stats) => ({ problems, stats, runManifest, live_pilot: null, platform_evidence: null });
   const stats = () => emptyStats(mandatoryIdSet.size);
 
@@ -642,6 +681,9 @@ function verifyEvidenceManifest(identity, catalog, universe) {
   }
   runManifest.present = true;
   runManifest.schema_version = manifest.schema_version ?? null;
+  runManifest.manifest_status = manifest.manifest_status ?? null;
+  runManifest.revision = manifest.revision ?? null;
+  runManifest.previous_manifest_sha256 = manifest.previous_manifest_sha256 ?? null;
   runManifest.id = typeof manifest.manifest_id === "string" && manifest.manifest_id.length > 0 ? manifest.manifest_id : null;
   runManifest.task = typeof manifest.task === "string" && manifest.task.length > 0 ? manifest.task : null;
 
@@ -662,6 +704,10 @@ function verifyEvidenceManifest(identity, catalog, universe) {
   }
   if (manifest.scope_id !== requestedScope) {
     problems.push({ code: "EVIDENCE_SCOPE_KIMLIK_UYUSMAZ", detail: `manifest scope_id ${JSON.stringify(manifest.scope_id ?? null)}, beklenen ${requestedScope}` });
+  }
+  validateManifestRevision(manifest, problems);
+  if (manifest.manifest_status === "PARTIAL") {
+    problems.push({ code: "EVIDENCE_PARTIAL_MANIFEST", detail: "partial manifest saklandi; full gate icin tum required predicate'ler PASSED olmali" });
   }
 
   const source = manifest.source ?? {};

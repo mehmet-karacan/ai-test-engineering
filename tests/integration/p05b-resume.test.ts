@@ -271,6 +271,13 @@ describe("P05-B resume zinciri", () => {
       prepared.services.storage?.close();
       rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true });
     });
+    // Keep this negative branch deterministic even when the checked-in helper
+    // is available on the host running the suite.
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => {
+      throw new AppError("BLOCKED_ISOLATION", "Windows Job Object helper required", {
+        reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED",
+      });
+    });
     const before = prepared.services.jobs!.getJob(prepared.jobId).lifecycle;
     await expect(handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services))
       .rejects.toMatchObject({ details: { reason_code: "NATIVE_PROCESS_OWNERSHIP_UNVERIFIED" } });

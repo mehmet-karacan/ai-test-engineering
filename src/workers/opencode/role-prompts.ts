@@ -3,6 +3,7 @@
  * Mantiksal rollerdir; tek yetkili modelle tum akis calisir.
  */
 export type WorkerRole = "analyzer" | "test_designer" | "reviewer" | "gap_analyzer";
+export type TestFramework = "junit4" | "junit5" | "both" | "none";
 
 export interface WorkerPromptContext {
   role: WorkerRole;
@@ -18,6 +19,7 @@ export interface WorkerPromptContext {
    * kaynak kodu isteyen aciklama yaziyor (JSON uretemiyor).
    */
   class_body?: string;
+  test_framework?: TestFramework;
   policy_rules: string[];
 }
 
@@ -93,15 +95,45 @@ export function buildWorkerPrompt(context: WorkerPromptContext): string {
     ...(context.previous_attempts && context.previous_attempts.length > 0
       ? ["## Onceki denemeler (tekrar etme)", ...context.previous_attempts.map((p) => `- ${p.scenario}: ${p.result}${p.error ? ` (${p.error})` : ""}`), ""]
       : []),
+    ...(context.test_framework
+      ? [
+          "## Test framework (zorunlu)",
+          `Mevcut test frameworku: ${testFrameworkLabel(context.test_framework)}.`,
+          "Yeni testlerde bu frameworku ve import stilini koru; baska JUnit major surumune gecme.",
+          "",
+        ]
+      : []),
     "## Zorunlu kurallar",
     ...context.policy_rules.map((r) => `- ${r}`),
     "",
+    "## Arac ve dosya yolu kurallari (zorunlu)",
+    "Tool veya arac cagrisi yapma; dosya arama/okuma isteme; yalniz verilen baglami kullan.",
+    "changes[].path degeri mutlaka src/test/java/ ile baslamali ve yeni test dosyasinin tam yolunu icermeli.",
+    "path alani src/test/java/<...>.java biciminde olmali; src/test/java oneki olmadan yol gecersizdir.",
+    "Tek bir kucuk test dosyasi olustur; en fazla 5 @Test metodu ve 160 satir yaz.",
+    "Yeni test dosyasi adi mevcut test siniflarindan farkli olmali; mevcut sinif yolunu tekrar kullanma.",
+    "Plan, analiz, gerekce veya ic muhakeme yazma; dogrudan JSON sonucunla basla.",
+    "new_content 12000 karakteri gecmemeli.",
+    "",
     "## Cikti bicimi (zorunlu)",
     "Yalnizca gecerli JSON dondur; aciklama, markdown, kod blogu veya baska metin YAZMA.",
-    'Beklenen yapis: {"schema_version":1,"changes":[{"path":"<src/test/java altinda relative yol>","action":"create|modify|delete","new_content":"<dosya tam icerigi>"}]}',
+    'Beklenen yapis: {"schema_version":1,"changes":[{"path":"src/test/java/<...>.java","action":"create|modify|delete","new_content":"<dosya tam icerigi>"}]}',
     "new_content, dosyanin tam java icerigi olmali; kod blogu (```) icinde degil dogrudan JSON string olarak.",
   ];
   return sections.join("\n");
+}
+
+function testFrameworkLabel(framework: TestFramework): string {
+  switch (framework) {
+    case "junit4":
+      return "JUnit 4 (org.junit)";
+    case "junit5":
+      return "JUnit 5 (org.junit.jupiter.api)";
+    case "both":
+      return "JUnit 4 ve JUnit 5";
+    case "none":
+      return "Maven test frameworku bilinmiyor";
+  }
 }
 
 function roleIntroFor(role: WorkerRole): string {
@@ -122,6 +154,8 @@ export const DEFAULT_POLICY_RULES: readonly string[] = [
   "pom.xml, build.gradle ve diger build dosyalarini degistiremezsin.",
   "Yeni @Disabled veya @Ignore ekleyemezsin.",
   "Mevcut testleri silemezsin veya assertion'larini gevsetemezsin.",
+  "Mevcut test dosyalarini modify veya delete etme.",
+  "Yeni testleri yeni bir dosyada create et; mevcut test siniflarini aynen koru.",
   "API key, parola ve sirlari okuyamaz veya yazamazsin.",
   "Testin kendi stub'inin sonucunu dogrulama (SUT'u tamamen mock'layip kendi stub'ini test etme).",
 ] as const;

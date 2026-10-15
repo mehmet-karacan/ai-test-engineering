@@ -51,7 +51,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-public class CalcServiceTest {
+public class CalcServiceGeneratedTest {
 
   private final CalcService service = new CalcService();
 
@@ -136,8 +136,8 @@ ${extraAssertions}
           schema_version: 1,
           changes: [
             {
-              path: "src/test/java/com/example/calc/CalcServiceTest.java",
-              action: "modify",
+              path: "src/test/java/com/example/calc/CalcServiceGeneratedTest.java",
+              action: "create",
               new_content: content,
               after_hash: sha(content),
               scenario_ids: [`s${iteration}`],

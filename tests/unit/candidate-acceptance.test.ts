@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PatchApplier } from "../../src/application/patch-applier.js";
 import { scanTestQuality, assertQualityGate, detectProductionPathWrite } from "../../src/policies/quality-gate.js";
 import { PlateauAnalyzer, GAP_STRATEGIES } from "../../src/orchestration/plateau-analyzer.js";
-import { basisPointsFrom } from "../../src/orchestration/candidate-loop.js";
+import { basisPointsFrom, deriveCandidateTestSelectors } from "../../src/orchestration/candidate-loop.js";
 import type { CandidateChangeSet } from "../../src/workers/opencode/model-schemas.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
@@ -90,6 +90,22 @@ describe("PatchApplier", () => {
     expect(result.failed[0]!.reason_code).toBe("HASH_MISMATCH");
   });
 
+  it("candidate politikasinda mevcut test dosyasi degistirilemez", () => {
+    const applier = new PatchApplier(projectDir, roots, stagingDir, { preserve_existing_tests: true });
+    const result = applier.apply({
+      schema_version: 1,
+      changes: [{
+        path: "src/test/java/com/example/payment/PaymentServiceTest.java",
+        action: "modify",
+        new_content: "class PaymentServiceTest { }",
+        scenario_ids: [],
+      }],
+    });
+    expect(result.applied).toHaveLength(0);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0]!.reason_code).toBe("EXISTING_TEST_MUTATION");
+  });
+
   it("reset staging'i temizlemeli; orijinal projeye dokunmaz", () => {
     const applier = new PatchApplier(projectDir, roots, stagingDir);
     const originalContent = readFileSync(join(projectDir, "src", "main", "java", "com", "example", "payment", "PaymentService.java"), "utf8");
@@ -100,6 +116,33 @@ describe("PatchApplier", () => {
     applier.reset();
     expect(existsSync(join(stagingDir, "src", "test", "java", "A.java"))).toBe(false);
     expect(readFileSync(join(projectDir, "src", "main", "java", "com", "example", "payment", "PaymentService.java"), "utf8")).toBe(originalContent);
+  });
+});
+
+describe("Candidate Maven test selectorleri", () => {
+  let dir: string;
+  let projectDir: string;
+  let candidateDir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "aitest-selector-"));
+    projectDir = join(dir, "project");
+    candidateDir = join(dir, "candidate");
+    cpSync(join(FIXTURES, "sample-maven-project"), projectDir, { recursive: true });
+    cpSync(projectDir, candidateDir, { recursive: true });
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }));
+
+  it("yeni candidate test sinifi mevcut selector havuzuna eklenmeli", () => {
+    const path = "src/test/java/com/example/payment/NewPaymentServiceTest.java";
+    const absolute = join(candidateDir, "src", "test", "java", "com", "example", "payment", "NewPaymentServiceTest.java");
+    mkdirSync(join(absolute, ".."), { recursive: true });
+    writeFileSync(absolute, "package com.example.payment;\nclass NewPaymentServiceTest {}\n", "utf8");
+
+    const selectors = deriveCandidateTestSelectors(candidateDir, [path], ["com.example.payment.PaymentServiceTest"]);
+
+    expect(selectors).toEqual(["com.example.payment.NewPaymentServiceTest", "com.example.payment.PaymentServiceTest"]);
   });
 });
 
@@ -127,6 +170,15 @@ describe("Kalite kapilari (AC33/AC34/AC32)", () => {
       "X.java",
     );
     expect(result.passed).toBe(true);
+  });
+
+  it("@DisplayName gibi test anotasyonlari assertion taramasini bozmaz", () => {
+    const result = scanTestQuality(
+      "class T {\n  @Test\n  @DisplayName(\"anlamli test\")\n  void a() {\n    org.junit.jupiter.api.Assertions.assertEquals(2, 1 + 1);\n  }\n}",
+      "X.java",
+    );
+    expect(result.passed).toBe(true);
+    expect(result.findings.some((f) => f.rule_id === "NO_ASSERTION")).toBe(false);
   });
 
   it("Mockito verify assertion sayilmali (AC34)", () => {

@@ -108,14 +108,27 @@ export class OpenCodeWorkerClient {
     }
   }
 
-  async createSession(directory?: string): Promise<SessionInfo> {
-    const response = await fetch(this.endpoint("/session"), {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(this.apiPrefix
-        ? (directory ? { location: { directory } } : {})
-        : (directory ? { directory } : {})),
-    });
+  async createSession(directory?: string, timeoutMs = 30_000): Promise<SessionInfo> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+    let response: Response;
+    try {
+      response = await fetch(this.endpoint("/session"), {
+        method: "POST",
+        headers: this.headers(),
+        signal: controller.signal,
+        body: JSON.stringify(this.apiPrefix
+          ? (directory ? { location: { directory } } : {})
+          : (directory ? { directory } : {})),
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new WorkerRequestFailure("REQUEST_TIMEOUT", "session olusturma deadline'i asildi");
+      }
+      throw new WorkerRequestFailure("TRANSPORT_ERROR", `session olusturma transport hatasi: ${String(error)}`);
+    } finally {
+      clearTimeout(timer);
+    }
     if (!response.ok) {
       throw new Error(`Session olusturma basarisiz: HTTP ${response.status}`);
     }
@@ -156,6 +169,10 @@ export class OpenCodeWorkerClient {
         .join("\n");
       const body = this.apiPrefix
         ? {
+          // WN73/mcp95z: v2 prompt body semasi tools/system tasimaz (schema
+          // additionalProperties:false). Arac kisiti worker config'in `tools`
+          // kaldirma kilidi + `permissions` deny katmaniyla sunucu tarafinda
+          // uygulanir (buildWorkerConfigContent); body'ye eklenmez.
           text,
           ...(options.model ? { model: options.model } : {}),
           ...(options.agent ? { agent: options.agent } : {}),
@@ -251,17 +268,36 @@ export class OpenCodeWorkerClient {
       const record = message as Record<string, unknown>;
       if (record["info"] && typeof record["info"] === "object") return record;
       const role = record["type"] === "assistant" ? "assistant" : record["type"] === "user" ? "user" : String(record["role"] ?? record["type"] ?? "");
-      const text = typeof record["text"] === "string" ? record["text"] : "";
+      const content = Array.isArray(record["content"]) ? record["content"] : [];
+      const contentParts = content
+        .filter((part): part is Record<string, unknown> => Boolean(part) && typeof part === "object" && !Array.isArray(part))
+        .map((part) => {
+          const type = String(part["type"] ?? "");
+          if (type === "text") {
+            return { type: "text", text: String(part["text"] ?? "") };
+          }
+          if (type === "tool" || part["tool"] !== undefined || part["name"] !== undefined) {
+            return { type: "tool", tool: String(part["tool"] ?? part["name"] ?? "unknown") };
+          }
+          return { type };
+        });
+      const text = typeof record["text"] === "string"
+        ? record["text"]
+        : contentParts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
       return {
         info: {
           id: record["id"],
           role,
           sessionID: record["sessionID"] ?? session_id,
+          ...(record["parentID"] !== undefined ? { parentID: record["parentID"] } : {}),
           ...(record["finish"] !== undefined ? { finish: record["finish"] } : {}),
           ...(record["completed"] !== undefined ? { completed: record["completed"] } : {}),
           ...(record["error"] !== undefined ? { error: record["error"] } : {}),
         },
-        parts: text.length > 0 ? [{ type: "text", text }] : [],
+        parts: contentParts.length > 0 ? contentParts : text.length > 0 ? [{ type: "text", text }] : [],
       };
     });
   }

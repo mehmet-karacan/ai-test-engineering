@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
 import { AppError } from "../../domain/errors.js";
 import { OpenCodeWorkerClient } from "./worker-client.js";
+import { workerToolsConfigFlags, workerPermissionDenyRules } from "./worker-config.js";
 
 export interface WorkerServerOptions {
   opencodeExecutable: string;
@@ -40,7 +41,21 @@ export function workerConfigDigest(content: Record<string, unknown>): string {
 }
 
 /** W01/F03: worker env allowlist - tum process.env kopyalanmaz; yalniz bu on ekler + sentinel tasi */
-function buildAllowedEnv(): Record<string, string> {
+function referencedProviderEnvNames(provider: unknown): string[] {
+  if (!provider || typeof provider !== "object" || Array.isArray(provider)) return [];
+  const names = new Set<string>();
+  for (const value of Object.values(provider as Record<string, unknown>)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const options = (value as Record<string, unknown>)["options"];
+    if (!options || typeof options !== "object" || Array.isArray(options)) continue;
+    const apiKey = (options as Record<string, unknown>)["apiKey"];
+    const match = typeof apiKey === "string" ? /^\{env:([A-Za-z0-9_]+)\}$/u.exec(apiKey.trim()) : null;
+    if (match) names.add(match[1]!);
+  }
+  return [...names];
+}
+
+function buildAllowedEnv(extraSecretNames: readonly string[] = []): Record<string, string> {
   const allowed: Record<string, string> = {};
   const allowPrefixes = ["PATH", "PATHEXT", "SYSTEMROOT", "COMSPEC", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "USERPROFILE", "HOME", "JAVA_HOME", "MAVEN_HOME", "NO_COLOR", "LANG", "TZ"];
   for (const key of allowPrefixes) {
@@ -57,6 +72,14 @@ function buildAllowedEnv(): Record<string, string> {
   const username = process.env["OPENCODE_SERVER_USERNAME"];
   if (username !== undefined) {
     allowed["OPENCODE_SERVER_USERNAME"] = username;
+  }
+  // Provider credentials are forwarded only when the worker config names an
+  // explicit {env:NAME} reference.  Maven's separate environment allowlist
+  // never includes these names.
+  for (const name of extraSecretNames) {
+    const entry = Object.entries(process.env).find(([key, value]) =>
+      key.toUpperCase() === name.toUpperCase() && value !== undefined);
+    if (entry) allowed[entry[0]] = entry[1]!;
   }
   return allowed;
 }
@@ -130,9 +153,13 @@ export class WorkerServerManager {
    * config_instance_key verildiyse config dosyasi instance bazli ayrilir; stale reuse yok.
    */
   private buildIsolatedEnv(): Record<string, string> {
-    // W01/F03: tum process.env kopyalanmaz; allowlist uygulanir
-    const base: Record<string, string> = buildAllowedEnv();
     const configHome = this.options.isolatedConfigHome;
+    // W01/F03: tum process.env kopyalanmaz; allowlist uygulanir.  Provider
+    // secret references are the sole additional names admitted to the worker.
+    const configContent = configHome ? this.buildWorkerConfigContent() : null;
+    const base: Record<string, string> = buildAllowedEnv(
+      configContent ? referencedProviderEnvNames(configContent["provider"]) : [],
+    );
     if (!configHome) {
       return base;
     }
@@ -143,7 +170,7 @@ export class WorkerServerManager {
     mkdirSync(configDir, { recursive: true });
     mkdirSync(join(configHome, "data"), { recursive: true });
     const workerConfigPath = join(configDir, "opencode.json");
-    const content = this.buildWorkerConfigContent();
+    const content = configContent!;
     const digest = workerConfigDigest(content);
     // W01/F03: config digest dosyada degisince yeniden yazilir (stale reuse yok)
     let needsWrite = true;
@@ -167,6 +194,9 @@ export class WorkerServerManager {
   /**
    * Worker config icerigi: kullanici OpenCode config'inden provider tanimi (npm + models + options)
    * birebir tasinir; mcp bos kalir (kullanici MCP mirasi kesilir). model/small_model kullanici seciminden.
+   * WN73/mcp95z: v2 prompt body'si tools tasimadigi icin arac kisiti config uzerinden
+   * uygulanir: `tools:{...false}` araclarin toolset'ten kaldirilmasi (birincil kilit,
+   * canli dogrulandi) + `permissions` deny (ikinci savunma katmani).
    */
   private buildWorkerConfigContent(): Record<string, unknown> {
     const userConfigPath = resolve(join(process.env["USERPROFILE"] ?? "", ".config", "opencode", "opencode.json"));
@@ -185,6 +215,13 @@ export class WorkerServerManager {
       $schema: "https://opencode.ai/config.json",
       mcp: {},
       autoupdate: false,
+      // WN73/mcp95z fail-closed: worker modeli yalniz prompt'ta verilen bounded
+      // context ile cevap verir; tum arac kullanimi kaldirilir (birincil kilit).
+      tools: workerToolsConfigFlags(),
+      // Ikinci savunma katmani: toolset'ten kacan bir arac (yeni surumde isim
+      // degisimi vb.) permission deny ile cagri seviyesinde engellenir.
+      // Etkilesimsiz worker'da 'ask' beklemeyi bloklardigi icin yalniz 'deny'.
+      permissions: workerPermissionDenyRules(),
       provider,
     };
     if (model) {

@@ -43,6 +43,8 @@ export function assertWindowsProcessHelper(): void {
 export interface NativeProcessPlan {
   executable: string;
   cwd: string;
+  /** Optional owned root; implicit .mvn inputs above it are outside the run. */
+  pinRoot?: string;
   argv: string[];
   timeoutMs: number;
   env: NodeJS.ProcessEnv;
@@ -113,8 +115,17 @@ export function processPinPaths(plan: NativeProcessPlan): string[] {
     paths.set(absolute.toLowerCase(), absolute);
   };
   add(plan.executable, true);
-  for (let cursor = resolve(plan.cwd); ; cursor = dirname(cursor)) {
+  const cwd = resolve(plan.cwd);
+  const pinRoot = plan.pinRoot === undefined ? null : resolve(plan.pinRoot);
+  if (pinRoot !== null) {
+    const relativeCwd = relative(pinRoot, cwd);
+    if (relativeCwd.startsWith("..") || isAbsolute(relativeCwd)) {
+      throw new AppError("BLOCKED_ISOLATION", "Native pin root must contain cwd", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
+    }
+  }
+  for (let cursor = cwd; ; cursor = dirname(cursor)) {
     for (const name of ["jvm.config", "maven.config", "extensions.xml"]) add(join(cursor, ".mvn", name), false);
+    if (pinRoot !== null && cursor.toLowerCase() === pinRoot.toLowerCase()) break;
     if (dirname(cursor) === cursor) break;
   }
   for (const name of ["settings.xml", "toolchains.xml"]) add(join(homedir(), ".m2", name), false);
@@ -144,12 +155,14 @@ function collectPinnedFiles(plan: NativeProcessPlan): Array<{ path: string; sha2
     if (paths.some((path) => !expected.has(path.toLowerCase()))) {
       throw new AppError("BLOCKED_ISOLATION", "Incomplete native pin snapshot", { reason_code: "TOOLCHAIN_PIN_UNVERIFIED" });
     }
-    // Optional resolver inputs can be absent at the approved snapshot. They
-    // are intentionally left out of the helper manifest; MavenRunner re-runs
-    // the resolver and rejects any later creation/change before launch.
-    return [...expected.values()]
-      .filter((input): input is { path: string; sha256: string } => input.sha256 !== null)
-      .map((input) => ({ path: resolve(input.path), sha256: input.sha256 }));
+    // Optional resolver inputs are part of the approved snapshot too. A
+    // missing file is sent as a typed '-' entry; the native helper rejects
+    // absent inputs before CreateProcess because a writable workspace cannot
+    // safely hold that absence for the lifetime of the child.
+    return [...expected.values()].map((input) => ({
+      path: resolve(input.path),
+      sha256: input.sha256 ?? "-",
+    }));
   }
   // Standalone version probes may capture a fresh local snapshot. A goal run
   // supplies pinnedInputs from the approved resolver identity instead.

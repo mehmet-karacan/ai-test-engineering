@@ -189,7 +189,10 @@ export function createFrozenWorkspace(projectRoot: string, workspaceRoot: string
   if (source === destination) {
     throw new AppError("POLICY_VIOLATION", "Frozen workspace customer checkout ile ayni olamaz", { reason_code: "FROZEN_WORKSPACE_COLLISION" });
   }
-  rmSync(destination, { recursive: true, force: true });
+  // Windows may report a transient ENOTEMPTY while the native helper or an
+  // external file watcher is closing/creating a marker in the old workspace.
+  // Bounded retries keep cleanup deterministic without widening the path.
+  rmSync(destination, { recursive: true, force: true, maxRetries: 12, retryDelay: 50 });
   mkdirSync(join(destination, ".."), { recursive: true });
   cpSync(source, destination, {
     recursive: true,

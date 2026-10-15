@@ -8,6 +8,7 @@ import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../domain/errors.js";
+import { verificationLevelForReport, type Outcome } from "../domain/job-state.js";
 import type { Services } from "../application/services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { InventoryRepository, type RunOutputTruncation } from "../storage/inventory-repository.js";
@@ -26,7 +27,7 @@ import { MavenRunner, type RunResult } from "../runners/maven-runner.js";
 import { DockerRunner, DockerMavenRunner, scanMavenSettingsForSecrets } from "../runners/docker-runner.js";
 import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric } from "../coverage/coverage-math.js";
-import { buildWorkerPrompt, DEFAULT_POLICY_RULES, type WorkerPromptContext } from "../workers/opencode/role-prompts.js";
+import { buildWorkerPrompt, DEFAULT_POLICY_RULES, type TestFramework, type WorkerPromptContext } from "../workers/opencode/role-prompts.js";
 import { promptForJsonResult, WorkerRequestFailure, type WorkerPromptResult } from "../workers/opencode/worker-client.js";
 import { parseExactModelSpec, readWorkerProfileFromOpencodeConfig } from "../workers/opencode/profile-reader.js";
 import { CandidateChangeSetSchema } from "../workers/opencode/model-schemas.js";
@@ -43,11 +44,37 @@ import { AgentScheduler } from "./agent-scheduler.js";
 import { FileSystemContextProvider, type AgentContextPackage, type AgentContextProvider } from "../workers/opencode/context-provider.js";
 import { CandidateAgentSessionAdapter } from "./candidate-agent-session-adapter.js";
 import type { AgentTaskContract } from "../domain/agent-contracts.js";
+import { MAX_WORKER_REQUEST_TIMEOUT_MS, workerRequestBudget } from "../workers/opencode/worker-config.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 function nativePathIdentity(value: string): string {
   const normalized = resolve(value).replace(/\\/gu, "/").replace(/\/+$/u, "");
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+/**
+ * A job lease must outlive the longest bounded worker request plus cleanup.
+ * The old fixed five-minute lease could expire during a real model attempt,
+ * even though the worker itself was allowed to run for fifteen minutes.
+ */
+function jobLeaseTtlMs(deadlineAt: number): number {
+  return Math.max(1000, Math.min(MAX_WORKER_REQUEST_TIMEOUT_MS + 300_000, Math.max(1000, deadlineAt - Date.now())));
+}
+
+function inferTestFramework(testFiles: string[], module: PomModule, projectRoot: string): TestFramework {
+  const detected = new Set<"junit4" | "junit5">();
+  for (const testFile of testFiles.slice(0, 10)) {
+    const testClass = scanTestFile(testFile, projectRoot).testClass;
+    if (testClass?.kind === "junit4" || testClass?.kind === "junit5") {
+      detected.add(testClass.kind);
+    }
+  }
+  if (detected.size === 1) return [...detected][0]!;
+  if (detected.size > 1) return "both";
+  if (module.junit4_present && module.junit5_present) return "both";
+  if (module.junit4_present) return "junit4";
+  if (module.junit5_present) return "junit5";
+  return "none";
 }
 
 
@@ -188,13 +215,13 @@ export class JobDispatcher {
     const checkpoints = new CheckpointStore(storage.db, this.workspaceRoot);
     const inventory = new InventoryRepository(storage.db, this.services.artifacts);
     const ownerId = executionOwnerId ?? `dispatch-${process.pid}-${job.id}`;
-    const leaseTtlMs = 300000;
+    const jobDeadlineAt = job.created_at + this.services.config.budgets.total_job_minutes * 60000;
+    const leaseTtlMs = jobLeaseTtlMs(jobDeadlineAt);
     let leaseAcquired = false;
     let activeLease: { owner_id: string; fencing_token: number } | null = null;
     let heartbeatTimer: NodeJS.Timeout | null = null;
     let leaseLost = false;
     // P03/PP15: total job time butcesi kesinti sonrasi da korunur (kalicilik).
-    let jobDeadlineAt: number;
     const assertJobDeadline = (): void => {
       if (Date.now() > jobDeadlineAt) {
         throw new AppError("POLICY_VIOLATION", "Toplam job sure butcesi asildi", { reason_code: "JOB_DEADLINE_EXCEEDED" });
@@ -243,7 +270,6 @@ export class JobDispatcher {
       phases.push("preflight");
       // P03/PP15: total job deadline created_at + config total_job_minutes;
       // resume'da global config ile sifirlanmaz (ayni job satiri kullanilir).
-      jobDeadlineAt = jobs.getJob(job.id).created_at + this.services.config.budgets.total_job_minutes * 60000;
       assertJobDeadline();
 
       // K01/B01: izolasyon gecidi - customer job'da host yolu secilemez; docker verified izolasyon zorunlu.
@@ -1051,8 +1077,18 @@ export class JobDispatcher {
         });
       }
       phases.push(`report_${exportResult.verification_passed ? "ok" : "inconsistent"}`);
-      jobs.updateOutcome(job.id, reportOutcome, jobs.getJob(job.id).row_version);
-      jobs.updateLifecycle(job.id, reportOutcome === "FINAL_VERIFICATION_FAILED" ? "FAILED" : "COMPLETED", jobs.getJob(job.id).row_version);
+      const terminalOutcome = reportOutcome as Outcome;
+      const afterOutcome = jobs.updateOutcome(job.id, terminalOutcome, jobs.getJob(job.id).row_version);
+      const afterVerification = jobs.updateVerificationLevel(
+        job.id,
+        verificationLevelForReport(terminalOutcome),
+        afterOutcome.row_version,
+      );
+      jobs.updateLifecycle(
+        job.id,
+        terminalOutcome === "FINAL_VERIFICATION_FAILED" ? "FAILED" : "COMPLETED",
+        afterVerification.row_version,
+      );
       phases.push("completed");
       jobs.appendEvent({ job_id: job.id, event_type: "verification_completed", phase: "verification", origin: "JobDispatcher" });
 
@@ -1102,8 +1138,13 @@ export class JobDispatcher {
                   : errorCode === "BLOCKED_COVERAGE_CONFIGURATION"
                     ? "BLOCKED_COVERAGE_CONFIGURATION"
                   : "BLOCKED_ENVIRONMENT";
-          jobs.updateOutcome(job.id, outcome, jobs.getJob(job.id).row_version);
-          jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
+          const afterOutcome = jobs.updateOutcome(job.id, outcome, jobs.getJob(job.id).row_version);
+          const afterVerification = jobs.updateVerificationLevel(
+            job.id,
+            verificationLevelForReport(outcome),
+            afterOutcome.row_version,
+          );
+          jobs.updateLifecycle(job.id, "FAILED", afterVerification.row_version);
         }
       } catch {
         // lifecycle zaten degismis olabilir
@@ -1329,9 +1370,11 @@ export class JobDispatcher {
     // Acquire ownership before any native -v child starts. Checkpoint events,
     // accepted-file restore and lifecycle mutation still follow verification.
     const recoveryOwnerId = ownerIdOverride ?? `resume-${process.pid}-${job.id}-${randomUUID()}`;
+    const jobDeadlineAt = job.created_at + this.services.config.budgets.total_job_minutes * 60000;
+    const leaseTtlMs = jobLeaseTtlMs(jobDeadlineAt);
     const acquired = this.runnerKind === "windows_native"
-      ? leases.acquireNative(job.id, recoveryOwnerId, 300000)
-      : leases.acquire(job.id, recoveryOwnerId, 300000, `recovery-${process.pid}`);
+      ? leases.acquireNative(job.id, recoveryOwnerId, leaseTtlMs)
+      : leases.acquire(job.id, recoveryOwnerId, leaseTtlMs, `recovery-${process.pid}`);
     try {
     if (this.runnerKind === "windows_native") {
       new CustomerRunnerFactory().assertNativeCustomerReady();
@@ -1340,6 +1383,11 @@ export class JobDispatcher {
       if (nativePathIdentity(options.cwd) !== nativePathIdentity(projectRoot)) {
         throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
+      // Keep the exact path spelling that was approved. Windows paths are
+      // case-insensitive, but the immutable resolver identity also includes
+      // path bytes; the project repository may return a lower-case drive or
+      // slash-normalized spelling on a later resume.
+      projectRoot = options.cwd;
       // A native job that reached resume must retain its frozen baseline
       // identity. Dispatch recreates that workspace and compares the fresh
       // version/config identity before another Maven goal is launched.
@@ -1355,7 +1403,7 @@ export class JobDispatcher {
     const snapshot = new SourceSnapshot(projectRoot);
     const snapshotManifest = snapshot.buildManifest();
     const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
-    const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity });
+    const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity }, leaseTtlMs);
     // S04/WN40: session/process kaybi sonrasi lease'i bitmis agent task'lari
     // resume dispatch'e girmeden once INTERRUPTED olarak kapat. Yeni scheduler
     // ayni task'i claimTask ile yeni fence ve attempt ordinal'iyle devralir.
@@ -1649,6 +1697,24 @@ export class JobDispatcher {
     }
   }
 
+  /**
+   * Cancellation sends an abort signal synchronously, while the native helper
+   * closes its Job Object and durable registry row asynchronously. Pause/resume
+   * must wait for that close fence before attempting a new native lease.
+   */
+  async waitForOwnedProcessCleanup(jobId: string, timeoutMs = 10_000): Promise<void> {
+    const storage = this.services.storage;
+    if (!storage) return;
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (Date.now() <= deadline) {
+      const unresolved = storage.db.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM owned_processes WHERE job_id = ? AND cleanup_state <> 'CLOSED'",
+      ).get(jobId)?.count ?? 0;
+      if (unresolved === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
   private stopWorkerServers(jobId?: string): void {
     // job bazli worker server manager'lari sonlandir (owned); yabanci TUI/server'a dokunulmaz
     const managers = jobId
@@ -1740,13 +1806,24 @@ export class JobDispatcher {
 
     // mevcut test ozeti (bos degil; varken "Mevcut test yok" denemez):
     const testFiles = collectJavaFiles(projectRoot, module.test_root);
+    const expectedTargetTestName = `${basename(targetRelativePath, ".java")}Test.java`;
+    // The bounded summary must still include the exact test paired with the
+    // target. Without this, a large test tree can hide an existing
+    // `GpuFileUtilsTest.java` from the model, which then reuses that immutable
+    // path even though the prompt requires a new test class.
+    const orderedTestFiles = [...testFiles].sort((left, right) => {
+      const leftIsTarget = basename(left) === expectedTargetTestName;
+      const rightIsTarget = basename(right) === expectedTargetTestName;
+      return Number(rightIsTarget) - Number(leftIsTarget);
+    });
     const existingTests: string[] = [];
-    for (const testFile of testFiles.slice(0, 5)) {
+    for (const testFile of orderedTestFiles.slice(0, 5)) {
       const { testClass, methods } = scanTestFile(testFile, projectRoot);
       if (testClass) {
         existingTests.push(`${testClass.fqn}: ${methods.length} test`);
       }
     }
+    const testFramework = inferTestFramework(testFiles, module, projectRoot);
 
     // coverage aciklari: gercek satir/branch sayaclari:
     const coverage = readCoverageAfterRun(projectRoot, targetFqn, module.module_relative_path);
@@ -1779,12 +1856,13 @@ export class JobDispatcher {
         }],
       } : {}),
       class_body: classBody.length > 0 ? classBody : "",
+      test_framework: testFramework,
       policy_rules: [...DEFAULT_POLICY_RULES],
     };
     const prompt = buildWorkerPrompt(promptContext);
 
     // K03/B02: politika tool flags'i cagrida gercekten uygulanir (write/bash/task/web kapali):
-    const { workerToolFlags } = await import("../workers/opencode/worker-config.js");
+    const { MAX_WORKER_REQUEST_TIMEOUT_MS, workerToolFlags } = await import("../workers/opencode/worker-config.js");
     const { defaultWorkerConfig } = await import("../workers/opencode/worker-config.js");
     const flags = workerToolFlags(defaultWorkerConfig("http://127.0.0.1"));
 
@@ -1821,9 +1899,8 @@ export class JobDispatcher {
       const taskKey = [jobId, agentContext.source_snapshot_id, targetFqn, targetRelativePath, generationIteration, repairOrdinal, profile.provider_id, profile.model_id].join("|");
       const taskDigest = createHash("sha256").update(taskKey, "utf8").digest("hex");
       const taskId = `${taskDigest.slice(0, 8)}-${taskDigest.slice(8, 12)}-5${taskDigest.slice(13, 16)}-a${taskDigest.slice(17, 20)}-${taskDigest.slice(20, 32)}`;
-      const remainingMinutes = deadlineAt === undefined
-        ? 5
-        : Math.max(1 / 60, Math.min(24 * 60, (deadlineAt - Date.now()) / 60000));
+      const workerBudget = workerRequestBudget(deadlineAt === undefined ? 5 * 60000 : Math.max(0, deadlineAt - Date.now()));
+      const remainingMinutes = Math.min(24 * 60, workerBudget.remaining_minutes);
       const relativeTargetPath = targetRelativePath.replace(/\\/g, "/");
       const contract: AgentTaskContract = {
         schema_version: 1,
@@ -1877,27 +1954,37 @@ export class JobDispatcher {
         jobId,
         toolFlags: flags,
       });
-      const scheduler = new AgentScheduler({
-        tasks,
-        adapter,
-        contextProvider,
-        maxConcurrency: 1,
-        ownerId: `candidate-agent-${jobId}`,
-        leaseTtlMs: Math.max(1000, Math.min(300000, Math.floor(remainingMinutes * 60000))),
-      });
-      const report = (await scheduler.run({ taskIds: [taskId], parentSessionId: `dispatch:${jobId}` }))[0];
-      if (!report || report.status !== "COMPLETED" || !report.accepted || !report.result) {
-        throw new AppError("POLICY_VIOLATION", `Durable candidate agent tamamlanamadi: ${report?.outcome_kind ?? "NO_REPORT"}`, {
-          reason_code: "AGENT_TASK_NOT_COMPLETED",
-          task_id: taskId,
+      try {
+        const scheduler = new AgentScheduler({
+          tasks,
+          adapter,
+          contextProvider,
+          maxConcurrency: 1,
+          ownerId: `candidate-agent-${jobId}`,
+          // The lease must outlive the model request, including its cleanup
+          // and durable artifact write, otherwise a valid long-running model
+          // result can be rejected as a stale task completion.
+          leaseTtlMs: workerBudget.task_lease_ttl_ms,
         });
+        const report = (await scheduler.run({ taskIds: [taskId], parentSessionId: `dispatch:${jobId}` }))[0];
+        if (!report || report.status !== "COMPLETED" || !report.accepted || !report.result) {
+          throw new AppError("POLICY_VIOLATION", `Durable candidate agent tamamlanamadi: ${report?.outcome_kind ?? "NO_REPORT"}`, {
+            reason_code: "AGENT_TASK_NOT_COMPLETED",
+            task_id: taskId,
+          });
+        }
+        const ref = report.result.artifact_refs.find((candidate) => candidate.kind === "agent_candidate_changeset");
+        if (!ref || !this.services.artifacts.verify(ref.sha256)) {
+          throw new AppError("STORAGE_ERROR", "Durable candidate changeset artifact kaniti yok", { reason_code: "AGENT_CANDIDATE_ARTIFACT_MISSING", task_id: taskId });
+        }
+        const changeset = JSON.parse(this.services.artifacts.read(ref.sha256).toString("utf8")) as unknown;
+        return CandidateChangeSetSchema.parse(changeset);
+      } finally {
+        // Each candidate generation owns the server it registered. A timeout
+        // or provider failure must not leave that child listening on the
+        // deterministic job port and poison the next retry.
+        serverManager.stopOwnedServer();
       }
-      const ref = report.result.artifact_refs.find((candidate) => candidate.kind === "agent_candidate_changeset");
-      if (!ref || !this.services.artifacts.verify(ref.sha256)) {
-        throw new AppError("STORAGE_ERROR", "Durable candidate changeset artifact kaniti yok", { reason_code: "AGENT_CANDIDATE_ARTIFACT_MISSING", task_id: taskId });
-      }
-      const changeset = JSON.parse(this.services.artifacts.read(ref.sha256).toString("utf8")) as unknown;
-      return CandidateChangeSetSchema.parse(changeset);
     }
 
     const session = await client.createSession();
@@ -1950,7 +2037,7 @@ export class JobDispatcher {
     try {
       const workerTimeout = deadlineAt === undefined
         ? 300000
-        : Math.max(1, Math.min(300000, deadlineAt - Date.now()));
+        : Math.max(1, Math.min(MAX_WORKER_REQUEST_TIMEOUT_MS, deadlineAt - Date.now()));
       const response = await promptForJsonResult(client, {
         session_id: session.session_id,
         prompt,

@@ -94,7 +94,10 @@ describe.skipIf(process.platform !== "win32")("WN19 normal MCP fail-closed secre
       expect(resultData.data?.report_facts).toBeNull();
       expect(resultData.data?.report_path).toBeNull();
       expect(existsSync(mavenSentinel)).toBe(false);
-      expect(wire.join("\n") + stderr).toMatch(/NATIVE_PROCESS_OWNERSHIP_UNVERIFIED|process ownership/iu);
+      // The host may have a verified helper. In that case the next typed
+      // fail-closed gate is the missing native input pin; neither path starts
+      // Maven or exposes the credential.
+      expect(wire.join("\n") + stderr).toMatch(/NATIVE_PROCESS_OWNERSHIP_UNVERIFIED|NATIVE_INPUT_PIN_UNAVAILABLE|Maven input pinning unavailable|process ownership/iu);
       expect(wire.join("\n") + stderr).not.toContain(credential);
 
       await client.close();

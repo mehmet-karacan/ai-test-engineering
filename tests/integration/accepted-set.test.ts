@@ -45,7 +45,7 @@ describe("D05/F04/RG28: birikimli accepted set", () => {
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class CalcServiceTest {
+public class CalcServiceGeneratedTest {
 
   private final CalcService service = new CalcService();
 
@@ -108,7 +108,7 @@ ${extra}
         iteration++;
         return {
           schema_version: 1,
-          changes: [{ path: "src/test/java/com/example/calc/CalcServiceTest.java", action: "modify", new_content: content, after_hash: sha(content), scenario_ids: [`s${iteration}`] }],
+          changes: [{ path: "src/test/java/com/example/calc/CalcServiceGeneratedTest.java", action: "create", new_content: content, after_hash: sha(content), scenario_ids: [`s${iteration}`] }],
         } as CandidateChangeSet;
       },
     };
@@ -119,7 +119,7 @@ ${extra}
     // yalniz kazanc ureten aday kabul edilir (aday 1 rejected, aday 2 adopted):
     expect(acceptedCalls).toHaveLength(1);
     // birikimli accepted snapshot'ta kabul edilen dosya var:
-    const acceptedFile = join(acceptedDir, "src", "test", "java", "com", "example", "calc", "CalcServiceTest.java");
+    const acceptedFile = join(acceptedDir, "src", "test", "java", "com", "example", "calc", "CalcServiceGeneratedTest.java");
     expect(existsSync(acceptedFile)).toBe(true);
     // icerik kabul edilen adayla ayni:
     const acceptedContent = readFileSync(acceptedFile, "utf8");
@@ -128,7 +128,7 @@ ${extra}
   }, 900000);
 
   it("staging ve accepted ayri alanlarda; staging reset accepted'i bozmaz", () => {
-    const acceptedFile = join(acceptedDir, "src", "test", "java", "com", "example", "calc", "CalcServiceTest.java");
+    const acceptedFile = join(acceptedDir, "src", "test", "java", "com", "example", "calc", "CalcServiceGeneratedTest.java");
     expect(existsSync(acceptedFile)).toBe(true);
     const content = readFileSync(acceptedFile, "utf8");
     expect(content.length).toBeGreaterThan(0);

@@ -1,0 +1,7 @@
+# Handoff - Windows Native 006 kullanici pause oncesi final suite
+
+Kullanici checkpoint istedi. Final `npm.cmd test -- --maxWorkers=2` kosusu terminal session `86624` ile baslatildi ve sonuc alinmadan durduruldu; test sonucu yoktur ve `INTERRUPTED_BEFORE_RESULT` olarak kayitlidir. Durdurma sonrasi vitest/npm test process'i kalmadigi dogrulandi. Kullanici devam edene kadar test veya baska is baslatilmayacak.
+
+Son kanitli durum: WN73 mcp107 COMPLETED/TARGET_REACHED, candidate/final replay 6/6 PASS, Report06 PUBLISHED; Windows platform PASSED; WN75/WN76 kanitlari korunuyor. Private manifest r11 SHA-256 `55fdbca7dd87349b86a3daf0bf5713465961234da64c53f4ca478ec8ce7cb20f4`; full verifier fail-closed NO_GO, mandatory 391, verified 3, missing 387, WN69 NOT_RUN. Commit/push ve customer checkout yazimi yok.
+
+Devam promptu: `AGENTS.md`, `AKTIF_GOREV.md`, `ai/checkpoints/2026-10-15-windows-native-006-user-pause-before-final-suite.md` ve bu handoff'u oku. Kullanici devam etti; final full suite'i temiz process ile ayni private AC67 artifact kullanarak yeniden calistir, yeni manifest revizyonu ve full release verifier kanitini uret, sonra WN77-WN80 kararini guncelle. WN73 mcp107'u tekrar kosma, legacy evidence uydurma, customer checkout'a yazma, commit/push yapma.`

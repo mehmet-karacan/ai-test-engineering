@@ -123,6 +123,7 @@ describe("WN14/WN24 native customer entrypoint", () => {
     const root = mkdtempSync(join(tmpdir(), "aitest-wn-dispatch-fixture-"));
     const services = createDefaultServicesForTest(join(root, "state.db"), join(root, "artifacts"));
     const originalPath = process.env.Path;
+    const originalUpperPath = process.env.PATH;
     const readiness = vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
     const docker = vi.spyOn(DockerRunner.prototype, "preflight");
     try {
@@ -138,7 +139,11 @@ describe("WN14/WN24 native customer entrypoint", () => {
         return hash.digest("hex");
       };
       const sourceDigest = digestSource();
-      process.env.Path = `${project}${delimiter}${originalPath ?? ""}`;
+      const fixturePath = `${project}${delimiter}${originalPath ?? originalUpperPath ?? ""}`;
+      // Node preserves both spellings on Windows in some test hosts. Keep
+      // them identical so the product's conflict detector sees one PATH.
+      process.env.Path = fixturePath;
+      process.env.PATH = fixturePath;
       const { location } = new ProjectRepository(services.storage!.db).ensureLocation(project, "native-dispatch-fixture", null);
       const job = services.jobs!.createJob({ locationId: location.id, requestDigest: "native-dispatch-fixture" });
       const dispatcher = new JobDispatcher({ services, runnerKind: "windows_native", workerEnabled: false, workspaceRoot: join(root, "workspace") });
@@ -155,6 +160,8 @@ describe("WN14/WN24 native customer entrypoint", () => {
     } finally {
       if (originalPath === undefined) delete process.env.Path;
       else process.env.Path = originalPath;
+      if (originalUpperPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalUpperPath;
       readiness.mockRestore(); docker.mockRestore();
       services.storage?.close();
       const target = resolve(root);
