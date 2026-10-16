@@ -817,7 +817,10 @@ export class InventoryRepository {
          FROM coverage_snapshots cs
          JOIN test_jobs tj ON cs.job_id = tj.id
          WHERE tj.location_id IN (${placeholders})
-         ORDER BY cs.created_at DESC LIMIT ?`,
+         -- Millisecond timestamps can tie when before/after snapshots are
+         -- written in the same transaction turn. Preserve insertion order
+         -- for that tie so the latest snapshot remains first deterministically.
+         ORDER BY cs.created_at DESC, cs.rowid DESC LIMIT ?`,
       )
       .all(...params);
   }
