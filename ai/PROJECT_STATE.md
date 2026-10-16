@@ -3,8 +3,8 @@
 ## Aktif gorev
 
 - Gorev: AITE-PRODUCTION-READINESS-005 v1.0 (sozlesme: AKTIF_GOREV.md)
-- Asama: P00-P08 Windows kapsaminda dogrulandi; P02/P03 audit, P07/P08 test kapsami, P09 release verifier provenance ve P10 kapanis kanitlari main'e alindi; Docker/PP17 bu gorev kapsamindan cikarildi, P10 full gate kanit eksigi suruyor
-- Durum etiketi: `005_WINDOWS_NO_DOCKER_SCOPE_HANDOFF` (tam urun kabul: NOT_VERIFIED)
+- Asama: Windows-native-006 r16 ile P00-P10 Windows kapsami kapatildi; Docker/PP17 ve macOS kapsam disi tutuldu
+- Durum etiketi: `WINDOWS_SCOPE_COMPLETE` (legacy tam urun/pilot kabulu ayri ve kapsam disi)
 - Kapsam karari (kullanici, 2026-10-12): macOS ve Docker/Docker egress/PP17 bu gorevde kapsam disidir; kanitleri kalan is veya release blocker olarak sayilmaz. Windows standard akis korunur. Original full gate sozlesmesi zayiflatilmaz; kanit yoksa NO_GO kalir.
 - Son guncelleme: 2026-10-12 (GLM P08 Windows restore follow-up: stale SQLite `-wal/-shm` yan dosya oynatma kacisi `restoreBackup` icinde fail-closed temizlendi; gercek iki-process reproducer fix oncesi orphan replay, fix sonrasi temiz restore; yeni test dahil hedef 8 dosya/36 test PASS, typecheck/build/lint PASS, local verifier exit 0; commit `f0a6d8b`, main `9bb5556`; checkpoint `production-005-p08-restore-stale-wal-fix`)
 - Son guncelleme: 2026-10-12 (Qwen P00 baseline + P08 gercek eski v4 binary: tam suite 74 dosya 640 PASS/4 FAIL (2 AC67 ortam, 1 p01 tam-suite flake -> izole 40/40 PASS, 1 browser print flake); eski binary 0822c3d gercek npm ci/build exit 0 + OLD_SCHEMA_VERSION=4; v4->v7 PP44 e2e NOT_RUN; kod degisikligi YOK)
@@ -34,7 +34,7 @@
 | W08 | N01/N08/N54 referans + renderer | LOCAL_VERIFIED | w08-reference + release verifier |
 | W09 | N61 kurulum/ops | LOCAL_VERIFIED | w09-install + bootstrap |
 | W10 | F17/F18 ledger + verifier | LOCAL_VERIFIED | w10-ledger + release-verify exit 0 |
-| W11 | Nihai teslim ve model devri | SURUYOR | handoff |
+| W11 | Nihai teslim ve model devri | TAMAMLANDI | Windows-native-006 final handoff |
 
 ## 005 paketleri durumu
 
@@ -51,10 +51,10 @@
 | P06-B1 | Module-aware coverage/report yolu, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-module-final-gates.md; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p06b-effective-scope.md + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven/JaCoCo runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | ai/checkpoints/2026-10-12-production-005-p07a-facts-export.md; 81/81 odak suite + typecheck |
-| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS (COMPLETED/export BLOCKED_KAYITLI) | PP17 uygulanabilirlik auditi: egress enforcement depoda/hostta yok, mevcut typed fail-closed blocker gercek Docker wire testinde 1/1 PASS; yeni network altyapisi yazilmadi (p07b-audit-egress-decision). COMPLETED/export kosusu BLOCKED (host-disi enforcement gerekir) |
+| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | TAMAMLANDI (Windows kapsaminda) | Windows-native-006 r16; Docker/PP17 kapsam disi |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | RUNTIME_VERIFIED (Windows kapsaminda) | PP41/PP42/PP43/PP44 Windows ve desteklenen path kanitlari PASS; cross-drive path escape `p08-cross-drive-path-fix`, stale SQLite WAL/SHM restore fix `p08-restore-stale-wal-fix`; takip Windows suite 8 dosya/36 test PASS; macOS kullanici karariyla kapsam disi |
 | P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | production-005-coordinator-next + qwen-next + coordinator-final2; P01 40/40, ana dal odak 8 dosya 71/71 PASS, lint 0 error/89 warning, typecheck/build PASS; local gate PASS, full gate NO_GO (`EVIDENCE_MANIFEST_EKSIK`, 274 obligation) |
-| P10 | Teknik devir ve yayin karari | IN_PROGRESS | Qwen manifest sema karari: partial NOT_RUN/BLOCKED kaydi verifier tarafindan desteklenmiyor; gercek live/platform kaniti olmadan manifest uydurulmadi; 274/274 missing, full gate NO_GO; P01/P09/P10 verifier/ledger auditi (production-005-p10-followup-verifier-audit): bug yok, local exit 0 / full exit 1 NO_GO yeniden dogrulandi, P01 40/40 PASS |
+| P10 | Teknik devir ve yayin karari | TAMAMLANDI (Windows kapsaminda) | Windows-native-006 r16 final GO; legacy 005 full-gate kaydi tarihsel |
 
 ## F bulgu kapanisi (004 Bolum 2; F01-F18)
 
@@ -117,7 +117,12 @@
 
 ## Sonraki somut is
 
-- Kalan ana kapanis paketi: **1 formal paket** (`P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P07-B/PP17 Docker runtime kosusu bu gorevde kapsam disidir; P09 yerel olarak kapali.
-- Sonraki somut is: P10 teknik devir kaydini koru. Original full gate icin gercek evidence manifest + live/platform kanitlari olmadan production GO verme. Docker/egress sonraki aktif goreve devredildi.
-- Docker/Docker egress/PP16-PP17 kanit kosusu sonraki aktif goreve devredildi; bu gorevde calistirilmayacak ve kalan is sayisina dahil edilmeyecek.
+- Bu aktif Windows kapsaminda kalan formal paket yoktur; P10 teknik devir Windows-native-006 r16 ile kapatildi.
+- Docker/Docker egress/PP16-PP17 ve macOS kanitlari bu kapsamda degildir; eski full-gate/NO_GO satirlari tarihsel kayittir.
+- Yeni devam noktasi ancak kullanicinin yeni bir kapsam ve kabul kriteri vermesiyle olusur.
+
+## Guncel test kapsami (2026-10-16)
+
+- macOS'a ozel resolver assertion'lari ve macOS browser binary adayi aktif testlerden kaldirildi.
+- Windows/Linux ortak testleri korunuyor; urun runtime'indaki darwin resolver dali kaldirilmadi.
 - Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir

@@ -33,7 +33,7 @@ const BROWSER_CANDIDATES = process.platform === "win32"
       "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
     ]
-  : ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"];
+  : ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 
 interface CdpSession {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;

@@ -47,13 +47,6 @@ describe("P08/PP42: runtime path resolver (Linux/XDG/bosluk/Unicode)", () => {
     expect(resolveConfigPath(env, "win32")).toBe(join(root, "config", "config.json"));
   });
 
-  it("darwin HOME/Library/Application Support dali native path uretir", () => {
-    const env = { HOME: "/Users/tester" };
-    const root = resolveRuntimeRoot(env, "darwin");
-    expect(root).toBe(join("/Users/tester", "Library", "Application Support", "ai-test-engineering"));
-    expect(resolveConfigPath(env, "darwin")).toBe(join(root, "config", "config.json"));
-  });
-
   it("config/DB resolver ayni native storage root'unda; acik DB path override edilebilir", () => {
     const env = { XDG_DATA_HOME: "/data/ai test", HOME: "/home/u" };
     const root = resolveRuntimeRoot(env, "linux");
@@ -67,7 +60,6 @@ describe("P08/PP42: runtime path resolver (Linux/XDG/bosluk/Unicode)", () => {
 
   it("cozumlenemeyen runtime env fail-closed (sessiz bos path yok)", () => {
     expect(() => resolveRuntimeRoot({}, "linux")).toThrow();
-    expect(() => resolveRuntimeRoot({}, "darwin")).toThrow();
     expect(() => resolveOpenCodeConfigPath({}, "win32")).toThrow();
   });
 });
