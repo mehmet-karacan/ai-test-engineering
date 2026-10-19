@@ -50,6 +50,11 @@ Yeni Windows scope icin WN01-WN80 ve 320 eski ID'nin acik mapping'i zorunludur. 
 
 # Kabul Matrisi - AC/RG/RT/PRO + N (AITE-PRODUCTION-READINESS-005 v1.0; tarihsel 003/004 kayitlari korunur)
 
+## 2026-10-19 Windows hazirlik dali
+
+- `codex/windows-ready-20261019` kod HEAD `4392c8b`: Windows suite 121/121 dosya, 1000/1000 test PASS; gercek MCP GpuFileUtils kanarisi `0b4d0120` COMPLETED/TARGET_REACHED, final replay 7/7, LINE/BRANCH %100, pause/resume ve immutable model ret kanitli. Ayrinti `ai/checkpoints/2026-10-19-windows-ready-full-suite-pilot.md`.
+- WN75 yeni rapor icin kullanici review'u PENDING; yeni kaynak/build kimligine bagli full manifest ve verifier NOT_RUN. Bu dalin release karari NO_GO. r16 391/391 GO yalniz kendi kaynak commitine aittir; Docker/macOS ve GitHub CI bu kapsamda yoktur.
+
 Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kismen)" KULLANILMAZ.
 
 ## Guncel Windows kapsam kapanisi (2026-10-16)

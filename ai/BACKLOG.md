@@ -17,6 +17,7 @@ Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var"
 - Dal: `codex/windows-ready-20261019`; r16 ve kalite kapisi dalindaki kanitlar tarihsel olarak korunur. Bu dalin yeni kaynak/build kimligi icin tam test ve release manifesti yeniden uretilecek. Durum: IN_PROGRESS / yeni dal icin NO_GO.
 - Kapsam: yalniz Windows native. Docker, macOS ve GitHub CI kullanici karariyla kapsam disi/kapali.
 - Siradaki is: buyuk proje kokunde SourceSnapshot stack overflow duzeltmesi, tam Windows suite, gercek MCP regresyonu, pilot engellerinin durust kaydi ve yeni full gate.
+- `4392c8b` uzerinde iterative snapshot 134800 dosya salt-okunur PASS; Windows suite 121/121 dosya ve 1000/1000 test PASS; gercek MCP kanarisi `0b4d0120` COMPLETED/TARGET_REACHED, pause/mismatch/resume ve Report06 PASS. Sonraki: dokuman commitinden sonra ayni final kimlikte yeniden build/test, WN75 kullanici review'u ve private full manifest. Kanit `ai/checkpoints/2026-10-19-windows-ready-full-suite-pilot.md`.
 
 ## 006 Windows native paketleri
 
