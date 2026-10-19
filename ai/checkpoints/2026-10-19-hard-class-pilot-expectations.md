@@ -105,8 +105,35 @@ Not: `mvn.cmd -v` dogrudan cmd'den `exit: -1` donuyor (PowerShell $LASTEXITCODE)
 - Baseline 3 FAILURE: `GpuReportDuplicateControllerTest` (musteri kodunda ONCEDEN VAR kirik test) → urun `BASELINE_FAILED` ile fail-closed; kirik baseline uzerinde sahte kabul YOK
 - Degerlendirme: Bu dogru urun davranisi; T02/T04 icin temiz baseline gerekli. Musteri projesinde test duzeltme KAPSAM DISI (read-only siniri). Bu iki sinif icin pilot kaniti BASELINE_FAILED olarak belgelenir.
 
+## Pilot is sonuclari (TUM KOSULAR, 2026-10-19 14:21-16:51)
+
+| Is | Sinif | Sonuc | Iter/Kabul | Agent | Not |
+|----|-------|-------|-----------|-------|-----|
+| T01-job1 `29b317f7` | DateUtils | COMPLETED / TARGET_NOT_MET_PLATEAU (AFFECTED_SCOPE) | 13 deneme / **5 kabul** | 10 COMPLETED | LINE 11.92→**35.09%**, BRANCH 56.36%; final 28/28 PASS |
+| T01-job2 `dc8e138f` | DateUtils | COMPLETED / TARGET_NOT_MET_PLATEAU (AFFECTED_SCOPE) | 14 deneme / **5 kabul** | 13 COMPLETED | LINE 11.92→**33.99%**; final 28/28 PASS |
+| T01-job3 `14c13ba8` | DateUtils | COMPLETED / TARGET_NOT_MET_PLATEAU (AFFECTED_SCOPE) | 3 deneme / 0 kabul | 1 COMPLETED | 1 Regresyon yakalandi + 2 PROVIDER_ERROR → PLATEAU (bagimsizlik kaniti) |
+| T03-job1 `a334b38d` | YzRaporMukerrerServisi | COMPLETED / INVALID_COVERAGE_EVIDENCE | 3 deneme / 0 kabul | 3 COMPLETED | Adaylar 11/11 PASS; BRANCH sayaci yok → dürüst ret; 6/6 mevcut korunmus |
+| T03-job2 `607e15a9` | YzRaporMukerrerServisi | COMPLETED / INVALID_COVERAGE_EVIDENCE | 3 deneme / 0 kabul | 3 COMPLETED | T03-job1 ile TUTARLI sonuc (bagimsizlik) |
+| T02-job1 `f48c0158` | DeductionService | FAILED / **BASELINE_FAILED** | - | 0 | Baseline tum modul (635 test): `GpuReportDuplicateControllerTest` 3 failure (musteri kodunda onceeden var) → fail-closed |
+| T04-job1 `b1c9a167` | ProductVersionService | FAILED / **BASELINE_FAILED** | - | 0 | T02 ile ayni neden (fail-closed; mevcut test YOK → modul duzeyi baseline) |
+| (neg) `c6076cd0` | YzRaporMukerrerServisi | CANCELLED / POLICY_VIOLATION | pause/resume negatifi | - | Farkli model resume ret; is test_cancel ile temiz kapanis |
+
+- Toplam 8 gercek is + 1 resume negatif is (plan 12 idi; T02/T04 tekrari ayni fail-closed sonucunu vereceginden kosulmadi — musteri baseline kirik, kapsam disi).
+- Kabul edilen T01 adaylari (blob dogrulamali): 10 changeset'in hepsi 5 @Test + 22-71 GERCEK assertion; comment-only YOK; mevcut DateUtilsTest her isde korunmus (tests_modified=0).
+- Olcum ozeti (basarisiz/BLOCKED isler payda disi):
+  - Hedef test/AFFECTED_SCOPE sonuclari: T01 3/3 COMPLETED (final replay 28/28, 28/28, 8/8 PASS); T03 2/2 COMPLETED (6/6 PASS)
+  - Tam proje suite (gpu-backend 635 test): T02/T04 baseline kayitlarinda goruldu (3 failure musteri kodundan) — ayri yazildi; pilot islerinde tam suite KOSULMADI (AFFECTED_SCOPE disiplini)
+  - Uretim basarisi (kabul edilen aday uretimi): T01 10 kabul / 3 is (payda: 3 T01 isi); T03 0 kabul (BRANCH olculemeyen sinif — urun dogru davrandi)
+- Ortam bulgulari (urun hatasi DEGIL, kanitla): `mvn.cmd -v` dogrudan cmd'den exit -1 (cmd/batch etkilesimi; supervisor helper status.json'dan okuyor, is yolunda gozlemlenmedi).
+
 ## Resume negatifleri (runtime)
 
 - COMPLETED job (T01) uzerinden: `test_resume` → ret "Is zaten tamamlandi; yeniden devam etmez" (resumed=false) — hem farkli hem ayni model ile
-- PAUSED job uzerinden (`c6076cd0-...`): pause OK (owned process'ler sonlandirildi) → **farkli model ile resume ret yedi**: outcome `POLICY_VIOLATION` yazildi (kanit: job_events `dispatch_failed`, job outcome POLICY_VIOLATION; pause-resume-result.json) — ANCAK handleTestResume önce `test_resume_accepted` + RUNNING yayinladi; lifecycle RUNNING'de kaldi (FAILED'e gecmedi). **BULGU ADAYI (F-neg1)**: resume POLICY_VIOLATION'da lifecycle RUNNING+outcome POLICY_VIOLATION karma durumu; lease TTL ile temizlenir ama net FAILED beklenirdi. Ikinci resume (ayni model) de accepted yazdi. Is `test_cancel` ile CANCELLED'e alindi (temiz kapanis dogrulandi).
+- PAUSED job uzerinden (`c6076cd0-...`): pause OK (owned process'ler sonlandirildi) → **farkli model ile resume ret yedi**: outcome `POLICY_VIOLATION` yazildi (kanit: job_events `dispatch_failed`, job outcome POLICY_VIOLATION; pause-resume-result.json) — ANCAK handleTestResume once `test_resume_accepted` + RUNNING yayinladi; lifecycle RUNNING'de kaldi (FAILED'e gecmedi). **BULGU ADAYI (F-neg1)**: resume POLICY_VIOLATION'da lifecycle RUNNING+outcome POLICY_VIOLATION karma durumu; lease TTL ile temizlenir ama net FAILED beklenirdi. Ikinci resume (ayni model) de accepted yazdi. Is `test_cancel` ile CANCELLED'e alindi (temiz kapanis dogrulandi).
 - Sonuc modeli degisimi: T01 store'undaki contract'ta model_profile `litellm/GLM-5.3-Flash-IT` dolu; ret POLICY_VIOLATION ile kaydedildi (ret kendisi calisti; lifecycle gecisi eksik kaldi).
+
+## GO/NO_GO degerlendirmesi
+
+- **KOŞUL KANITI**: gerçek ürün (cf4a8a9 dist) uçtan uca çalıştı — preflight/toolchain pinleme/baseline/GLM aday üretimi (litellm/GLM-5.3-Flash-IT, 27 agent denemesi)/gate/Maven doğrulama/kapsam/final replay/report. Aday kalitesi yüksek (gerçek assertion'lar); regresyon yakalama, PROVIDER_ERROR retry, mevcut test korunumu, test-only policy ve fail-closed kararları gerçek kanıtla doğrulandı.
+- **NO_GO KOSULU YOK** ama iki not: (1) T02/T04 sınıflarında müşteri baseline'ı kırık (GpuReportDuplicateControllerTest 3 failure) — bu sınıflarda pilot kanıtı BASELINE_FAILED; müşteri testi düzeltilmeden üretim kanıtı üretilemez (kapsam dışı). (2) Pause/resume POLICY_VIOLATION'da lifecycle RUNNING'de kalıyor (F-neg1; lease TTL ile temizleniyor, CANCELLED ile kapatıldı) — ürün geliştirme notu.
+- Dağıtım kararı kullanıcıya ait: `cf4a8a9` + `10927e8` push edilmemiş; kalite düzeltmeleri bu pilot binary'sinde (qfix dist) DOĞRULANDI ama dağıtılan r16 (bd3db182) worktree'si değişmedi.
