@@ -123,9 +123,18 @@ describe("FIN08: PIT adapter (13.4)", () => {
 
   it("mvn komut dizisi resmi plugin goal'ini pinler; customer POM'a dependency eklenmez", () => {
     const command = buildPitMavenCommand(defaultPitConfig(["com.example.X*"], ["com.example.XTest*"]));
-    expect(command).toContain("org.pitest:pitest-maven:mutationCoverage");
+    // F08/P03: yapilandirilan plugin surumu goal koordinatina gomulu.
+    expect(command).toContain("org.pitest:pitest-maven:1.15.2:mutationCoverage");
     expect(command.some((a) => a.startsWith("-DtargetClasses="))).toBe(true);
     expect(command.some((a) => a.startsWith("-DtargetTests="))).toBe(true);
+  });
+
+  it("timeoutConst is butcesinden bolumlenmez; test-basina ek sure ayri sozlesme (F08/P04)", () => {
+    const config = defaultPitConfig(["com.example.X*"], ["com.example.XTest*"]);
+    const command = buildPitMavenCommand(config);
+    // run_timeout_ms=300000 -> timeoutConst=300 DEGIL; timeoutConst ayri timeout_const_ms alanindan gelir.
+    expect(command.some((a) => a === "-DtimeoutConst=8000")).toBe(true);
+    expect(command.some((a) => a === "-DtimeoutConst=300")).toBe(false);
   });
 
   it("plugin surumu pinli (S12)", () => {

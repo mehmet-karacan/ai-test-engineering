@@ -12,6 +12,8 @@ export interface PitAdapterConfig {
   threads: number;
   mutators: string[];
   run_timeout_ms: number;
+  /** F08/P04: PIT test-basina ek sure parametresi (milisaniye); is butcesinden ayri sozlesme. */
+  timeout_const_ms: number;
   max_repeat_budget: number;
 }
 
@@ -21,7 +23,10 @@ export interface PitReportImport {
   no_coverage: number;
   timeout: number;
   run_error: number;
+  /** F07/P01: test strength = killed/(killed+survived); yalniz KAPSANAN mutantlar paydali. */
   mutation_score_bps: number | null;
+  /** F07/P01: genel mutation score = killed/(tum mutantlar); no_coverage paydada. */
+  overall_mutation_score_bps: number | null;
   provenance: "pit_maven_plugin" | "imported_external";
   pit_version: string;
   report_path: string | null;
@@ -39,6 +44,9 @@ export function defaultPitConfig(targetClasses: string[], targetTests: string[])
     threads: 1,
     mutators: [...PIT_DEFAULT_MUTATORS],
     run_timeout_ms: 300000,
+    // F08/P04: PIT timeoutConst test-basina ek sure (ms); varsayilan 8000 ms PIT resmi
+    // dokumanindaki varsayilanla hizali. Is duvar saati butcesi run_timeout_ms ayri alandadir.
+    timeout_const_ms: 8000,
     max_repeat_budget: 1,
   };
 }
@@ -78,6 +86,9 @@ export class MutationUnsupportedError extends Error {
 /**
  * PIT raporunu provenance ile import eder. Ham rapordan eslesmeler gelir;
  * equivalent mutant iddiasi kanitsiz yapilmaz; denominator manipulate edilmeZ.
+ * F07/P01: mutation_score_bps TEST STRENGTH'tir (killed/(killed+survived), yalniz kapsanan
+ * mutantlar); genel mutation score (tum mutantlar paydali) ayri alanda raporlanir.
+ * F07/P02: negatif sayaclar bu sinirda reddedilir; hatali rapor sessizce skor uretmez.
  */
 export function importPitReport(raw: {
   killed?: number;
@@ -94,8 +105,24 @@ export function importPitReport(raw: {
   const noCoverage = raw.no_coverage ?? 0;
   const timeout = raw.timeout ?? 0;
   const runError = raw.run_error ?? 0;
+  // F07/P02: negatif sayaclar gecerli PIT raporu degildir; sinirda fail-closed reddedilir.
+  for (const [name, value] of [
+    ["killed", killed],
+    ["survived", survived],
+    ["no_coverage", noCoverage],
+    ["timeout", timeout],
+    ["run_error", runError],
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new MutationReportError(`PIT raporu gecersiz negatif/finite olmayan sayac: ${name}=${value}`);
+    }
+  }
   const denominator = killed + survived;
+  // F07/P01: test strength yalniz kapsanan mutantlar (killed+survived) paydali.
   const mutationScoreBps = denominator > 0 ? Math.floor((killed * 10000) / denominator) : null;
+  // F07/P01: genel mutation score tum mutantlari (killed+survived+no_coverage+timeout+run_error) paydali.
+  const totalMutants = killed + survived + noCoverage + timeout + runError;
+  const overallScoreBps = totalMutants > 0 ? Math.floor((killed * 10000) / totalMutants) : null;
   const provenance = raw.provenance === "imported_external" ? "imported_external" : "pit_maven_plugin";
   return {
     killed,
@@ -104,6 +131,7 @@ export function importPitReport(raw: {
     timeout,
     run_error: runError,
     mutation_score_bps: mutationScoreBps,
+    overall_mutation_score_bps: overallScoreBps,
     provenance,
     pit_version: raw.pit_version ?? PIT_PLUGIN_VERSION,
     report_path: raw.report_path ?? null,
@@ -114,21 +142,51 @@ export function importPitReport(raw: {
 /**
  * Mutation skoru coverage'dan AYRI gosterilir; coverage gate yerine gecmez (13.4/PRO39).
  * Skor null ise (hic mutant yok) high score ilan edilmez.
+ * F07/P01: hem test strength hem genel mutation score ayri yuzeylerde dondurulur.
  */
-export function assertMutationScoreSeparate(pit: PitReportImport): { separate: boolean; score_percent: number | null } {
+export function assertMutationScoreSeparate(pit: PitReportImport): {
+  separate: boolean;
+  score_percent: number | null;
+  overall_score_percent: number | null;
+} {
   if (pit.mutation_score_bps === null) {
-    return { separate: true, score_percent: null };
+    return { separate: true, score_percent: null, overall_score_percent: null };
   }
-  return { separate: true, score_percent: pit.mutation_score_bps / 100 };
+  return {
+    separate: true,
+    score_percent: pit.mutation_score_bps / 100,
+    overall_score_percent: pit.overall_mutation_score_bps === null ? null : pit.overall_mutation_score_bps / 100,
+  };
+}
+
+/**
+ * F07: PIT raporundan gelen gecersiz sayac icin typed hata.
+ */
+export class MutationReportError extends Error {
+  readonly code = "MUTATION_REPORT_INVALID";
+  constructor(message: string) {
+    super(message);
+    this.name = "MutationReportError";
+  }
 }
 
 /**
  * PIT mvn komut dizisi uretir: customer POM'a dependency EKLENMEZ; external harness yolu.
  * Komut yalniz disposable sandbox'ta calisir.
+ * F08/P03: pit_version Maven goal koordinatina gomulur; yapilandirilan surum calistirilan
+ * plugin'i pinler (surum uydurma yok).
+ * F08/P04: run_timeout_ms duvar saati is suresidir; -DtimeoutConst PIT'in TEST BASINA ek
+ * sure parametresidir (milisaniye) ve is butcesinden turetilmeZ. Is butcesi ayri
+ * `timeoutConst`/process timeout sozlesmesiyle yonetilir; bu iki kavram karistirmaz.
  */
 export function buildPitMavenCommand(config: PitAdapterConfig): string[] {
   assertPitScopeBounded(config);
-  const args = ["mvn", "org.pitest:pitest-maven:mutationCoverage", `-DwithHistory=true`, `-Dthreads=${config.threads}`, `-DtimeoutConst=${Math.floor(config.run_timeout_ms / 1000)}`, "-B", "-ntp"];
+  const version = config.pit_version;
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new MutationUnsupportedError(`PIT plugin surumu pinli semver olmali: ${version}`);
+  }
+  // F08/P03: surum koordinata gomulu; eklenti surumu config ile sabitlenir.
+  const args = ["mvn", `org.pitest:pitest-maven:${version}:mutationCoverage`, `-DwithHistory=true`, `-Dthreads=${config.threads}`, `-DtimeoutConst=${config.timeout_const_ms}`, "-B", "-ntp"];
   if (config.target_classes.length > 0) {
     args.push(`-DtargetClasses=${config.target_classes.join(",")}`);
   }

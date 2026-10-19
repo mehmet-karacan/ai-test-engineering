@@ -1,6 +1,10 @@
 /**
  * Kalite kapilari: hard gate (deterministik) tespitler.
  * Bos/tautolojik assertion, SUT shadowing, skip annotation, assertion'siz test tespiti.
+ * Java kaynak metni once string/char literal ve yorumlardan arindirilir; boylece yorum/string
+ * icindeki assertion benzeri metin assertion sayilmaz (F02/Q03/Q04). JUnit5 tam nitelikli
+ * anotasyonlar ve JUnit4 expected exception oracle'i taninir (F02/Q07). Fluent assertion
+ * zincirleri terminal dogrulama olmadan kabul edilmez (F02/Q06).
  */
 import { AppError } from "../domain/errors.js";
 
@@ -16,11 +20,106 @@ export interface QualityScanResult {
   findings: QualityFinding[];
 }
 
-const TEST_METHOD_RE = /(?:@Test\b|@ParameterizedTest\b|@RepeatedTest\b|@TestFactory\b)/;
+const TEST_METHOD_RE = /@(?:[\w.]*\.)?(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/;
+
+/**
+ * F02/Q03/Q04: Java kaynak metnini string/char literal ve yorumlardan arindirir.
+ * Literal icindekiler orijinal tirnak karakteriyle korunur; yorumlar bosaltilir.
+ * Boylece `// assertEquals(...)` veya `String s = "assertEquals(42, actual)"` assertion sayilmaz.
+ */
+function stripLiteralsAndComments(content: string): string {
+  let out = "";
+  let i = 0;
+  const n = content.length;
+  while (i < n) {
+    const ch = content[i]!;
+    const next = i + 1 < n ? content[i + 1]! : "";
+    if (ch === "/" && next === "/") {
+      while (i < n && content[i] !== "\n") {
+        out += " ";
+        i++;
+      }
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = content.indexOf("*/", i + 2);
+      const stop = end === -1 ? n : end + 2;
+      // Yorumun icindeki yeni satirlari koru; satir numaralari kaymasin.
+      for (let j = i; j < stop; j++) {
+        out += content[j] === "\n" ? "\n" : " ";
+      }
+      i = stop;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      out += quote;
+      i++;
+      while (i < n) {
+        const c = content[i]!;
+        if (c === "\\" && i + 1 < n) {
+          out += "  ";
+          i += 2;
+          continue;
+        }
+        if (c === quote) {
+          out += quote;
+          i++;
+          break;
+        }
+        out += c === "\n" ? "\n" : " ";
+        i++;
+      }
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * F02/Q05/Q06: Terminal dogrulamasi olan fluent assertion zincirlerini tanir.
+ * JUnit/AssertJ/Truth: isEqualTo/hasXxx/contains... sonrasi isTrue veya bir match/verify terminali.
+ * Biriken zincirler (terminal olmadan kapanan) assertion sayilmaz.
+ */
+function hasMeaningfulAssertion(bodyText: string): boolean {
+  const text = stripLiteralsAndComments(bodyText);
+
+  // 1) JUnit benzeri dogrudan assertion cagrilari; assertThat HARIC (fluent zincir asagida
+  // terminal dogrulamasiyla degerlendirilir; F02/Q06: terminal'siz assertThat assertion sayilmaz).
+  const directAssertRe = /\bassert(?!That\b)[A-Za-z]*\s*\(/;
+  if (directAssertRe.test(text)) {
+    // assertTrue(true)/assertFalse(false)/assertTrue(x == x) tautolojisi yine de tespit edilmeli.
+    return true;
+  }
+
+  // 2) Mockito verify ve fail() anlamli oracle sayilir (AC34/13.2); yanlis ret olmasin.
+  if (/\bverify\s*\(/.test(text) || /\bfail\s*\(/.test(text)) {
+    return true;
+  }
+
+  // 3) Fluent zincir: assertThat(...) ile baslar, terminal dogrulama ile biter (F02/Q06).
+  const fluentStartRe = /\bassertThat\s*\(/;
+  if (!fluentStartRe.test(text)) {
+    return false;
+  }
+  // Terminal dogrulama: JUnit kadar genel degil; AssertJ/Truth tarzi dogrulama metodlari.
+  const terminalRe = /\.(is(?:True|False|EqualTo|NotEqualTo|Null|NotNull|SameAs?|NotSameAs?)|has(?:Size|Value|Key|Entry|Field)|contains(?:Exactly|InOrder|Only|All|AnyOf|ExactlyInAnyOrder)?|doesNotContain|startsWith|endsWith|matches|extractingValueFrom|satisfies|returns|isInstanceOf)\s*\(/;
+  const hasTerminal = terminalRe.test(text);
+  if (!hasTerminal) {
+    return false;
+  }
+  // Terminal ile biten her zincir birebir dengelenmek zorunda degil; en az bir
+  // assertThat + terminal kombinasyonu yeterli, derinlik analizi parser asamasinda.
+  return true;
+}
 
 export function scanTestQuality(content: string, path: string): QualityScanResult {
   const findings: QualityFinding[] = [];
-  const lines = content.split(/\r?\n/);
+  // F02: tarama ham metin uzerinde degil, literal/yorum maskeli metin uzerinde yapilir.
+  // Boylece yorum/string icindeki assertion benzeri metin kural atlama saglamaz.
+  const lines = stripLiteralsAndComments(content).split(/\r?\n/);
 
   let inMethod = false;
   let methodBraceDepth = 0;
@@ -82,16 +181,18 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
   }
 
   // D07/F09: tautoloji acigi - assertTrue(true)/assertEquals(x,x)/self-comparison da tautolojik.
-  if (/assert\s*\(\s*true\s*\)/.test(content) || /assertTrue\s*\(\s*true\s*\)/.test(content)) {
+  // Tautoloji taramasi da literal/yorum maskeli metin uzerinde yapilir (F02/Q03/Q04).
+  const maskedContent = stripLiteralsAndComments(content);
+  if (/assert\s*\(\s*true\s*\)/.test(maskedContent) || /assertTrue\s*\(\s*true\s*\)/.test(maskedContent) || /assertFalse\s*\(\s*false\s*\)/.test(maskedContent)) {
     findings.push({ rule_id: "TAUTOLOGICAL_ASSERT", severity: "critical", location: path, evidence: "assert(true)" });
   }
-  const selfComparison = /assert\w*\s*\(\s*[^,()]+,\s*([^,()]+)\s*\)/.exec(content);
+  const selfComparison = /assert\w*\s*\(\s*[^,()]+,\s*([^,()]+)\s*\)/.exec(maskedContent);
   if (selfComparison && selfComparison[1] && selfComparison[0].includes(selfComparison[1]) && /assert(Equals|NotEquals|Same|NotSame)\s*\(\s*(\w+)\s*,\s*\2\s*\)/.test(content)) {
     findings.push({ rule_id: "SELF_COMPARISON", severity: "critical", location: path, evidence: selfComparison[0] });
   }
 
   if (hasTestMethod && findings.every((f) => f.rule_id !== "NO_ASSERTION")) {
-    const onlyNotNull = /\bassertNotNull\s*\(/.test(content) && !/assert(Throws|Equals|NotEquals|True|False|Iterable|Array)\s*\(/.test(content) && !/\bverify\s*\(/.test(content) && !/\bfail\s*\(/.test(content);
+    const onlyNotNull = /\bassertNotNull\s*\(/.test(maskedContent) && !/assert(Throws|Equals|NotEquals|True|False|Iterable|Array)\s*\(/.test(maskedContent) && !/\bverify\s*\(/.test(maskedContent) && !/\bfail\s*\(/.test(maskedContent);
     if (onlyNotNull) {
       findings.push({ rule_id: "WEAK_ONLY_NOTNULL", severity: "major", location: path, evidence: "yalniz assertNotNull" });
     }
@@ -105,10 +206,10 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
 }
 
 function checkMethodBody(bodyText: string, path: string, line: number, findings: QualityFinding[]): void {
-  const hasAssertion = /\bassert\w*\s*\(/.test(bodyText) || /\bverify\s*\(/.test(bodyText) || /\bfail\s*\(/.test(bodyText);
+  const hasAssertion = hasMeaningfulAssertion(bodyText);
   // FIN08/13.1/PRO33: JUnit4 expected exception annotation'i anlamli bir test oracle'idir;
   // yalniz `assert` regex'i olmadigi icin yanlis reddedilmeZ.
-  const hasExpectedException = /@Test\s*\(\s*expected\s*=/.test(bodyText);
+  const hasExpectedException = /@Test\s*\(\s*expected\s*=/.test(stripLiteralsAndComments(bodyText));
   if (!hasAssertion && !hasExpectedException) {
     findings.push({ rule_id: "NO_ASSERTION", severity: "critical", location: `${path}:${line}`, evidence: bodyText.trim().slice(0, 200) });
   }
@@ -126,18 +227,23 @@ export function assertQualityGate(content: string, path: string): void {
 
 /**
  * D07/F09: SUT shadowing tespiti - test kaynaginda production FQCN ile aynI sinif tanimi (shadow) var mi.
- * Yalniz yol degil, sinif bildirimini kontrol eder.
+ * Yalniz yol degil, sinif bildirimini kontrol eder. Tarama literal/yorum maskeli metin uzerinde yapilir (F03/S02).
  */
 export function isSutShadowing(testPath: string, testContent: string, productionFqn: string): boolean {
   const productionSimple = productionFqn.split(".").pop() ?? productionFqn;
   const productionPackage = productionFqn.split(".").slice(0, -1).join(".");
+  // F03/S02: tarama literal/yorum maskeli metin uzerinde yapilir; boylece package
+  // oncesi gecerli baslik yorumu sinif/paket tespitini engellemez.
+  const masked = stripLiteralsAndComments(testContent);
   // test kaynaginda aynI simple name ile sinif bildirimi:
-  const classDecl = new RegExp(`class\\s+${productionSimple}\\b`).test(testContent);
+  const classDecl = new RegExp(`class\\s+${productionSimple}\\b`).test(masked);
   if (!classDecl) {
     return false;
   }
   // aynI pakette (shadow) veya package bildirimi yok:
-  const packageMatch = /^\s*package\s+([\w.]+)\s*;/.exec(testContent);
+  // F03/S02: package bildirimi sabit baslangic regex'iyle degil, maskeli metinde aranir;
+  // package oncesi gecerli baslik yorumu tespiti engellemez.
+  const packageMatch = /\bpackage\s+([\w.]+)\s*;/.exec(masked);
   const testPackage = packageMatch?.[1] ?? "";
   if (testPackage === productionPackage) {
     return true;
