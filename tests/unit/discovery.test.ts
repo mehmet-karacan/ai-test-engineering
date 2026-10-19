@@ -62,6 +62,29 @@ describe("SourceSnapshot", () => {
     const manifest = snapshot.buildManifest();
     expect(manifest.entries.some((e) => e.relative_path.endsWith("Dirty.java"))).toBe(true);
   });
+
+  it("dosya sinirini buyuk alt agaci gezmeden typed hata ile uygular", () => {
+    const root = join(dir, "large-root");
+    mkdirSync(root);
+    for (const name of ["a.java", "b.java", "c.java"]) writeFileSync(join(root, name), "class X {}\n");
+    let deep = join(root, "z");
+    let depth64 = "";
+    let depth65 = "";
+    for (let index = 0; index < 65; index++) {
+      mkdirSync(deep);
+      if (index === 63) depth64 = deep;
+      if (index === 64) depth65 = deep;
+      deep = join(deep, "z");
+    }
+    const leaf = join(depth64, "leaf.java");
+    writeFileSync(leaf, "class Leaf {}\n");
+    const snapshot = new SourceSnapshot(root);
+    expect(() => snapshot.walk(undefined, 0, 2)).toThrow(/Dosya sayisi siniri asildi/);
+    expect(() => snapshot.buildManifest({ maxFiles: 2 })).toThrow(/Dosya sayisi siniri asildi/);
+    expect(snapshot.walk(leaf, 64)).toEqual([leaf]);
+    expect(() => snapshot.walk(depth65, 65)).toThrow(/Dizin derinligi siniri asildi/);
+    expect(() => snapshot.walk(join(root, "a.java"), 65)).toThrow(/Dizin derinligi siniri asildi/);
+  });
 });
 
 describe("effectiveSourceSet", () => {

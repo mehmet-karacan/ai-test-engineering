@@ -284,32 +284,34 @@ export class SourceSnapshot {
     return this.root;
   }
 
-  walk(dir?: string, depth = 0): string[] {
-    const base = dir ?? this.root;
-    if (depth > 64) {
-      throw new AppError("POLICY_VIOLATION", `Dizin derinligi siniri asildi: ${base}`);
+  walk(dir?: string, depth = 0, maxFiles = 200000): string[] {
+    if (!Number.isSafeInteger(maxFiles) || maxFiles < 0) {
+      throw new AppError("POLICY_VIOLATION", `Dosya sayisi siniri gecersiz: ${maxFiles}`);
     }
     const entries: string[] = [];
-    const lstat = lstatSync(base);
-    if (lstat.isSymbolicLink()) {
-      throw new AppError("POLICY_VIOLATION", `Snapshot yolu baglanti iceriyor: ${base}`);
-    }
-    if (!lstat.isDirectory()) {
-      return [base];
-    }
-    for (const name of readdirSync(base)) {
-      if (name === ".git" || name === "node_modules" || name === "target" || name === "build") {
+    const pending = [{ path: dir ?? this.root, depth }];
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      if (current.depth > 64) {
+        throw new AppError("POLICY_VIOLATION", `Dizin derinligi siniri asildi: ${current.path}`);
+      }
+      const lstat = lstatSync(current.path);
+      if (lstat.isSymbolicLink()) {
+        throw new AppError("POLICY_VIOLATION", `Snapshot yolu baglanti iceriyor: ${current.path}`);
+      }
+      if (lstat.isDirectory()) {
+        const children = readdirSync(current.path);
+        // Reverse push preserves the former depth-first filesystem order.
+        for (let index = children.length - 1; index >= 0; index--) {
+          const name = children[index]!;
+          if (name === ".git" || name === "node_modules" || name === "target" || name === "build") continue;
+          pending.push({ path: join(current.path, name), depth: current.depth + 1 });
+        }
         continue;
       }
-      const full = join(base, name);
-      const l = lstatSync(full);
-      if (l.isSymbolicLink()) {
-        throw new AppError("POLICY_VIOLATION", `Snapshot yolu baglanti iceriyor: ${full}`);
-      }
-      if (l.isDirectory()) {
-        entries.push(...this.walk(full, depth + 1));
-      } else {
-        entries.push(full);
+      entries.push(current.path);
+      if (entries.length > maxFiles) {
+        throw new AppError("POLICY_VIOLATION", `Dosya sayisi siniri asildi: ${entries.length} > ${maxFiles}`);
       }
     }
     return entries;
@@ -318,10 +320,7 @@ export class SourceSnapshot {
   buildManifest(options?: { maxFiles?: number; maxFileBytes?: number; requiredBuildInputPaths?: string[] }): SnapshotManifest {
     const maxFiles = options?.maxFiles ?? 200000;
     const maxFileBytes = options?.maxFileBytes ?? 64 * 1024 * 1024;
-    const files = this.walk();
-    if (files.length > maxFiles) {
-      throw new AppError("POLICY_VIOLATION", `Dosya sayisi siniri asildi: ${files.length} > ${maxFiles}`);
-    }
+    const files = this.walk(undefined, 0, maxFiles);
     const entries: ManifestEntry[] = [];
     const git = isGitRepository(this.root);
     const headCommit = git ? gitHeadCommit(this.root) : null;
