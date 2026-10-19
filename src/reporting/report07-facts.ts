@@ -1,12 +1,13 @@
 /** Report07 projections from the export's verified byte snapshot. No model narrative. */
 import { createHash } from "node:crypto";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
+import { StringDecoder } from "node:string_decoder";
 import type { ReportData, ReportTarget } from "./report-generator.js";
 import { isTestSourcePath } from "./report-projection.js";
 
 export type FactStatus = "KNOWN" | "UNAVAILABLE" | "INVALID" | "NOT_APPLICABLE" | "NOT_RUN";
 export interface CoverageFact { status: FactStatus; covered: number | null; missed: number | null; total: number | null; bps: number | null; target_bps: number | null; met: boolean | null }
-export interface TestRecord { id:string; module_path:string|null; class_name:string; name:string; status:"PASSED"|"FAILED"|"ERROR"|"SKIPPED"; duration_seconds:number|null; message:string|null; trace:string|null; evidence_path:string; source_path:string|null }
+export interface TestRecord { id:string; module_path:string|null; class_name:string; name:string; status:"PASSED"|"FAILED"|"ERROR"|"SKIPPED"; duration_seconds:number|null; message:string|null; trace:string|null; details_truncated:boolean; evidence_path:string; source_path:string|null }
 export interface MethodRecord { fqn:string; module_path:string|null; name:string; descriptor:string|null; line:CoverageFact; branch:CoverageFact; evidence_path:string }
 export interface Report07Facts {
   schema_version:1;
@@ -121,6 +122,14 @@ export function projectReport07Facts(data:ReportData,extraFiles:Record<string,st
     facts.sources.push({path:entry.relative_path,module_path:evidenceModule(entry,data),class_name:identity,preview:source.slice(0,limit),truncated:source.length>limit});
   }
   const runRecords=records.filter(r=>['surefire_xml','failsafe_xml'].includes(r.entry.kind)&&!!data.final_run_id&&r.entry.run_id===data.final_run_id);
+  let diagnosticBudget=1024*1024;
+  const preview=(text:string|null,limit:number)=>{
+    if(text===null)return {value:null,truncated:false};
+    const bytes=Buffer.from(text,'utf8');
+    const value=new StringDecoder('utf8').write(bytes.subarray(0,Math.min(limit,diagnosticBudget)));
+    const accepted=Buffer.byteLength(value,'utf8');diagnosticBudget-=accepted;
+    return {value,truncated:accepted<bytes.length};
+  };
   let invalid=false;const totals={total:0,passed:0,failures:0,errors:0,skipped:0};
   for(const {entry,bytes} of runRecords) {
     try {
@@ -140,8 +149,9 @@ export function projectReport07Facts(data:ReportData,extraFiles:Record<string,st
           const duration=tc['@_time']===undefined?null:Number(tc['@_time']);
           const modulePath=evidenceModule(entry,data);
           const sources=facts.sources.filter(s=>modulePath!==null&&s.module_path===modulePath&&s.class_name===className);
+          const message=preview(detail?.['@_message']===undefined?null:String(detail['@_message']),4000),trace=preview(textNode(tc.failure??tc.error),16000);
           parsed.push({id:entry.relative_path+':'+(facts.tests.length+parsed.length),module_path:modulePath,class_name:className,name,status:errored?'ERROR':failed?'FAILED':skip?'SKIPPED':'PASSED',duration_seconds:duration!==null&&Number.isFinite(duration)&&duration>=0?duration:null,
-            message:detail?.['@_message']===undefined?null:String(detail['@_message']).slice(0,4000),trace:textNode(tc.failure??tc.error)?.slice(0,16000)??null,evidence_path:entry.relative_path,source_path:sources.length===1?sources[0]!.path:null});
+            message:message.value,trace:trace.value,details_truncated:message.truncated||trace.truncated,evidence_path:entry.relative_path,source_path:sources.length===1?sources[0]!.path:null});
         }
         if(total!==cases.length||failures!==actual.failures||errors!==actual.errors||skipped!==actual.skipped||total<failures+errors+skipped)throw Error('TEST_SUITE_COUNTER_MISMATCH');
         facts.tests.push(...parsed);totals.total+=total;totals.failures+=failures;totals.errors+=errors;totals.skipped+=skipped;totals.passed+=total-failures-errors-skipped;

@@ -14,6 +14,8 @@ const output=process.env.AITEST_REPORT07_UI_OUTPUT?resolve(process.env.AITEST_RE
 mkdirSync(output,{recursive:true});
 const {report07Data,report07Evidence}=await import(pathToFileURL(resolve('tests/fixtures/report07-data.ts')).href);
 const data=report07Data(),files=report07Evidence(data);
+const testXml=Object.keys(files).find(path=>path.includes('TEST-'));
+files[testXml]=files[testXml].replace('stack &lt;script&gt;alert(1)&lt;/script&gt;','stack line\n'.repeat(4000));
 data.runtime={lifecycle:'COMPLETED',phase:'reporting',checkpoint_valid:null,stop_code:data.outcome};
 // More than one page, long strings and deliberate XSS payloads are fixture inputs.
 for(let i=1;i<8;i++)data.targets.push({...structuredClone(data.targets[0]),target_id:'t'+i,fqn:'com.example.'+'LongClassName'.repeat(5)+i,module_path:i%2?'module-a':'module-b'});
@@ -45,6 +47,7 @@ try {
  await page.locator('[data-tab="tests"]').click();
  await page.locator('[data-test-id]').nth(1).click();assert.equal(await page.locator('#test-dialog').evaluate(el=>el.open),true);
  assert.match(await page.locator('#dialog-trace').innerText(),/stack/);assert.match(await page.locator('#dialog-source').innerText(),/assertEquals/);
+ assert.match(await page.locator('#dialog-trace-note').innerText(),/Önizleme sınırlandı/);
  await page.screenshot({path:join(output,'test-dialog.png')});await page.keyboard.press('Escape');
  assert.equal(await page.locator('#test-dialog').evaluate(el=>el.open),false);assert.equal(await page.evaluate(()=>document.activeElement.hasAttribute('data-test-id')),true);
  const download=page.waitForEvent('download');await page.locator('#export-btn').click();const artifact=await download;const downloaded=await artifact.path();assert.equal(readFileSync(downloaded,'utf8'),readFileSync(join(reportDir,'report.json'),'utf8'));

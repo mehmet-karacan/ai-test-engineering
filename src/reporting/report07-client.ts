@@ -89,7 +89,8 @@ export function runReport07():void {
     if(stage){activeStage=stage;const index=view.history.findIndex(record=>record.stage===stage);if(index>=0)pages.history=Math.floor(index/3);draw();}
     if(testId){const test=view.facts.tests.find(t=>t.id===testId);if(!test)return;lastFocus=button;
       byId('dialog-title').textContent=test.name;byId('dialog-meta').textContent=test.class_name+' / '+state07(test.status)+' / '+(test.duration_seconds===null?'Süre verisi yok':test.duration_seconds+' sn');
-      byId('dialog-trace').textContent=[test.message,test.trace].filter(Boolean).join('\n')||'Hata kaydı yok';
+      byId('dialog-trace').textContent=[test.message,test.trace].filter(Boolean).join('\n')||(test.details_truncated?'Önizleme kapasitesi doldu. Tam hata kaydı XML kanıtındadır.':'Hata kaydı yok');
+      byId('dialog-trace-note').textContent=test.details_truncated?'Önizleme sınırlandı. Tam mesaj ve çağrı izi bağlı XML kanıt dosyasındadır.':'Kayıtlı hata önizlemesi.';
       const source=view.facts.sources.find(s=>s.path===test.source_path);
       byId('dialog-source').textContent=source?.preview??'Kaynak verisi yok';
       byId('dialog-source-note').textContent=source?'Tam test sınıfı dosyası gösterilir; test metodu veya @DisplayName için ayrı bir kaynak eşlemesi kaydedilmedi.'+(source.truncated?' Önizleme sınırlandı.':''):'Doğrulanmış test kaynağı bulunamadı.';

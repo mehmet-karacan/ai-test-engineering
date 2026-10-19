@@ -54,6 +54,17 @@ describe('Report07 exact facts and unknown semantics',()=>{
     data.evidence![0]!.module_path='b';data.evidence![2]!.module_path='a';
     expect(projectReport07Facts(data,files).tests[0]!.source_path).toBeNull();
   });
+  it('bounds all diagnostic previews together without losing full XML evidence or test counts',()=>{
+    const data=report07Data(),files=report07Evidence(data),key=Object.keys(files)[0]!;
+    data.run_summary={total:300,passed:0,failed:300,skipped:0};
+    files[key]='<testsuite tests="300" failures="300" errors="0" skipped="0">'+Array.from({length:300},(_,i)=>'<testcase classname="com.example.CalcTest" name="fails'+i+'"><failure>'+('stack trace line\n'.repeat(2000))+'</failure></testcase>').join('')+'</testsuite>';
+    data.evidence![0]!.sha256=createHash('sha256').update(files[key]!).digest('hex');data.evidence![0]!.bytes=Buffer.byteLength(files[key]!);
+    const facts=projectReport07Facts(data,files);
+    expect(facts.test_run).toMatchObject({status:'KNOWN',total:300,failures:300});
+    expect(facts.tests.reduce((sum,test)=>sum+Buffer.byteLength(test.trace??'')+Buffer.byteLength(test.message??''),0)).toBeLessThanOrEqual(1024*1024);
+    expect(facts.tests.some(test=>test.details_truncated)).toBe(true);
+    expect(files[key]).toContain('stack trace line\n'.repeat(2000));
+  });
   it('projects measured baseline counters and an actual percentage point delta',()=>{
     const data=report07Data(),files=report07Evidence(data);
     const path='evidence/baseline/root/jacoco.xml';files[path]=files['evidence/final/jacoco.xml']!.replaceAll('missed="1" covered="9"','missed="3" covered="7"');
