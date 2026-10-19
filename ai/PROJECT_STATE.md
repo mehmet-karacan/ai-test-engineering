@@ -235,10 +235,10 @@
 
 ## Sonraki somut is
 
-- 2026-10-19 Windows hazirlik dali `codex/windows-ready-20261019` IN_PROGRESS / yeni dal NO_GO. r16 full GO 391/391 tarihsel kaynak `bd3db182` icin gecerlidir; yeni dalin tam suite, gercek MCP ve manifest kaniti yeniden uretilecek.
+- 2026-10-19 Windows hazirlik dali `codex/windows-ready-20261019` VERIFIED / full GO. Yeni rapor kullanici kabulu kayitli; temiz `b34fee0` Windows suite 121/121 dosya ve 1000/1000 test PASS; r18 full verifier 391/391 verified, exit 0, missing/invalid/duplicate 0. Kapanis `ai/checkpoints/2026-10-19-windows-ready-final-go.md`; final docs commitinin ayni kod/test/build tree digest'i r19'a baglanip ana dala fast-forward ve push edilir. Aktif teknik gorevde kalan is yok; G2/G3 ayri karardir.
 - Kullanici kapsami: yalniz Windows native; Docker, macOS ve GitHub CI kapali. Musteri checkout'u salt okunur kalir.
 - Siradaki is: main kapsam temizligi ile qfix duzeltmelerini birlestir; buyuk proje kokundeki SourceSnapshot stack overflow'u duzelt; Windows suite ve yeni full release gate'i calistir.
-- `4392c8b` kodu: Windows suite 121/121 dosya, 1000/1000 test PASS; typecheck/build/lint 0 error; gercek MCP job `0b4d0120` pause -> farkli model CONTRACT_CONFLICT/PAUSED -> ayni model resume -> COMPLETED/TARGET_REACHED, final replay 7/7, LINE/BRANCH %100, Report06 PUBLISHED. WN75 yeni kullanici review'u ve bu dalin full verifier'i bekliyor. Checkpoint `ai/checkpoints/2026-10-19-windows-ready-full-suite-pilot.md`.
+- Gercek MCP job `0b4d0120` pause -> farkli model CONTRACT_CONFLICT/PAUSED -> ayni model resume -> COMPLETED/TARGET_REACHED, final replay 7/7, LINE/BRANCH %100, Report06 PUBLISHED. WN75 yeni kullanici kabulu tamamlandi; Windows full suite/typecheck/build/lint ve current-source full verifier PASS. Ham kanitlar private store'dadir; public checkpoint `ai/checkpoints/2026-10-19-windows-ready-final-go.md`.
 
 - 2026-10-14 G1 follow-up: kullanici onayi ile owned snapshot POM'unda `tr.com.innova.yz:yz-core:0.1.0-SNAPSHOT` tanimlandi ve JDK25 Lombok processor acildi; normal MCP job `46b4f18d-3ea6-43f0-b930-6cd5e612ec08` native preflight sonrasi 13 GpuReportService/YzRapor* API uyumsuzlugu nedeniyle `BASELINE_FAILED` oldu. Customer checkout degismedi; model/candidate/pause-resume acilmadi. Ayrinti `ai/checkpoints/2026-10-14-windows-native-006-g1-yzcorefix-baseline-blocked.md`.
 - 2026-10-15 WN73 pin-root final: build tree digest `569f360007bc5b2a...`; native command contract 10/10 PASS, including owned pinRoot parent `.mvn` exclusion.

@@ -1,3 +1,5 @@
+2026-10-19 GUNCEL KAPANIS: windows-native-v1 full verifier GO / exit 0 / 391 verified / 0 missing / 0 invalid / 0 duplicate. Temiz `b34fee0` Windows suite 121/121 dosya ve 1000/1000 test PASS; typecheck/build/lint PASS. WN75 yeni Report06 job `0b4d0120` kullanici tarafindan kabul edildi; bagli alti USER_REVIEW kaydi PASSED. Private r18 manifest SHA `70fbac5d9cfb9fe8561c5793a34cc8e4d7f6fc0487e2329993ec5ed689b37fd8`; final docs commitinin kimligi r19'a baglanir. Kanit `ai/checkpoints/2026-10-19-windows-ready-final-go.md`. Asagidaki eski tarihli durumlar tarihsel kayittir.
+
 2026-10-16 r12 full verifier: private manifest source/build identity ile eslesti; 391 mandatory icinde 10 verified, 381 missing, invalid/duplicate 0; live pilot/platform PASSED; karar `NO_GO` (partial + legacy evidence eksigi). r12 SHA-256 `13af0d3505e0a10f920204519e5f66ea6b80de89881db2e99b94d3db615f1487`. Checkpoint `ai/checkpoints/2026-10-16-windows-native-006-r12-reconciliation.md`.
 2026-10-16 WN77-WN80 final review precheck: WN69 contract fail-closed, WN77 identity/hash, WN78 privacy, WN79 status ayrimi ve WN80 NO_GO sinirlari mevcut kanitla incelendi. 391 zorunlu obligation tam kanitlanmadigi icin GO yok; r12 private manifest ve final verifier kapanis adimi. Checkpoint `ai/checkpoints/2026-10-16-windows-native-006-wn77-80-review.md`.
 2026-10-16 WN76 final suite green: native process contention fixinden sonra session `98252` ile private AC67 artifact kullanilarak `npm.cmd test -- --maxWorkers=2` **120/120 dosya, 978/978 test PASS**, exit 0, 680.32s. Build ve local release verifier PASS; WN76 test predicate yesil. WN77-WN80 final review ve legacy evidence reconciliatonu tamamlanmadan full gate GO degil. Checkpoint `ai/checkpoints/2026-10-16-windows-native-006-wn76-final-green.md`.
@@ -53,7 +55,7 @@ Yeni Windows scope icin WN01-WN80 ve 320 eski ID'nin acik mapping'i zorunludur. 
 ## 2026-10-19 Windows hazirlik dali
 
 - `codex/windows-ready-20261019` kod HEAD `4392c8b`: Windows suite 121/121 dosya, 1000/1000 test PASS; gercek MCP GpuFileUtils kanarisi `0b4d0120` COMPLETED/TARGET_REACHED, final replay 7/7, LINE/BRANCH %100, pause/resume ve immutable model ret kanitli. Ayrinti `ai/checkpoints/2026-10-19-windows-ready-full-suite-pilot.md`.
-- WN75 yeni rapor icin kullanici review'u PENDING; yeni kaynak/build kimligine bagli full manifest ve verifier NOT_RUN. Bu dalin release karari NO_GO. r16 391/391 GO yalniz kendi kaynak commitine aittir; Docker/macOS ve GitHub CI bu kapsamda yoktur.
+- WN75 yeni rapor icin kullanici review'u ACCEPTED; current-source r18 full manifest/verifier GO, 391/391 verified. Final Windows suite temiz `b34fee0` icin 1000/1000 PASS; final docs commitinin kaynak kimligi r19'a baglanir. r16 tarihsel olarak korunur; Docker/macOS kapsam disi ve GitHub CI kapalidir.
 
 Durum degerleri: NOT_RUN, BLOCKED, FAILED, PASSED, LOCAL_VERIFIED. "PASSED (kismen)" KULLANILMAZ.
 
