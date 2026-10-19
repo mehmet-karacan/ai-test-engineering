@@ -265,6 +265,26 @@ describe("P05-B resume zinciri", () => {
     expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
+  it("farkli model ile test_resume job'u RUNNING yapmadan contract conflict reddeder", async () => {
+    const prepared = await prepareJob();
+    cleanups.push(() => { prepared.services.storage?.close(); rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true }); });
+    const jobs = prepared.services.jobs!;
+    const before = jobs.getJob(prepared.jobId);
+    const eventsBefore = prepared.services.storage!.db.prepare<[string], { count: number }>(
+      "SELECT COUNT(*) AS count FROM job_events WHERE job_id = ? AND event_type = 'test_resume_accepted'",
+    ).get(prepared.jobId)!.count;
+
+    await expect(handleTestResume({ job_id: prepared.jobId, model_profile: "litellm/GLM-5.3-Flash-IT" }, prepared.services))
+      .rejects.toMatchObject({ code: "POLICY_VIOLATION", details: { reason_code: "CONTRACT_CONFLICT" } });
+    expect(jobs.getJob(prepared.jobId)).toMatchObject({ lifecycle: before.lifecycle, outcome: before.outcome, row_version: before.row_version });
+    expect(prepared.services.storage!.db.prepare<[string], { count: number }>(
+      "SELECT COUNT(*) AS count FROM job_events WHERE job_id = ? AND event_type = 'test_resume_accepted'",
+    ).get(prepared.jobId)!.count).toBe(eventsBefore);
+    expect(prepared.services.storage!.db.prepare<[string], { count: number }>(
+      "SELECT COUNT(*) AS count FROM job_leases WHERE job_id = ?",
+    ).get(prepared.jobId)!.count).toBe(0);
+  });
+
   it("native process ownership eksikse resume lifecycle RUNNING olmaz", async () => {
     const prepared = await prepareJob();
     cleanups.push(() => {

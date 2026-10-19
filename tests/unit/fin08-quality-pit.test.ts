@@ -103,7 +103,8 @@ describe("FIN08: PIT adapter (13.4)", () => {
     const pit = importPitReport({ killed: 8, survived: 2, no_coverage: 1, timeout: 0, run_error: 0 });
     expect(pit.killed).toBe(8);
     expect(pit.survived).toBe(2);
-    expect(pit.mutation_score_bps).toBe(8000);
+    expect(pit.mutation_score_bps).toBe(7272);
+    expect(pit.test_strength_bps).toBe(8000);
     expect(pit.provenance).toBe("pit_maven_plugin");
   });
 
@@ -119,6 +120,13 @@ describe("FIN08: PIT adapter (13.4)", () => {
     const separate = assertMutationScoreSeparate(pit);
     expect(separate.separate).toBe(true);
     expect(separate.score_percent).toBe(90);
+  });
+
+  it("no_coverage genel mutation skorunu dusurur; test strength ayri adla raporlanir", () => {
+    const pit = importPitReport({ killed: 10, survived: 0, no_coverage: 90 });
+    expect(pit.mutation_score_bps).toBe(1000);
+    expect(pit.test_strength_bps).toBe(10000);
+    expect(assertMutationScoreSeparate(pit)).toMatchObject({ score_percent: 10, test_strength_percent: 100 });
   });
 
   it("mvn komut dizisi resmi plugin goal'ini pinler; customer POM'a dependency eklenmez", () => {

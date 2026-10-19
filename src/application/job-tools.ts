@@ -85,6 +85,9 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     workspaceRoot: services.config.storage.root,
   });
   dispatcher.assertRecordedRunnerKind(storage, job);
+  // Immutable model conflicts are caller errors. Reject before native probes,
+  // lease acquisition or publishing RUNNING so the paused job stays resumable.
+  dispatcher.assertResumeModelProfile(storage, job, parsed.model_profile ?? null);
   let verifyNativeResume: ((fencingToken: number, ownerId: string) => Promise<void>) | null = null;
   if (runnerKind === "windows_native") {
     // Do not mark a resumed job RUNNING when customer process ownership is

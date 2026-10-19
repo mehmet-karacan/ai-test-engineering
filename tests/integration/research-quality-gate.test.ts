@@ -55,6 +55,21 @@ describe("Arastirma F02: kalite kapisi probe'lari duzeltme sonrasi", () => {
     expect(result.passed).toBe(true);
   });
 
+  it("ayri bir nesnenin terminal metodu yarim assertThat cagrisini kurtarmaz", () => {
+    const content = "@Test\nvoid test() {\n assertThat(service.calc(2));\n helper.isEqualTo(4);\n}";
+    expect(scanTestQuality(content, "X.java").passed).toBe(false);
+  });
+
+  it("Java text block icindeki assertion metni oracle sayilmaz", () => {
+    const content = '@Test\nvoid test() {\n String help = """\n assertEquals(42, service.run());\n """;\n service.run();\n}';
+    expect(scanTestQuality(content, "X.java").passed).toBe(false);
+  });
+
+  it("yorum icindeki self comparison gecerli testi reddetmez", () => {
+    const content = "@Test\nvoid test() {\n int actual = service.run();\n assertEquals(4, actual);\n // assertEquals(x, x);\n}";
+    expect(scanTestQuality(content, "X.java").passed).toBe(true);
+  });
+
   it("JUnit4 expected exception ve parametrik test yanlis REDDILMEZ", () => {
     const junit4 = `public class LegacyTest {
   @Test(expected = IllegalArgumentException.class)

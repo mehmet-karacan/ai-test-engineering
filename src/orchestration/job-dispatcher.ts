@@ -1358,14 +1358,7 @@ export class JobDispatcher {
     // A requested model change is an immutable contract conflict. Reject it
     // before acquiring a resume lease or probing native Maven, so a stale
     // caller cannot trigger any owned child process for a job it cannot resume.
-    const contractModelBeforeResume = this.readJobContractModelProfile(storage, job);
-    if (requestedModel !== undefined && requestedModel !== null && requestedModel !== contractModelBeforeResume) {
-      throw new AppError("POLICY_VIOLATION", "Resume model_profile immutable contract ile degistirilemez", {
-        reason_code: "CONTRACT_CONFLICT",
-        requested_model: requestedModel,
-        contract_model: contractModelBeforeResume,
-      });
-    }
+    this.assertResumeModelProfile(storage, job, requestedModel);
 
     // Acquire ownership before any native -v child starts. Checkpoint events,
     // accepted-file restore and lifecycle mutation still follow verification.
@@ -1559,6 +1552,18 @@ export class JobDispatcher {
   }
 
   /** P05-B/PP24: resume modeli manifest yoksa da kalici job contract'tan geri yuklenir. */
+  assertResumeModelProfile(storage: NonNullable<Services["storage"]>, job: JobRow, requestedModel?: string | null): void {
+    if (requestedModel === undefined || requestedModel === null) return;
+    const contractModel = this.readJobContractModelProfile(storage, job);
+    if (requestedModel !== contractModel) {
+      throw new AppError("POLICY_VIOLATION", "Resume model_profile immutable contract ile degistirilemez", {
+        reason_code: "CONTRACT_CONFLICT",
+        requested_model: requestedModel,
+        contract_model: contractModel,
+      });
+    }
+  }
+
   assertRecordedRunnerKind(storage: NonNullable<Services["storage"]>, job: JobRow): void {
     const artifact = storage.db.prepare<[string], { relative_store_path: string }>(
       "SELECT relative_store_path FROM artifacts WHERE job_id = ? AND kind = 'job_contract' AND status = 'READY' ORDER BY created_at DESC LIMIT 1",

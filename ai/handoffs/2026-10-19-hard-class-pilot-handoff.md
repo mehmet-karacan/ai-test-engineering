@@ -1,9 +1,9 @@
 # Handoff: 2026-10-19 - Zor sinif pilotu ve kalite kapisi duzeltmeleri (F02/F03 + pilot kanitlari)
 
 - Tarih: 2026-10-19
-- Durum: F02/F03 kalite kapisi duzeltmeleri TAMAMLANDI (kanitli); zor sinif pilotu KOSULDU (8 gercek is + resume negatifleri); GO/NO_GO asagida
+- Durum: F02/F03 kalite kapisi duzeltmeleri ve denetim takip duzeltmeleri yerel testlerle dogrulandi; zor sinif pilotu KISMEN KOSULDU (7/12 planli is); GO/NO_GO asagida
 - Model: bu handoff'u okuyan sonraki model
-- Dal: `codex/glm-quality-gate-fix` (qfix worktree `C:\Users\mkaracan\AppData\Local\Temp\opencode\qfix`); HEAD `78714f7`; **push EDILMEDI** — push/merge karari kullaniciya ait
+- Dal: `codex/glm-quality-gate-fix` (qfix worktree `C:\Users\mkaracan\AppData\Local\Temp\opencode\qfix`); son denetim commiti ve push durumu Git'ten kontrol edilir.
 
 ## Bu oturumda tamamlanan isler
 
@@ -12,7 +12,7 @@
 3. **F02/F03 duzeltmeleri** (commit `cf4a8a9`): quality-gate.ts (literal/yorum maskesi, tam nitelikli anotasyon regex'i, hasMeaningfulAssertion, tautolojiye assertFalse(false), isSutShadowing maskeli metin), pit-adapter.ts (skor ayrimi, negatif sayac reddi, surum pinleme, timeout sozlesmesi). Kanit: typecheck 0, build 0, research test **16/16 PASS** (gercek Maven 49.95s), kalite birim **47/47 PASS**, tam suite 919/923 (4 basarisizlik onceeden var ortamsal).
 4. **Zor sinif pilotu KOSULDU** (WN73 mcp107 kanitli kalip: bagimsiz stdio harness + ozel runtime store + pinli JDK17 + `AITEST_WORKER_ENABLED=1`): 4 zor sinif (T01 DateUtils 725 satir, T02 DeductionService 368, T03 YzRaporMukerrerServisi 33, T04 ProductVersionService 2169 satir/154.808 karakter), model `litellm/GLM-5.3-Flash-IT` sabit, PIT/mutation **NOT_RUN**.
 
-## Pilot sonuclari (8 gercek is; detay: ai/checkpoints/2026-10-19-hard-class-pilot-expectations.md)
+## Pilot sonuclari (7/12 planli is; detay: ai/checkpoints/2026-10-19-hard-class-pilot-expectations.md)
 
 | Sinif | Is sayisi | Sonuc |
 | --- | --- | --- |
@@ -23,7 +23,7 @@
 
 - Kabul edilen 10 T01 adayi (blob dogrulamali): her biri 5 @Test + 22-71 GERCEK assertion; comment-only YOK; mevcut DateUtilsTest korunmus (tests_modified=0); production degisikligi 0; test_only_policy PASSED.
 - Urun dayanikliligi gercek kanitla: PROVIDER_ERROR + worker restart → retry BASARILI (att 2→3→4 kabul); regresyon yakalama 4 kez (kirik yeni test kabul edilmedi); kazanc yok/EMPTY_FINAL dürüst ret.
-- Resume negatifleri: COMPLETED is ret ("zaten tamamlandi"); PAUSED is'te farkli model resume → **POLICY_VIOLATION kaydedildi** ama lifecycle RUNNING'de kaldi (**F-neg1 bulgu adayi**: FAILED'e gecmeli; lease TTL ile temizleniyor, test_cancel ile CANCELLED dogrulandi).
+- Resume negatifleri: COMPLETED is ret ("zaten tamamlandi"); PAUSED is'te farkli model resume once RUNNING'e gecmis ve POLICY_VIOLATION yazmisti. Denetim duzeltmesi bu istegi lease/native probe/lifecycle mutasyonundan once CONTRACT_CONFLICT ile reddediyor; PAUSED is korunuyor. Eski pilot isi CANCELLED ile kapatildi.
 
 ## Preflight engelleri ve cozumleri (sonraki model icin kritik)
 
@@ -33,7 +33,7 @@
 
 ## GO/NO_GO
 
-- **GO kosulu kanitli**: gerçek ürün (cf4a8a9 dist) uçtan uca çalıştı; aday kalitesi yüksek; fail-closed kararlar gerçek; test-only policy ve production-0 kanitli.
-- **Iki not**: (1) T02/T04 musteri baseline kirikligi yüzünden pilot kaniti yok — musteri testi duzeltilmeden bu siniflarda uretim kaniti uretilemez (kapsam disi). (2) F-neg1: resume POLICY_VIOLATION'da lifecycle RUNNING kaliyor — urun gelistirme notu, sonraki gorevde duzeltilebilir.
+- **Yeni dal/pilot NO_GO**: 7/12 planli is kosuldu; T01 %100 hedefine ulasmadi; T03 BRANCH olcumu yok; T02/T04 musteri baseline kirikligi yuzunden kanit uretmedi. Duzeltilmis yeni binary icin canli pilot ve tam release manifesti yok.
+- **Ayrik tarihsel durum**: dagitilan r16 (`bd3db182`) manifesti `release-verify --scope windows-native-v1` ile 391/391 ve full GO olarak yeniden dogrulandi. Bu sonuc yeni dal icin GO anlamina gelmez.
 - PIT/mutation: NOT_RUN (kullanici talimati; puan yayinlanmadi).
-- Dagitim karari kullaniciya ait: `cf4a8a9` + `10927e8` + `78714f7` push edilmemis; duzeltmeler pilot binary'sinde DOGRULANDI ama dagitilan r16 (bd3db182) worktree'si degismedi.
+- Dagitilan r16 worktree'si degismedi. Dal ve push durumu icin guncel Git kaydina bakilir; kaynak denetimi `ai/checkpoints/2026-10-19-quality-pilot-audit.md` icindedir.

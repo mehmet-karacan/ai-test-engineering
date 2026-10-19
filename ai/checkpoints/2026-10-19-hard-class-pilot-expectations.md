@@ -74,7 +74,7 @@ Not: `mvn.cmd -v` dogrudan cmd'den `exit: -1` donuyor (PowerShell $LASTEXITCODE)
 
 - Preflight: her sinif icin 1 is (toplam 4); engel yoksa her sinifta 2 ek bagimsiz is (toplam 12).
 - Her is: `test_start` (targets: tek sinif, kind=class; coverage LINE+BRANCH %100; mode TEST_ONLY; model_profile `litellm/GLM-5.3-Flash-IT`; benzersiz idempotency_key).
-- Olcum: hedef test sonucu, AFFECTED_SCOPE, tam proje suite sonucları ayri yazilir; basarisiz/BLOCKED isler paydadan cikarilir.
+- Olcum: hedef test sonucu, AFFECTED_SCOPE ve tam proje suite sonuclari ayri yazilir. Baslatilan her is (FAILED/BLOCKED dahil) toplam is paydasinda kalir; aday kabul orani ayrica raporlanir.
 - Sinirlar: müsteri checkout'u read-only; mutation NOT_RUN; runtime veri repo'ya yazilmaz.
 
 ## T03 preflight is 1 sonucu (kosu sonrasi ilk gercek kayit)
@@ -118,9 +118,9 @@ Not: `mvn.cmd -v` dogrudan cmd'den `exit: -1` donuyor (PowerShell $LASTEXITCODE)
 | T04-job1 `b1c9a167` | ProductVersionService | FAILED / **BASELINE_FAILED** | - | 0 | T02 ile ayni neden (fail-closed; mevcut test YOK → modul duzeyi baseline) |
 | (neg) `c6076cd0` | YzRaporMukerrerServisi | CANCELLED / POLICY_VIOLATION | pause/resume negatifi | - | Farkli model resume ret; is test_cancel ile temiz kapanis |
 
-- Toplam 8 gercek is + 1 resume negatif is (plan 12 idi; T02/T04 tekrari ayni fail-closed sonucunu vereceginden kosulmadi — musteri baseline kirik, kapsam disi).
+- Planli pilot hedeflerinden 7/12 is kosuldu (T01 3, T03 2, T02 1, T04 1). Ayrica 1 negatif resume isi ve 4 kalici BLOCKED_ISOLATION preflight isi var: toplam 12 kalici job kaydi. Ilk stack-overflow preflight'i job olarak kalici DB'ye yazilmadi. Kalan 5 planli is kosulmadi; T02/T04 icin kirik musteri baseline'i, T03 icin BRANCH sayaci yoklugu halen engel. Bu nedenle plan TAMAMLANMADI.
 - Kabul edilen T01 adaylari (blob dogrulamali): 10 changeset'in hepsi 5 @Test + 22-71 GERCEK assertion; comment-only YOK; mevcut DateUtilsTest her isde korunmus (tests_modified=0).
-- Olcum ozeti (basarisiz/BLOCKED isler payda disi):
+- Olcum ozeti (basarisiz/BLOCKED isler toplam is paydasinda):
   - Hedef test/AFFECTED_SCOPE sonuclari: T01 3/3 COMPLETED (final replay 28/28, 28/28, 8/8 PASS); T03 2/2 COMPLETED (6/6 PASS)
   - Tam proje suite (gpu-backend 635 test): T02/T04 baseline kayitlarinda goruldu (3 failure musteri kodundan) — ayri yazildi; pilot islerinde tam suite KOSULMADI (AFFECTED_SCOPE disiplini)
   - Uretim basarisi (kabul edilen aday uretimi): T01 10 kabul / 3 is (payda: 3 T01 isi); T03 0 kabul (BRANCH olculemeyen sinif — urun dogru davrandi)
@@ -129,11 +129,11 @@ Not: `mvn.cmd -v` dogrudan cmd'den `exit: -1` donuyor (PowerShell $LASTEXITCODE)
 ## Resume negatifleri (runtime)
 
 - COMPLETED job (T01) uzerinden: `test_resume` → ret "Is zaten tamamlandi; yeniden devam etmez" (resumed=false) — hem farkli hem ayni model ile
-- PAUSED job uzerinden (`c6076cd0-...`): pause OK (owned process'ler sonlandirildi) → **farkli model ile resume ret yedi**: outcome `POLICY_VIOLATION` yazildi (kanit: job_events `dispatch_failed`, job outcome POLICY_VIOLATION; pause-resume-result.json) — ANCAK handleTestResume once `test_resume_accepted` + RUNNING yayinladi; lifecycle RUNNING'de kaldi (FAILED'e gecmedi). **BULGU ADAYI (F-neg1)**: resume POLICY_VIOLATION'da lifecycle RUNNING+outcome POLICY_VIOLATION karma durumu; lease TTL ile temizlenir ama net FAILED beklenirdi. Ikinci resume (ayni model) de accepted yazdi. Is `test_cancel` ile CANCELLED'e alindi (temiz kapanis dogrulandi).
+- PAUSED job uzerinden (`c6076cd0-...`): pause OK; farkli model ile resume istegi `POLICY_VIOLATION` verdi, fakat once `test_resume_accepted` ve RUNNING yazildi. Bu hatali gecis sonraki denetimde duzeltildi: immutable model uyusmazligi lease/native probe/lifecycle mutasyonundan once `CONTRACT_CONFLICT` ile reddedilir; PAUSED job oldugu gibi kalir. Eski pilot isi `test_cancel` ile CANCELLED'e alindi.
 - Sonuc modeli degisimi: T01 store'undaki contract'ta model_profile `litellm/GLM-5.3-Flash-IT` dolu; ret POLICY_VIOLATION ile kaydedildi (ret kendisi calisti; lifecycle gecisi eksik kaldi).
 
 ## GO/NO_GO degerlendirmesi
 
 - **KOŞUL KANITI**: gerçek ürün (cf4a8a9 dist) uçtan uca çalıştı — preflight/toolchain pinleme/baseline/GLM aday üretimi (litellm/GLM-5.3-Flash-IT, 27 agent denemesi)/gate/Maven doğrulama/kapsam/final replay/report. Aday kalitesi yüksek (gerçek assertion'lar); regresyon yakalama, PROVIDER_ERROR retry, mevcut test korunumu, test-only policy ve fail-closed kararları gerçek kanıtla doğrulandı.
-- **NO_GO KOSULU YOK** ama iki not: (1) T02/T04 sınıflarında müşteri baseline'ı kırık (GpuReportDuplicateControllerTest 3 failure) — bu sınıflarda pilot kanıtı BASELINE_FAILED; müşteri testi düzeltilmeden üretim kanıtı üretilemez (kapsam dışı). (2) Pause/resume POLICY_VIOLATION'da lifecycle RUNNING'de kalıyor (F-neg1; lease TTL ile temizleniyor, CANCELLED ile kapatıldı) — ürün geliştirme notu.
+- **YENI DAL/PILOT KARARI: NO_GO**. Planli 12 isin 5'i kosulmadi; T01 hedef %100'e erismedi; T03 BRANCH kaniti yok; T02/T04 musteri baseline'i kirik; r16 full-gate manifesti bu yeni dalin kaynagini dogrulamaz. Resume bulgusu sonraki denetimde kod ve testle duzeltildi, ancak yeni binary icin canli pilot tekrar edilmedi.
 - Dağıtım kararı kullanıcıya ait: `cf4a8a9` + `10927e8` push edilmemiş; kalite düzeltmeleri bu pilot binary'sinde (qfix dist) DOĞRULANDI ama dağıtılan r16 (bd3db182) worktree'si değişmedi.

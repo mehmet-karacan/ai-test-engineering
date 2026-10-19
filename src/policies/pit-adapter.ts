@@ -23,10 +23,10 @@ export interface PitReportImport {
   no_coverage: number;
   timeout: number;
   run_error: number;
-  /** F07/P01: test strength = killed/(killed+survived); yalniz KAPSANAN mutantlar paydali. */
+  /** F07/P01: killed / tum raporlanan mutantlar; no_coverage paydada. */
   mutation_score_bps: number | null;
-  /** F07/P01: genel mutation score = killed/(tum mutantlar); no_coverage paydada. */
-  overall_mutation_score_bps: number | null;
+  /** F07/P01: killed / (killed + survived); yalniz kapsanan mutantlar. */
+  test_strength_bps: number | null;
   provenance: "pit_maven_plugin" | "imported_external";
   pit_version: string;
   report_path: string | null;
@@ -86,8 +86,8 @@ export class MutationUnsupportedError extends Error {
 /**
  * PIT raporunu provenance ile import eder. Ham rapordan eslesmeler gelir;
  * equivalent mutant iddiasi kanitsiz yapilmaz; denominator manipulate edilmeZ.
- * F07/P01: mutation_score_bps TEST STRENGTH'tir (killed/(killed+survived), yalniz kapsanan
- * mutantlar); genel mutation score (tum mutantlar paydali) ayri alanda raporlanir.
+ * F07/P01: mutation_score_bps tum raporlanan mutantlari, test_strength_bps ise yalniz
+ * kapsanan killed/survived mutantlari paydada kullanir.
  * F07/P02: negatif sayaclar bu sinirda reddedilir; hatali rapor sessizce skor uretmez.
  */
 export function importPitReport(raw: {
@@ -113,16 +113,19 @@ export function importPitReport(raw: {
     ["timeout", timeout],
     ["run_error", runError],
   ] as const) {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new MutationReportError(`PIT raporu gecersiz negatif/finite olmayan sayac: ${name}=${value}`);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new MutationReportError(`PIT raporu gecersiz sayac: ${name}=${value}`);
     }
   }
   const denominator = killed + survived;
   // F07/P01: test strength yalniz kapsanan mutantlar (killed+survived) paydali.
-  const mutationScoreBps = denominator > 0 ? Math.floor((killed * 10000) / denominator) : null;
+  const testStrengthBps = denominator > 0 ? Math.floor((killed * 10000) / denominator) : null;
   // F07/P01: genel mutation score tum mutantlari (killed+survived+no_coverage+timeout+run_error) paydali.
   const totalMutants = killed + survived + noCoverage + timeout + runError;
-  const overallScoreBps = totalMutants > 0 ? Math.floor((killed * 10000) / totalMutants) : null;
+  if (!Number.isSafeInteger(totalMutants)) {
+    throw new MutationReportError("PIT raporu toplam mutant sayaci tasiyor");
+  }
+  const mutationScoreBps = totalMutants > 0 ? Math.floor((killed * 10000) / totalMutants) : null;
   const provenance = raw.provenance === "imported_external" ? "imported_external" : "pit_maven_plugin";
   return {
     killed,
@@ -131,7 +134,7 @@ export function importPitReport(raw: {
     timeout,
     run_error: runError,
     mutation_score_bps: mutationScoreBps,
-    overall_mutation_score_bps: overallScoreBps,
+    test_strength_bps: testStrengthBps,
     provenance,
     pit_version: raw.pit_version ?? PIT_PLUGIN_VERSION,
     report_path: raw.report_path ?? null,
@@ -142,20 +145,17 @@ export function importPitReport(raw: {
 /**
  * Mutation skoru coverage'dan AYRI gosterilir; coverage gate yerine gecmez (13.4/PRO39).
  * Skor null ise (hic mutant yok) high score ilan edilmez.
- * F07/P01: hem test strength hem genel mutation score ayri yuzeylerde dondurulur.
+ * F07/P01: test strength ve genel mutation score ayri adlarla dondurulur.
  */
 export function assertMutationScoreSeparate(pit: PitReportImport): {
   separate: boolean;
   score_percent: number | null;
-  overall_score_percent: number | null;
+  test_strength_percent: number | null;
 } {
-  if (pit.mutation_score_bps === null) {
-    return { separate: true, score_percent: null, overall_score_percent: null };
-  }
   return {
     separate: true,
-    score_percent: pit.mutation_score_bps / 100,
-    overall_score_percent: pit.overall_mutation_score_bps === null ? null : pit.overall_mutation_score_bps / 100,
+    score_percent: pit.mutation_score_bps === null ? null : pit.mutation_score_bps / 100,
+    test_strength_percent: pit.test_strength_bps === null ? null : pit.test_strength_bps / 100,
   };
 }
 

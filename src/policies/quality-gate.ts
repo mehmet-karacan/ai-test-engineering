@@ -100,19 +100,15 @@ function hasMeaningfulAssertion(bodyText: string): boolean {
   }
 
   // 3) Fluent zincir: assertThat(...) ile baslar, terminal dogrulama ile biter (F02/Q06).
-  const fluentStartRe = /\bassertThat\s*\(/;
-  if (!fluentStartRe.test(text)) {
-    return false;
-  }
+  const fluentStartRe = /\bassertThat\s*\(/g;
   // Terminal dogrulama: JUnit kadar genel degil; AssertJ/Truth tarzi dogrulama metodlari.
   const terminalRe = /\.(is(?:True|False|EqualTo|NotEqualTo|Null|NotNull|SameAs?|NotSameAs?)|has(?:Size|Value|Key|Entry|Field)|contains(?:Exactly|InOrder|Only|All|AnyOf|ExactlyInAnyOrder)?|doesNotContain|startsWith|endsWith|matches|extractingValueFrom|satisfies|returns|isInstanceOf)\s*\(/;
-  const hasTerminal = terminalRe.test(text);
-  if (!hasTerminal) {
-    return false;
+  for (const start of text.matchAll(fluentStartRe)) {
+    const statementEnd = text.indexOf(";", start.index);
+    const expression = text.slice(start.index, statementEnd < 0 ? undefined : statementEnd);
+    if (terminalRe.test(expression)) return true;
   }
-  // Terminal ile biten her zincir birebir dengelenmek zorunda degil; en az bir
-  // assertThat + terminal kombinasyonu yeterli, derinlik analizi parser asamasinda.
-  return true;
+  return false;
 }
 
 export function scanTestQuality(content: string, path: string): QualityScanResult {
@@ -187,7 +183,7 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
     findings.push({ rule_id: "TAUTOLOGICAL_ASSERT", severity: "critical", location: path, evidence: "assert(true)" });
   }
   const selfComparison = /assert\w*\s*\(\s*[^,()]+,\s*([^,()]+)\s*\)/.exec(maskedContent);
-  if (selfComparison && selfComparison[1] && selfComparison[0].includes(selfComparison[1]) && /assert(Equals|NotEquals|Same|NotSame)\s*\(\s*(\w+)\s*,\s*\2\s*\)/.test(content)) {
+  if (selfComparison && selfComparison[1] && selfComparison[0].includes(selfComparison[1]) && /assert(Equals|NotEquals|Same|NotSame)\s*\(\s*(\w+)\s*,\s*\2\s*\)/.test(maskedContent)) {
     findings.push({ rule_id: "SELF_COMPARISON", severity: "critical", location: path, evidence: selfComparison[0] });
   }
 
