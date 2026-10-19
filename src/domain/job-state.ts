@@ -32,6 +32,7 @@ export const PHASE_VALUES = [
 export type Phase = (typeof PHASE_VALUES)[number];
 
 export const OUTCOME_VALUES = [
+  "COVERAGE_ANALYZED",
   "TARGET_REACHED",
   "TARGET_ALREADY_MET",
   "TARGET_NOT_MET_PLATEAU",

@@ -34,6 +34,7 @@ export interface ConcreteTargetRef {
 }
 
 export interface JobContractInput {
+  coverage_mode?: "configured" | "cli";
   job_id: string;
   project_id: string;
   location_id: string;
@@ -81,6 +82,7 @@ export class ContractConflictError extends Error {
 }
 
 const IMMUTABLE_FIELDS: Array<keyof JobContract> = [
+  "coverage_mode",
   "job_id",
   "project_id",
   "location_id",

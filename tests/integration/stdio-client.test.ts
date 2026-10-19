@@ -60,10 +60,10 @@ describe("stdio MCP entegrasyonu (gercek client)", () => {
     }
   });
 
-  it("tools/list sekiz araci donmeli", async () => {
+  it("tools/list genel coverage dahil dokuz araci donmeli", async () => {
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name).sort();
-    expect(names).toEqual(["project_inspect", "project_query", "test_apply", "test_cancel", "test_result", "test_resume", "test_start", "test_status"]);
+    expect(names).toEqual(["project_coverage", "project_inspect", "project_query", "test_apply", "test_cancel", "test_result", "test_resume", "test_start", "test_status"]);
   });
 
   it("project_inspect fixture projesinde envanter uretmeli", async () => {

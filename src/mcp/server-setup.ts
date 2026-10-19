@@ -8,11 +8,21 @@ import { ToolRegistry, type ToolContext, type ServiceRegistry } from "./tool-reg
 import { handleProjectInspect, handleTestStart, handleTestStatus, handleProjectQuery, type Services } from "../application/services.js";
 import { handleTestResume, handleTestCancel, handleTestResult, handleTestApply } from "../application/job-tools.js";
 import { ProjectInspectInputSchema, TestStartInputSchema, TestStatusInputSchema, ProjectQueryInputSchema, TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
+import { ProjectCoverageInputSchema } from "../domain/tool-schemas.js";
+import { handleProjectCoverage } from "../application/project-coverage.js";
 
 type AnySchemaCompat = AnySchema;
 
 export function createToolRegistry(services: Services): ToolRegistry {
   const registry = new ToolRegistry();
+  registry.register({
+    name: "project_coverage",
+    description: "Hedef sinif istemeden tum Maven projesinin mevcut testlerini ayri kopyada JaCoCo ile calistirir. job_id ile test_status/test_result kullan. Dusuk coverage'li uygun siniflari kullaniciya onerir; kullanici secmeden test uretmez. Secimden sonra test_start'a coverage_scan_id ve tam sinif adi ver.",
+    inputSchema: ProjectCoverageInputSchema,
+    readOnly: false,
+    idempotent: true,
+    handler: async (input) => (await handleProjectCoverage(input, services)) as unknown as Record<string, unknown>,
+  });
 
   registry.register({
     name: "project_inspect",

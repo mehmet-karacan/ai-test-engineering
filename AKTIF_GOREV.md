@@ -1,5 +1,7 @@
 # AKTIF_GOREV — Windows Yerel Çalıştırma, Subagent Orkestrasyonu Ve GPU Fusion Pilotu
 
+> 2026-10-20 kullanici onayli ek kapsam: genel JaCoCo taramasi, dusuk coverage sinif onerileri ve kullanici secimi sonrasi test uretimi. Plan ve kabul olcutleri `ai/tasks/2026-10-20-project-coverage-plan.md`; Sky dogrulama/commit/push yetkili. 006'nin asagidaki tarihsel sozlesmesi korunur; customer apply ve yayin yetkisi genislemez.
+
 > Uygulayıcı için: Bu belge tek aktif görev sözleşmesidir. Onaylandıktan sonra mevcut üründe aşağıdaki paketleri uygula; belgeyi yeniden özetleyip başka bir görev üretme. Gerçek subagent olanakları varsa geliştirme, araştırma ve bağımsız incelemeyi ayrı oturumlara dağıt. Her pakette başarısız regresyon → düzeltme → gerçek doğrulama → bağımsız inceleme sırasını izle. Onay ve veri koruma sınırları hiçbir ajan tarafından genişletilemez.
 
 **Amaç:** AI Test Engineering MCP ürününü yalnız Windows üzerinde, kullanıcının yerel JDK/Maven ortamıyla çalışan; context'i sınırlı alt ajanlarla yöneten; proje/iş/checkpoint geçmişini SQLite ve doğrulanabilir artifact'lerde koruyan; küçük ve kullanıcı kontrollü bir gerçek proje pilotuyla sınanan ürüne dönüştürmek.

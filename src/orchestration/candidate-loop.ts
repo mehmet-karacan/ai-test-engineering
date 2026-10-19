@@ -333,6 +333,7 @@ function sha256Data(data: Buffer | string): string {
 }
 
 export interface IterateOptions {
+  coverage_mode?: "configured" | "cli";
   project_root: string;
   /** P06/PP20: baseline calismasinda dondurulan kaynak workspace'i. */
   frozen_source_root?: string;
@@ -733,7 +734,7 @@ export class CandidateLoop {
         continue;
       }
 
-      const plan = buildPlan(frozenSourceRoot, [options.target_module_path]);
+      const plan = buildPlan(frozenSourceRoot, [options.target_module_path], { ...(options.coverage_mode ? { coverage_mode: options.coverage_mode } : {}) });
       assertCoverageConfigured(plan, [options.target_module_path]);
       const goals = plan.maven_goals_coverage;
 
@@ -1052,6 +1053,7 @@ export class CandidateLoop {
   /** Accepted seti temiz bir workspace'te tekrar calistirir; final kaniti
    * reddedilmis son aday XML'ine veya kullanici checkout'una baglanmaz. */
   async replayAcceptedSet(options: {
+    coverage_mode?: "configured" | "cli";
     project_root: string;
     frozen_source_root?: string;
     target_fqns: string[];
@@ -1065,7 +1067,7 @@ export class CandidateLoop {
   }): Promise<{ workspace: string; run: RunResult; coverage: Map<string, ReturnType<CoverageLookup>>; test_inventory: SurefireSuite[]; started_at: number; finished_at: number }> {
     const frozenSourceRoot = options.frozen_source_root ?? options.project_root;
     const workspace = this.buildCandidateWorkspace(frozenSourceRoot, [], options.workspace_root, 0, options.staging_root, options.accepted_snapshot_dir);
-    const plan = buildPlan(frozenSourceRoot, [...new Set(options.target_module_paths)]);
+    const plan = buildPlan(frozenSourceRoot, [...new Set(options.target_module_paths)], { ...(options.coverage_mode ? { coverage_mode: options.coverage_mode } : {}) });
     assertCoverageConfigured(plan, [...new Set(options.target_module_paths)]);
     const runStartedAt = Date.now();
     const properties = strictTestExecutionProperties();

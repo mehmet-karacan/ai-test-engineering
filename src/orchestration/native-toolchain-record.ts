@@ -7,6 +7,7 @@ import { AppError } from "../domain/errors.js";
 import { NativeToolchainResolver, effectiveMavenEnvironment, type NativeToolchainOptions, type VerifiedNativeToolchainPlan } from "../runners/native-toolchain.js";
 
 interface ToolchainRecord {
+  pinRoot?: string;
   schema_version: 1;
   job_id: string;
   identity: string;
@@ -37,6 +38,7 @@ export class NativeToolchainRecordStore {
   pin(jobId: string, options: NativeToolchainOptions, plan: VerifiedNativeToolchainPlan): string {
     const record: ToolchainRecord = {
       schema_version: 1, job_id: jobId, identity: plan.identity, cwd: plan.cwd,
+      ...(options.pinRoot ? { pinRoot: options.pinRoot } : {}),
       executable: plan.executable, source: plan.source,
       ...(plan.baseIdentity && /^[a-f0-9]{64}$/u.test(plan.baseIdentity) ? { baseIdentity: plan.baseIdentity } : {}),
       ...(plan.outputDigest && /^[a-f0-9]{64}$/u.test(plan.outputDigest) ? { outputDigest: plan.outputDigest } : {}),
@@ -64,6 +66,7 @@ export class NativeToolchainRecordStore {
       if (pinned.mavenVersion !== undefined && pinned.mavenVersion !== plan.mavenVersion) mismatches.push("maven_version");
       if (pinned.javaVersion !== undefined && pinned.javaVersion !== plan.javaVersion) mismatches.push("java_version");
       if (pinned.cwd !== plan.cwd) mismatches.push("cwd");
+      if (pinned.pinRoot !== options.pinRoot) mismatches.push("pin_root");
       if (pinned.executable !== plan.executable) mismatches.push("executable");
       if (pinned.source !== plan.source) mismatches.push("source");
       if (mismatches.length > 0) this.changed(mismatches);
@@ -102,6 +105,7 @@ export class NativeToolchainRecordStore {
       typeof record.cwd !== "string" || typeof record.executable !== "string" ||
       !["explicit", "installed", "wrapper"].includes(record.source)) this.invalid();
     if (record.settingsPath !== undefined && typeof record.settingsPath !== "string") this.invalid();
+    if (record.pinRoot !== undefined && typeof record.pinRoot !== "string") this.invalid();
     if (record.toolchainsPath !== undefined && typeof record.toolchainsPath !== "string") this.invalid();
     for (const key of ["baseIdentity", "outputDigest"] as const) {
       if (record[key] !== undefined && (typeof record[key] !== "string" || !/^[a-f0-9]{64}$/u.test(record[key]))) this.invalid();
@@ -136,6 +140,7 @@ export class NativeToolchainRecordStore {
     const record = this.read(jobId);
     return {
       cwd: record.cwd, env,
+      ...(record.pinRoot ? { pinRoot: record.pinRoot } : {}),
       ...(record.source === "explicit" ? { executable: record.executable } : {}),
       ...(record.preferWrapper ? { preferWrapper: true } : {}),
       ...(record.settingsPath ? { settingsPath: record.settingsPath } : {}),

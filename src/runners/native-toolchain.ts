@@ -9,7 +9,8 @@ import { WindowsProcessSupervisor, processPinPaths } from "./windows-process-sup
 const UNSAFE_CMD = /[%!^|<>"\r\n\0]/u;
 const UNSAFE_EXPANDED_OPTIONS = /[&%!^|<>"\r\n\0]/u;
 const SAFE_PROPERTY_KEY = /^[A-Za-z][A-Za-z0-9_.-]*$/u;
-const ALLOWED_GOALS = new Set(["test-compile", "test", "jacoco:prepare-agent", "jacoco:report"]);
+const ALLOWED_GOALS = new Set(["test-compile", "test", "jacoco:prepare-agent", "jacoco:report",
+  "org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent", "org.jacoco:jacoco-maven-plugin:0.8.12:report"]);
 const MAVEN_ENV_NAMES = [
   "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP",
   "USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH", "HOME",

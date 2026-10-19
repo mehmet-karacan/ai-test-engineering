@@ -45,6 +45,9 @@ import { FileSystemContextProvider, type AgentContextPackage, type AgentContextP
 import { CandidateAgentSessionAdapter } from "./candidate-agent-session-adapter.js";
 import type { AgentTaskContract } from "../domain/agent-contracts.js";
 import { MAX_WORKER_REQUEST_TIMEOUT_MS, workerRequestBudget } from "../workers/opencode/worker-config.js";
+import { analyzeProjectCoverage } from "../coverage/project-coverage.js";
+import { writeProjectCoverageResult, writeProjectCoverageFailure } from "../storage/project-coverage-result.js";
+import { prepareCoverageWorkspace, verifyCoverageWorkspace } from "./coverage-workspace.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 function nativePathIdentity(value: string): string {
@@ -79,6 +82,8 @@ function inferTestFramework(testFiles: string[], module: PomModule, projectRoot:
 
 
 export interface GoalContract {
+  coverage_mode?: "configured" | "cli";
+  coverage_scan?: { below_percent: number; recommendation_limit: number; source_digest: string; build_digest: string; project_id: string };
   job_id: string;
   /** K02/B02: hedef proje kokunden gelmeli; storage root degil */
   project_root: string;
@@ -285,7 +290,9 @@ export class JobDispatcher {
       if (this.runnerKind === "windows_native") {
         // Native process tree ownership and hard-kill recovery must be proven
         // before a customer Maven process can be launched.
-        const nativeOptions = { cwd: projectRoot, env: process.env };
+        const nativeRoot = goal.coverage_mode === "cli"
+          ? prepareCoverageWorkspace(projectRoot, join(this.workspaceRoot, "jobs", job.id, "coverage-preflight")) : projectRoot;
+        const nativeOptions = { cwd: nativeRoot, env: process.env, ...(goal.coverage_mode === "cli" ? { pinRoot: nativeRoot } : {}) };
         const nativeRegistry = new NativeProcessRegistry(storage.db, job.id, ownerId, acquired.lease.fencing_token);
         const toolchain = await runnerFactory.prepareNativeCustomerToolchain(nativeOptions, nativeRegistry);
         new NativeToolchainRecordStore(storage.db, this.workspaceRoot).pin(job.id, nativeOptions, toolchain);
@@ -356,6 +363,7 @@ export class JobDispatcher {
         const baseline = await runBaseline(projectRoot, hostRunner, 600000, {
           workspace_root: baselineWorkspace,
           collect_coverage: true,
+          ...(goal.coverage_mode ? { coverage_mode: goal.coverage_mode } : {}),
           test_selectors: targetTestSelectors,
         });
         baselineEvidence = baseline;
@@ -366,6 +374,9 @@ export class JobDispatcher {
             throw new AppError("POLICY_VIOLATION", "Baseline iptal/pause sonrasinda tamamlandi", { reason_code: latest.lifecycle });
           }
           persistFailedBaseline(baseline);
+          if (goal.coverage_scan) writeProjectCoverageFailure(this.services, { job_id: job.id, status: "FAILED", code: "BASELINE_FAILED", reason: `Baseline ${baseline.status}: ${baseline.failed_tests.join(", ") || baseline.reason_code || "no execution evidence"}`, reason_code: baseline.reason_code,
+            skip_config_detected: baseline.skip_config_detected,
+            ...(baseline.run ? { stdout_log_path: baseline.run.stdout_log_path, stderr_log_path: baseline.run.stderr_log_path } : {}) });
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
           return { job_id: job.id, phases_completed: phases, final_outcome: "BASELINE_FAILED", best_coverage: null, error: `Baseline ${baseline.status}: ${baseline.failed_tests.join(", ") || baseline.reason_code || "kanit yok"}` };
@@ -381,6 +392,7 @@ export class JobDispatcher {
         const baseline = await runBaseline(projectRoot, baselineRunner, 600000, {
           workspace_root: baselineWorkspace,
           collect_coverage: true,
+          ...(goal.coverage_mode ? { coverage_mode: goal.coverage_mode } : {}),
           test_selectors: targetTestSelectors,
         });
         baselineEvidence = baseline;
@@ -400,6 +412,33 @@ export class JobDispatcher {
         throw new AppError("BLOCKED_ISOLATION", "Frozen baseline execution workspace olusturulamadi", { reason_code: "BASELINE_WORKSPACE_MISSING" });
       }
       phases.push("baseline_ok");
+
+      if (goal.coverage_scan) {
+        assertLease();
+        const current = jobs.getJob(job.id);
+        if (current.lifecycle === "CANCELLED" || current.lifecycle === "PAUSED") throw new AppError("POLICY_VIOLATION", "Coverage scan stopped");
+        const verifiedSource = verifyCoverageWorkspace(projectRoot, baselineExecutionRoot);
+        const original = verifiedSource.original;
+        if (original.source_digest !== goal.coverage_scan.source_digest || original.build_digest !== goal.coverage_scan.build_digest) {
+          throw new AppError("SOURCE_CHANGED", "Coverage scan source changed; scan again");
+        }
+        if (!baselineEvidence?.run || baselineEvidence.run_started_at === null || baselineEvidence.run_finished_at === null) throw new AppError("INVALID_COVERAGE_EVIDENCE", "Coverage run evidence missing");
+        jobs.updatePhase(job.id, "analysis", jobs.getJob(job.id).row_version);
+        const analysis = analyzeProjectCoverage(baselineExecutionRoot, discoverModules(baselineExecutionRoot).modules,
+          baselineEvidence.run_started_at, baselineEvidence.run_finished_at, goal.coverage_scan.below_percent, goal.coverage_scan.recommendation_limit);
+        persistFailedBaseline(baselineEvidence); // Records the actual all-module baseline, also for a successful scan.
+        if (!baselineRunId) throw new AppError("INVALID_COVERAGE_EVIDENCE", "Coverage provenance missing");
+        assertLease();
+        writeProjectCoverageResult(this.services, { ...analysis, job_id: job.id, project_root: projectRoot,
+          source_digest: original.source_digest, build_digest: original.build_digest, run_id: baselineRunId, coverage_mode: "cli",
+          execution_source_digest: verifiedSource.execution.source_digest, execution_defaults: verifiedSource.defaults,
+          tests: { total: baselineEvidence.total_tests, failures: baselineEvidence.failures, errors: baselineEvidence.errors, skipped: baselineEvidence.skipped } });
+        jobs.updateOutcome(job.id, "COVERAGE_ANALYZED", jobs.getJob(job.id).row_version);
+        jobs.updateVerificationLevel(job.id, "FULL_DECLARED_SCOPE", jobs.getJob(job.id).row_version);
+        jobs.updateLifecycle(job.id, analysis.recommendations.length > 0 ? "WAITING_INPUT" : "COMPLETED", jobs.getJob(job.id).row_version);
+        ownedRunners.delete(job.id);
+        return { job_id: job.id, phases_completed: [...phases, "coverage_proposals_ready"], final_outcome: "COVERAGE_ANALYZED", best_coverage: null, error: null };
+      }
 
       jobs.updatePhase(job.id, "analysis", jobs.getJob(job.id).row_version);
       phases.push("analysis");
@@ -590,6 +629,7 @@ export class JobDispatcher {
           },
         );
         const iterateOptions: IterateOptions = {
+          ...(goal.coverage_mode ? { coverage_mode: goal.coverage_mode } : {}),
           project_root: projectRoot,
           frozen_source_root: baselineExecutionRoot,
           target_fqn: resolved.fqn,
@@ -767,6 +807,7 @@ export class JobDispatcher {
       // W04/F09/N32: son karar yalniz accepted setin temiz final replay'inden
       // gelir. Kullanici checkout'undaki eski/stale target XML'i kullanilmaz.
       const finalReplay = await loop.replayAcceptedSet({
+        ...(goal.coverage_mode ? { coverage_mode: goal.coverage_mode } : {}),
         project_root: projectRoot,
         frozen_source_root: baselineExecutionRoot,
         target_fqns: resolvedTargets.map((rt) => rt.fqn),
@@ -1116,6 +1157,12 @@ export class JobDispatcher {
       // dispatcher instance'i da module registry uzerinden ayni job'u bulur.
       this.stopOwnedProcesses(job.id);
       const currentJob = jobs.getJob(job.id);
+      if (goal.coverage_scan && currentJob.lifecycle !== "CANCELLED" && currentJob.lifecycle !== "PAUSED") {
+        try {
+          writeProjectCoverageFailure(this.services, { job_id: job.id, status: "FAILED", code: failure instanceof AppError ? failure.code : "INTERNAL_ERROR", reason: message,
+            reason_code: failure instanceof AppError && typeof failure.details?.reason_code === "string" ? failure.details.reason_code : null });
+        } catch { process.stderr.write(`[aitest-coverage] job ${job.id} failure artifact could not be persisted\n`); }
+      }
       jobs.appendEvent({ job_id: job.id, event_type: "dispatch_failed", phase: (phases[phases.length - 1] as never) ?? "analysis", origin: "JobDispatcher" });
       try {
         // Cancel/pause sonrasi gec hata bu lifecycle'i COMPLETED/FAILED ile
@@ -1125,6 +1172,8 @@ export class JobDispatcher {
           // P04/PR04: typed blocker'lar outcome'ta ayrisir; hepsi generic BLOCKED_ENVIRONMENT ezilmez
           const outcome = errorCode === "REPORT_EXPORT_FAILED"
             ? "FINAL_VERIFICATION_FAILED"
+            : errorCode === "SOURCE_CHANGED" ? "SOURCE_CHANGED"
+            : errorCode === "INVALID_COVERAGE_EVIDENCE" ? "INVALID_COVERAGE_EVIDENCE"
             : errorCode === "POLICY_VIOLATION"
             ? "POLICY_VIOLATION"
             : errorCode === "BLOCKED_ISOLATION"
@@ -1183,6 +1232,7 @@ export class JobDispatcher {
       budget: goal.contract_budget ?? goal.budget,
       runner_kind: goal.runner_kind,
       model_profile: goal.model_profile,
+      ...(goal.coverage_mode ? { coverage_mode: goal.coverage_mode } : {}),
       source_digest: sourceIdentity.source_digest,
       build_digest: sourceIdentity.build_digest,
     };
@@ -1373,14 +1423,16 @@ export class JobDispatcher {
       new CustomerRunnerFactory().assertNativeCustomerReady();
       const record = new NativeToolchainRecordStore(storage.db, this.workspaceRoot);
       const options = record.optionsForResume(job.id, process.env);
-      if (nativePathIdentity(options.cwd) !== nativePathIdentity(projectRoot)) {
+      const cliCoverage = this.readJobContractCoverageMode(storage, job) === "cli";
+      const expectedNativeRoot = cliCoverage ? join(this.workspaceRoot, "jobs", job.id, "coverage-preflight") : projectRoot;
+      if (nativePathIdentity(options.cwd) !== nativePathIdentity(expectedNativeRoot)) {
         throw new AppError("BLOCKED_ISOLATION", "Resume project differs from pinned toolchain", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
       }
       // Keep the exact path spelling that was approved. Windows paths are
       // case-insensitive, but the immutable resolver identity also includes
       // path bytes; the project repository may return a lower-case drive or
       // slash-normalized spelling on a later resume.
-      projectRoot = options.cwd;
+      if (!cliCoverage) projectRoot = options.cwd;
       // A native job that reached resume must retain its frozen baseline
       // identity. Dispatch recreates that workspace and compares the fresh
       // version/config identity before another Maven goal is launched.
@@ -1526,6 +1578,7 @@ export class JobDispatcher {
     }
     const goal: GoalContract = {
       job_id: job.id,
+      coverage_mode: this.readJobContractCoverageMode(storage, job),
       project_root: projectRoot,
       targets: targetRows.map((t) => ({
         selector: t.selector,
@@ -1552,6 +1605,18 @@ export class JobDispatcher {
   }
 
   /** P05-B/PP24: resume modeli manifest yoksa da kalici job contract'tan geri yuklenir. */
+  readJobContractCoverageMode(storage: NonNullable<Services["storage"]>, job: JobRow): "configured" | "cli" {
+    const row = storage.db.prepare<[string], { relative_store_path: string }>("SELECT relative_store_path FROM artifacts WHERE job_id=? AND kind='job_contract' AND status='READY' ORDER BY created_at DESC LIMIT 1").get(job.id);
+    if (!row) throw new AppError("STORAGE_ERROR", "Immutable coverage mode contract missing");
+    const root = resolve(this.workspaceRoot);
+    const path = resolve(root, row.relative_store_path);
+    if (!isWithinStorageRoot(root, path)) throw new AppError("STORAGE_ERROR", "Coverage contract path escape");
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { coverage_mode?: unknown };
+    if (parsed.coverage_mode === undefined) return "configured";
+    if (parsed.coverage_mode !== "cli" && parsed.coverage_mode !== "configured") throw new AppError("STORAGE_ERROR", "Invalid immutable coverage mode");
+    return parsed.coverage_mode;
+  }
+
   assertResumeModelProfile(storage: NonNullable<Services["storage"]>, job: JobRow, requestedModel?: string | null): void {
     if (requestedModel === undefined || requestedModel === null) return;
     const contractModel = this.readJobContractModelProfile(storage, job);

@@ -28,6 +28,7 @@ export const ModeSchema = z.enum(["TEST_ONLY"]);
 export type Mode = z.infer<typeof ModeSchema>;
 
 export const TestStartInputSchema = z.object({
+  coverage_scan_id: z.string().uuid().optional(),
   project_root: z.string().min(1).max(1024),
   targets: z.array(TargetSelectorSchema).min(1).max(50),
   coverage: CoverageGoalSchema,
@@ -68,6 +69,13 @@ export type TestResultInput = z.infer<typeof TestResultInputSchema>;
 export const ProjectInspectInputSchema = z.object({
   project_root: z.string().min(1).max(1024),
   refresh: z.boolean().default(false),
+});
+
+export const ProjectCoverageInputSchema = z.object({
+  project_root: z.string().min(1).max(1024),
+  below_percent: z.number().min(0).max(100).default(80),
+  recommendation_limit: z.number().int().min(1).max(20).default(5),
+  idempotency_key: z.string().min(8).max(128).optional(),
 });
 export type ProjectInspectInput = z.infer<typeof ProjectInspectInputSchema>;
 

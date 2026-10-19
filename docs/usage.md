@@ -1,5 +1,17 @@
 # Kullanim
 
+## Genel JaCoCo raporu ve sinif onerileri
+
+"Bu projenin genel JaCoCo raporunu cikar, dusuk coverage'li uygun siniflari oner; ben secince test uret" demek yeterlidir.
+
+`project_coverage({project_root})` tum executable Maven modullerindeki mevcut testleri repository disindaki kopyada calistirir. Varsayilan esik LINE %80, en fazla 5 oneridir (`below_percent`, `recommendation_limit`). Bir ust dizinde tek Maven alt koku varsa o kok secilir; birden fazla aday varsa kullanicidan somut kok istenir. API hemen kalici job_id doner; `test_status` ve `test_result` ile izlenir.
+
+`test_result.coverage_scan` genel sayaclari, fresh JaCoCo XML yollarini/hash'lerini, olculemeyen sinif sayilarini ve secilebilir FQN onerilerini verir. Native JaCoCo HTML raporu XML'in yanindaki `index.html` dosyasidir. Uygunluk deterministik bir heuristiktir; DTO/config/generated/abstract/nested veya moduller arasi ayni FQN onerilmez. Dusuk coverage verisi sadece gercek olcumden gelir. BRANCH sayaci yoksa null doner; %100 veya %0 uydurulmaz.
+
+Oneriler hazirsa job `WAITING_INPUT/COVERAGE_ANALYZED` olur; worker/model veya aday test uretilmez. Kullanici secince mevcut `test_start` cagrisi tek class hedefi ve `coverage_scan_id` ile yapilir. Tarama raporu ve kaynak hash'i dogrulanir; baska proje, bozulmus artifact veya degismis kaynak yeni tarama gerektirir. Sinif secimi olmadan `test_start.targets` bos olamaz.
+
+POM'da JaCoCo bulunmasi gerekmez: acik CLI modu sabit `org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent`, `test`, `org.jacoco:jacoco-maven-plugin:0.8.12:report` zincirini kullanir. Eksik neutral `.mvn` config dosyalari yalniz private execution kopyasinda olusturulur ve `execution_defaults` ile belirtilir. Musteri POM'u/testleri degistirilmez. Testler kapaliysa, baseline kiriksa, servis/bagimlilik eksikse veya fresh rapor yoksa sonuc typed failure'dir; dusuk coverage listesi verilmez. Basarisiz/kesilen tarama yeni `idempotency_key` ile yeniden baslatilir; completed scan yeniden generation'a resume edilmez.
+
 ## Normal test gorevi
 
 1. Yetkilendirilmis Java projesinde OpenCode'u acin.

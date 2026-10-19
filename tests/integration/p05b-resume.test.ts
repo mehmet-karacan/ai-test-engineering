@@ -36,7 +36,7 @@ interface PreparedJob {
 
 const digest = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
 
-async function prepareJob(): Promise<PreparedJob> {
+async function prepareJob(coverageMode: "configured" | "cli" = "configured"): Promise<PreparedJob> {
   const dir = join(tmpdir(), `aitest-p05b-resume-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const projectDir = join(dir, "project");
   const artifactRoot = join(dir, "artifacts");
@@ -69,6 +69,7 @@ async function prepareJob(): Promise<PreparedJob> {
     budget: goal.budget,
     runner_kind: goal.runner_kind,
     model_profile: MODEL,
+    coverage_mode: coverageMode,
     contract_hash: "pending",
   };
   const contractJson = JSON.stringify(contract, null, 2);
@@ -101,7 +102,9 @@ async function prepareJob(): Promise<PreparedJob> {
   // Resume resolves the effective environment from process.env, so keep the
   // fixture's JAVA_HOME identical until this test's cleanup restores it.
   vi.stubEnv("JAVA_HOME", javaRoot);
-  const options = { cwd: projectDir, env: { ...process.env }, executable };
+  const nativeRoot = coverageMode === "cli" ? join(artifactRoot, "jobs", started.job_id, "coverage-preflight") : projectDir;
+  if (coverageMode === "cli") cpSync(projectDir, nativeRoot, { recursive: true });
+  const options = { cwd: nativeRoot, env: { ...process.env }, executable, ...(coverageMode === "cli" ? { pinRoot: nativeRoot } : {}) };
   const env = effectiveMavenEnvironment(options.env);
   const verified = await verifyNativeToolchain(NativeToolchainResolver.resolve({ ...options, env }), env);
   new NativeToolchainRecordStore(services.storage!.db, artifactRoot).pin(started.job_id, options, verified);
@@ -208,11 +211,33 @@ describe("P05-B resume zinciri", () => {
     expect(dispatchSpy).toHaveBeenCalledTimes(1);
     expect(resumedGoal?.job_id).toBe(prepared.jobId);
     expect(resumedGoal?.model_profile).toBe(MODEL);
+    expect(resumedGoal?.coverage_mode).toBe("configured");
     expect(resumedGoal?.targets).toEqual(prepared.goal.targets);
     expect(resumedGoal?.concrete_targets_digest).toBe(prepared.goal.concrete_targets_digest);
     expect(resumedGoal?.contract_budget).toEqual(prepared.goal.budget);
     expect(resumedGoal?.attempt_budget).toBe(prepared.goal.budget.max_candidate_iterations);
     expect(ownedProbes).toEqual(["-v", "-v"]);
+  });
+
+  it("test_resume preserves CLI coverage mode and customer root with owned coverage preflight", async () => {
+    const prepared = await prepareJob("cli");
+    cleanups.push(() => {
+      prepared.services.storage?.close();
+      rmSync(join(prepared.artifactRoot, ".."), { recursive: true, force: true });
+    });
+    let resumedGoal: GoalContract | null = null;
+    const dispatchSpy = vi.spyOn(JobDispatcher.prototype, "dispatch").mockImplementation(async (_job, goal) => {
+      resumedGoal = goal;
+      return { job_id: goal.job_id, phases_completed: ["resume_dispatch_boundary"], final_outcome: "TEST_ONLY_STUB", best_coverage: null, error: null };
+    });
+    vi.spyOn(CustomerRunnerFactory.prototype, "assertNativeCustomerReady").mockImplementation(() => undefined);
+    stubOwnedVersionProbe();
+    const result = await handleTestResume({ job_id: prepared.jobId, model_profile: MODEL }, prepared.services);
+    await vi.waitFor(() => expect(dispatchSpy).toHaveBeenCalledTimes(1), { timeout: 65000, interval: 50 });
+    expect(result).toMatchObject({ job_id: prepared.jobId, resumed: true, lifecycle: "RUNNING" });
+    expect(resumedGoal?.coverage_mode).toBe("cli");
+    expect(resumedGoal?.project_root.replace(/\\/g, "/").toLowerCase()).toBe(prepared.projectDir.replace(/\\/g, "/").toLowerCase());
+    expect(resumedGoal?.targets).toEqual(prepared.goal.targets);
   });
 
   it("resume modeli immutable contract'tan farkliysa dispatch'e ulasmadan fail-closed olur", async () => {

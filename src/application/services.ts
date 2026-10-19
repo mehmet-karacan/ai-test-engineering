@@ -28,6 +28,7 @@ import { ReportExporter } from "../reporting/report-generator.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
+import { readProjectCoverageResult } from "../storage/project-coverage-result.js";
 
 export const PARSER_VERSION = "statik-tarama-1";
 
@@ -247,6 +248,19 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   // "ayni kaynak" kaniti degil; resume identity karsilastirmasi bu kayitla yapilir).
   const startManifest = new SourceSnapshot(canonicalRoot).buildManifest();
   const startIdentity = computeSourceIdentity(canonicalRoot, startManifest);
+  if (parsed.coverage_scan_id) {
+    const scanJob = jobs.getJob(parsed.coverage_scan_id);
+    const scan = readProjectCoverageResult(services, parsed.coverage_scan_id);
+    if (!scan || scanJob.lifecycle !== "WAITING_INPUT" || scanJob.outcome !== "COVERAGE_ANALYZED") {
+      throw new AppError("INVALID_PARAMETERS", "Coverage taramasi sinif secimine hazir degil");
+    }
+    if (resolve(scan.project_root).toLowerCase() !== canonicalRoot.toLowerCase() || scan.source_digest !== startIdentity.source_digest || scan.build_digest !== startIdentity.build_digest) {
+      throw new AppError("SOURCE_CHANGED", "Proje coverage taramasindan sonra degisti veya baska projeye ait; yeniden tarayin");
+    }
+    if (parsed.targets.length !== 1 || parsed.targets[0]!.kind !== "class" || !scan.recommendations.some((candidate) => candidate.fqn === parsed.targets[0]!.selector && candidate.suitable)) {
+      throw new AppError("INVALID_PARAMETERS", "Onerilerden bir sinifi tam adiyla secin");
+    }
+  }
   const snapshotId = inventory.writeSnapshot(location.id, startIdentity.head_commit, startIdentity.dirty_digest, startIdentity.source_digest, startIdentity.build_digest, PARSER_VERSION);
   let resolvedTargets: ResolvedTargetView[] | undefined;
   let frozen: import("../discovery/target-resolver.js").FrozenTargetList | undefined;
@@ -370,6 +384,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     mode: parsed.mode,
     model_profile: parsed.model_profile,
     idempotency: parsed.idempotency_key,
+    ...(parsed.coverage_scan_id ? { coverage_scan_id: parsed.coverage_scan_id } : {}),
   });
 
   const existing = jobs.findJobByRequestDigest(location.id, digest);
@@ -493,6 +508,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     branch_target_bps: branchBps,
   }));
   const goal = dispatcher.buildGoalContract(job, goalTargets, canonicalRoot);
+  if (parsed.coverage_scan_id) goal.coverage_mode = "cli";
   // P05/PR06: kullanicinin istedigi provider/model GoalContract'a birebir tasinir.
   // Worker bu kimligi prompt cagrisi sirasinda tekrar dogrular; sessiz default yoktur.
   goal.model_profile = parsed.model_profile ?? null;
@@ -507,6 +523,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   // politikalari sessizce degismez.
   const configSnapshot = buildSecretFreeConfigSnapshot(services.config);
   const contract: JobContract = buildJobContract({
+    ...(parsed.coverage_scan_id ? { coverage_mode: "cli" as const } : {}),
     job_id: job.id,
     project_id: location.project_id,
     location_id: location.id,
@@ -554,9 +571,14 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   });
   jobs.updatePolicyDigest(job.id, contractRef(contract).digest, contract.config_digest, job.row_version);
 
-  void dispatcher.dispatch(job, goal, canonicalRoot).catch((error: unknown) => {
+  const launch = (): void => {
+    if (!["QUEUED", "RUNNING"].includes(jobs.getJob(job.id).lifecycle)) return;
+    if (goal.coverage_mode === "cli" && jobs.getJob(job.id).lifecycle === "QUEUED") jobs.updateLifecycle(job.id, "RUNNING", jobs.getJob(job.id).row_version);
+    void dispatcher.dispatch(job, goal, canonicalRoot).catch((error: unknown) => {
     process.stderr.write(`[aitest-dispatch] job ${job.id} hata: ${String(error)}\n`);
-  });
+  }); };
+  if (goal.coverage_mode === "cli") setImmediate(launch);
+  else launch();
 
   return {
     job_id: job.id,
@@ -637,7 +659,9 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
     last_trusted_coverage: lastTrustedCoverage,
     report_facts: reportFacts,
     events: events.map((e) => ({ sequence: e.sequence, event_type: e.event_type, phase: e.phase })),
-    required_action: job.lifecycle === "INTERRUPTED" ? "test_resume ile devam edilebilir" : null,
+    required_action: job.lifecycle === "WAITING_INPUT" && job.outcome === "COVERAGE_ANALYZED"
+      ? "test_result onerilerini kullaniciya sun; kullanici secince test_start(coverage_scan_id, targets) cagir"
+      : job.lifecycle === "INTERRUPTED" ? "test_resume ile devam edilebilir" : null,
   };
 }
 

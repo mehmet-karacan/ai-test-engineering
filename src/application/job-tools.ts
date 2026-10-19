@@ -19,6 +19,7 @@ import { verifyNativeToolchain } from "../runners/native-toolchain.js";
 import { NativeToolchainRecordStore } from "../orchestration/native-toolchain-record.js";
 import { NativeProcessRegistry } from "../orchestration/native-process-registry.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
+import { readProjectCoverageResult, readProjectCoverageFailure, type ProjectCoverageResult, type ProjectCoverageFailure } from "../storage/project-coverage-result.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
 import { ReportExporter } from "../reporting/report-generator.js";
 import { MAX_WORKER_REQUEST_TIMEOUT_MS } from "../workers/opencode/worker-config.js";
@@ -73,6 +74,10 @@ export async function handleTestResume(input: unknown, services: Services): Prom
   if (job.lifecycle === "COMPLETED") {
     return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false, message: "Is zaten tamamlandi; yeniden devam etmez" };
   }
+  if (jobs.listEvents(job.id, undefined, 50).some((event) => event.event_type === "project_coverage_requested")) {
+    return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false,
+      message: job.lifecycle === "WAITING_INPUT" ? "Onerilerden sinif secip test_start ile baslatin" : "Coverage taramasini yeni idempotency_key ile project_coverage uzerinden yeniden baslatin" };
+  }
 
   // Runner identity must be checked before lifecycle becomes RUNNING. A legacy
   // Docker job cannot silently inherit the new Windows native default.
@@ -96,7 +101,9 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     const record = new NativeToolchainRecordStore(storage.db, services.config.storage.root);
     const options = record.optionsForResume(job.id, process.env);
     const locationRoot = new ProjectRepository(storage.db).getLocation(job.location_id).canonical_root;
-    if (nativePathIdentity(options.cwd) !== nativePathIdentity(locationRoot) || (parsed.project_root && nativePathIdentity(canonicalProjectRoot(parsed.project_root)) !== nativePathIdentity(locationRoot))) {
+    const expectedNativeRoot = dispatcher.readJobContractCoverageMode(storage, job) === "cli"
+      ? join(services.config.storage.root, "jobs", job.id, "coverage-preflight") : locationRoot;
+    if (nativePathIdentity(options.cwd) !== nativePathIdentity(expectedNativeRoot) || (parsed.project_root && nativePathIdentity(canonicalProjectRoot(parsed.project_root)) !== nativePathIdentity(locationRoot))) {
       throw new AppError("POLICY_VIOLATION", "Native toolchain project root differs from job location", { reason_code: "TOOLCHAIN_IDENTITY_CHANGED" });
     }
     verifyNativeResume = async (fencingToken, ownerId) => {
@@ -223,6 +230,8 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
 }
 
 export interface TestResultResult {
+  coverage_scan_failure?: ProjectCoverageFailure;
+  coverage_scan?: Omit<ProjectCoverageResult, "classes"> & { class_count: number };
   job_id: string;
   outcome: string | null;
   lifecycle: string;
@@ -296,6 +305,10 @@ export async function handleTestResult(input: unknown, services: Services): Prom
     report_path: reportPath,
     report_facts: reportFacts,
     artifact_refs: artifactRows.map((a) => `${a.relative_store_path}#${a.sha256.slice(0, 12)}`),
+    ...(() => { const scan = readProjectCoverageResult(services, job.id); if (!scan || job.outcome !== "COVERAGE_ANALYZED") return {};
+      const { classes, ...summary } = scan;
+      return { coverage_scan: { ...summary, class_count: classes.length } }; })(),
+    ...(() => { const failure = readProjectCoverageFailure(services, job.id); return failure ? { coverage_scan_failure: failure } : {}; })(),
   };
 }
 

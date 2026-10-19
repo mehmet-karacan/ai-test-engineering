@@ -9,8 +9,10 @@ import { discoverModules, type PomModule } from "../discovery/pom-discovery.js";
 import { resolveEffectiveMavenModel, type EffectiveMavenModel } from "../discovery/effective-maven-model.js";
 import { MavenRunner, strictTestExecutionProperties, type RunResult, type MavenRunOptions } from "../runners/maven-runner.js";
 import { scanTestFile } from "../discovery/java-inventory.js";
+import { prepareCoverageWorkspace } from "./coverage-workspace.js";
 
 export interface BuildPlan {
+  coverage_mode?: "configured" | "cli";
   reactor_root: string;
   modules: PomModule[];
   affected_modules: string[];
@@ -27,6 +29,7 @@ export interface BuildPlan {
 }
 
 export interface BuildPlanOptions {
+  coverage_mode?: "configured" | "cli";
   active_profiles?: string[];
   settings_path?: string;
   toolchains_path?: string;
@@ -84,12 +87,16 @@ export function buildPlan(projectRoot: string, affectedModulePaths: string[], op
   const normalizedAffectedModules = [...new Set(affectedModulePaths.map((modulePath) => modulePath.replace(/[\\/]/g, "/").replace(/^\.\/$/, "").replace(/\/+$/, "")))];
 
   return {
+    coverage_mode: options.coverage_mode ?? "configured",
     reactor_root: discovery.reactor_root,
     modules,
     affected_modules: normalizedAffectedModules,
     maven_goals_build: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test-compile"]),
     maven_goals_test: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test"]),
-    maven_goals_coverage: scopedMavenGoals(discovery.modules, normalizedAffectedModules, ["test", "jacoco:report"]),
+    maven_goals_coverage: scopedMavenGoals(discovery.modules, normalizedAffectedModules,
+      options.coverage_mode === "cli"
+        ? ["org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent", "test", "org.jacoco:jacoco-maven-plugin:0.8.12:report"]
+        : ["test", "jacoco:report"]),
     jdk_version: process.env["JAVA_HOME"] ? "from_env" : "default",
     test_framework: hasJunit4 && hasJunit5 ? "both" : hasJunit4 ? "junit4" : hasJunit5 ? "junit5" : "none",
     mockito_present: modules.some((m) => m.mockito_present),
@@ -106,6 +113,7 @@ export function buildPlan(projectRoot: string, affectedModulePaths: string[], op
  * secilen her executable modul kontrol edilir.
  */
 export function assertCoverageConfigured(plan: BuildPlan, affectedModulePaths: string[] = plan.affected_modules): void {
+  if (plan.coverage_mode === "cli") return; // Explicit pinned command instrumentation; fresh report remains mandatory.
   const normalized = [...new Set(affectedModulePaths.map((modulePath) => modulePath.replace(/[\\/]/g, "/").replace(/^\.\//, "").replace(/\/+$/, "")))].filter(Boolean);
   const selected = normalized.length > 0
     ? plan.modules.filter((module) => normalized.includes(module.module_relative_path) && module.packaging !== "pom")
@@ -147,6 +155,7 @@ export interface BaselineResult {
 }
 
 export interface BaselineOptions {
+  coverage_mode?: "configured" | "cli";
   /** P06/PP20: orijinal checkout yerine urun storage altinda frozen workspace. */
   workspace_root?: string;
   /** P06/PP27: baseline run'inda JaCoCo report hedefini de calistir. */
@@ -394,8 +403,10 @@ export function detectSkipConfig(projectRoot: string): string[] {
 }
 
 export async function runBaseline(projectRoot: string, runner: MavenRunner, timeoutMs = 600000, options: BaselineOptions = {}): Promise<BaselineResult> {
-  const executionRoot = options.workspace_root ? createFrozenWorkspace(projectRoot, options.workspace_root) : resolve(projectRoot);
-  const plan = buildPlan(executionRoot, []);
+  const executionRoot = options.workspace_root
+    ? options.coverage_mode === "cli" ? prepareCoverageWorkspace(projectRoot, options.workspace_root) : createFrozenWorkspace(projectRoot, options.workspace_root)
+    : resolve(projectRoot);
+  const plan = buildPlan(executionRoot, [], { ...(options.coverage_mode ? { coverage_mode: options.coverage_mode } : {}) });
   const malformedReports: string[] = [];
   const skipConfig = detectSkipConfig(executionRoot);
 
