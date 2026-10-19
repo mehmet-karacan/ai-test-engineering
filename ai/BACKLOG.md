@@ -12,6 +12,12 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
+## 2026-10-19 Windows hazirlik dali
+
+- Dal: `codex/windows-ready-20261019`; r16 ve kalite kapisi dalindaki kanitlar tarihsel olarak korunur. Bu dalin yeni kaynak/build kimligi icin tam test ve release manifesti yeniden uretilecek. Durum: IN_PROGRESS / yeni dal icin NO_GO.
+- Kapsam: yalniz Windows native. Docker, macOS ve GitHub CI kullanici karariyla kapsam disi/kapali.
+- Siradaki is: buyuk proje kokunde SourceSnapshot stack overflow duzeltmesi, tam Windows suite, gercek MCP regresyonu, pilot engellerinin durust kaydi ve yeni full gate.
+
 ## 006 Windows native paketleri
 
 Aktif gorev: AITE-WINDOWS-SUBAGENT-PILOT-006 v1.0 (`AKTIF_GOREV.md`); G0 acik, G1/G2/G3 ayri karar. Asagidaki durumlar eski P paketlerini PASSED'a ceviremez.
@@ -159,10 +165,10 @@ Yeni blocker/sema kanitlari: GLM P07-B `ai/checkpoints/2026-10-12-production-005
 | P06-B1 | Module-aware coverage/report, custom test root ve final test raporu kapisi | LOCAL_VERIFIED | production-005-p06b-module-final-gates; 64/64 unit + 16/16 Maven/accepted + typecheck |
 | P06-B2 | Effective Maven affected-module scope, typed coverage blocker, run provenance, inventory regression, source identity, module report listesi ve strict test execution property'leri | LOCAL_VERIFIED | production-005-p06b-effective-scope + p06-frozen-counter + p06-strict-maven-gate + pr04-pr06-audit; odak 35/35, Maven runtime 29/29 + typecheck/lint |
 | P07-A | Gercek facts projection, DB status projection ve fail-closed export cekirdegi | LOCAL_VERIFIED | production-005-p07a-facts-export; 81/81 odak suite + typecheck |
-| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | IN_PROGRESS (Docker/PP17 bu gorevde kapsam disi) | Docker customer dispatcher + egress runtime kaniti bu gorevde calistirilmayacak; mevcut fail-closed blocker kaydi korunarak sonraki aktif goreve devredildi |
+| P07-B | Report06 renderer, final replay raw/binary evidence ve manifest kimlik zinciri | LOCAL_VERIFIED (Windows kapsaminda) | Windows-native-006 r16; Docker/PP17 bu kapsamda yok |
 | P08 | Kurulum/config/runtime resolver, OpenCode entry, readiness ve upgrade/restore | RUNTIME_VERIFIED (Windows kapsaminda) | PP41/PP42/PP43/PP44 kanitlari PASS; cross-drive path escape `p08-cross-drive-path-fix`, stale SQLite WAL/SHM restore fix `p08-restore-stale-wal-fix`; takip Windows suite 8 dosya/36 test PASS; macOS kullanici karariyla kapsam disi |
 | P09 | Full regression, lint/typecheck/build ve release verifier reconciliation | LOCAL_VERIFIED | production-005-coordinator-next + qwen-next + coordinator-final2; P01 40/40, ana dal odak 8 dosya 71/71 PASS, lint 0 error/89 warning, typecheck/build PASS; local PASS, full NO_GO (`EVIDENCE_MANIFEST_EKSIK`, 274 obligation) |
-| P10 | Teknik devir ve yayin karari | IN_PROGRESS | Qwen sema auditi: partial NOT_RUN/BLOCKED manifest desteklenmiyor; gercek PASS kaniti olmadan manifest uydurulmadi; full NO_GO, 274/274 missing; P01/P09/P10 verifier/ledger auditi (production-005-p10-followup-verifier-audit): bug yok, local exit 0 / full exit 1 NO_GO, P01 40/40 PASS |
+| P10 | Teknik devir ve yayin karari | LOCAL_VERIFIED (r16 Windows kapsaminda) | r16 final GO tarihsel kanittir; yeni hazirlik dali icin yeniden full gate gerekli |
 
 ## F bulgu kapanis durumu (004 Bolum 2; F01-F18)
 

@@ -235,10 +235,9 @@
 
 ## Sonraki somut is
 
-- Kalan ana kapanis paketi: **1 formal paket** (`P10`). P08 Windows kapsaminda RUNTIME_VERIFIED; P07-B/PP17 Docker runtime kosusu bu gorevde kapsam disidir; P09 yerel olarak kapali.
-- Sonraki somut is: WN69 partial-manifest/legacy reconciliation, guncel Windows platform identity ve WN77-WN80 final review hazirligini sirayla tamamla. Original full gate icin gercek evidence manifest + live/platform kanitlari olmadan production GO verme. Docker/egress sonraki aktif goreve devredildi.
-- Docker/Docker egress/PP16-PP17 kanit kosusu sonraki aktif goreve devredildi; bu gorevde calistirilmayacak ve kalan is sayisina dahil edilmeyecek.
-- Canli pilot/benchmark yalniz kullanici onayi ile ayrı kosuda acilir
+- 2026-10-19 Windows hazirlik dali `codex/windows-ready-20261019` IN_PROGRESS / yeni dal NO_GO. r16 full GO 391/391 tarihsel kaynak `bd3db182` icin gecerlidir; yeni dalin tam suite, gercek MCP ve manifest kaniti yeniden uretilecek.
+- Kullanici kapsami: yalniz Windows native; Docker, macOS ve GitHub CI kapali. Musteri checkout'u salt okunur kalir.
+- Siradaki is: main kapsam temizligi ile qfix duzeltmelerini birlestir; buyuk proje kokundeki SourceSnapshot stack overflow'u duzelt; Windows suite ve yeni full release gate'i calistir.
 
 - 2026-10-14 G1 follow-up: kullanici onayi ile owned snapshot POM'unda `tr.com.innova.yz:yz-core:0.1.0-SNAPSHOT` tanimlandi ve JDK25 Lombok processor acildi; normal MCP job `46b4f18d-3ea6-43f0-b930-6cd5e612ec08` native preflight sonrasi 13 GpuReportService/YzRapor* API uyumsuzlugu nedeniyle `BASELINE_FAILED` oldu. Customer checkout degismedi; model/candidate/pause-resume acilmadi. Ayrinti `ai/checkpoints/2026-10-14-windows-native-006-g1-yzcorefix-baseline-blocked.md`.
 - 2026-10-15 WN73 pin-root final: build tree digest `569f360007bc5b2a...`; native command contract 10/10 PASS, including owned pinRoot parent `.mvn` exclusion.
