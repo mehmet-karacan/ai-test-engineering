@@ -18,7 +18,13 @@ registerWindowsNativeTestLock("wn-job-object");
 
 async function waitForFile(path: string): Promise<number> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (existsSync(path)) return Number(readFileSync(path, "utf8"));
+    if (existsSync(path)) {
+      const text = readFileSync(path, "utf8").trim();
+      const pid = Number(text);
+      // writeFileSync creates the marker before publishing its contents.
+      // Number("") is zero, and process.kill(0, 0) probes our own process.
+      if (/^[1-9]\d*$/.test(text) && Number.isSafeInteger(pid)) return pid;
+    }
     await delay(25);
   }
   throw new Error(`Missing owned child PID: ${path}`);
@@ -47,6 +53,14 @@ async function removeOwnedFixture(root: string): Promise<void> {
 }
 
 describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => {
+  it("waits for a complete positive PID instead of reading an empty marker as PID zero", async () => {
+    const root = mkdtempSync(join(tmpdir(), "wn-job-pid-marker-"));
+    const path = join(root, "owned.pid");
+    writeFileSync(path, "");
+    const publish = setTimeout(() => writeFileSync(path, String(process.pid)), 50);
+    try { expect(await waitForFile(path)).toBe(process.pid); }
+    finally { clearTimeout(publish); await removeOwnedFixture(root); }
+  });
   it("hard-kill leaves a durable orphan fence while preserving a foreign process", async () => {
     const root = mkdtempSync(join(tmpdir(), "wn-job-registry-hardkill-"));
     const foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
@@ -70,7 +84,7 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
       expect(spawnSync("taskkill", ["/F", "/PID", String(parentPid)], { encoding: "utf8" }).status).toBe(0);
       await Promise.race([parentClosed, delay(5000)]);
       for (let attempt = 0; attempt < 120 && alive(ownedPid); attempt += 1) await delay(25);
-      expect(alive(ownedPid)).toBe(false);
+      expect(alive(ownedPid), `Owned child PID ${ownedPid} must be reaped`).toBe(false);
       expect(foreign.pid && alive(foreign.pid)).toBe(true);
       const reopened = new Storage({ dbPath: join(root, "state.db") });
       try {
@@ -153,7 +167,7 @@ describe.skipIf(process.platform !== "win32")("S02 Job Object ownership", () => 
       const result = await Promise.race([run, delay(12000).then(() => { throw new Error("owned run did not settle after timeout"); })]);
       expect(result.status).toBe("timeout");
       for (let attempt = 0; attempt < 40 && alive(ownedPid); attempt += 1) await delay(25);
-      expect(alive(ownedPid)).toBe(false);
+      expect(alive(ownedPid), `Owned child PID ${ownedPid} must be reaped`).toBe(false);
       expect(foreign.pid && alive(foreign.pid)).toBe(true);
     } finally {
       if (ownedPid && alive(ownedPid)) process.kill(ownedPid);

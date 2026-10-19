@@ -23,3 +23,8 @@
 
 - Uygulama odaklari: parser/ranking 12/12, CLI/owned plan4/4, scan/selection flow4/4, public resume15/15 PASS; typecheck/build PASS, lint0 error/89 warning. MCP v1/v2 dokuz-tool kontrati dahil 5dosya/33test PASS.
 - Kod commitinden sonra temiz adayda tam Windows suite, typecheck/build/lint/local gate; son kaynak, Sky negative ve olumlu kontrol kanitlarini final handoff'a bagla. Onceki r19 GO yalniz b30b9d8 icindir; yeni feature icin otomatik full-GO iddiasi yapilmaz.
+
+## Full suite ilk sonuc ve test-fixture duzeltmesi
+
+- Temiz 9959bf9: 124 dosya, 1020/1021 PASS, tek wn-job-object timeout testi alive(ownedPid) kontrolunde FAIL; 432.68s. Ayni test tekil tekrar PASS. Ham log private Temp/project-coverage-9959bf9-full-suite.log.
+- PID marker yardimcisinin bos dosyayi Number(empty)=0 diye okudugu deterministik regresyonda RED ile kanitlandi. process.kill(0,0) coordinator'u yokladigindan bu yarista yanlis alive gorulur; ilk full failure'da PID kaydi olmadigindan ayni kok neden oldugu kesin iddia edilmez. Test-only helper pozitif tam PID bekler; timeout/supervisor uretim kodu degismedi. Native dosya yeni regresyon dahil8/8 PASS. Yeni tam suite bekliyor.
