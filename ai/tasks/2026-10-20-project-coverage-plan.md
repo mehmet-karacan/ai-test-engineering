@@ -12,7 +12,7 @@
 - [x] 2. MCP project_coverage + sonuc/selection baglantisi, async job, kaynak kimligi ve idempotency + RED/GREEN entegrasyon testleri. Empty target normal test_start icin hala yasak. Scan sonucunda WAITING_INPUT, hic model uretimi yok; secilmis sinif mevcut pipeline'a gider.
 - [x] 3. POM'da JaCoCo olmayan projelerde acik CLI coverage modu: sabit `org.jacoco:jacoco-maven-plugin:0.8.12` prepare-agent/test/report zinciri; yalniz bu iki plugin goal'u native allowlist'e ekle. Eski configured modu degismez. Baseline/candidate/final ayni mode'u kullanir; skip/argLine gibi proje uyumsuzlugu gercek typed blocker olur, POM degistirilmez.
 - [x] 4. Sky kaynak/dirty dosya hash'leri korunarak gercek stdio MCP scan; proje JDK21'i process-local ortamda sec. Eksik JaCoCo CLI ile, literal skip ve dis servis bagimliligi olursa durust blocker ile raporla. Scan onerileri varsa secim oncesi worker/candidate 0; secim sozlesmesi odak testlerle dogrulanir.
-- [ ] 5. Bagimsiz review, Windows full suite/typecheck/lint/build, yeni kanit checkpoint/handoff; repo-local Git kimligi/gizlilik/staged diff kontrolu, commit/push. Kullanici dosyalarina ve CI'ya dokunma.
+- [x] 5. Bagimsiz review, Windows full suite/typecheck/lint/build, yeni kanit checkpoint/handoff; repo-local Git kimligi/gizlilik/staged diff kontrolu, commit/push teslimi. Kullanici dosyalarina ve CI'ya dokunma. Nihai kanit `ai/handoffs/2026-10-20-project-coverage-delivery.md`; Sky olumlu kabul mevcut skipTests konfigurasyonunda BLOCKED.
 
 ## Kabul ve review odagi
 

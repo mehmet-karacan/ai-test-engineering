@@ -20,7 +20,7 @@
 
 ## 2026-10-20 kullanici onayli ek kapsam
 
-- Genel JaCoCo -> oneriler -> kullanici secimi -> test_start akisi eklendi; dal `codex/coverage-proposals-20261020`. Odak testler ve bagimsiz review PASS; temiz aday full suite ve teslim bekliyor. Kanit `ai/checkpoints/2026-10-20-project-coverage-implementation.md`.
+- Genel JaCoCo -> oneriler -> kullanici secimi -> test_start akisi VERIFIED; dal `codex/coverage-proposals-20261020`. Temiz 76713be + sabit build: 124/124 dosya, 1022/1022 test PASS (338.28s); typecheck/build/local gate/MCP handshake PASS, lint0 error/89 warning, bagimsiz review bulgusuz. Kanit `ai/handoffs/2026-10-20-project-coverage-delivery.md`.
 - Gercek olumlu fixture: scan3/3, LINE%63.64/BRANCH%50, model0 secim oncesi; secim sonrasi GLM final8/8, LINE/BRANCH%100, production degisikligi0.
 - Sky gercek Maven kosusunda literal POM skipTests=true nedeniyle NO_DISCOVERED_TESTS/BASELINE_FAILED; source hash degismedi, coverage/oneriler/generation yok. Sky olumlu kabul degildir. Onceki r19GO/b30b9d8 tarihsel kanittir.
 

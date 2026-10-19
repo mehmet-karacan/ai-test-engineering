@@ -28,3 +28,8 @@
 
 - Temiz 9959bf9: 124 dosya, 1020/1021 PASS, tek wn-job-object timeout testi alive(ownedPid) kontrolunde FAIL; 432.68s. Ayni test tekil tekrar PASS. Ham log private Temp/project-coverage-9959bf9-full-suite.log.
 - PID marker yardimcisinin bos dosyayi Number(empty)=0 diye okudugu deterministik regresyonda RED ile kanitlandi. process.kill(0,0) coordinator'u yokladigindan bu yarista yanlis alive gorulur; ilk full failure'da PID kaydi olmadigindan ayni kok neden oldugu kesin iddia edilmez. Test-only helper pozitif tam PID bekler; timeout/supervisor uretim kodu degismedi. Native dosya yeni regresyon dahil8/8 PASS. Yeni tam suite bekliyor.
+
+## Nihai dogrulama
+
+- Sabit build/76713be tam Windows suite124/124 dosya, 1022/1022 PASS, exit0, 338.28s. Log SHA55748023d4bbf360f97df3c54ff2f3cee2622c08874cd21374c9a8417be7c02e. Typecheck/build/local gate/MCP smoke PASS; lint0error/89warning. Native PID helper ek regresyonu bagimsiz reviewer tarafindan bulgusuz incelendi.
+- Son gercek Sky stdio job afe802ed-14d6-4568-969e-3b5c6454c2a3 ayni BASELINE_FAILED/NO_DISCOVERED_TESTS engelini dogruladi; coverage_scan_failure skip_config_detected=[pom.xml: skipTests=true] ve stdout/stderr yollarini dondu. Source once/sonra4891b39c5ecbc3a4528bd89e48f06b78084d7ca6b00eaea463ae6c71f802d647 ayni. Sky olumlu kabul BLOCKED; urun akisi ve fixture olumlu kontrol VERIFIED. Handoff ai/handoffs/2026-10-20-project-coverage-delivery.md.

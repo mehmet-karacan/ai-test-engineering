@@ -12,6 +12,13 @@
 
 Durum degerleri: TODO, IN_PROGRESS, BLOCKED, VERIFIED, LOCAL_VERIFIED. "Kod var" ile "dogrulandi" ayri tutulur.
 
+## 2026-10-20 genel JaCoCo ve kullanici secimi
+
+- Urun akisi VERIFIED: tum executable Maven modulleri -> fresh raporlar -> en fazla5 uygun dusuk LINE onerisi -> WAITING_INPUT -> kullanici secimi -> coverage_scan_id ile test_start. Secimden once model0; orijinal checkout degismez.
+- Sabit build/76713be Windows tam suite124/124 dosya, 1022/1022 test PASS; typecheck/build/local gate/MCP handshake PASS; lint0 error/89 warning; bagimsiz review bulgusuz. Gercek stdio/Maven/GLM olumlu kontrol final8/8 ve LINE/BRANCH100.
+- Sky olumlu kabul BLOCKED: POM literal skipTests=true testleri atliyor. Gercek genel kosu NO_DISCOVERED_TESTS; source hash korunmus; coverage/generation iddiasi yok. Musteri test konfigurasyonu etkinlestirilmesi bu kod tesliminden ayri devam noktasidir. Handoff `ai/handoffs/2026-10-20-project-coverage-delivery.md`.
+- Onceki r19GO/b30b9d8 tarihsel kalir; yeni feature icin eski391-ID manifesti full-GO kaniti gibi tasinmaz. Docker/macOS/CI kapsam disi/kapali kalir.
+
 ## 2026-10-19 Windows hazirlik dali
 
 - Dal: `codex/windows-ready-20261019`; durum VERIFIED / full GO. Yeni rapor kullanici kabulu kayitli; final Windows suite 121/121 dosya, 1000/1000 test PASS; r18 full verifier 391/391 verified, exit 0. Kanit `ai/checkpoints/2026-10-19-windows-ready-final-go.md`.
