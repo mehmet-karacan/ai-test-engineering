@@ -1,0 +1,19 @@
+{
+  "task_id": "AITE-REPORT07-PRODUCTION-007",
+  "scope": "Corporate offline report integration; synthetic and existing artifact verification only",
+  "reference_sha256": "02486f47a9ba845b0d486cfdf558f63bc57aec27f821897d668d4786069c810c",
+  "prior_windows_acceptance": "Historical; not automatically transferred",
+  "status": "FULL_SUITE_PENDING",
+  "requirements": [
+    {"id":"R07-01","status":"LOCAL_VERIFIED","evidence":"report07.test.ts branding; Chromium screenshots"},
+    {"id":"R07-02","status":"LOCAL_VERIFIED","evidence":"reportState code cases; checkpoint unknown semantics"},
+    {"id":"R07-03","status":"LOCAL_VERIFIED","evidence":"exact counter/aggregate/baseline delta tests; provenance-hash baseline collector"},
+    {"id":"R07-04","status":"LOCAL_VERIFIED","evidence":"Surefire case/suite/run reconciliation and failure/error split; accepted patch facts"},
+    {"id":"R07-05","status":"LOCAL_VERIFIED","evidence":"real Chromium search/tabs/modal/Escape/focus/source tests"},
+    {"id":"R07-06","status":"LOCAL_VERIFIED","evidence":"500 classes / 10000 test cases / 600 iterations; bounded DOM"},
+    {"id":"R07-07","status":"LOCAL_VERIFIED","evidence":"hash/module/run tamper and safe-link tests; CSP/XSS/offline browser checks"},
+    {"id":"R07-08","status":"LOCAL_VERIFIED","evidence":"byte-exact JSON download; print10000 records; no-JS scope; real PDF"},
+    {"id":"R07-09","status":"LOCAL_VERIFIED","evidence":"legacy Report06 tests; unchanged old reference SHA; optional backward-compatible facts"},
+    {"id":"R07-10","status":"NOT_RUN","evidence":"full Windows suite pending; focused9files54tests PASS"}
+  ]
+}

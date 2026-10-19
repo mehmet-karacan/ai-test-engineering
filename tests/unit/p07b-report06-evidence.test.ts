@@ -77,7 +77,7 @@ describe("P07-B evidence export", () => {
       const binary = Buffer.from([0, 1, 127, 128, 255]);
       const result = exporter.export(reportData(), { "evidence/final-replay/jacoco.xml": binary });
       expect(result.verification_passed).toBe(true);
-      expect(readFileSync(join(root, "reports", "index.html"), "utf8")).toContain('data-report-revision="06"');
+      expect(readFileSync(join(root, "reports", "index.html"), "utf8")).toContain('data-report-template="report07"');
       expect(readFileSync(join(root, "reports", "evidence", "final-replay", "jacoco.xml"))).toEqual(binary);
       expect(readFileSync(join(root, "reports", "PUBLISHED"), "utf8")).toContain("job-p07b-001");
 

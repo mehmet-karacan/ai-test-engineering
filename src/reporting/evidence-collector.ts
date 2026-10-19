@@ -6,6 +6,7 @@ import { buildPatchArtifact, redactSensitive, redactUserPath, sha256Hex } from "
 import type { ReportEvidenceKind, ReportStageName } from "./report-generator.js";
 
 export interface EvidenceFile {
+  module_path?: string;
   relative_path: string;
   kind: ReportEvidenceKind;
   stage: ReportStageName | "checkpoint";
@@ -28,6 +29,7 @@ export interface FinalReplayEvidence {
 }
 
 export interface AcceptedChangeEvidenceInput {
+  module_paths?: string[];
   project_root: string;
   accepted_dir: string;
   job_id: string;
@@ -148,7 +150,7 @@ function redactSource(content: Buffer, homeDir: string | undefined, relativePath
   return { content: textEvidence(content, homeDir), redacted: true };
 }
 
-function addFile(result: FinalReplayEvidence, input: CollectorInput, filePath: string, relativePath: string, kind: ReportEvidenceKind, required: boolean, redacted: boolean): void {
+function addFile(result: FinalReplayEvidence, input: CollectorInput, filePath: string, relativePath: string, kind: ReportEvidenceKind, required: boolean, redacted: boolean, modulePath?: string): void {
   assertNoSymlinkComponents(input.workspace, filePath);
   const content = readFileSync(filePath);
   result.files.push({
@@ -159,6 +161,7 @@ function addFile(result: FinalReplayEvidence, input: CollectorInput, filePath: s
     content: redacted ? textEvidence(content, input.home_dir) : content,
     redacted,
     required,
+    ...(modulePath !== undefined ? {module_path:modulePath} : {}),
   });
 }
 
@@ -185,7 +188,7 @@ export function collectFinalReplayEvidence(input: CollectorInput): FinalReplayEv
     const jacocoXml = join(jacocoRoot, "jacoco.xml");
     const jacocoDestination = `evidence/final-replay/${modulePath}/jacoco.xml`;
     if (existsSync(jacocoXml) && lstatSync(jacocoXml).isFile()) {
-      addFile(result, input, jacocoXml, jacocoDestination, "jacoco_xml", true, false);
+      addFile(result, input, jacocoXml, jacocoDestination, "jacoco_xml", true, false, rawModulePath === "." ? "" : rawModulePath);
     } else {
       addMissing(result, jacocoDestination, "jacoco_xml", "JACOCO_XML_MISSING");
     }
@@ -194,7 +197,7 @@ export function collectFinalReplayEvidence(input: CollectorInput): FinalReplayEv
         continue;
       }
       const assetRel = relative(jacocoRoot, asset).replace(/\\/g, "/");
-      addFile(result, input, asset, `evidence/final-replay/${modulePath}/jacoco/${assetRel}`, "jacoco_asset", false, false);
+      addFile(result, input, asset, `evidence/final-replay/${modulePath}/jacoco/${assetRel}`, "jacoco_asset", false, false, rawModulePath === "." ? "" : rawModulePath);
     }
 
     let testReportCount = 0;
@@ -205,7 +208,7 @@ export function collectFinalReplayEvidence(input: CollectorInput): FinalReplayEv
       for (const report of walkFiles(directory).filter((path) => path.split(/[\\/]/).pop()?.startsWith("TEST-") && path.endsWith(".xml"))) {
         testReportCount += 1;
         const reportName = relative(directory, report).replace(/\\/g, "/");
-        addFile(result, input, report, `evidence/final-replay/${modulePath}/${directoryName}/${reportName}`, kind, true, false);
+        addFile(result, input, report, `evidence/final-replay/${modulePath}/${directoryName}/${reportName}`, kind, true, false, rawModulePath === "." ? "" : rawModulePath);
       }
     }
     if (testReportCount === 0) {
@@ -244,6 +247,7 @@ export function collectAcceptedChangeEvidence(input: AcceptedChangeEvidenceInput
   const patchInputs: Array<{ path: string; action: "create" | "modify" | "delete"; before: Buffer | null; after: Buffer | null }> = [];
   for (const change of [...input.changes].sort((a, b) => a.path.localeCompare(b.path))) {
     const path = safeRelativePath(change.path, "Accepted change");
+    const sourceModule = input.module_paths?.filter(module => module === "" || path.startsWith(module + "/")).sort((a,b)=>b.length-a.length)[0];
     const action = change.action === "delete" ? "delete" : change.action === "create" ? "create" : "modify";
     const beforePath = containedWorkspaceFile(input.project_root, path);
     const afterPath = containedWorkspaceFile(input.accepted_dir, path);
@@ -276,6 +280,7 @@ export function collectAcceptedChangeEvidence(input: AcceptedChangeEvidenceInput
       result.files.push({
         relative_path: `evidence/accepted/${path}`,
         kind: "accepted_source",
+        ...(sourceModule !== undefined ? {module_path:sourceModule} : {}),
         stage: "final",
         run_id: null,
         content: redactedAfter,

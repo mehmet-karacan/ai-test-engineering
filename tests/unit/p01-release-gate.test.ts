@@ -553,6 +553,14 @@ describe("P01/N60: pilot pause kabul ayrisimi korunur", () => {
 });
 
 describe("P09/PR01: build stamp ve dagitilacak build provenance (mtime degil digest)", () => {
+  it("Report07 referansi degistirilirse local gate ayri hash hatasi doner", () => {
+    const dir = copyRepoForNegative();
+    try {
+      writeFileSync(join(dir,"docs/reporting/reference/innova_ai_unit_test_raporu_sky.html"),"changed reference");
+      const gate=runGate(dir,["--local"]);
+      expect(gate.resultJson?.reasons.map(r=>r.code)).toContain("REFERANS_07_HASH_UYUSMAZ");
+    } finally { rmSync(dir,{recursive:true,force:true}); }
+  });
   it("dist/build-stamp.json yoksa local gate non-zero (BUILD_STAMP_EKSIK)", () => {
     const dir = copyRepoForNegative();
     try {

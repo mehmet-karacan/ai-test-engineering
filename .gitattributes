@@ -24,3 +24,7 @@
 
 # Fixture dosyalarinda veri butunlugu korunur
 tests/fixtures/** binary
+
+# Kullanici onayli referans ve gorev arsivi byte-korunmus kalir.
+docs/reporting/reference/innova_ai_unit_test_raporu_sky.html -text
+ai/tasks/archive/AITE-WINDOWS-SUBAGENT-PILOT-006-v1.0-with-coverage-20261020.md -text

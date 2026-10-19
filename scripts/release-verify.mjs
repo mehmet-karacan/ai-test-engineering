@@ -237,6 +237,12 @@ function checkReferenceHtmlIntegrity() {
   if (actual !== REFERENCE_HTML_EXPECTED_SHA256) {
     addReason("REFERANS_06_HASH_UYUSMAZ", `beklenen ${REFERENCE_HTML_EXPECTED_SHA256.slice(0, 16)}..., bulunan ${actual.slice(0, 16)}...`);
   }
+  const report07Path = join(repoRoot, "docs", "reporting", "reference", "innova_ai_unit_test_raporu_sky.html");
+  if (!existsSync(report07Path)) {
+    addReason("REFERANS_07_EKSIK", "Onayli kurumsal rapor referansi bulunamadi");
+  } else if (readFileSync(report07Path).length !== 55362 || sha256File(report07Path) !== "02486f47a9ba845b0d486cfdf558f63bc57aec27f821897d668d4786069c810c") {
+    addReason("REFERANS_07_HASH_UYUSMAZ", "Onayli kurumsal rapor referansinin boyutu veya SHA-256 degeri degismis");
+  }
 }
 
 // dist/build-stamp.json: dagitilacak build'in kaynak kimligina baytlarla bagli oldugunun

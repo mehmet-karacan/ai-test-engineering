@@ -1,5 +1,13 @@
 # Kullanim
 
+## Kurumsal unit test raporu
+
+Yeni islerin `reports/index.html` ciktisi onayli AI Unit Test Engineering tasarimini kullanir. Proje adi kayitli yolun son dizininden gelir; ornek SKY verisi eklenmez. HTML offline calisir; JSON indirme kayitli report.json ile byte-exact'tir. JavaScript kapaliysa yonetici ozeti ve ilk sayfalar gorunur, tam kayitlar JSON/kanit dosyalarindan alinir.
+
+Sinif3, test4, gecmis3 kayitla sayfalanir. Source/stack trace onizlemeleri sinirlidir; tam icerik dogrulanmis kanit dosyalarindadir. Yazdirma tum kayitlari hazirlar; JavaScript kapali cikti kapsami acikca belirtilir. Gecmis olcum grafikleri yalniz hash/run kimligi dogrulanmis baseline ve final sayaclarini kullanir. Eksik metrik, resume kaniti ve class-test iliskisi tahmin edilmez. Yeni/guncellenen test KPI'i metot degil kabul edilmis test dosyasi sayisidir.
+
+Gelistirme Chromium kabulunu calistirmak icin kurulu Playwright `node_modules` dizinini `AITEST_BROWSER_PACKAGES` ile belirtip build sonrasi `node scripts/report07-browser-smoke.mjs` calistirin. `AITEST_REPORT07_UI_OUTPUT` verilirse screenshot/PDF/result.json o private dizinde saklanir. Bu kontrol sentetik fixture kullanir; musteri Maven/model piloti baslatmaz.
+
 ## Genel JaCoCo raporu ve sinif onerileri
 
 "Bu projenin genel JaCoCo raporunu cikar, dusuk coverage'li uygun siniflari oner; ben secince test uret" demek yeterlidir.

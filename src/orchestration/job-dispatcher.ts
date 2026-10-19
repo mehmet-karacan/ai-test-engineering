@@ -48,6 +48,7 @@ import { MAX_WORKER_REQUEST_TIMEOUT_MS, workerRequestBudget } from "../workers/o
 import { analyzeProjectCoverage } from "../coverage/project-coverage.js";
 import { writeProjectCoverageResult, writeProjectCoverageFailure } from "../storage/project-coverage-result.js";
 import { prepareCoverageWorkspace, verifyCoverageWorkspace } from "./coverage-workspace.js";
+import { collectReport07BaselineEvidence } from "../reporting/report07-evidence.js";
 
 export type RunnerKind = "windows_native" | "docker" | "host_dev_only";
 function nativePathIdentity(value: string): string {
@@ -343,6 +344,7 @@ export class JobDispatcher {
       let baselineExecutionRoot: string | null = null;
       let baselineEvidence: BaselineResult | null = null;
       let baselineRunId: string | null = null;
+      let reportBaselineEvidence: ReturnType<typeof collectReport07BaselineEvidence> | null = null;
       const persistFailedBaseline = (baseline: BaselineResult): void => {
         if (!baseline.run || baseline.run_started_at === null || baseline.run_finished_at === null) return;
         assertLease();
@@ -591,6 +593,14 @@ export class JobDispatcher {
         });
       }
       phases.push("analysis_ok");
+
+      if (baselineRunId && baselineEvidence?.run) {
+        const provenance = inventory.listTestRunProvenance(job.id).find(row => row.id === baselineRunId)!;
+        reportBaselineEvidence = collectReport07BaselineEvidence({workspace:baselineExecutionRoot,
+          module_paths:[...new Set(resolvedTargets.map(target=>target.module.module_relative_path))],run_id:baselineRunId,job_id:job.id,
+          stdout_log_path:baselineEvidence.run.stdout_log_path,stderr_log_path:baselineEvidence.run.stderr_log_path,
+          expected_reports:JSON.parse(provenance.coverage_report_paths_json) as Array<{path:string;sha256:string|null}>});
+      }
 
       jobs.updatePhase(job.id, "generation", jobs.getJob(job.id).row_version);
       phases.push("generation");
@@ -1011,6 +1021,7 @@ export class JobDispatcher {
         home_dir: homedir(),
       });
       const acceptedEvidence = collectAcceptedChangeEvidence({
+        module_paths: discovery.modules.filter(module=>module.packaging!=="pom").map(module=>module.module_relative_path),
         project_root: projectRoot,
         accepted_dir: acceptedDir,
         job_id: job.id,
@@ -1019,8 +1030,8 @@ export class JobDispatcher {
         before_sha256_by_path: new Map(sourceManifest.entries.map((entry) => [entry.relative_path, entry.sha256])),
         home_dir: homedir(),
       });
-      const evidenceFiles: EvidenceFile[] = [...replayEvidence.files, ...acceptedEvidence.files];
-      const evidenceMissing: MissingEvidence[] = [...replayEvidence.missing, ...acceptedEvidence.missing];
+      const evidenceFiles: EvidenceFile[] = [...replayEvidence.files, ...acceptedEvidence.files, ...(reportBaselineEvidence?.files ?? [])];
+      const evidenceMissing: MissingEvidence[] = [...replayEvidence.missing, ...acceptedEvidence.missing, ...(reportBaselineEvidence?.missing ?? [])];
       if (bestCheckpointId !== null) {
         const checkpointArtifact = checkpointTrusted ? checkpoints.readCheckpointManifest(bestCheckpointId) : null;
         if (checkpointArtifact) {
@@ -1047,7 +1058,8 @@ export class JobDispatcher {
         extraEvidence[file.relative_path] = file.content;
       }
       const reportEvidence = [
-        ...evidenceFiles.map((file) => ({ relative_path: file.relative_path, kind: file.kind, stage: file.stage, run_id: file.run_id, redacted: file.redacted, required: file.required })),
+        ...evidenceFiles.map((file) => ({ relative_path: file.relative_path, kind: file.kind, stage: file.stage, run_id: file.run_id, redacted: file.redacted, required: file.required,
+          ...(file.module_path !== undefined ? {module_path:file.module_path} : {}) })),
         ...evidenceMissing.map((missing) => ({ relative_path: missing.relative_path, kind: missing.kind, stage: missing.kind === "checkpoint_manifest" ? "checkpoint" as const : "final" as const, run_id: null, redacted: false, required: missing.required })),
       ];
       const reportOutcome = evidenceMissing.length > 0 ? "FINAL_VERIFICATION_FAILED" : finalOutcome;
@@ -1069,6 +1081,7 @@ export class JobDispatcher {
         ...evidenceMissing.map((missing) => ({ gap_key: `EVIDENCE_MISSING:${missing.kind}`, blocker: missing.reason, attempted: ["final_replay", "report_export"] })),
       ];
       const reportData = {
+        runtime: { lifecycle: latestBeforeFinalize.lifecycle, phase: latestBeforeFinalize.phase, stop_code: reportOutcome, checkpoint_valid: checkpointVerification?.valid ?? null },
         schema_version: 1 as const,
         job_id: job.id,
         project_root: projectRoot.replace(/\\/g, "/"),
@@ -1086,6 +1099,7 @@ export class JobDispatcher {
           const branchEval = evaluateMetric("BRANCH", branchPair, branchPair !== undefined, targetSpec.branch_target_bps);
           return {
             target_id: rt.selector,
+            module_path: rt.module.module_relative_path,
             selector: rt.selector,
             fqn: rt.fqn,
             line: linePair ? { covered: linePair.covered, missed: linePair.missed, total: linePair.covered + linePair.missed, bps: lineEval.basis_points, target_bps: targetSpec.line_target_bps, met: lineEval.target_met, validity: lineEval.validity } : null,

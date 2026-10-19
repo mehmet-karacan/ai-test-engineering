@@ -266,7 +266,7 @@ describe("P07-B/PP37: gercek browser DOM/print/offline/link runtime", () => {
     expect(dom).toContain('data-stage="baseline"');
     expect(dom).toContain('data-stage="progress"');
     expect(dom).toContain("pp37-final-001");
-    expect(dom).toContain(`${runSummary.total} test / ${runSummary.passed} gecti`);
+    expect(dom).toContain(`${runSummary.total} test / ${runSummary.passed} geçti`);
 
     const clickResult = (await handle.cdp.send("Runtime.evaluate", {
       expression: "(() => { const btn = document.querySelector('[data-stage-select=\"progress\"]'); btn.click(); return document.documentElement.getAttribute('data-active-stage'); })()",

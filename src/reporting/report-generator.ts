@@ -10,9 +10,11 @@ import { join, resolve, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { AppError } from "../domain/errors.js";
 import { sanitizeNarrativeFields } from "./report-data-contract.js";
-import { buildReport06 } from "./report06-renderer.js";
+import { buildReport07 } from "./report07-renderer.js";
+import { projectReport07Facts, type Report07Facts } from "./report07-facts.js";
 
 export interface ReportTarget {
+  module_path?: string;
   target_id: string;
   selector: string;
   fqn: string;
@@ -50,6 +52,7 @@ export type ReportEvidenceKind =
   | "extra";
 
 export interface ReportEvidence {
+  module_path?: string;
   relative_path: string;
   kind: ReportEvidenceKind;
   stage?: ReportStageName | "checkpoint";
@@ -61,6 +64,8 @@ export interface ReportEvidence {
 }
 
 export interface ReportData {
+  report07?: Report07Facts;
+  runtime?: { lifecycle:string; phase:string; stop_code?:string; checkpoint_valid:boolean|null };
   schema_version: 1;
   job_id: string;
   project_root: string;
@@ -302,6 +307,7 @@ export class ReportExporter {
         kind: definition?.kind ?? "extra",
         ...(definition?.stage !== undefined ? { stage: definition.stage } : {}),
         ...(definition?.run_id !== undefined ? { run_id: definition.run_id } : {}),
+        ...(definition?.module_path !== undefined ? { module_path: definition.module_path } : {}),
         sha256: createHash("sha256").update(content).digest("hex"),
         bytes,
         ...(definition?.redacted !== undefined ? { redacted: definition.redacted } : {}),
@@ -318,9 +324,10 @@ export class ReportExporter {
     if (!sanitized.clean) {
       process.stderr.write(`[aitest-report] narrative alanlari kirpildi: ${sanitized.removed_paths.join(", ")}\n`);
     }
+    reportData.report07 = projectReport07Facts(reportData, extraFiles);
     const reportJson = JSON.stringify(reportData, null, 2);
     this.write("report.json", reportJson, files);
-    this.write("index.html", buildReport06(reportData), files);
+    this.write("index.html", buildReport07(reportData), files);
     this.write("summary.txt", buildSummary(reportData), files);
 
     const manifest: Record<string, unknown> = {

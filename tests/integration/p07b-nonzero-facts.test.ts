@@ -81,8 +81,9 @@ public class PaymentServiceBranchTest {
     const reportNames = existsSync(testReportsDir) ? readdirSync(testReportsDir) : [];
     const firstReport = reportNames.find((name) => name.startsWith("TEST-") && name.endsWith(".xml"));
     expect(firstReport, "surefire TEST-*.xml mevcut olmalidir").toBeTruthy();
-    const xml = readFileSync(join(testReportsDir, firstReport!), "utf8");
-    const parsed = parseSurefireTotals(xml);
+    const parsed = reportNames.filter(name => name.startsWith("TEST-") && name.endsWith(".xml"))
+      .map(name => parseSurefireTotals(readFileSync(join(testReportsDir, name), "utf8")))
+      .reduce((sum, report) => ({total:sum.total+report.total, failures:sum.failures+report.failures, errors:sum.errors+report.errors, skipped:sum.skipped+report.skipped}), {total:0,failures:0,errors:0,skipped:0});
     expect(parsed.total).toBeGreaterThan(0);
     runSummary = { total: parsed.total, passed: Math.max(0, parsed.total - parsed.failures - parsed.errors - parsed.skipped), failed: parsed.failures + parsed.errors, skipped: parsed.skipped };
 
@@ -191,12 +192,14 @@ public class PaymentServiceBranchTest {
 
     // HTML: ayni gercek sayilar render edilir:
     const html = readFileSync(join(reportsDir, "index.html"), "utf8");
-    expect(html).toContain("Eklenen <b>1</b>");
-    expect(html).toContain(`<strong>${runSummary.total}</strong>`);
-    expect(html).toContain(`<strong>${runSummary.passed}</strong>`);
+    // The new renderer shows validated run totals. No accepted patch was
+    // supplied in this fixture, so it must not certify the caller's added count.
+    expect(json.report07?.test_run.status).toBe("KNOWN");
+    expect(json.report07?.changes.status).toBe("UNAVAILABLE");
+    expect(html).toContain(`${runSummary.passed}/${runSummary.total}`);
     // Gercek JaCoCo LINE satiri (covered/total + yuzde gorunumu):
-    expect(html).toContain(`${lineEval.covered}/${lineEval.total}`);
-    expect(html).toContain(`${(lineEval.basis_points / 100).toFixed(2)}%`);
+    expect(html).toContain(`${lineEval.covered} / ${lineEval.total}`);
+    expect(html).toContain(`%${(100 * lineEval.covered / lineEval.total).toLocaleString('tr-TR', { maximumFractionDigits: 2 })}`);
 
     // Status projection: ayni facts:
     const facts = projectReportStatusFacts(json, json.job_id);
