@@ -1,7 +1,7 @@
 ## 2026-10-20 aktif kapsam: AITE-REPORT07-PRODUCTION-007
 
 - Kullanici yeni kurumsal rapor gorevini ve HTML referansini onayladi. Root AKTIF_GOREV.md tek aktif gorevdir; onceki006+coverage byte-korunmus arsiv SHAe3e5da066829da86d4bc201378ed8abbc6a8625bf163d3a400cafaa2ee374645. TarihselWindowsGO eski source icindir.
-- Report07 uygulama ve bagimsiz review tamam; odak9dosya54test/Chromium500sinif10000test PASS. Son temiz aday tam suite bekliyor. Checkpoint ai/checkpoints/2026-10-20-report07-implementation.md; kabul ai/acceptance/report07.json.
+- Report07 uygulama ve bagimsiz review tamam; 2f19403 sabit kaynakta son tam suite127dosya1042/1042 PASS (maxWorkers=1, 668.06s). Chromium500sinif10000test, typecheck/build/local gate PASS; lint0error89warning. Handoff ai/handoffs/2026-10-20-report07-delivery.md; kabul ai/acceptance/report07.json. Yeni007 yerel entegrasyon kabuludur; eski391 full GO otomatik tasinmaz.
 - Sky skipTests konusu kullanici karariyla sonraya birakildi; canli pilot/model/POM/customer production degisikligi yok, CI kapali.
 
 - 2026-10-16 private r12 full verifier: `%LOCALAPPDATA%/ai-test-engineering/pilot/windows-native-006-evidence-manifest-r12.json` SHA-256 `13af0d3505e0a10f920204519e5f66ea6b80de89881db2e99b94d3db615f1487`, source commit `3798a27e35d3ea34a3d204793f9ab8ba4b13d7a8`, tree `16938b4a...`; full gate **NO_GO**, mandatory 391, verified 10, missing 381, invalid 0, duplicate 0, live pilot/platform PASSED. Partial manifest ve kanitsiz retained/replaced legacy ID'ler nedeniyle fail-closed karar korunuyor. Checkpoint `ai/checkpoints/2026-10-16-windows-native-006-r12-reconciliation.md`; yeni docs commitinden sonra r13 ile HEAD kimligi yenilenecek.
