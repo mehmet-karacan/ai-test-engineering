@@ -63,6 +63,30 @@ describe("SourceSnapshot", () => {
     expect(manifest.entries.some((e) => e.relative_path.endsWith("Dirty.java"))).toBe(true);
   });
 
+  it("runtime log dizinini kaynak manifestine katmaz", () => {
+    const projectDir = join(dir, "project-with-logs");
+    mkdirSync(join(projectDir, "src", "main", "java"), { recursive: true });
+    mkdirSync(join(projectDir, "src", "main", "java", "com", "acme", "logs"), { recursive: true });
+    mkdirSync(join(projectDir, "src", "test", "resources", "logs"), { recursive: true });
+    mkdirSync(join(projectDir, "module", "logs"), { recursive: true });
+    mkdirSync(join(projectDir, "logs", "archived"), { recursive: true });
+    writeFileSync(join(projectDir, "pom.xml"), "<project/>\n");
+    writeFileSync(join(projectDir, "module", "pom.xml"), "<project/>\n");
+    writeFileSync(join(projectDir, "src", "main", "java", "App.java"), "public class App {}\n");
+    writeFileSync(join(projectDir, "src", "main", "java", "com", "acme", "logs", "Logger.java"), "public class Logger {}\n");
+    writeFileSync(join(projectDir, "src", "test", "resources", "logs", "fixture.txt"), "fixture\n");
+    writeFileSync(join(projectDir, "module", "logs", "module.log"), "module runtime output\n");
+    writeFileSync(join(projectDir, "logs", "archived", "application.log"), "runtime output\n");
+
+    const manifest = new SourceSnapshot(projectDir).buildManifest();
+
+    expect(manifest.entries.some((entry) => entry.relative_path.startsWith("logs/"))).toBe(false);
+    expect(manifest.entries.some((entry) => entry.relative_path === "module/logs/module.log")).toBe(false);
+    expect(manifest.entries.some((entry) => entry.relative_path.endsWith("App.java"))).toBe(true);
+    expect(manifest.entries.some((entry) => entry.relative_path.endsWith("com/acme/logs/Logger.java"))).toBe(true);
+    expect(manifest.entries.some((entry) => entry.relative_path === "src/test/resources/logs/fixture.txt")).toBe(true);
+  });
+
   it("dosya sinirini buyuk alt agaci gezmeden typed hata ile uygular", () => {
     const root = join(dir, "large-root");
     mkdirSync(root);

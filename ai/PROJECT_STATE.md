@@ -36,6 +36,11 @@
 - 2026-10-15 WN75/S09 reconciliation checkpoint: mcp101 DateUtils job `f6220ee2-667e-4509-bbc8-f29c822832b2` kontrollu CANCELLED ve WN73 NOT_PASSED olarak korunuyor; WN73 v2 Report06 `FINAL_VERIFICATION_FAILED/MISSING_BASELINE_TESTS`; WN75 basarili Report06 job `c412eafc-d484-4058-a6d0-911bc623d2c0` Codex panelinde kullanici `Kabul` veya `Red` kararini bekliyor. S09 private manifest r4 revision 4 guncel source/build identity ile hash-linked partial ledger olarak dogrulandi (SHA-256 bcc26dfed409d0fb34adb898ddee25ba05ae4665cfdd0eb008d2850153060052); full verifier NO_GO. Commit/push yok, customer checkout'a yazim yok. Ayrinti: `ai/checkpoints/2026-10-15-windows-native-006-wn75-s09-reconciliation.md`.
 # PROJECT_STATE - Gelistirme Durumu
 
+## 2026-10-22 GPU Fusion baseline follow-up
+
+- Sky akisi kullanici karariyla duraklatildi. GPU Fusion icin exact `gpu-backend` Maven kokunde JDK21/Maven3.9.16 ile gercek genel JaCoCo baseline denendi; job `f98c90f4-ab7e-4409-8012-1856269c82b4` mevcut `GpuReportDuplicateControllerTest` icindeki 3 failure nedeniyle `BASELINE_FAILED` oldu (635 test, 0 error, 11 skipped). Coverage ve sinif onerisi uretilmedi, model baslatilmadi.
+- GPU checkout'i dirty oldugu icin customer dosyalarina yazilmadi. Runtime `logs` dizinini kaynak snapshot'ina almayan duzeltme ve regression testi eklendi; discovery 24/24, typecheck/build PASS. Ayrinti `ai/checkpoints/2026-10-22-gpu-fusion-baseline.md` ve `ai/handoffs/2026-10-22-gpu-fusion-baseline.md`.
+
 ## 2026-10-20 kullanici onayli ek kapsam
 
 - Genel JaCoCo -> oneriler -> kullanici secimi -> test_start akisi VERIFIED; dal `codex/coverage-proposals-20261020`. Temiz 76713be + sabit build: 124/124 dosya, 1022/1022 test PASS (338.28s); typecheck/build/local gate/MCP handshake PASS, lint0 error/89 warning, bagimsiz review bulgusuz. Kanit `ai/handoffs/2026-10-20-project-coverage-delivery.md`.

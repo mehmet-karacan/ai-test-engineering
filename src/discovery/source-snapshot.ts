@@ -49,6 +49,10 @@ export interface SnapshotManifest {
 
 const JAVA_DIRS = new Set(["java"]);
 const CLASSIFICATION_EXTS = new Set([".java", ".xml", ".properties", ".gradle", ".kts", ".json", ".yaml", ".yml"]);
+// Runtime/build output is not source input. Keep these directories out of the
+// source manifest so an application log cannot block discovery or enter a
+// snapshot just because it grew beyond the file-size policy limit.
+const IGNORED_DIRECTORY_NAMES = new Set([".git", "node_modules", "target", "build"]);
 
 export function sha256File(path: string): string {
   const before = lstatSync(path);
@@ -304,7 +308,8 @@ export class SourceSnapshot {
         // Reverse push preserves the former depth-first filesystem order.
         for (let index = children.length - 1; index >= 0; index--) {
           const name = children[index]!;
-          if (name === ".git" || name === "node_modules" || name === "target" || name === "build") continue;
+          const isMavenRoot = current.path === this.root || existsSync(join(current.path, "pom.xml"));
+          if (IGNORED_DIRECTORY_NAMES.has(name) || (name === "logs" && isMavenRoot)) continue;
           pending.push({ path: join(current.path, name), depth: current.depth + 1 });
         }
         continue;

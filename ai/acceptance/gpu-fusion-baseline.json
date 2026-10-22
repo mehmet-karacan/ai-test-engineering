@@ -1,0 +1,33 @@
+{
+  "task_id": "AITE-LOCAL-UI-008",
+  "project": "C:/innova/projeler/gpu-fusion/gpu-backend",
+  "status": "BASELINE_BLOCKED_EXISTING_TEST_FAILURES",
+  "job_id": "f98c90f4-ab7e-4409-8012-1856269c82b4",
+  "profile": {
+    "java_version": "21.0.11",
+    "maven_version": "3.9.16",
+    "run_skipped_unit_tests": false
+  },
+  "baseline": {
+    "tests": 635,
+    "failures": 3,
+    "errors": 0,
+    "skipped": 11,
+    "coverage_generated": false,
+    "recommendations_generated": false,
+    "model_started": false
+  },
+  "failure_class": "tr.com.innova.gpu.controller.GpuReportDuplicateControllerTest",
+  "source_identity": {
+    "source_digest": "d3af34b9f0ee6d3988a7ab9dd63bac4a4e61d65bcdf37e2aafc8b56b0d1107fc",
+    "build_digest": "d818a5be13c88014178efa3cb23019cfc695a506cdb01d702c882ad3e314ece5",
+    "pom_sha256": "b94d9d8416822bee13611b7e45343df85b138d26ff84af17494c415c205c6f01"
+  },
+  "verification": {
+    "discovery_test": "24/24 PASS",
+    "typecheck": "PASS",
+    "build": "PASS",
+    "customer_checkout_modified": false,
+    "sky_rerun": false
+  }
+}
