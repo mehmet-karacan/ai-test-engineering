@@ -39,7 +39,7 @@
 ## 2026-10-22 GPU Fusion baseline follow-up
 
 - Sky akisi kullanici karariyla duraklatildi. GPU Fusion icin exact `gpu-backend` Maven kokunde JDK21/Maven3.9.16 ile gercek genel JaCoCo baseline denendi; job `f98c90f4-ab7e-4409-8012-1856269c82b4` mevcut `GpuReportDuplicateControllerTest` icindeki 3 failure nedeniyle `BASELINE_FAILED` oldu (635 test, 0 error, 11 skipped). Coverage ve sinif onerisi uretilmedi, model baslatilmadi.
-- GPU checkout'i dirty oldugu icin customer dosyalarina yazilmadi. Runtime `logs` dizinini kaynak snapshot'ina almayan duzeltme ve regression testi eklendi; discovery 24/24, typecheck/build PASS. Ayrinti `ai/checkpoints/2026-10-22-gpu-fusion-baseline.md` ve `ai/handoffs/2026-10-22-gpu-fusion-baseline.md`.
+- GPU checkout'i dirty oldugu icin customer dosyalarina yazilmadi. Runtime `logs` dizini filtre duzeltmesi ve regression testi eklendi; discovery 24/24, typecheck/build PASS. Owned baseline kopyasinda controller duplicate akisi duzeltmesi ile job `e6e14f15-8be2-4a18-bff8-82082990a479` coverage analizi tamamlandi (LINE %19.64, BRANCH %21.97, 635/0/0/11); sinif secimi bekleniyor. Ayrinti `ai/checkpoints/2026-10-22-gpu-fusion-baseline.md` ve `ai/handoffs/2026-10-22-gpu-fusion-baseline.md`.
 
 ## 2026-10-20 kullanici onayli ek kapsam
 

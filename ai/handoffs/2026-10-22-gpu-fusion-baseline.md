@@ -6,4 +6,6 @@ Ilk snapshot blocker'i 372009724 baytlik `logs/archived` logu idi. `SourceSnapsh
 
 Failure'lar `GpuReportDuplicateControllerTest` icinde 409/400 yerine 200 donmesi ve regeneration service cagrisinin beklenmedik olmasidir. JaCoCo coverage, dusuk sinif onerisi ve model kosusu yoktur. Bu sonucu bypass etmek icin testler skip edilmedi.
 
-Kaynak kimligi ve POM SHA kosu oncesi/sonrasi aynidir. Sky bu oturumda duraklatildi ve yeniden kosulmadi. Sonraki yetkili adim GPU checkout'inin sahibi tarafindan bu uc mevcut test failure'ini duzeltmek, sonra ayni job akisini yeni source snapshot ile tekrar calistirmaktir.
+Kaynak kimligi ve POM SHA ilk job kosu oncesi/sonrasi aynidir. Owned baseline kopyasinda controller duzeltmesi ile ikinci job `e6e14f15-8be2-4a18-bff8-82082990a479` coverage analizi tamamlandi: 635/0/0/11 test sonucu, LINE %19.64, BRANCH %21.97, 921 sinif, 20 uygun öneri. Job `WAITING_INPUT`; `test_start` icin tek bir öneri sinifi secimi bekliyor.
+
+Bu ikinci sonuc GPU customer checkout'i icin baseline PASS iddiasi degildir; controller duzeltmesi checkout'a uygulanmadi. Ilk job'un 3 failure'i ve onerilen patch customer sahibi tarafindan gozden gecirilip uygulanmadan production checkout'a yazim yoktur. Sky bu oturumda duraklatildi ve yeniden kosulmadi.

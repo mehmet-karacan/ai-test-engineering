@@ -28,4 +28,8 @@ Ilk deneme, `gpu-backend/logs/archived/gpu-backend.2026-10-06.log` dosyasinin 37
 
 ## Karar ve devam
 
-GPU genel JaCoCo ve dusuk coverage sinifi secimi mevcut 3 test failure duzeltilene kadar BLOCKED. Bu checkpoint'te test skip/exclude, model kosusu, candidate uretimi veya customer checkout degisikligi yapilmadi. Sky yeniden kosulmadi.
+GPU customer checkout baseline'i mevcut 3 test failure ile BLOCKED kalir. Kök neden icin `GpuReportController` duzeltmesi yalnizca ilk job'un owned baseline kopyasinda uygulandi: regeneration istegi ID dogrulamasi, bes parametreli servis cagrisi ve `RaporMukerrerException` icin 409 cevabi.
+
+Bu owned kopya ile ikinci job `e6e14f15-8be2-4a18-bff8-82082990a479` `WAITING_INPUT/COVERAGE_ANALYZED` oldu: 635 test, 0 failure, 0 error, 11 skipped; LINE 5764/29345 (%19.64), BRANCH 2807/12779 (%21.97), 921 sinif ve 20 uygun oneriden ilk 10 kayit mevcut. Ilk bes aday: `SharingTariffVersionService` 0/645 LINE, `PldService` 0/289, `DeductionService` 0/272, `GpuCommonService` 0/253, `UserManagementService` 0/234. JaCoCo raporu SHA-256 `5e83eb13e2b225c363feee331f2d0efab1836051d20dd2a8bdf904d519b40315`.
+
+Kaynak checkout'ina bu duzeltme uygulanmadi; model, candidate ve `test_start` sinif secimi olmadan calistirilmadi. Sonraki adim kullanicinin onerilerden bir sinif secmesi, sonra ayni owned kopyada `test_start` akisini baslatmaktir. Sky yeniden kosulmadi.
