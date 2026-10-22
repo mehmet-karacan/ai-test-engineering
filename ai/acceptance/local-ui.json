@@ -1,0 +1,15 @@
+{
+  "task_id": "AITE-LOCAL-UI-008",
+  "status": "FINAL_VERIFICATION_PENDING",
+  "scope": "Local single-user UI; existing services; synthetic/browser verification; no new customer/model pilot",
+  "requirements": [
+    {"id":"U01","status":"LOCAL_VERIFIED","evidence":"loopback entry, bootstrap/projects, real Chromium"},
+    {"id":"U02","status":"LOCAL_VERIFIED","evidence":"existing project coverage handler and proposal flow integration"},
+    {"id":"U03","status":"LOCAL_VERIFIED","evidence":"explicit scan/class binding; schema and real start DB/goal8001/7001 tests"},
+    {"id":"U04","status":"LOCAL_VERIFIED","evidence":"DB status/history/events, verified publication baseline/final counters; browser refresh"},
+    {"id":"U05","status":"LOCAL_VERIFIED","evidence":"manifest/hash/path checked report+patch endpoint; real browser popup"},
+    {"id":"U06","status":"LOCAL_VERIFIED","evidence":"Host/Origin/cookie/CSRF/body/path/tamper tests; browser XSS"},
+    {"id":"U07","status":"LOCAL_VERIFIED","evidence":"desktop/mobile/refresh/stale response and bounded history browser smoke"},
+    {"id":"U08","status":"PENDING","evidence":"full suite and final independent review pending"}
+  ]
+}

@@ -17,7 +17,11 @@ export const TargetSelectorSchema = z.object({
 export type TargetSelector = z.infer<typeof TargetSelectorSchema>;
 
 export const CoverageGoalSchema = z.object({
-  percent: z.number().min(0).max(100).refine((v) => Math.round(v * 100) === v * 100, {
+  /** Optional independent branch goal; legacy percent remains the common default. */
+  branch_percent: z.number().min(0).max(100).refine(v => Math.abs(v * 100 - Math.round(v * 100)) < 1e-8, {
+    message: "En fazla iki ondalikli kabul edilir",
+  }).optional(),
+  percent: z.number().min(0).max(100).refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-8, {
     message: "En fazla iki ondalikli kabul edilir",
   }),
   metrics: z.array(CoverageMetricSchema).max(2).default(["LINE", "BRANCH"]),

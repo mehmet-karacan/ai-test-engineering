@@ -56,3 +56,16 @@ POM'da JaCoCo bulunmasi gerekmez: acik CLI modu sabit `org.jacoco:jacoco-maven-p
 - DB: `<runtime>/state.db`
 
 Rapor dosyalari hedef kaynak reposuna yazilmaz.
+# Yerel kullanim ekrani
+
+Depo klasorunde `npm run ui` calistirin ve tarayicida `http://127.0.0.1:4317` acin. Mevcut Node/JDK/Maven/OpenCode ve private config kurulumunu kullanir; ek web sunucusu gerekmez. Bu komut build alir ve ekrani baslatir. Sadece ekranin acilmasi analiz/model kosusu baslatmaz.
+
+1. `pom.xml` iceren proje yolunu yazin veya kayitli projelerden secin.
+2. **Genel kapsami analiz et** ile mevcut testleri ayri kopyada JaCoCo ile calistirin. Oneri esigi altindaki uygun siniflar listelenir.
+3. Bir sinifi acikca secin. Satir/dal hedeflerini (varsayilan80/70) ve gerekirse `provider/model` kimligini girin. Dal hedefi kutusunu kaldirarak yalniz satir hedefi kullanabilirsiniz.
+4. **Secili sinif icin test uret** ile isi baslatin. Gercek asama/olaylar otomatik yenilenir. Yuzde egri, dogrulanmis rapor hazir oldugunda gercek baslangic/son sayaçlarini gosterir; motorun kaydetmedigi ara yuzdeler uydurulmaz.
+5. **Raporu ac** ve varsa **Test degisikliklerini ac** baglantilarini kullanin. Ozgun checkout'a otomatik uygulama yapilmaz. Sayfa yenilense de son is ve DB'deki gecmis bulunur; duraklamis/kesilmis is otomatik devam ettirilmez.
+
+Calisma surerken terminali acik tutun; sunucuyu kapatmak calisan isi kesebilir. Sayfa kapatilsa da sunucu aciksa is surer. Port icin `AITEST_UI_PORT` kullanilabilir; dis ag adresine bind secenegi yoktur. Test uretimini ekranda da kapatmak icin `AITEST_WORKER_ENABLED=0` ayarlayin. Hedef yuzdesi iki ondaliga kadar kabul edilir; MCP'nin eski ortak `coverage.percent` girdisi aynen desteklenir, istege bagli `coverage.branch_percent` ayri dal hedefidir. Genel analizde gorulen skipTests/test bulunamadi veya ortam engelleri ekranda aciklanir; proje POM'u otomatik duzeltilmez.
+
+Arayuz kabul testi: build sonrasi `AITEST_BROWSER_PACKAGES` Playwright iceren mutlak node_modules dizinini gosterecek sekilde `node scripts/local-ui-browser-smoke.mjs` calistirilir. Bu test sentetik HTTP backend'idir; customer/model piloti degildir.

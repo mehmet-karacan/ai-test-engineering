@@ -436,7 +436,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
       t.selector,
       t.kind,
       percentToBasisPoints(parsed.coverage.percent),
-      parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : null,
+      parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.branch_percent ?? parsed.coverage.percent) : null,
       singleFqn,
       view?.module_path ?? null,
       view?.source_set ?? null,
@@ -486,7 +486,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   // P05/PR06: goal hedefleri frozen concrete listeden gelir; dispatcher bu listeyi
   // yeniden cozmek icin selector aramasi yapmaz (tek resolver).
   const lineBps = percentToBasisPoints(parsed.coverage.percent);
-  const branchBps = parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.percent) : 0;
+  const branchBps = parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.branch_percent ?? parsed.coverage.percent) : 0;
   const concreteForSelector = (t: { selector: string; kind: string }): ConcreteTarget[] => {
     if (!bySelectorGroups || !snapshotId) {
       return [];

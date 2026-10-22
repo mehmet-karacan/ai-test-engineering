@@ -14,6 +14,7 @@ import { prepareCoverageWorkspace } from "../../src/orchestration/coverage-works
 import { handleProjectCoverage } from "../../src/application/project-coverage.js";
 import { JobDispatcher, type GoalContract } from "../../src/orchestration/job-dispatcher.js";
 import { createToolRegistry } from "../../src/mcp/server-setup.js";
+import { createUiBackend } from "../../src/ui/backend.js";
 
 afterEach(() => vi.restoreAllMocks());
 describe("project coverage proposal flow", () => {
@@ -108,11 +109,13 @@ describe("project coverage proposal flow", () => {
       writeProjectCoverageResult(services, { ...measured, job_id: started.job_id, project_root: project, source_digest: scanGoal.source_digest, build_digest: scanGoal.build_digest, coverage_mode: "cli", run_id: "baseline-run", tests: { total: 2, failures: 0, errors: 0, skipped: 0 } });
       services.jobs!.updateOutcome(started.job_id, "COVERAGE_ANALYZED", services.jobs!.getJob(started.job_id).row_version);
       services.jobs!.updateLifecycle(started.job_id, "WAITING_INPUT", services.jobs!.getJob(started.job_id).row_version);
-      const input = { project_root: project, coverage_scan_id: started.job_id, targets: [{ selector: candidate.fqn, kind: "class" }], coverage: { percent: 80, metrics: ["LINE", "BRANCH"] } };
-      const selected = await handleTestStart(input, services);
+      const input = { project_root: project, coverage_scan_id: started.job_id, targets: [{ selector: candidate.fqn, kind: "class" }], coverage: { percent: 80.01, branch_percent: 70.01, metrics: ["LINE", "BRANCH"] } };
+      const selected = await createUiBackend(services, { workerEnabled: true, model: null }).start({ coverage_scan_id: started.job_id, selector: candidate.fqn, line_percent: 80.01, branch_percent: 70.01, idempotency_key: "ui-selected-class" }) as { created: boolean; job_id: string };
       await new Promise<void>(resolve => setImmediate(resolve));
       expect(selected.created).toBe(true); expect(goal?.coverage_mode).toBe("cli");
       expect(goal?.targets.map(t => t.selector)).toEqual([candidate.fqn]);
+      expect(goal?.targets[0]).toMatchObject({ line_target_bps: 8001, branch_target_bps: 7001 });
+      expect(services.storage!.db.prepare("SELECT line_target_bps,branch_target_bps FROM job_targets WHERE job_id=?").get(selected.job_id)).toMatchObject({ line_target_bps: 8001, branch_target_bps: 7001 });
       await expect(handleTestStart({ ...input, targets: [{ selector: "NotRecommended", kind: "class" }] }, services)).rejects.toThrow(/Onerilerden/);
       const foreign = join(root, "foreign"); cpSync(project, foreign, { recursive: true });
       await expect(handleTestStart({ ...input, project_root: foreign }, services)).rejects.toThrow(/baska projeye/);

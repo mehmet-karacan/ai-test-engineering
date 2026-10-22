@@ -1,4 +1,8 @@
-# Guncel aktif kabul: AITE-REPORT07-PRODUCTION-007
+# Guncel aktif kabul: AITE-LOCAL-UI-008
+
+U01..U07 LOCAL_VERIFIED; U08 final review/tam suite bekliyor. Tekil kayit ai/acceptance/local-ui.json; checkpoint ai/checkpoints/2026-10-22-local-ui-implementation.md. Sonraki007/006 kayitlari tarihseldir, otomatik PASSED aktarimi yok.
+
+# Onceki kabul: AITE-REPORT07-PRODUCTION-007
 
 R07-01..R07-10 LOCAL_VERIFIED. Son tam suite127dosya1042/1042 PASS (maxWorkers=1, exit0, 668.06s), typecheck/build/local gate ve Chromium PASS, bagimsiz review bulgusuz. Tekil kayit ai/acceptance/report07.json; handoff ai/handoffs/2026-10-20-report07-delivery.md. Asagidaki006/Windows kayitlari tarihseldir ve yeni007'ye otomatik PASSED tasinmaz. Yeni canli Sky/model piloti NOT_RUN; bu gorev kapsaminda istenmedi.
 

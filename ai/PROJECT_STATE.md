@@ -1,4 +1,10 @@
-## 2026-10-20 aktif kapsam: AITE-REPORT07-PRODUCTION-007
+## 2026-10-22 aktif kapsam: AITE-LOCAL-UI-008
+
+- Kullanici yerel proje/analiz/sinif/hedef/test uretimi/takip/rapor ekranini onayladi. Gorev AKTIF_GOREV.md; onceki007 byte-korunmus arsiv SHA5bae0f670e721095741af261017e366d7ee63c596109476a76b8e58249709249. U01..U08 kabul kaydi ai/acceptance/local-ui.json.
+- UI uygulamasi ve gercek Chromium sentetik akis tamam; odak testler/typecheck/build PASS, lint0error89warning. Son review ve tam suite bekliyor. Checkpoint ai/checkpoints/2026-10-22-local-ui-implementation.md.
+- Mevcut MCP korunur; yeni customer/model piloti yok, Sky skipTests konusu ayri, CI kapali. Ara yuzdeler uydurulmaz; egri dogrulanmis yayin sonrasi baslangic/son sayaclarindan gelir.
+
+## 2026-10-20 onceki kapsam: AITE-REPORT07-PRODUCTION-007
 
 - Kullanici yeni kurumsal rapor gorevini ve HTML referansini onayladi. Root AKTIF_GOREV.md tek aktif gorevdir; onceki006+coverage byte-korunmus arsiv SHAe3e5da066829da86d4bc201378ed8abbc6a8625bf163d3a400cafaa2ee374645. TarihselWindowsGO eski source icindir.
 - Report07 uygulama ve bagimsiz review tamam; 2f19403 sabit kaynakta son tam suite127dosya1042/1042 PASS (maxWorkers=1, 668.06s). Chromium500sinif10000test, typecheck/build/local gate PASS; lint0error89warning. Handoff ai/handoffs/2026-10-20-report07-delivery.md; kabul ai/acceptance/report07.json. Yeni007 yerel entegrasyon kabuludur; eski391 full GO otomatik tasinmaz.

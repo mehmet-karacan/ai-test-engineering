@@ -1,3 +1,7 @@
+## 2026-10-22 Yerel ekran
+
+- Kullanici onayli yeni AITE-LOCAL-UI-008 uygulamasi tamam; son review/tam suite ve teslim acik. Plan ai/tasks/2026-10-22-local-ui-plan.md; kabul ai/acceptance/local-ui.json. Canli Sky/model kosusu yok; CI kapali.
+
 ## 2026-10-20 Report07 teslim
 
 - Yeni kurumsal rapor varsayilan exporter yolunda; R07-01..R07-10 LOCAL_VERIFIED. Sabit2f19403 kaynak tam suite127dosya1042/1042 PASS; gercek Chromium responsive/offline/export/print kontrolleri ve bagimsiz review PASS.
