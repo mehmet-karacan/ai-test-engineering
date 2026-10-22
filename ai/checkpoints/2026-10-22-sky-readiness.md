@@ -23,3 +23,7 @@ Final freeze buildtree66dcaad2ccd4e3bd72ad0ead7a55c997c3f9505dcdbe53fd5c1add1c5a
 Son guvenli nativehelper ile gercekd9b05a9f ayni116/89/27/0/0sonucu verdi. Private finalreceiptSHAe24462dd24676f87b5226fe066c713e71dad93cd641c07b1ccdd049e6df368de. Source/build/POM orijinalhashesit, overlayrestoredtrue, model0. GenelJaCoCo/sinifonerisi mevcut27testfailure nedeniyle BLOCKED; testi ignore/skip ederek basarili sayilmadi. Customer testleri/orijinalPOM degismedi. Siradaki ayri is:25auth401+2cookie/return beklentisi; yeni uretim/ozgun apply yok.
 
 Bagimsiz review14test/bulgusuz. CI/Docker/macOS yok. Private Skyprofil kalici. Commit/mainFF/push/build/UIrestart ve read-only gercekUI teslim kontrolu kapanista yapilacak.
+
+## Teslim sonucu
+
+Uygulama commiti ac9c70902e0a8c0ff336ed73993fb26222ab64bb main'e fast-forward edildi; main ve feature branch atomicpush/ls-remote ile ayni hash dogrulandi. Ana dizinde build/localgateLOCAL_PASS/MCP handshake PASS; iki eskiuseruntracked dosya aynen duruyor. Aktifjob0 kontroluyle bilinen UI yeniden baslatildi. Gercek d9b05a9f job'u yeni UI'da Chromium desktop/mobile ile saltokunur acildi: counts_visible/diagnostic_visible PASS, mobileoverflowfalse, JSerror0. Private delivery/result.json ve screenshots pilot/sky-readiness-20261022/delivery altinda. Sky27testfailure ve coverageblocked durumu aynen korunur.
