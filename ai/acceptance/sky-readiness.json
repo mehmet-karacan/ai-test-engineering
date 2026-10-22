@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "task": "AITE-LOCAL-UI-008-SKY-READINESS",
+  "status": "LOCAL_VERIFIED",
+  "full_suite": {
+    "files": 133,
+    "tests": 1065,
+    "passed": 1065,
+    "exit_code": 0,
+    "duration_seconds": 524.67,
+    "max_workers": 1,
+    "tested_tree_digest": "66dcaad2ccd4e3bd72ad0ead7a55c997c3f9505dcdbe53fd5c1add1c5ad5d9a5"
+  },
+  "review": {
+    "status": "PASSED",
+    "tests": 14,
+    "remaining_findings": 0,
+    "patch_sha256": "f56648aa3f2d691c4ab247026a6a293b81c9ad214262b84e9aa0f352c702f966"
+  },
+  "sky": {
+    "job_id": "d9b05a9f-3e2e-4824-b8e7-765c7f7425fb",
+    "baseline": "FAILED_EXISTING_TESTS",
+    "tests": 116,
+    "passed": 89,
+    "failures": 27,
+    "errors": 0,
+    "skipped": 0,
+    "source_unchanged": true,
+    "overlay_restored": true,
+    "model_requests": 0,
+    "coverage_proposals": "BLOCKED_EXISTING_TEST_FAILURES",
+    "receipt_sha256": "e24462dd24676f87b5226fe066c713e71dad93cd641c07b1ccdd049e6df368de"
+  },
+  "ci_enabled": false
+}

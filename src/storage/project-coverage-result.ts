@@ -17,6 +17,7 @@ export interface ProjectCoverageResult extends ProjectCoverageAnalysis {
 }
 
 export interface ProjectCoverageFailure {
+  diagnostic?: import("../orchestration/baseline-diagnostic.js").BaselineDiagnostic;
   job_id: string; status: "FAILED"; code: string; reason: string; reason_code: string | null;
   skip_config_detected?: string[];
   stdout_log_path?: string;

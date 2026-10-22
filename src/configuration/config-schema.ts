@@ -46,6 +46,11 @@ export const AppConfigSchema = z.object({
   }).default({ max_concrete_targets: 500 }),
   worker_profiles: z.array(WorkerProfileSchema).max(16).default([]),
   default_worker_profile: z.string().max(128).optional(),
+  native_execution_profiles: z.array(z.object({
+    project_root: z.string().min(1).max(1024),
+    java_home: z.string().min(1).max(1024),
+    run_skipped_unit_tests: z.boolean().default(false),
+  }).strict()).max(64).optional(),
   allowed_project_roots: z.array(z.string().min(1).max(1024)).max(64).default([]),
   /**
    * 8.3: Bagimlilik hazirlama profili. Hazirlama ayri asamada yalniz bu mirror'lara gider;

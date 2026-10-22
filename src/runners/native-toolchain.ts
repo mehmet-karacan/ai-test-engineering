@@ -65,6 +65,7 @@ export interface NativeMavenArguments {
 }
 
 export interface NativeToolchainOptions {
+  nativeExecution?: import("../configuration/project-native-execution.js").ProjectNativeExecution;
   cwd: string;
   /** Optional owned root limiting inherited implicit Maven configuration. */
   pinRoot?: string;

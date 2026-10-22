@@ -1,3 +1,8 @@
+## 2026-10-22 Sky native hazirlik duzeltmesi
+
+- Proje bazli JDK/explicit unit-skip override ve hataozeti tamam;133dosya1065/1065test PASS,524.67sn,maxWorkers1; typecheck/build/lint0error/local gate/MCP/browser PASS, bagimsizreview14/14/bulgusuz. Detay ai/handoffs/2026-10-22-sky-readiness.md.
+- Gercek Sky finald9b05a9f JDK21.0.11 ile derlendi;116test89PASS27FAIL(25HTTP401+2cookieexpectation),0skip/model0. Orijinalsource/build/POM degismedi, ownedoverlayrestore dogrulandi. GenelJaCoCo/oneriler BLOCKED_EXISTING_TEST_FAILURES; bu musteri testleri ayri devam isidir.
+
 ## 2026-10-22 Yerel ekran
 
 - Kurumsal kimlik follow-up tamam: resmi logo ve rehber kurallari, odak/browser/review PASS. Handoff ai/handoffs/2026-10-22-corporate-identity.md.

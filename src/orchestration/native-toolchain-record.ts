@@ -7,6 +7,7 @@ import { AppError } from "../domain/errors.js";
 import { NativeToolchainResolver, effectiveMavenEnvironment, type NativeToolchainOptions, type VerifiedNativeToolchainPlan } from "../runners/native-toolchain.js";
 
 interface ToolchainRecord {
+  nativeExecution?: import("../configuration/project-native-execution.js").ProjectNativeExecution;
   pinRoot?: string;
   schema_version: 1;
   job_id: string;
@@ -37,6 +38,7 @@ export class NativeToolchainRecordStore {
 
   pin(jobId: string, options: NativeToolchainOptions, plan: VerifiedNativeToolchainPlan): string {
     const record: ToolchainRecord = {
+      ...(options.nativeExecution ? { nativeExecution: options.nativeExecution } : {}),
       schema_version: 1, job_id: jobId, identity: plan.identity, cwd: plan.cwd,
       ...(options.pinRoot ? { pinRoot: options.pinRoot } : {}),
       executable: plan.executable, source: plan.source,
@@ -57,6 +59,7 @@ export class NativeToolchainRecordStore {
       const pinned = this.read(jobId);
       const mismatches: string[] = [];
       if (existing.length !== 1) mismatches.push("record_count");
+      if (JSON.stringify(pinned.nativeExecution) !== JSON.stringify(options.nativeExecution)) mismatches.push("native_execution");
       if (pinned.identity !== plan.identity) mismatches.push("identity");
       // Older approved records may only carry the effective identity. That
       // identity already binds the resolver inputs and version output, so
@@ -115,6 +118,7 @@ export class NativeToolchainRecordStore {
     }
     if (record.profiles !== undefined && (!Array.isArray(record.profiles) || record.profiles.some((x) => typeof x !== "string"))) this.invalid();
     if (record.preferWrapper !== undefined && typeof record.preferWrapper !== "boolean") this.invalid();
+    if (record.nativeExecution !== undefined && (!record.nativeExecution || typeof record.nativeExecution.java_home !== "string" || !isAbsolute(record.nativeExecution.java_home) || typeof record.nativeExecution.run_skipped_unit_tests !== "boolean")) this.invalid();
     return record;
   }
 
@@ -139,7 +143,8 @@ export class NativeToolchainRecordStore {
   optionsForResume(jobId: string, env: NodeJS.ProcessEnv): NativeToolchainOptions {
     const record = this.read(jobId);
     return {
-      cwd: record.cwd, env,
+      cwd: record.cwd, env: effectiveMavenEnvironment(env, record.nativeExecution ? { JAVA_HOME: record.nativeExecution.java_home } : undefined),
+      ...(record.nativeExecution ? { nativeExecution: record.nativeExecution } : {}),
       ...(record.pinRoot ? { pinRoot: record.pinRoot } : {}),
       ...(record.source === "explicit" ? { executable: record.executable } : {}),
       ...(record.preferWrapper ? { preferWrapper: true } : {}),

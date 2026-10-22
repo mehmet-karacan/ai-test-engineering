@@ -1,3 +1,5 @@
+import { withUnitTestSkipOverride } from "./unit-test-skip-override.js";
+import type { ProjectNativeExecution } from "../configuration/project-native-execution.js";
 /** Native Windows Maven execution through the central command and process contracts. */
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -56,10 +58,19 @@ export class MavenRunner {
   private readonly running = new Set<AbortController>();
 
   constructor(private readonly pinnedToolchainIdentity?: string, private readonly lifecycle?: NativeProcessLifecycle,
-    private readonly executionIdentityGuard?: (plan: VerifiedNativeToolchainPlan) => void) {}
+    private readonly executionIdentityGuard?: (plan: VerifiedNativeToolchainPlan) => void,
+    private readonly projectExecution?: { profile: ProjectNativeExecution; ownedRoot: string }) {}
 
   async run(options: MavenRunOptions): Promise<RunResult> {
-    const env = effectiveMavenEnvironment(process.env, options.env);
+    if (this.projectExecution?.profile.run_skipped_unit_tests) {
+      return withUnitTestSkipOverride(options.working_dir, this.projectExecution.ownedRoot, options.log_dir, () => this.runNative(options));
+    }
+    return this.runNative(options);
+  }
+
+  private async runNative(options: MavenRunOptions): Promise<RunResult> {
+    const env = effectiveMavenEnvironment(process.env, { ...options.env,
+      ...(this.projectExecution ? { JAVA_HOME: this.projectExecution.profile.java_home } : {}) });
     const resolveOptions = {
       cwd: options.working_dir, env,
       ...(options.pin_root !== undefined ? { pinRoot: options.pin_root } : { pinRoot: options.working_dir }),

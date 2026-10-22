@@ -1,3 +1,4 @@
+import { projectNativeExecution } from "../configuration/project-native-execution.js";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectCoverageInputSchema } from "../domain/tool-schemas.js";
@@ -23,7 +24,7 @@ export async function handleProjectCoverage(input: unknown, services: Services) 
   const { project, location } = new ProjectRepository(services.storage.db).ensureLocation(root, root.split(/[\\/]/).pop()!, null);
   const manifest = new SourceSnapshot(root).buildManifest();
   const identity = computeSourceIdentity(root, manifest);
-  const digest = requestDigest({ intent: "project_coverage", root, source_digest: identity.source_digest, below_percent: parsed.below_percent,
+  const digest = requestDigest({ intent: "project_coverage", root, native_execution: projectNativeExecution(services.config, root), source_digest: identity.source_digest, below_percent: parsed.below_percent,
     recommendation_limit: parsed.recommendation_limit, idempotency_key: parsed.idempotency_key });
   const existing = services.jobs.findJobByRequestDigest(location.id, digest);
   if (existing) return { job_id: existing.id, project_root: root, lifecycle: existing.lifecycle, created: false };

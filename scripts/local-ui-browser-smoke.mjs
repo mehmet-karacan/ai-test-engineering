@@ -16,7 +16,7 @@ const output = process.env.AITEST_LOCAL_UI_OUTPUT ? resolve(process.env.AITEST_L
 mkdirSync(output, { recursive: true });
 const scanId = "11111111-1111-4111-8111-111111111111", testId = "22222222-2222-4222-8222-222222222222";
 const root = "C:/fixtures/Orion", calls = [], errors = [], external = [];
-let testPoll = 0, pendingScan = null, releaseScan = null;
+let testPoll = 0, pendingScan = null, releaseScan = null, failedScan = false;
 const line = { covered: 35, missed: 65, percent: 35 }, branch = { covered: 2, missed: 8, percent: 20 };
 const candidate = { fqn: "com.example.PaymentService", module_path: "payment", line, branch, suitable: true, reasons: [] };
 const scan = { job_id: scanId, project_root: root, overall: { line, branch }, class_count: 42, recommendations: [candidate, { ...candidate, fqn: `com.example.${"LongClassName".repeat(35)}.<img src=x onerror=alert(1)>` }], unmeasured: { source_classes: 0, report_classes: 0 } };
@@ -27,6 +27,7 @@ const backend = {
   scan: async input => { calls.push(["scan", input]); if (pendingScan) await pendingScan; return { job_id: scanId, project_root: root }; },
   start: async input => { calls.push(["start", input]); return { job_id: testId }; },
   job: async id => { const isTest = id === testId; if (isTest) testPoll++; const done = isTest && testPoll > 1;
+    if (failedScan && !isTest) return { project_root: root, status: { lifecycle: "FAILED", phase: "baseline", outcome: "BASELINE_FAILED", events: [] }, result: { coverage_scan_failure: { reason: "Baseline FAILED", reason_code: "MAVEN_EXIT_NONZERO", diagnostic: { hint: "Check selected JDK", error_excerpt: ["[ERROR] cannot find symbol <img src=x onerror=alert(1)>"] } } }, measurements: [], measurements_truncated: false };
     return { project_root: root, status: { lifecycle: isTest ? done ? "COMPLETED" : "RUNNING" : "WAITING_INPUT", phase: isTest ? "verification" : "analysis", outcome: isTest ? done ? "TARGET_REACHED" : null : "COVERAGE_ANALYZED", events: [{ sequence: 1, event_type: isTest ? "candidate_accepted" : "coverage_proposals_ready", phase: "analysis" }] },
       result: isTest ? { report_facts: done ? { run_summary: { total: 8, passed: 8, failed: 0, skipped: 0 } } : null, report_url: done ? `/reports/${testId}/index.html` : null, patch_url: done ? `/reports/${testId}/evidence/changes.patch` : null } : { coverage_scan: scan },
       measurements: done ? [{ fqn: candidate.fqn, stage: "before", line, branch }, { fqn: candidate.fqn, stage: "after", line: { covered: 90, missed: 10, percent: 90 }, branch: { covered: 8, missed: 2, percent: 80 } }] : [], measurements_truncated: false };
@@ -67,7 +68,13 @@ try {
   await page.locator("#project").fill(root); await page.locator("#analyze").click(); await page.waitForFunction(() => document.querySelector("#analyze").disabled);
   await page.locator("#project").fill("C:/fixtures/NewProject"); releaseScan(); await page.waitForTimeout(250);
   assert.equal(await page.locator("#project").inputValue(), "C:/fixtures/NewProject"); assert.equal(await page.locator("#start-form").isHidden(), true);
+  pendingScan = null; failedScan = true;
+  await page.locator("#project").fill(root); await page.locator("#analyze").click();
+  await page.waitForFunction(() => document.querySelector("#outcome").textContent.includes("cannot find symbol"));
+  assert.match(await page.locator("#outcome").innerText(), /Check selected JDK/);
+  assert.equal(await page.locator("#outcome img").count(), 0);
+  await page.screenshot({ path: join(output, "failure-mobile.png"), fullPage: true });
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  const result = { workflow: "PASS", refresh: "PASS", race: "PASS", desktop_mobile: "PASS", xss: "PASS", errors, external_requests: external, calls: calls.length };
+  const result = { workflow: "PASS", failure_diagnostic: "PASS", refresh: "PASS", race: "PASS", desktop_mobile: "PASS", xss: "PASS", errors, external_requests: external, calls: calls.length };
   writeFileSync(join(output, "result.json"), JSON.stringify(result, null, 2)); process.stdout.write(JSON.stringify(result) + "\n");
 } finally { await browser.close(); server.closeAllConnections(); await new Promise(r => server.close(r)); }

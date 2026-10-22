@@ -1,3 +1,8 @@
+## 2026-10-22 Sky native hazirlik duzeltmesi
+
+- Proje bazli JDK/explicit unit-skip override ve hataozeti tamam;133dosya1065/1065test PASS,524.67sn,maxWorkers1; typecheck/build/lint0error/local gate/MCP/browser PASS, bagimsizreview14/14/bulgusuz. Detay ai/handoffs/2026-10-22-sky-readiness.md.
+- Gercek Sky finald9b05a9f JDK21.0.11 ile derlendi;116test89PASS27FAIL(25HTTP401+2cookieexpectation),0skip/model0. Orijinalsource/build/POM degismedi, ownedoverlayrestore dogrulandi. GenelJaCoCo/oneriler BLOCKED_EXISTING_TEST_FAILURES; bu musteri testleri ayri devam isidir.
+
 ## 2026-10-22 aktif kapsam: AITE-LOCAL-UI-008
 
 - Kullanici kurumsal kimlik duzeltmesi: resmi SVG byteSHAe55b6e6b... UI ve yeni Report07'de aynen kullanilir; logo fontla uretilmez. 2025rehber font/renk/min25px/clearspace kurallari uygulandi. Odak32test ve iki gercek browser smoke PASS; bagimsiz review bulgusuz. Handoff ai/handoffs/2026-10-22-corporate-identity.md; yeni marka kabul kaydi ai/acceptance/corporate-identity.json. Asagidaki1058tam suite onceki ef073ca kaynak kanitidir, bu gorsel duzeltmede tam suite yeniden kosulmadi.

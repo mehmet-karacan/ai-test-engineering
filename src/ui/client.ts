@@ -7,7 +7,7 @@ export function localUiClient() {
   type Scan = { job_id: string; project_root: string; overall: { line: Counter; branch: Counter }; recommendations: Candidate[]; class_count: number; unmeasured: { source_classes: number; report_classes: number } };
   type Measurement = { fqn: string; stage: string; line: Counter; branch: Counter; created_at: number };
   type Job = { status: { lifecycle: string; phase: string; outcome: string | null; events: { sequence: number; event_type: string; phase: string | null }[] }; project_root: string; measurements: Measurement[]; measurements_truncated: boolean;
-    result: { coverage_scan?: Scan; coverage_scan_failure?: { reason: string; reason_code: string | null }; report_path?: string | null; report_url?: string | null; patch_url?: string | null; report_facts?: { run_summary: { passed: number; total: number; failed: number; skipped: number } } | null } };
+    result: { coverage_scan?: Scan; coverage_scan_failure?: { reason: string; reason_code: string | null; diagnostic?: { hint: string; error_excerpt: string[] } }; report_path?: string | null; report_url?: string | null; patch_url?: string | null; report_facts?: { run_summary: { passed: number; total: number; failed: number; skipped: number } } | null } };
   const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
   const input = (id: string) => el<HTMLInputElement>(id);
   const button = (id: string) => el<HTMLButtonElement>(id);
@@ -18,7 +18,7 @@ export function localUiClient() {
   const phaseNames: Record<string, string> = { discovery: "Proje inceleniyor", preflight: "Çalışma ortamı kontrol ediliyor", baseline: "Başlangıç testleri çalışıyor", analysis: "Kapsam analiz ediliyor", generation: "Testler üretiliyor", candidate: "Test adayı deneniyor", verification: "Son doğrulama yapılıyor", reporting: "Rapor hazırlanıyor", completed: "Tamamlandı", execution: "Testler çalışıyor" };
   const lifecycleNames: Record<string, string> = { QUEUED: "Sırada", RUNNING: "Çalışıyor", WAITING_INPUT: "Seçim bekliyor", COMPLETED: "Tamamlandı", FAILED: "Başarısız", BLOCKED: "Engellendi", PAUSED: "Duraklatıldı", CANCELLED: "İptal edildi", INTERRUPTED: "Kesildi" };
   const outcomeNames: Record<string, string> = { TARGET_REACHED: "Kapsam hedefine ulaşıldı", TARGET_ALREADY_MET: "Hedef başlangıçta sağlanıyordu", COVERAGE_ANALYZED: "Genel analiz tamamlandı. Test üretmek için bir sınıf seçin.", BASELINE_FAILED: "Başlangıç testleri başarısız", FINAL_VERIFICATION_FAILED: "Son doğrulama başarısız", PLATEAU: "Kapsam ilerlemesi durdu", MAX_ITERATIONS: "İterasyon sınırına ulaşıldı", NO_DISCOVERED_TESTS: "Çalıştırılan test bulunamadı" };
-  const eventNames: Record<string, string> = { project_coverage_requested: "Genel kapsam analizi istendi", coverage_proposals_ready: "Sınıf önerileri hazır", candidate_accepted: "Test adayı kabul edildi", test_start_requested: "Test üretimi istendi", baseline_completed: "Başlangıç testleri tamamlandı", final_replay_started: "Son test doğrulaması başladı", report_published: "Rapor yayımlandı" };
+  const eventNames: Record<string, string> = { unit_test_skip_override_enabled: "Çalışma kopyasında unit-test atlama kapatıldı", project_coverage_requested: "Genel kapsam analizi istendi", coverage_proposals_ready: "Sınıf önerileri hazır", candidate_accepted: "Test adayı kabul edildi", test_start_requested: "Test üretimi istendi", baseline_completed: "Başlangıç testleri tamamlandı", final_replay_started: "Son test doğrulaması başladı", report_published: "Rapor yayımlandı" };
   const notice = (message = "") => { el("notice").textContent = message; };
   const percent = (c: Counter) => c.covered === null || c.missed === null ? "Veri yok" : c.percent === null ? c.covered + c.missed === 0 ? "Uygulanamaz" : "Veri yok" : `%${c.percent.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}`;
   const counts = (c: Counter) => c.covered === null || c.missed === null ? "Veri yok" : `${c.covered} / ${c.covered + c.missed}`;
@@ -67,6 +67,8 @@ export function localUiClient() {
       el("phase").textContent = job.status.lifecycle === "RUNNING" ? phaseNames[job.status.phase] ?? job.status.phase : lifecycleNames[job.status.lifecycle] ?? job.status.lifecycle;
       el("job-id").textContent = `İş ${id}`;
       el("outcome").textContent = job.result.coverage_scan_failure ? `${job.result.coverage_scan_failure.reason}${job.result.coverage_scan_failure.reason_code ? ` (${job.result.coverage_scan_failure.reason_code})` : ""}` : job.status.outcome ? outcomeNames[job.status.outcome] ?? job.status.outcome : "Çalışma sürüyor. Sonuç henüz doğrulanmadı.";
+      const diagnostic = job.result.coverage_scan_failure?.diagnostic;
+      if (diagnostic) el("outcome").textContent += `\n${diagnostic.hint}\n${diagnostic.error_excerpt.join("\n")}`;
       if (job.result.coverage_scan) showScan(job.result.coverage_scan);
       const run = job.result.report_facts?.run_summary;
       el("test-summary").replaceChildren(...(run ? [metric("Son doğrulanmış test sonucu", `${run.passed}/${run.total}`, `${run.failed} başarısız/hata · ${run.skipped} atlanan`)] : []));

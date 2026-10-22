@@ -27,6 +27,18 @@ describe("WN24 durable native toolchain", () => {
     return { root, project, bin, storeRoot, executable, services, job, record };
   }
 
+  it("persists a project JDK and explicit skip policy across a different server environment", async () => {
+    const f = fixture(); const home = join(f.root, "jdk21");
+    const options = { cwd: f.project, env: { PATH: f.bin, JAVA_HOME: home }, platform: "win32" as const,
+      nativeExecution: { java_home: home, run_skipped_unit_tests: true } };
+    const plan = NativeToolchainResolver.resolve({ ...options, env: effectiveMavenEnvironment(options.env) });
+    f.record.pin(f.job.id, options, { ...plan, baseIdentity: plan.identity, mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "x" });
+    const resumed = f.record.optionsForResume(f.job.id, { PATH: f.bin, JAVA_HOME: join(f.root, "jdk25") });
+    expect(resumed.env.JAVA_HOME).toBe(home);
+    expect(resumed.nativeExecution).toEqual(options.nativeExecution);
+    expect(() => f.record.pin(f.job.id, { ...options, nativeExecution: { ...options.nativeExecution, run_skipped_unit_tests: false } }, { ...plan, baseIdentity: plan.identity, mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "x" })).toThrow(/changed/i);
+  });
+
   it("missing identity fails closed before resume", async () => {
     const f = fixture();
     await expect(f.record.verify(f.job.id, { cwd: f.project, env: { PATH: f.bin }, platform: "win32" }, async (p) => ({ ...p, baseIdentity: p.identity, identity: p.identity, mavenVersion: "3.9.9", javaVersion: "21", outputDigest: "x" })))

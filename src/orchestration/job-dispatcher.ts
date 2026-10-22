@@ -1,3 +1,6 @@
+import { baselineDiagnostic } from "./baseline-diagnostic.js";
+import { projectNativeExecution, type ProjectNativeExecution } from "../configuration/project-native-execution.js";
+import { effectiveMavenEnvironment } from "../runners/native-toolchain.js";
 /**
  * Job dispatcher: test_start ile baslayan kalici isin asamalarini gercekten yurutur.
  * discovery -> baseline -> analiz/plan -> aday -> run -> dogrulama -> accepted checkpoint -> rapor.
@@ -83,6 +86,7 @@ function inferTestFramework(testFiles: string[], module: PomModule, projectRoot:
 
 
 export interface GoalContract {
+  native_execution?: ProjectNativeExecution;
   coverage_mode?: "configured" | "cli";
   coverage_scan?: { below_percent: number; recommendation_limit: number; source_digest: string; build_digest: string; project_id: string };
   job_id: string;
@@ -191,6 +195,7 @@ export class JobDispatcher {
     return {
       job_id: job.id,
       project_root: projectRoot,
+      ...(projectNativeExecution(this.services.config, projectRoot) ? { native_execution: projectNativeExecution(this.services.config, projectRoot)! } : {}),
       targets,
       budget: {
         max_candidate_iterations: budgets.max_candidate_iterations,
@@ -293,18 +298,19 @@ export class JobDispatcher {
         // before a customer Maven process can be launched.
         const nativeRoot = goal.coverage_mode === "cli"
           ? prepareCoverageWorkspace(projectRoot, join(this.workspaceRoot, "jobs", job.id, "coverage-preflight")) : projectRoot;
-        const nativeOptions = { cwd: nativeRoot, env: process.env, ...(goal.coverage_mode === "cli" ? { pinRoot: nativeRoot } : {}) };
+        const nativeOptions = { cwd: nativeRoot, env: effectiveMavenEnvironment(process.env, goal.native_execution ? { JAVA_HOME: goal.native_execution.java_home } : undefined), ...(goal.native_execution ? { nativeExecution: goal.native_execution } : {}), ...(goal.coverage_mode === "cli" ? { pinRoot: nativeRoot } : {}) };
         const nativeRegistry = new NativeProcessRegistry(storage.db, job.id, ownerId, acquired.lease.fencing_token);
         const toolchain = await runnerFactory.prepareNativeCustomerToolchain(nativeOptions, nativeRegistry);
         new NativeToolchainRecordStore(storage.db, this.workspaceRoot).pin(job.id, nativeOptions, toolchain);
         nativeToolchainIdentity = toolchain.identity;
+        if (goal.native_execution?.run_skipped_unit_tests) jobs.appendEvent({ job_id: job.id, event_type: "unit_test_skip_override_enabled", phase: "preflight", origin: "JobDispatcher" });
         // Each frozen workspace has a distinct path-bound identity. The
         // source-root preflight identity cannot be reused as its digest.
         const executionToolchains = new NativeExecutionToolchainRecordStore(storage.db, this.workspaceRoot);
         hostRunner = new MavenRunner(undefined, nativeRegistry, (verified) => {
           assertLease();
           executionToolchains.pinOrVerify(job.id, verified);
-        });
+        }, goal.native_execution ? { profile: goal.native_execution, ownedRoot: join(this.workspaceRoot, "jobs", job.id) } : undefined);
         ownedRunners.set(job.id, hostRunner);
         jobs.appendEvent({
           job_id: job.id,
@@ -376,8 +382,8 @@ export class JobDispatcher {
             throw new AppError("POLICY_VIOLATION", "Baseline iptal/pause sonrasinda tamamlandi", { reason_code: latest.lifecycle });
           }
           persistFailedBaseline(baseline);
-          if (goal.coverage_scan) writeProjectCoverageFailure(this.services, { job_id: job.id, status: "FAILED", code: "BASELINE_FAILED", reason: `Baseline ${baseline.status}: ${baseline.failed_tests.join(", ") || baseline.reason_code || "no execution evidence"}`, reason_code: baseline.reason_code,
-            skip_config_detected: baseline.skip_config_detected,
+          if (goal.coverage_scan) writeProjectCoverageFailure(this.services, { job_id: job.id, status: "FAILED", code: "BASELINE_FAILED", reason: `Baseline ${baseline.status}: ${baseline.reason_code ?? "NO_EXECUTION_EVIDENCE"}; tests=${baseline.total_tests}, failures=${baseline.failures}, errors=${baseline.errors}, skipped=${baseline.skipped}`, reason_code: baseline.reason_code,
+            skip_config_detected: baseline.skip_config_detected, diagnostic: baselineDiagnostic(baseline),
             ...(baseline.run ? { stdout_log_path: baseline.run.stdout_log_path, stderr_log_path: baseline.run.stderr_log_path } : {}) });
           jobs.updateLifecycle(job.id, "FAILED", jobs.getJob(job.id).row_version);
           jobs.updateOutcome(job.id, "BASELINE_FAILED", jobs.getJob(job.id).row_version);
@@ -1242,6 +1248,7 @@ export class JobDispatcher {
     const stable = {
       job_id: job.id,
       project_root: goal.project_root,
+      ...(goal.native_execution ? { native_execution: goal.native_execution } : {}),
       targets: goal.targets,
       budget: goal.contract_budget ?? goal.budget,
       runner_kind: goal.runner_kind,
@@ -1592,6 +1599,7 @@ export class JobDispatcher {
     }
     const goal: GoalContract = {
       job_id: job.id,
+      ...(this.runnerKind === "windows_native" && new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id).nativeExecution ? { native_execution: new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id).nativeExecution! } : {}),
       coverage_mode: this.readJobContractCoverageMode(storage, job),
       project_root: projectRoot,
       targets: targetRows.map((t) => ({

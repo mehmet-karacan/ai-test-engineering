@@ -1,3 +1,4 @@
+import { projectNativeExecution } from "../configuration/project-native-execution.js";
 /**
  * Uygulama servisleri: tool handler'larinin cagirdigi use-case'ler.
  * P01: project_inspect, test_start, test_status temel akisi.
@@ -379,6 +380,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
 
   const digest = requestDigest({
     root: canonicalRoot,
+    native_execution: projectNativeExecution(services.config, canonicalRoot),
     targets: parsed.targets,
     coverage: parsed.coverage,
     mode: parsed.mode,
