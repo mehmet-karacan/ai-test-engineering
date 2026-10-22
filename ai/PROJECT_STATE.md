@@ -1,7 +1,7 @@
 ## 2026-10-22 aktif kapsam: AITE-LOCAL-UI-008
 
 - Kullanici yerel proje/analiz/sinif/hedef/test uretimi/takip/rapor ekranini onayladi. Gorev AKTIF_GOREV.md; onceki007 byte-korunmus arsiv SHA5bae0f670e721095741af261017e366d7ee63c596109476a76b8e58249709249. U01..U08 kabul kaydi ai/acceptance/local-ui.json.
-- UI uygulamasi ve gercek Chromium sentetik akis tamam; odak testler/typecheck/build PASS, lint0error89warning. Son review ve tam suite bekliyor. Checkpoint ai/checkpoints/2026-10-22-local-ui-implementation.md.
+- UI uygulamasi tamam; sabit ef073ca tam suite131dosya1058/1058 PASS (exit0,536.20s,maxWorkers=1), typecheck/build/local gate PASS, lint0error89warning. Bagimsiz review bulgusuz; gercek Chromium ve salt-okunur eski is8/8, LINE7/11->11/11/BRANCH5/10->10/10 ekran kaniti PASS. Handoff ai/handoffs/2026-10-22-local-ui-delivery.md. U01..U08 LOCAL_VERIFIED; onceki391 full GO otomatik tasinmaz.
 - Mevcut MCP korunur; yeni customer/model piloti yok, Sky skipTests konusu ayri, CI kapali. Ara yuzdeler uydurulmaz; egri dogrulanmis yayin sonrasi baslangic/son sayaclarindan gelir.
 
 ## 2026-10-20 onceki kapsam: AITE-REPORT07-PRODUCTION-007

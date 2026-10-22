@@ -7,3 +7,10 @@
 - Gercek headless Edge sentetik backend: proje/analiz/acik secim/hedef/model/start/running/sonuc/rapor/history10sayfalama/refresh/mobile/XSS/late response PASS, JSerror0external0. Screenshots private %LOCALAPPDATA%/ai-test-engineering/pilot/local-ui-20261022. Yeni customer/model kosusu yok.
 - Review bulgulari: async proje degisikligi epoch/requestversion ile kapatildi;80.01decimal duzeltildi; allowlistWindows duzeltildi. Motor yalniz final snapshot yaziyor; checkpoint manifestinde ara rawcounter yok. Egri dogrulanmis Report07 baseline/final sayaçlarindan, yayin sonrasi gelir. Ara bps satir/dal diye yorumlanmaz. Canli lifecycle/events gercek DB'dendir. Verifiedbaseline7/10 ->final9/10 backend testi PASS.
 - Odak17test PASS, typecheck/build PASS; lint0error89warning (mevcut). Son review/odak browser yeniden kosu, sabit kaynak full suite ve teslim bekliyor. Yeni U kabulleri onceki391 full GO'dan bagimsizdir; CI kapali.
+
+## Son dogrulama
+
+- Son odak5dosya20/20 PASS; bagimsiz reviewer4dosya19/19 PASS ve finaldiff bulgusuz. Ek browser klavyeSpace/Tab,420+karakter sinif, mobile overflow PASS; history late-response requestversion ile kapandi.
+- Sabit kaynak ef073cab3617eedb32c9f2bbecb40ac02bf491ad, tree21deb7ac843b19f05f0d4afefbf2a50358b4b0fb5cc6fd9cb890d88e7942f91b: tam suite131dosya1058/1058 PASS, exit0,536.20s,maxWorkers=1. Private Temp/local-ui-full-suite.log SHA97143280c8b0cafd118dc5ad790b9a2f9910387540a47c28822022d92993fc1a. Typecheck/build/local gate ve lint0error89warning kayitli.
+- Onceki job3ab26d26 readonly SQLite ve dogrulanmis Report07 kopyasiyla UI'da8/8, LINE7/11->11/11, BRANCH5/10->10/10 PASS. Yeni Maven/model YOK. existing-job-receipt SHA259857e11bd1359f6a91cb4b026bf258965fb503dd24ff2468c3d438f7c58c1e; result.json SHA4e939e79d780af08128e71e28f4ff3ed9813f0bf794fa1f9a6d9bd8c8dba55da; private screenshot existing-job-desktop.png.
+- U01..U08 LOCAL_VERIFIED. Bundan sonraki diff yalniz kabul/handoff kayitlari; ana dal build/MCP ve push ile teslim. Sky/customer/model/CI kapsam sinirlari korunur.

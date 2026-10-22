@@ -1,6 +1,8 @@
 {
   "task_id": "AITE-LOCAL-UI-008",
-  "status": "FINAL_VERIFICATION_PENDING",
+  "status": "LOCAL_VERIFIED",
+  "verified_code_commit": "ef073cab3617eedb32c9f2bbecb40ac02bf491ad",
+  "full_suite": {"files":131,"tests":1058,"passed":1058,"exit_code":0,"max_workers":1,"duration_seconds":536.20,"log_sha256":"97143280c8b0cafd118dc5ad790b9a2f9910387540a47c28822022d92993fc1a"},
   "scope": "Local single-user UI; existing services; synthetic/browser verification; no new customer/model pilot",
   "requirements": [
     {"id":"U01","status":"LOCAL_VERIFIED","evidence":"loopback entry, bootstrap/projects, real Chromium"},
@@ -10,6 +12,6 @@
     {"id":"U05","status":"LOCAL_VERIFIED","evidence":"manifest/hash/path checked report+patch endpoint; real browser popup"},
     {"id":"U06","status":"LOCAL_VERIFIED","evidence":"Host/Origin/cookie/CSRF/body/path/tamper tests; browser XSS"},
     {"id":"U07","status":"LOCAL_VERIFIED","evidence":"desktop/mobile/refresh/stale response and bounded history browser smoke"},
-    {"id":"U08","status":"PENDING","evidence":"full suite and final independent review pending"}
+    {"id":"U08","status":"LOCAL_VERIFIED","evidence":"131 files/1058 tests PASS; typecheck/build/local gate PASS; lint0error89warning; independent review no findings; Chromium workflow PASS"}
   ]
 }

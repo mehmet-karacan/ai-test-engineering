@@ -10,7 +10,7 @@
 - [x] 1. RED: ayri branch_percent eski percent uyumu/invalid inputs ve gercek test_start DB/immutable hedef testi. GREEN: tool-schemas ve services dort esik cagrisi; ilgili eski testler.
 - [x] 2. RED: gercek HTTP request ile loopback/Host/Origin/cookie/CSRF, boyut/route/yayin/dosya guvenligi ve scan/start adapter kontrati. GREEN: backend/server/page/client/entry; npm ui. DB history ve kayitli snapshot series, explicit secim, eksik/hata durumlari.
 - [x] 3. Gercek Chromium sentetik backend ile proje/analiz/oneriler/hedef/model/start/live/rapor/refresh/gecmis; mobile/keyboard/XSS/offlineasset. Backend'in gercek uygulama handler'lariyla entegrasyonu; fixture rapor bytes dogrulama. Screenshot private runtime altinda.
-- [ ] 4. Bagimsiz review, typecheck/lint/build, sabit kaynak tam suite. Checkpoint/kabul/handoff, kimlik/ASCII/gizlilik/staged diff; commit/push ve ana dal build/MCP kontrolu. Kullaniciya ait untracked dosyalar korunur.
+- [x] 4. Bagimsiz review bulgusuz; typecheck/build/local gate PASS, lint0error89warning. Sabit ef073ca kaynak131dosya1058/1058 PASS. Checkpoint/kabul/handoff kayitli; kimlik/ASCII/gizlilik/staged diff kontrol edildi. Ana dal build/MCP ve push teslim asamasidir; kullanici untracked dosyalari korunur.
 
 ## Review odagi
 
