@@ -1,5 +1,6 @@
 ## 2026-10-22 Yerel ekran
 
+- Kurumsal kimlik follow-up tamam: resmi logo ve rehber kurallari, odak/browser/review PASS. Handoff ai/handoffs/2026-10-22-corporate-identity.md.
 - Kullanici onayli AITE-LOCAL-UI-008 uygulamasi tamam. U01..U08 LOCAL_VERIFIED;131dosya1058/1058 test PASS, gercek Chromium ve bagimsiz review PASS. Handoff ai/handoffs/2026-10-22-local-ui-delivery.md; kabul ai/acceptance/local-ui.json. Canli Sky/model kosusu yok; Sky skipTests ayri devam noktasi, CI kapali.
 
 ## 2026-10-20 Report07 teslim

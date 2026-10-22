@@ -1,12 +1,14 @@
 /** Synthetic UI acceptance, no customer/model execution. Requires an explicit Playwright package directory. */
 /* global document, window, innerWidth */
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync,statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join,resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ReportExporter } from '../dist/reporting/report-generator.js';
+import { INNOVA_LOGO_SHA256 } from '../dist/branding/innova.js';
 const packages=process.env.AITEST_BROWSER_PACKAGES;
 if(!packages)throw Error('NOT_RUN: AITEST_BROWSER_PACKAGES must identify the installed Playwright node_modules directory');
 const {chromium}=createRequire(import.meta.url)(join(packages,'playwright'));
@@ -30,6 +32,9 @@ page.on('request',r=>{if(/^https?:/.test(r.url()))external.push(r.url());});
 const url=pathToFileURL(join(reportDir,'index.html')).href;
 try {
  await page.goto(url);await page.locator('[data-class="0"]').waitFor();
+ const officialLogo=await page.locator('img.logo').evaluate(node=>({src:node.src,width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height}));
+ assert.equal(createHash('sha256').update(Buffer.from(officialLogo.src.split(',')[1],'base64')).digest('hex'),INNOVA_LOGO_SHA256);
+ assert.ok(officialLogo.height>=25&&Math.abs(officialLogo.width/officialLogo.height-825.84/157.13)<.01);
  assert.equal(await page.locator('#class-list [data-class]').count(),3);
  assert.equal(await page.locator('#detail-region [data-test-id]').count(),4);
  assert.equal(await page.locator('#history-region tbody tr').count(),3);

@@ -1,11 +1,13 @@
 /** Synthetic workflow acceptance: real browser + HTTP, no customer Maven/model calls. */
 /* global document, innerWidth */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createLocalUiServer } from "../dist/ui/server.js";
+import { INNOVA_LOGO_SHA256 } from "../dist/branding/innova.js";
 
 const packages = process.env.AITEST_BROWSER_PACKAGES;
 if (!packages) throw new Error("AITEST_BROWSER_PACKAGES must identify Playwright node_modules");
@@ -39,6 +41,9 @@ try {
   page.on("pageerror", e => errors.push(e.message)); page.on("dialog", d => { errors.push("unexpected dialog"); void d.dismiss(); });
   page.on("request", req => { if (!req.url().startsWith(url)) external.push(req.url()); });
   await page.goto(url); await page.locator("#history table").waitFor();
+  const logo = await page.locator("img.innova-logo").evaluate(node => ({ src: node.src, width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height }));
+  assert.equal(createHash("sha256").update(Buffer.from(logo.src.split(",")[1], "base64")).digest("hex"), INNOVA_LOGO_SHA256);
+  assert.ok(logo.height >= 25 && Math.abs(logo.width / logo.height - 825.84 / 157.13) < .01);
   await page.screenshot({ path: join(output, "empty-desktop.png"), fullPage: true });
   await page.locator("#project").fill(root); await page.locator("#analyze").click(); await page.locator('input[name="candidate"]').first().waitFor();
   assert.equal(calls.filter(c => c[0] === "start").length, 0);

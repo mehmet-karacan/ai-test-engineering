@@ -1,0 +1,14 @@
+{
+  "scope":"User supplied corporate identity correction to UI and new Report07",
+  "status":"LOCAL_VERIFIED",
+  "independent_review":"No actionable findings; independent focused5files29tests PASS",
+  "official_logo_sha256":"e55b6e6b168811442490d1ceca0f937c0c55676c90e9f924b2dba877a0ef3d78",
+  "official_logo_bytes":2074,
+  "guide_pdf_sha256":"713d15aa59a4bd1994dd731a869f8bff8e013c12fe1a01c7dd040a5f0cfa846e",
+  "guide_pages":[5,8,9,10,11,12,13,14],
+  "focused_tests":{"files":5,"passed":32},
+  "browser_ui":"PASS",
+  "browser_report07":"PASS",
+  "full_suite":"NOT_RERUN_FOR_THIS_VISUAL_CORRECTION",
+  "prior_full_suite_commit":"ef073cab3617eedb32c9f2bbecb40ac02bf491ad"
+}
