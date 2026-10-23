@@ -4,9 +4,9 @@
   "M01": "VERIFIED",
   "M02": "VERIFIED",
   "M03": "VERIFIED",
-  "M04": "WAITING_USER_CLASS_SELECTION",
+  "M04": "TARGET_NOT_MET_PLATEAU",
   "M05": "VERIFIED_CONFIGURED_MODEL_AND_MAVEN_PROBE_AND_MCP_HANDSHAKE",
-  "M06": "FOCUSED_TESTS_REVIEW_AND_LOCAL_GATE_PASSED",
+  "M06": "FIXES_FOCUSED_TESTS_REVIEW_LOCAL_GATE_AND_PUSH_VERIFIED",
   "coverage_job_id": "8eb1ff08-c040-4d03-8750-b125a8bf995d",
   "tests": {
     "total": 635,
@@ -14,7 +14,21 @@
     "errors": 0,
     "skipped": 11
   },
-  "generation_started": false,
+  "generation_started": true,
   "apply_requested": false,
-  "evidence": "ai/checkpoints/2026-10-23-mcp-only-gpu.md"
+  "evidence": "ai/checkpoints/2026-10-23-deduction-generation.md",
+  "generation_job_id": "5651276d-94de-4997-973e-f326e62092d7",
+  "previous_generation_job_id": "37a7a63f-b539-4a90-9e37-de2adc3f6a34",
+  "target_percent": {
+    "line": 80,
+    "branch": 80
+  },
+  "final_generated_tests_added": 0,
+  "final_tests": {
+    "total": 635,
+    "passed": 624,
+    "failures": 0,
+    "skipped": 11
+  },
+  "overall_delivery": "INCOMPLETE_TARGET_NOT_MET"
 }

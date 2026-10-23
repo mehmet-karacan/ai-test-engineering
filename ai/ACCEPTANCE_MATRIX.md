@@ -1,3 +1,7 @@
+## 2026-10-23 DeductionService %80 hedef kosusu
+
+Kullanici DeductionService LINE/BRANCH %80 hedefini secti. Canli MCP job5651276d-94de-4997-973e-f326e62092d7 COMPLETED/TARGET_NOT_MET_PLATEAU, final635=624PASS+11skip/0FAIL; yeniacceptedtest0. %80 hedefi saglanmadi, M04 tamam degil. Ilk job37a7...2dosya10PASS/28.67LINE19.23BRANCH yalnizaraadaydir, finalFAILED/MISSING_BASELINE_TESTS; PASS gibi sunulmaz. Fullbaseline finalscope, bounded32kcontext, acceptednamecollision, Windowsworkerawait ve redactedcompilerfeedback duzeltildi;78odaktest/typecheck/build/lint0error/localgate/bagimsizreview PASS. Fixler ce80d0f ana dala pushlandi. Kalan: modele DTO/enum/bagimlilik imzalarini scopedcontext ile tasimak; resume immutable run-output identity bug. Kaynak/buildhash degismedi, GPUapply0. Detay ai/checkpoints/2026-10-23-deduction-generation.md.
+
 ## 2026-10-23 OpenCode + MCP devam isi
 
 Kullanici frontend rollback istedi: AITE-MCP-GPU-009. UI kaynak/komut/testleri kaldirildi, MCP/coverage/rapor korundu. Gercek GPU backend MCP scan 8eb1ff08-c040-4d03-8750-b125a8bf995d: 635/0/0/11 test, LINE %19.64, BRANCH %21.97, 5 oneri ve WAITING_INPUT. Kullanici onayli controller dar duzeltmesi GPU kaynakta, testler korunmus. Sinif secimi bekleniyor; generation NOT_RUN. 63 odak test/typecheck/build/lint0error ve bagimsiz review PASS. Detay ai/checkpoints/2026-10-23-mcp-only-gpu.md; kabul ai/acceptance/mcp-gpu.json. Onceki UI kabul kayitlari tarihseldir; urun ekrani geri cekildi.
