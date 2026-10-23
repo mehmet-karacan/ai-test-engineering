@@ -13,6 +13,7 @@ import { parseJacocoXml, findClassInReport } from "../coverage/jacoco-parser.js"
 import { summarizeTestReports, assertCoverageConfigured, buildPlan, classifyTestRun, type SurefireSuite } from "../orchestration/build-plan.js";
 import { scanTestFile } from "../discovery/java-inventory.js";
 import { baselineDiagnostic } from "./baseline-diagnostic.js";
+import { testFailureDiagnostic } from "./test-failure-diagnostic.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 
 export interface IterationBudget {
@@ -843,7 +844,7 @@ export class CandidateLoop {
           run_exit_code: run.exit_code,
         });
         const retry = scheduleRetry({
-          previous_failure: `Regresyon: ${regressionFailures.join(", ")}`,
+          previous_failure: [`Regresyon: ${regressionFailures.join(", ")}`, ...testFailureDiagnostic(candidateWorkspace, [options.target_module_path], regressionFailures)].join("\n"),
           failed_tests: regressionFailures,
           quality_findings: [],
           run_exit_code: run.exit_code,

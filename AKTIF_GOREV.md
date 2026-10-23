@@ -1,5 +1,10 @@
 # AKTIF_GOREV: OpenCode + MCP GPU Fusion akisi
 
+## 2026-10-23 Deduction davranis tamamlamasi
+
+Codex destekli test tamamlamasi ayri kopyada gercek MCP fullscan bf1a70b3 ile dogrulandi:681=670PASS+11skip,0failure/error; LINE271/272(%99.63), BRANCH99/104(%95.19). %80 hedefi bu kopyada saglandi; asil GPUapply0. MCP repair actualfailure/checkedthrows duzeltmesi43odaktest/typecheck/build/lint0error/localgate/bagimsizreviewPASS. Bu yeni otonom OpenCode kosusu degildir; eski modelplateau tarihsel kalir. Kanit ai/checkpoints/2026-10-23-deduction-behavior-completion.md; kabul ai/acceptance/deduction-behavior-completion.json. G2/yayin ayri karar; CI kapali. Eski resume-output ve scan_id olmayan native pin preflight sorunu ayri kayitli.
+
+
 Gorev AITE-MCP-GPU-009. Kullanici 2026-10-23 tarihinde yerel frontend rollback istedi. Frontend UI sunucusu/client/komut ve UI testleri kaldirilir. Mevcut MCP motoru, JaCoCo analizi, kullanici secimi, bagimsiz LINE/BRANCH hedefleri ve kurumsal sonuc raporu korunur. Onceki008 byte-korunmus arsiv ai/tasks/archive/AITE-LOCAL-UI-008-20261023.md icindedir.
 
 Plan: ai/tasks/2026-10-23-mcp-only-plan.md. Kullanim OpenCode sohbetinden project_coverage -> test_status/test_result -> kullanici sinif secimi -> test_start(coverage_scan_id, tek FQN) -> dogrulanmis rapordur. Genel analizde model0, sinif secimi olmadan generation yoktur. GPU root birden fazla Maven projesi icerir; bu devam isinin acik hedefi gpu-backend dizinidir.

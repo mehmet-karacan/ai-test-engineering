@@ -119,6 +119,7 @@ export function buildWorkerPrompt(context: WorkerPromptContext, classBodyLimit =
     "changes[].path degeri mutlaka src/test/java/ ile baslamali ve yeni test dosyasinin tam yolunu icermeli.",
     "path alani src/test/java/<...>.java biciminde olmali; src/test/java oneki olmadan yol gecersizdir.",
     "Tek bir kucuk test dosyasi olustur; en fazla 5 @Test metodu ve 160 satir yaz.",
+    "Checked exception bildiren API cagrilari ve Mockito verify/stub cagrilari icin test/setup metodunda throws Exception bildir. Beklenen exception'i assertThrows ile dogrula; hatayi catch ile yutma.",
     "Yeni test dosyasi adi mevcut test siniflarindan farkli olmali; mevcut sinif yolunu tekrar kullanma.",
     "Plan, analiz, gerekce veya ic muhakeme yazma; dogrudan JSON sonucunla basla.",
     "new_content 12000 karakteri gecmemeli.",
