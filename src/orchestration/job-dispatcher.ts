@@ -1,5 +1,6 @@
 import { baselineDiagnostic } from "./baseline-diagnostic.js";
 import { projectNativeExecution, type ProjectNativeExecution } from "../configuration/project-native-execution.js";
+import { buildDependencyContext } from "../workers/opencode/dependency-context.js";
 import { effectiveMavenEnvironment } from "../runners/native-toolchain.js";
 /**
  * Job dispatcher: test_start ile baslayan kalici isin asamalarini gercekten yurutur.
@@ -1957,7 +1958,20 @@ export class JobDispatcher {
       test_framework: testFramework,
       policy_rules: [...DEFAULT_POLICY_RULES, `Yeni test sinifi adi ${candidateTestClassName(targetFqn.split(".").pop()!, jobId, generationIteration, [...testFiles, ...acceptedTests].map(path => basename(path, ".java")))} olsun; kabul edilmis dosyalari yeniden yazma.`],
     };
-    const prompt = buildWorkerPrompt(promptContext, classBodyLimit);
+    const baselineRoot = join(this.workspaceRoot, "jobs", jobId, "baseline");
+    const nativeProfile = projectNativeExecution(this.services.config, projectRoot);
+    const dependencies = await buildDependencyContext({
+      projectRoot, sourceRoot: module.source_root, targetBody: classBody, targetFqn,
+      baselineRoot, classesRoot: join(baselineRoot, module.module_relative_path, "target", "classes"),
+      ...(nativeProfile ? { javaHome: nativeProfile.java_home } : {}),
+      ...(deadlineAt === undefined ? {} : { deadlineAt }),
+    });
+    const prompt = [buildWorkerPrompt(promptContext, classBodyLimit),
+      "## Baseline derlemesinden dogrulanmis bagimlilik API'leri",
+      "DTO setter/getter tipleri ve enum degerleri icin bu imzalari kullan. Tip veya enum degeri tahmin etme.",
+      dependencies.text,
+      ...(dependencies.omitted.length ? ["## Baglama alinamayan tipler (API bilinmiyor)", ...dependencies.omitted] : []),
+    ].join("\n");
 
     // K03/B02: politika tool flags'i cagrida gercekten uygulanir (write/bash/task/web kapali):
     const { MAX_WORKER_REQUEST_TIMEOUT_MS, workerToolFlags } = await import("../workers/opencode/worker-config.js");
@@ -1988,7 +2002,7 @@ export class JobDispatcher {
             ...base,
             text: prompt,
             bytes,
-            manifest_digest: createHash("sha256").update(prompt, "utf8").digest("hex"),
+            manifest_digest: createHash("sha256").update(base.manifest_digest).update(prompt, "utf8").digest("hex"),
           };
         },
       };
@@ -2016,8 +2030,8 @@ export class JobDispatcher {
         allowed_context_scope: {
           snapshot_id: agentContext.source_snapshot_id,
           root_digest: agentContext.root_digest,
-          relative_paths: [relativeTargetPath],
-          line_ranges: [],
+          relative_paths: [relativeTargetPath, ...dependencies.relativePaths],
+          line_ranges: dependencies.relativePaths.map(relative_path => ({ relative_path, start: 1, end: 1 })),
           max_bytes: 128 * 1024,
           secrets_excluded: true,
         },
