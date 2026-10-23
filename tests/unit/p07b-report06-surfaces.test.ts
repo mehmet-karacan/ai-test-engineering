@@ -34,7 +34,8 @@ function reportData(): ReportData {
     gaps: [],
     models: [],
     production_changed_files: 0,
-    generated_at: Date.now(),
+    // Keep numeric narrative probes independent of the wall-clock timestamp.
+    generated_at: Date.UTC(2026, 0, 1),
     final_run_id: "run-final-001",
     checkpoint_id: "checkpoint-001",
   };

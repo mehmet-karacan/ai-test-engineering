@@ -1,0 +1,215 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "date": "2026-10-23",
+  "target_class": "tr.com.innova.gpu.service.DeductionService",
+  "job_id": "5f6a657a-2187-42f3-81ea-8851b1178d65",
+  "product_commit": "0e17b66662d256530b53a80724a176cc02a13a46",
+  "model": "litellm/GLM-5.3-Flash-IT",
+  "reasoning_effort": "low",
+  "model_calls": 21,
+  "model_output_job_artifact_hash_matches": 21,
+  "non_candidate_model_responses": 0,
+  "failed_agent_attempts": 0,
+  "manual_tests_supplied": false,
+  "prior_generated_tests_supplied": false,
+  "source_unchanged": true,
+  "outcome": "TARGET_REACHED",
+  "autonomous_target_met": true,
+  "verification_level": "AFFECTED_SCOPE",
+  "target_percent": {
+    "line": 80,
+    "branch": 80
+  },
+  "final_line": {
+    "covered": 263,
+    "missed": 9,
+    "percent": 96.69
+  },
+  "final_branch": {
+    "covered": 85,
+    "missed": 19,
+    "percent": 81.73
+  },
+  "method_coverage": {
+    "update": {
+      "BRANCH": {
+        "covered": 12,
+        "missed": 2
+      },
+      "LINE": {
+        "covered": 47,
+        "missed": 0
+      }
+    },
+    "deleteLogical": {
+      "BRANCH": {
+        "covered": 7,
+        "missed": 3
+      },
+      "LINE": {
+        "covered": 17,
+        "missed": 0
+      }
+    }
+  },
+  "test_files_added": 12,
+  "test_methods_added": 35,
+  "final_tests": {
+    "total": 670,
+    "passed": 659,
+    "skipped": 11,
+    "failures": 0,
+    "errors": 0
+  },
+  "missing_original_test_invocations": 0,
+  "original_apply": false,
+  "report_verification": {
+    "missing": [],
+    "hash_mismatch": []
+  },
+  "published_runtime_snapshot": "Publication-time RUNNING/READY_FOR_REVIEW; terminal authority is test_job/test_result COMPLETED/NOT_REQUESTED",
+  "jacoco_sha256": "ecc309da2e70d68dce09f780230b060df9eb2525ee95ebf2129b6c45c66dceda",
+  "audit_sha256": "794d259e2a453f6c227a5e985322250d410fffb4d1f3cc47e8d2da3264e1aa12",
+  "observed_retry_usage": {
+    "max_repairs_for_one_candidate": 3,
+    "max_consecutive_rejections": 3,
+    "physical_attempts": 21,
+    "within_default_limits": false
+  },
+  "validation_budget": {
+    "max_model_calls": 32,
+    "max_repairs_per_candidate": 4,
+    "no_progress_window": 6,
+    "total_job_minutes": 120,
+    "default_config_model_calls_unchanged": 20
+  },
+  "focused_verification": {
+    "files": 8,
+    "tests_passed": 78,
+    "typecheck": "PASS",
+    "build": "PASS",
+    "lint_errors": 0,
+    "lint_existing_warnings": 89,
+    "local_release_gate": "PASS",
+    "full_product_suite_rerun": true,
+    "full_product_suite": {
+      "command_exit_code": 1,
+      "files_passed": 132,
+      "files_failed": 1,
+      "files_skipped": 1,
+      "tests_passed": 1077,
+      "tests_failed": 1,
+      "tests_skipped": 1,
+      "log_sha256": "6316ba3988ea4ad75a14331648312a288010b1460938a1103a42a56db1cb061e",
+      "failure": "P01 DIST_STALE_TREE: test-only edits changed source tree after build stamp",
+      "post_build_followup": {
+        "files_passed": 1,
+        "tests_passed": 41,
+        "exit_code": 0,
+        "log_sha256": "9966e2a3817f633e6a921a78181f0fad07c44634ac7078499d583edc12b27f6c"
+      },
+      "combined_active_files_verified": 133,
+      "combined_active_tests_verified": 1078,
+      "combined_matrix_passed": true
+    },
+    "full_suite_command": "AITEST_AC67_MODEL_OUTPUT=<existing-private-artifact> npm.cmd test -- --maxWorkers=2",
+    "initial_suite_result": {
+      "files_passed": 130,
+      "tests_passed": 1074,
+      "files_failed": 3,
+      "tests_failed": 4,
+      "files_skipped": 1,
+      "tests_skipped": 1,
+      "recovery_files": 3,
+      "recovery_tests_passed": 21
+    }
+  },
+  "previous_comparable_runs": [
+    {
+      "job_id": "d76b5036-4211-4cf5-be53-d54d639538d2",
+      "outcome": "TARGET_NOT_MET_PLATEAU",
+      "final_coverage": {
+        "BRANCH": {
+          "covered": 0,
+          "missed": 104
+        },
+        "LINE": {
+          "covered": 0,
+          "missed": 272
+        }
+      },
+      "model_calls": 3,
+      "max_model_calls": 20,
+      "autonomous_target_met": false
+    },
+    {
+      "job_id": "2b7d947f-3738-48b5-954f-5bd153acd23a",
+      "outcome": "TARGET_NOT_MET_BUDGET",
+      "final_coverage": {
+        "BRANCH": {
+          "covered": 80,
+          "missed": 24
+        },
+        "LINE": {
+          "covered": 271,
+          "missed": 1
+        }
+      },
+      "model_calls": 20,
+      "max_model_calls": 20,
+      "autonomous_target_met": false
+    },
+    {
+      "job_id": "82dca2e7-03da-49e2-b1aa-1464b92c158c",
+      "outcome": "TARGET_NOT_MET_BUDGET",
+      "final_coverage": {
+        "BRANCH": {
+          "covered": 82,
+          "missed": 22
+        },
+        "LINE": {
+          "covered": 271,
+          "missed": 1
+        }
+      },
+      "model_calls": 20,
+      "max_model_calls": 20,
+      "autonomous_target_met": false
+    },
+    {
+      "job_id": "cbdca2e1-f354-4925-860b-9d9456d15dea",
+      "outcome": "TARGET_NOT_MET_PLATEAU",
+      "final_coverage": {
+        "BRANCH": {
+          "covered": 69,
+          "missed": 35
+        },
+        "LINE": {
+          "covered": 230,
+          "missed": 42
+        }
+      },
+      "model_calls": 13,
+      "max_model_calls": 32,
+      "autonomous_target_met": false
+    },
+    {
+      "job_id": "3b18f1d7-21e3-4640-bff8-eb86983b9feb",
+      "outcome": "TARGET_NOT_MET_PLATEAU",
+      "final_coverage": {
+        "BRANCH": {
+          "covered": 51,
+          "missed": 53
+        },
+        "LINE": {
+          "covered": 187,
+          "missed": 85
+        }
+      },
+      "model_calls": 7,
+      "max_model_calls": 32,
+      "autonomous_target_met": false
+    }
+  ],
+  "evidence": "ai/checkpoints/2026-10-23-deduction-context-repair.md"
+}

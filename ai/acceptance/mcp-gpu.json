@@ -4,9 +4,9 @@
   "M01": "VERIFIED",
   "M02": "VERIFIED",
   "M03": "VERIFIED",
-  "M04": "ASSISTED_TARGET_MET_AUTONOMOUS_TARGET_NOT_MET",
+  "M04": "AUTONOMOUS_TARGET_MET",
   "M05": "VERIFIED_CONFIGURED_MODEL_AND_MAVEN_PROBE_AND_MCP_HANDSHAKE",
-  "M06": "FIXES_FOCUSED_TESTS_REVIEW_LOCAL_GATE_AND_PUSH_VERIFIED",
+  "M06": "FULL_WINDOWS_SUITE_REVIEW_LOCAL_GATE_VERIFIED",
   "coverage_job_id": "8eb1ff08-c040-4d03-8750-b125a8bf995d",
   "tests": {
     "total": 635,
@@ -16,28 +16,29 @@
   },
   "generation_started": true,
   "apply_requested": false,
-  "evidence": "ai/checkpoints/2026-10-23-deduction-autonomous.md",
-  "generation_job_id": "a82a3465-64b8-4f52-9850-a0afdaff454c",
+  "evidence": "ai/checkpoints/2026-10-23-deduction-context-repair.md",
+  "generation_job_id": "5f6a657a-2187-42f3-81ea-8851b1178d65",
   "previous_generation_job_id": "37a7a63f-b539-4a90-9e37-de2adc3f6a34",
   "target_percent": {
     "line": 80,
     "branch": 80
   },
-  "final_generated_tests_added": 16,
+  "final_generated_tests_added": 35,
   "final_tests": {
-    "total": 651,
-    "passed": 640,
+    "total": 670,
+    "passed": 659,
+    "skipped": 11,
     "failures": 0,
-    "skipped": 11
+    "errors": 0
   },
-  "overall_delivery": "ASSISTED_PATCH_READY_AUTONOMOUS_80_NOT_MET",
-  "final_generated_test_files": 3,
+  "overall_delivery": "AUTONOMOUS_80_TARGET_VERIFIED_ORIGINAL_APPLY_PENDING",
+  "final_generated_test_files": 12,
   "final_coverage": {
-    "line_bps": 4742,
-    "branch_bps": 3269
+    "line_bps": 9669,
+    "branch_bps": 8173
   },
   "assisted_verification_job_id": "bf1a70b3-7dbd-4363-b84a-2098e03696c9",
-  "autonomous_opencode_target_met": false,
+  "autonomous_opencode_target_met": true,
   "assisted_final_tests": {
     "total": 681,
     "passed": 670,
@@ -49,10 +50,17 @@
     "line_bps": 9963,
     "branch_bps": 9519
   },
-  "latest_autonomous_verification_job_id": "bb055aed-db22-4fe5-990f-d3c80104953c",
-  "latest_autonomous_outcome": "TARGET_NOT_MET_PLATEAU",
+  "latest_autonomous_verification_job_id": "5f6a657a-2187-42f3-81ea-8851b1178d65",
+  "latest_autonomous_outcome": "TARGET_REACHED",
   "latest_autonomous_coverage": {
-    "line_bps": 1029,
-    "branch_bps": 1250
+    "line_bps": 9669,
+    "branch_bps": 8173
+  },
+  "latest_autonomous_validation_budget": {
+    "max_model_calls": 32,
+    "max_repairs_per_candidate": 4,
+    "no_progress_window": 6,
+    "total_job_minutes": 120,
+    "default_config_model_calls_unchanged": 20
   }
 }
