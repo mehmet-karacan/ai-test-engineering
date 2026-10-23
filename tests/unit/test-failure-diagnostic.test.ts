@@ -22,6 +22,8 @@ it("includes errors, redacts paths and credentials, and excludes stdout", () => 
   const text=testFailureDiagnostic(root,[""]).join("\n");
   expect(text).toContain("java.lang.Exception");expect(text).toContain("approval failed");
   expect(text).not.toContain(homedir());expect(text).not.toContain("user:secret");expect(text).not.toContain("NEVER_FORWARD_STDOUT");
+  writeFileSync(join(reports,"TEST-a.Test.xml"), '<testsuite><testcase classname="a.Test" name="x"><error message="save returned null&#10;next &quot;id&quot;">line&#10;next</error></testcase></testsuite>');
+  const decoded=testFailureDiagnostic(root,[""]).join("\n");expect(decoded).toContain('save returned null\nnext "id"');expect(decoded).not.toContain("&#10;");
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 

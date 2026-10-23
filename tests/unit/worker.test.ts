@@ -70,11 +70,14 @@ describe("role prompts", () => {
       existing_tests_summary: [],
       uncovered_areas: [],
       previous_attempts: [{ scenario: "null-girdi", result: "reddedildi", error: "compile hatasi" }],
+      previous_candidate: "class PriorTest { void workingFixture() {} }",
       policy_rules: [],
     });
     expect(prompt).toContain("null-girdi");
     expect(prompt).toContain("compile hatasi");
     expect(prompt).toContain("tekrar etme");
+    expect(prompt).toContain("workingFixture()");
+    expect(prompt).toContain("calisan fixture");
   });
 });
 

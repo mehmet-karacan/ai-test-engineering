@@ -201,6 +201,7 @@ describe("P05-B: bounded repair feedback", () => {
       });
 
       expect(feedbacks).toHaveLength(1);
+      expect(feedbacks[0]!.previous_candidate).toContain("void repair_scenario()");
       if (firstExit !== 0) expect(feedbacks[0]!.previous_failure).toContain("cannot find symbol: variable PERCENT");
       expect(feedbacks[0]!.previous_failure).not.toContain("private-secret");
       expect(feedbacks[0]!.attempt_kind).toBe("repair");

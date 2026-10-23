@@ -14,6 +14,7 @@ import { summarizeTestReports, assertCoverageConfigured, buildPlan, classifyTest
 import { scanTestFile } from "../discovery/java-inventory.js";
 import { baselineDiagnostic } from "./baseline-diagnostic.js";
 import { testFailureDiagnostic } from "./test-failure-diagnostic.js";
+import { repairCandidateContext } from "../workers/opencode/generation-context.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 
 export interface IterationBudget {
@@ -45,6 +46,7 @@ export interface CandidateGenerationFeedback {
   repair_ordinal: number;
   repair_of_iteration: number;
   previous_failure: string;
+  previous_candidate?: string;
   failed_tests: string[];
   quality_findings: QualityFinding[];
   run_exit_code: number | null;
@@ -358,7 +360,7 @@ export interface IterateOptions {
   iteration_limit?: number;
   /** iteration is supplied so a restart can reuse the same durable task for
    * the same logical candidate instead of creating a fresh UUID. */
-  generate_candidate: (feedback?: CandidateGenerationFeedback, iteration?: number) => Promise<CandidateChangeSet | null>;
+  generate_candidate: (feedback?: CandidateGenerationFeedback, iteration?: number, trustedWorkspace?: string) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
   /** PR06/PP26: tum aday ve repair denemeleri icin job'a ait mutlak deadline. */
@@ -507,6 +509,7 @@ export class CandidateLoop {
     let repairFeedback: CandidateGenerationFeedback | undefined;
     let repairCount = 0;
     let repairsUsed = 0;
+    let lastCandidate: CandidateChangeSet | null = null;
     const deadlineExceeded = (): boolean => options.deadline_at !== undefined && Date.now() >= options.deadline_at;
     const iterationLimit = options.iteration_limit
       ?? (startIteration > 1
@@ -528,6 +531,7 @@ export class CandidateLoop {
         repairsUsed++;
         repairFeedback = {
           ...feedback,
+          previous_candidate: repairCandidateContext(lastCandidate),
           attempt_kind: "repair",
           repair_ordinal: repairCount,
           repair_of_iteration: iteration,
@@ -600,7 +604,9 @@ export class CandidateLoop {
       const attemptOrdinal = iterations.length + 1;
       let candidate: CandidateChangeSet | null;
       try {
-        candidate = await options.generate_candidate(currentFeedback, iteration);
+        lastCandidate = null;
+        candidate = await options.generate_candidate(currentFeedback, iteration, trustedWorkspace ?? frozenSourceRoot);
+        lastCandidate = candidate;
       } catch (error) {
         const reason = `Worker aday uretimi basarisiz: ${String(error).slice(0, 500)}`;
         const errorFingerprint = sha256Data(reason);

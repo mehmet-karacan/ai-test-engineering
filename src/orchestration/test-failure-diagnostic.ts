@@ -27,7 +27,14 @@ export function testFailureDiagnostic(root: string, modules: string[], failedTes
             const test = entry as Record<string, unknown>;
             for (const failure of [...array(test.failure), ...array(test.error)]) {
               const detail = typeof failure === "object" && failure ? failure as Record<string, unknown> : { "#text": failure };
-              const raw = `${test["@_classname"]}#${test["@_name"]}: ${detail["@_type"] ?? ""} ${detail["@_message"] ?? ""}\n${detail["#text"] ?? ""}`;
+              // Decode built-in/numeric references only; custom XML entities remain inert.
+              const decode = (value: unknown) => String(value ?? "").replace(/&(#x[0-9a-f]+|#\d+|quot|apos|lt|gt|amp);/gi, (match, entity: string) => {
+                const known: Record<string,string> = {quot:'"',apos:"'",lt:"<",gt:">",amp:"&"};
+                if (known[entity]) return known[entity];
+                const n = entity.startsWith("#x") ? parseInt(entity.slice(2),16) : Number(entity.slice(1));
+                return Number.isInteger(n) && n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : match;
+              });
+              const raw = `${test["@_classname"]}#${test["@_name"]}: ${decode(detail["@_type"])} ${decode(detail["@_message"])}\n${decode(detail["#text"])}`;
               const text = redactUserPath(redactSensitive(raw).replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[REDACTED]@"), homedir()).slice(0, 1500);
               if (bytes + Buffer.byteLength(text, "utf8") > 4096 || result.length >= 8) return result;
               bytes += Buffer.byteLength(text, "utf8"); result.push(text);

@@ -1,6 +1,7 @@
 import { baselineDiagnostic } from "./baseline-diagnostic.js";
 import { projectNativeExecution, type ProjectNativeExecution } from "../configuration/project-native-execution.js";
 import { buildDependencyContext } from "../workers/opencode/dependency-context.js";
+import { coverageGapContext } from "../workers/opencode/generation-context.js";
 import { effectiveMavenEnvironment } from "../runners/native-toolchain.js";
 /**
  * Job dispatcher: test_start ile baslayan kalici isin asamalarini gercekten yurutur.
@@ -773,7 +774,7 @@ export class JobDispatcher {
               });
             }
           },
-          generate_candidate: async (feedback, generationIteration = goal.start_iteration ?? 1) => {
+          generate_candidate: async (feedback, generationIteration = goal.start_iteration ?? 1, trustedWorkspace) => {
             assertLease();
             const latest = jobs.getJob(job.id);
             if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
@@ -806,6 +807,7 @@ export class JobDispatcher {
                 root_digest: sourceIdentity.source_digest,
                 job_revision: jobs.getJob(job.id).row_version,
               },
+              trustedWorkspace,
             );
           },
           generation_failure_reason: () => this.workerEnabled ? null : "WORKER_DISABLED",
@@ -1852,6 +1854,7 @@ export class JobDispatcher {
       root_digest: string;
       job_revision: number;
     },
+    trustedWorkspace?: string,
   ): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
     // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
     const portOffset = Number.parseInt(createHash("sha256").update(jobId, "utf8").digest("hex").slice(0, 6), 16) % 2000;
@@ -1875,6 +1878,7 @@ export class JobDispatcher {
     const javaFiles = collectJavaFiles(projectRoot, module.source_root);
     const targetFile = javaFiles.find((f) => resolve(f) === resolve(projectRoot, module.source_root, ...`${targetFqn.replace(/\./g, "/")}.java`.split("/")));
     const signatures: string[] = [];
+    const publicMethods: string[] = [];
     let classBody = "";
     let classBodyTruncated = false;
     const classBodyLimit = 32768;
@@ -1882,6 +1886,7 @@ export class JobDispatcher {
       const { methods } = scanJavaFile(targetFile, projectRoot);
       for (const method of methods) {
         signatures.push(method.signature);
+        if (method.visibility === "public" && method.owner_fqn === targetFqn) publicMethods.push(method.name);
       }
       // 10.2 zorunlu baglam: hedef sinifin gercek govdesi prompt'a girer (RT21 pilot bulgusu:
       // govdesiz prompt'ta model kaynak kodu isteyen aciklama yaziyor, JSON uretemiyor).
@@ -1922,8 +1927,9 @@ export class JobDispatcher {
     const testFramework = inferTestFramework(testFiles, module, projectRoot);
 
     // coverage aciklari: gercek satir/branch sayaclari:
-    const coverage = readCoverageAfterRun(projectRoot, targetFqn, module.module_relative_path);
-    const uncoveredAreas: string[] = [];
+    const coverageRoot = trustedWorkspace ?? join(this.workspaceRoot, "jobs", jobId, "baseline");
+    const coverage = readCoverageAfterRun(coverageRoot, targetFqn, module.module_relative_path);
+    const uncoveredAreas: string[] = coverageGapContext(coverageRoot,targetFqn,module.module_relative_path,publicMethods);
     if (coverage?.line) {
       uncoveredAreas.push(`LINE: ${coverage.line.covered}/${coverage.line.covered + coverage.line.missed}`);
     }
@@ -1945,9 +1951,11 @@ export class JobDispatcher {
       existing_tests_summary: [
         ...(existingTests.length > 0 ? existingTests : ["bilinmiyor"]),
         ...acceptedTests.map(path => `Kabul edilmis test; koru: ${relative(acceptedRoot, path).replace(/\\/g, "/")}`),
+        ...acceptedTests.flatMap(path => scanTestFile(path,acceptedRoot).methods.map(m => `Kabul edilmis senaryo: ${m.name}`)).slice(0,80),
       ],
       uncovered_areas: uncoveredAreas.length > 0 ? uncoveredAreas : [`${targetFqn}: kapsanmamis alanlar (bilinmiyor)`],
       ...(feedback ? {
+        previous_candidate: feedback.previous_candidate,
         previous_attempts: [{
           scenario: `repair_${feedback.repair_ordinal}_iteration_${feedback.repair_of_iteration}`,
           result: feedback.previous_failure,
@@ -2031,7 +2039,7 @@ export class JobDispatcher {
           snapshot_id: agentContext.source_snapshot_id,
           root_digest: agentContext.root_digest,
           relative_paths: [relativeTargetPath, ...dependencies.relativePaths],
-          line_ranges: dependencies.relativePaths.map(relative_path => ({ relative_path, start: 1, end: 1 })),
+          line_ranges: dependencies.lineRanges,
           max_bytes: 128 * 1024,
           secrets_excluded: true,
         },

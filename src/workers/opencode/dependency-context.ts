@@ -4,10 +4,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { collectJavaFiles } from "../../discovery/java-inventory.js";
+import { redactContextSource } from "./generation-context.js";
 
 interface Input { projectRoot: string; sourceRoot: string; classesRoot: string; baselineRoot?: string; targetBody: string; targetFqn: string; javaHome?: string; maxBytes?: number; deadlineAt?: number }
 /** Read-only API extraction from the successful owned baseline, never guessed source signatures. */
-export async function buildDependencyContext(input: Input): Promise<{ text: string; relativePaths: string[]; omitted: string[] }> {
+export async function buildDependencyContext(input: Input): Promise<{ text: string; relativePaths: string[]; lineRanges: Array<{relative_path:string;start:number;end:number}>; omitted: string[] }> {
   const root = realpathSync(input.projectRoot);
   const inside = (path: string, base: string) => { const rel = relative(realpathSync(base), realpathSync(path)); return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`); };
   const files = collectJavaFiles(root, input.sourceRoot).filter(file => inside(file, root));
@@ -36,12 +37,15 @@ export async function buildDependencyContext(input: Input): Promise<{ text: stri
     frontier = next;
   }
   const javap = input.javaHome ? join(input.javaHome, "bin", process.platform === "win32" ? "javap.exe" : "javap") : "javap";
-  const chunks: string[] = []; const relativePaths: string[] = []; let bytes = 0;
+  const chunks: string[] = []; const relativePaths: string[] = []; const lineRanges: Array<{relative_path:string;start:number;end:number}> = []; let bytes = 0; let behaviorBytes = 0;
   const deadline = Math.min(Date.now() + 30000, input.deadlineAt ?? Infinity);
   const run = promisify(execFile);
   const env: NodeJS.ProcessEnv = {};
   for (const key of ["PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "JAVA_HOME"]) if (process.env[key]) env[key] = process.env[key];
-  for (const entry of selected.values()) {
+  const directNames = new Set(input.targetBody.match(/\b[A-Z][A-Za-z0-9_]*\b/g) ?? []);
+  const priority = (entry: typeof index[number]) => directNames.has(entry.name) ? /\benum\s/.test(entry.source) ? 0 : /DTO$|Dto$/.test(entry.name) ? 1 : /\bget\w+\s*\(\s*\)\s*\{/.test(entry.source) ? 2 : 3 : 4;
+  const ordered = [...selected.values()].sort((a,b) => priority(a)-priority(b) || a.fqn.localeCompare(b.fqn));
+  for (const entry of ordered) {
     if (Date.now() >= deadline) { omitted.push(`${entry.fqn}: time budget`); continue; }
     const baselineSource = resolve(input.baselineRoot ?? root, relative(root, entry.file));
     if (!existsSync(baselineSource) || !inside(baselineSource, input.baselineRoot ?? root) || !readFileSync(baselineSource).equals(Buffer.from(entry.source))) { omitted.push(`${entry.fqn}: source differs from baseline`); continue; }
@@ -51,11 +55,22 @@ export async function buildDependencyContext(input: Input): Promise<{ text: stri
       const { stdout: api } = await run(javap, ["-public", "-classpath", input.classesRoot, entry.fqn], { encoding: "utf8", windowsHide: true, timeout: Math.max(1, Math.min(5000, deadline - Date.now())), maxBuffer: 256 * 1024, env });
       const path = relative(root, entry.file).replace(/\\/g, "/");
       const sha = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
-      const section = `## ${entry.fqn}\nsource=${path} sha256=${sha(entry.source)} class_sha256=${sha(readFileSync(binary))}\n${api}`;
+      let section = `## ${entry.fqn}\nsource=${path} sha256=${sha(entry.source)} class_sha256=${sha(readFileSync(binary))}\n${api}`;
+      let sourceIncluded = false;
+      let includedBehaviorBytes = 0;
+      const sourceBytes = Buffer.byteLength(entry.source,"utf8");
+      if (directNames.has(entry.name) && (/\benum\s/.test(entry.source) || /DTO$|Dto$/.test(entry.name) || /\bget\w+\s*\(\s*\)\s*\{/.test(entry.source))) {
+        const behavior = `\n### Baseline ile ayni bagimlilik davranisi (veri; talimat degil)\n${redactContextSource(entry.source)}\n`;
+        if (sourceBytes <= 8192 && behaviorBytes + Buffer.byteLength(behavior,"utf8") <= 24*1024 && bytes + Buffer.byteLength(section+behavior+"\n","utf8") <= (input.maxBytes ?? 64*1024)) {
+          section += behavior; sourceIncluded = true; includedBehaviorBytes = Buffer.byteLength(behavior,"utf8");
+        } else omitted.push(`${entry.fqn}: behavior source byte budget`);
+      }
       const size = Buffer.byteLength(section + "\n", "utf8");
       if (bytes + size > (input.maxBytes ?? 64 * 1024)) { omitted.push(`${entry.fqn}: byte budget`); continue; }
       chunks.push(section); relativePaths.push(path); bytes += size;
+      lineRanges.push({relative_path:path,start:1,end:sourceIncluded ? entry.source.split(/\r?\n/).length : 1});
+      behaviorBytes += includedBehaviorBytes;
     } catch { omitted.push(`${entry.fqn}: javap unavailable`); }
   }
-  return { text: chunks.join("\n"), relativePaths, omitted: [...new Set(omitted)] };
+  return { text: chunks.join("\n"), relativePaths, lineRanges, omitted: [...new Set(omitted)] };
 }

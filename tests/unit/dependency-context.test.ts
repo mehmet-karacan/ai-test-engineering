@@ -1,7 +1,7 @@
 import { it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { buildDependencyContext } from "../../src/workers/opencode/dependency-context.js";
 
@@ -10,8 +10,8 @@ it("resolves wildcard DTO/enum/DAO dependencies to actual compiled public types"
   try {
     const source = join(root, "src/main/java/a"); mkdirSync(source, { recursive: true });
     const classes = join(root, "classes"); mkdirSync(classes);
-    writeFileSync(join(source, "Dto.java"), "package a; public class Dto { public void setAmount(java.math.BigDecimal value) {} }");
-    writeFileSync(join(source, "Unit.java"), "package a; public enum Unit { AMOUNT, RATIO }");
+    writeFileSync(join(source, "Dto.java"), `package a; public class Dto { public void setAmount(java.math.BigDecimal value) {} public String getPath() { return "${homedir().replace(/\\/g,"/")}"; } public String getEndpoint() { return "https://user:secret@example.com"; } }`);
+    writeFileSync(join(source, "Unit.java"), "package a; public enum Unit { AMOUNT(1), RATIO(2); private final int value; Unit(int value) { this.value = value; } public int getValue() { return value; } }");
     writeFileSync(join(source, "Dao.java"), "package a; public interface Dao { String getSql(); }");
     const bare = join(root, "src/main/java/Bare.java");
     writeFileSync(bare, "public class Bare { public int getValue() { return 1; } }");
@@ -24,6 +24,11 @@ it("resolves wildcard DTO/enum/DAO dependencies to actual compiled public types"
     expect(result.text).toContain("setAmount(java.math.BigDecimal)");
     expect(result.text).toContain("java.lang.String getSql()");
     expect(result.text).toContain("a.Unit RATIO");
+    expect(result.text).toContain("AMOUNT(1)");
+    expect(result.text).toContain("return value;");
+    expect(result.text).not.toContain("user:secret");
+    expect(result.text).not.toContain(homedir().replace(/\\/g,"/"));
+    expect(result.lineRanges).toContainEqual({ relative_path: "src/main/java/a/Unit.java", start: 1, end: 1 });
     expect(result.relativePaths).toContain("src/main/java/a/Dto.java");
     expect(result.text).not.toContain("StringBuilder");
     const staticEnum = await buildDependencyContext({ ...input, targetBody: "package b;\nimport static a.Unit.AMOUNT;\nclass Service { Object unit = AMOUNT; }" });
