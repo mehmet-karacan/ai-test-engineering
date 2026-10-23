@@ -37,7 +37,7 @@ export function createToolRegistry(services: Services): ToolRegistry {
 
   registry.register({
     name: "test_start",
-    description: "Dogrulanmis parametrelerle tek kalici test job baslatir; kisa surede job handle doner.",
+    description: "Kullanici sinif sectikten sonra tek kalici test job baslatir. Genel coverage onerisi icin once project_coverage, sonra test_result kullan; secilen tek FQN ve coverage_scan_id gonder. Kisa surede job handle doner.",
     inputSchema: TestStartInputSchema,
     readOnly: false,
     idempotent: true,

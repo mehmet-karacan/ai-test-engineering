@@ -12,8 +12,7 @@
     "aitest-mcp": "./dist/mcp/stdio-entry.js"
   },
   "scripts": {
-    "ui": "npm run build && node dist/ui/entry.js",
-    "build": "tsc && node scripts/write-build-stamp.mjs && node scripts/verify-windows-process-helper.mjs && node scripts/verify-windows-file-helper.mjs && node scripts/verify-windows-snapshot-helper.mjs",
+    "build": "node scripts/clean-build.mjs && tsc && node scripts/write-build-stamp.mjs && node scripts/verify-windows-process-helper.mjs && node scripts/verify-windows-file-helper.mjs && node scripts/verify-windows-snapshot-helper.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

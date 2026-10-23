@@ -1,0 +1,15 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "date": "2026-10-23",
+  "M01": "VERIFIED",
+  "M02": "VERIFIED",
+  "M03": "VERIFIED",
+  "M04": "WAITING_USER_CLASS_SELECTION",
+  "M05": "CONFIGURED_PENDING_MAIN_INSTALL_VERIFY",
+  "M06": "FOCUSED_TESTS_AND_REVIEW_PASSED_PENDING_DELIVERY",
+  "coverage_job_id": "8eb1ff08-c040-4d03-8750-b125a8bf995d",
+  "tests": { "total": 635, "failures": 0, "errors": 0, "skipped": 11 },
+  "generation_started": false,
+  "apply_requested": false,
+  "evidence": "ai/checkpoints/2026-10-23-mcp-only-gpu.md"
+}

@@ -14,7 +14,7 @@ Bu depo, AI test muhendisligi MCP urununun gelistirme deposudur. Aktif gorev soz
 
 ## Kurallar
 
-- Aktif gorev `AITE-LOCAL-UI-008`: kokteki `AKTIF_GOREV.md`; kabuller U01..U08. Onceki007 byte-korunmus arsiv ai/tasks/archive/AITE-REPORT07-PRODUCTION-007-20261022.md icindedir. Onceki 006+coverage sozlesmesi byte-korunmus `ai/tasks/archive/AITE-WINDOWS-SUBAGENT-PILOT-006-v1.0-with-coverage-20261020.md` icindedir; WN01-WN80 gecmisi korunur.
+- Aktif gorev `AITE-MCP-GPU-009`: kokteki `AKTIF_GOREV.md`; kabuller M01..M06. Onceki007 byte-korunmus arsiv ai/tasks/archive/AITE-REPORT07-PRODUCTION-007-20261022.md icindedir. Onceki 006+coverage sozlesmesi byte-korunmus `ai/tasks/archive/AITE-WINDOWS-SUBAGENT-PILOT-006-v1.0-with-coverage-20261020.md` icindedir; WN01-WN80 gecmisi korunur.
 - Onceki `AITE-PRODUCTION-READINESS-005 v1.0` byte-korunmus arsivi `ai/tasks/archive/AITE-PRODUCTION-READINESS-005-v1.0.md` altindadir. Eski kabul iddialari yeni Windows kapsamina otomatik PASSED tasinmaz.
 - G0 urun kodu ve sentetik Windows testlerini acar. GPU Fusion'da ilk Maven/model kosusu G1, ozgun checkout'a test uygulamasi G2, yayin G3 ayri kullanici kararidir.
 - Arsivdeki urun sozlesmesi: `ai/tasks/archive/` (AITE-FOUNDATION-001: R01-R20/AC01-AC70; AITE-REMEDIATION-002: RG01-RG52).

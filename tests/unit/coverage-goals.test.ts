@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { TestStartInputSchema } from "../../src/domain/tool-schemas.js";
 
-describe("local UI independent coverage goals", () => {
+describe("MCP independent coverage goals", () => {
   const input = { project_root: "C:/project", targets: [{ selector: "a.Service", kind: "class" }], coverage: { percent: 80, branch_percent: 70 } };
   it("retains an explicit branch goal while preserving legacy common percent", () => {
     expect(TestStartInputSchema.parse(input).coverage).toMatchObject({ percent: 80, branch_percent: 70 });

@@ -14,7 +14,6 @@ import { prepareCoverageWorkspace } from "../../src/orchestration/coverage-works
 import { handleProjectCoverage } from "../../src/application/project-coverage.js";
 import { JobDispatcher, type GoalContract } from "../../src/orchestration/job-dispatcher.js";
 import { createToolRegistry } from "../../src/mcp/server-setup.js";
-import { createUiBackend } from "../../src/ui/backend.js";
 
 afterEach(() => vi.restoreAllMocks());
 describe("project coverage proposal flow", () => {
@@ -110,7 +109,9 @@ describe("project coverage proposal flow", () => {
       services.jobs!.updateOutcome(started.job_id, "COVERAGE_ANALYZED", services.jobs!.getJob(started.job_id).row_version);
       services.jobs!.updateLifecycle(started.job_id, "WAITING_INPUT", services.jobs!.getJob(started.job_id).row_version);
       const input = { project_root: project, coverage_scan_id: started.job_id, targets: [{ selector: candidate.fqn, kind: "class" }], coverage: { percent: 80.01, branch_percent: 70.01, metrics: ["LINE", "BRANCH"] } };
-      const selected = await createUiBackend(services, { workerEnabled: true, model: null }).start({ coverage_scan_id: started.job_id, selector: candidate.fqn, line_percent: 80.01, branch_percent: 70.01, idempotency_key: "ui-selected-class" }) as { created: boolean; job_id: string };
+      const response = await createToolRegistry(services).call("test_start", { ...input, idempotency_key: "mcp-selected-class" }, { requestId: "selected-class", services: {} });
+      expect(response.status).toBe("ok");
+      const selected = response.data as { created: boolean; job_id: string };
       await new Promise<void>(resolve => setImmediate(resolve));
       expect(selected.created).toBe(true); expect(goal?.coverage_mode).toBe("cli");
       expect(goal?.targets.map(t => t.selector)).toEqual([candidate.fqn]);

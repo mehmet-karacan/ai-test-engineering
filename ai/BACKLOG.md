@@ -1,3 +1,6 @@
+## 2026-10-23 OpenCode + MCP devam isi
+
+Kullanici frontend rollback istedi: AITE-MCP-GPU-009. UI kaynak/komut/testleri kaldirildi, MCP/coverage/rapor korundu. Gercek GPU backend MCP scan 8eb1ff08-c040-4d03-8750-b125a8bf995d: 635/0/0/11 test, LINE %19.64, BRANCH %21.97, 5 oneri ve WAITING_INPUT. Kullanici onayli controller dar duzeltmesi GPU kaynakta, testler korunmus. Sinif secimi bekleniyor; generation NOT_RUN. 63 odak test/typecheck/build/lint0error ve bagimsiz review PASS. Detay ai/checkpoints/2026-10-23-mcp-only-gpu.md; kabul ai/acceptance/mcp-gpu.json. Onceki UI kabul kayitlari tarihseldir; urun ekrani geri cekildi.
 ## 2026-10-22 Sky native hazirlik duzeltmesi
 
 - Proje bazli JDK/explicit unit-skip override ve hataozeti tamam;133dosya1065/1065test PASS,524.67sn,maxWorkers1; typecheck/build/lint0error/local gate/MCP/browser PASS, bagimsizreview14/14/bulgusuz. Detay ai/handoffs/2026-10-22-sky-readiness.md.

@@ -1,4 +1,5 @@
 * text=auto eol=lf
+ai/tasks/archive/AITE-LOCAL-UI-008-20261023.md -text
 
 *.md text eol=lf
 *.ts text eol=lf
