@@ -140,7 +140,7 @@ describe("P05-B: bounded repair feedback", () => {
     }
   });
 
-  it("ilk run hatasindan sonra feedback'li tek repair dener ve repair limitini asmaz", async () => {
+  it.each([0, 1])("ilk run sonucu %s sonrasi feedback'li tek repair dener ve limiti asmaz", async (firstExit) => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-p05-repair-"));
     const projectRoot = join(dir, "project");
     const stagingRoot = join(dir, "staging");
@@ -160,8 +160,10 @@ describe("P05-B: bounded repair feedback", () => {
         run: async (options: { working_dir: string; goals: string[]; timeout_ms: number; log_dir: string }): Promise<RunResult> => {
           runnerCalls++;
           writeCoverage(options.working_dir, runnerCalls > 1 ? 10 : 0, runnerCalls > 1 ? 0 : 10);
+          mkdirSync(options.log_dir, { recursive: true });
+          writeFileSync(join(options.log_dir, "stdout.log"), "[ERROR] cannot find symbol: variable PERCENT password=private-secret\n");
           return {
-            exit_code: 0,
+            exit_code: runnerCalls > 1 ? 0 : firstExit,
             duration_ms: 1,
             stdout_log_path: join(options.log_dir, "stdout.log"),
             stderr_log_path: join(options.log_dir, "stderr.log"),
@@ -199,9 +201,11 @@ describe("P05-B: bounded repair feedback", () => {
       });
 
       expect(feedbacks).toHaveLength(1);
+      if (firstExit !== 0) expect(feedbacks[0]!.previous_failure).toContain("cannot find symbol: variable PERCENT");
+      expect(feedbacks[0]!.previous_failure).not.toContain("private-secret");
       expect(feedbacks[0]!.attempt_kind).toBe("repair");
       expect(feedbacks[0]!.repair_ordinal).toBe(1);
-      expect(feedbacks[0]!.previous_failure).toContain("kazanc yok");
+      if (firstExit === 0) expect(feedbacks[0]!.previous_failure).toContain("kazanc yok");
       expect(result.repairs_used).toBe(1);
       expect(result.attempts_used).toBe(2);
       expect(result.outcome).toBe("TARGET_REACHED");

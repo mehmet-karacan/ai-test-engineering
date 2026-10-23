@@ -12,6 +12,7 @@ import { MavenRunner, strictTestExecutionProperties, type RunResult } from "../r
 import { parseJacocoXml, findClassInReport } from "../coverage/jacoco-parser.js";
 import { summarizeTestReports, assertCoverageConfigured, buildPlan, classifyTestRun, type SurefireSuite } from "../orchestration/build-plan.js";
 import { scanTestFile } from "../discovery/java-inventory.js";
+import { baselineDiagnostic } from "./baseline-diagnostic.js";
 import type { CandidateChangeSet } from "../workers/opencode/model-schemas.js";
 
 export interface IterationBudget {
@@ -855,6 +856,7 @@ export class CandidateLoop {
       }
 
       if (run.exit_code !== 0) {
+        const diagnostic = baselineDiagnostic({ execution_root: candidateWorkspace, reason_code: "MAVEN_EXIT_NONZERO", skip_config_detected: [], run });
         options.on_decision?.({ attempt_ordinal: attemptOrdinal, iteration, repair_for_attempt: currentFeedback?.repair_ordinal ?? null, decision: "rejected", reason: `Maven run basarisiz (exit ${run.exit_code})`, changeset_hash: candidateHash, coverage_before_bps: bestCoverageBps, coverage_after_bps: afterBps });
         iterations.push({
           attempt_ordinal: attemptOrdinal,
@@ -869,7 +871,7 @@ export class CandidateLoop {
           run_exit_code: run.exit_code,
         });
         const retry = scheduleRetry({
-          previous_failure: `Maven run basarisiz (exit ${run.exit_code})`,
+          previous_failure: [`Maven run basarisiz (exit ${run.exit_code})`, ...diagnostic.error_excerpt].join("\n"),
           failed_tests: [],
           quality_findings: [],
           run_exit_code: run.exit_code,
