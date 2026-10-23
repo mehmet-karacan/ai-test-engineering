@@ -8,3 +8,5 @@
 - Typecheck/build PASS; odak8dosya63test PASS; lint0error89mevcutwarning. Bagimsiz mcp_rollback_review: onemli bulgu yok, ek12/12 PASS. Tam suite tekrari bu dar rollback icin yapilmadi.
 - Private OpenCode MCP environment worker_enabled=1; mevcut litellm/GLM-5.3-Flash-IT kimligi ile worker profil/default ve global test-engineering skill eklendi; config yedekleri runtime/backups altinda. Secret degerleri cikarilmadi.
 - Devam: kullanici sinif secince bu coverage_scan_id ve tek FQN ile test_start; LINE/BRANCH %80 onerildi. Sonuc ve rapor dogrulanmadan M04 tamamlanmaz. Generated test apply icin ayri karar gerekir. Sky/CI kapali; frontend baslatilmaz.
+
+- Teslim: b7dcec7 ana dala fast-forward edildi. Ana depoda temiz build ile dist/ui yok; verify-install gercek kayitli entry/config/DB, model CONFIGURED, Maven CAPABILITY_PROBED ve MCP initialize/tools-list/tools-call PASS. DB scan model_tasks=0/candidates=0. Local release yapisal/secret-inventory gate PASS. M04 halen kullanici sinif secimi bekler.
