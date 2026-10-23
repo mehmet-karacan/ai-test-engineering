@@ -1075,7 +1075,9 @@ export class CandidateLoop {
       .filter((change) => change.action === "create")
       .map((change) => change.path);
     const selectors = deriveCandidateTestSelectors(workspace, acceptedTestPaths, options.test_selectors ?? []);
-    if (selectors.length > 0) properties.test = selectors.join(",");
+    // No baseline selector means the baseline ran the whole suite. Preserve
+    // that scope in the final replay, including every original test.
+    if (options.test_selectors?.length && selectors.length > 0) properties.test = selectors.join(",");
     const run = await this.runner.run({
       working_dir: workspace,
       goals: plan.maven_goals_coverage,

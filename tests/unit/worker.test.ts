@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildWorkerPrompt, DEFAULT_POLICY_RULES, WORKER_ROLES } from "../../src/workers/opencode/role-prompts.js";
+import { buildWorkerPrompt, candidateTestClassName, DEFAULT_POLICY_RULES, WORKER_ROLES } from "../../src/workers/opencode/role-prompts.js";
 import { defaultWorkerConfig, workerToolFlags, workerRequestBudget } from "../../src/workers/opencode/worker-config.js";
 import {
   TestPlanSchema,
@@ -13,6 +13,20 @@ import {
 } from "../../src/workers/opencode/model-schemas.js";
 
 describe("role prompts", () => {
+  it("chooses a test class name unused by baseline and accepted tests", () => {
+    const first = candidateTestClassName("Service", "aaaaaaaa-1234", 1, []);
+    const otherJob = candidateTestClassName("Service", "bbbbbbbb-1234", 1, []);
+    expect(otherJob).not.toBe(first);
+    const collision = candidateTestClassName("Service", "aaaaaaaa-1234", 1, [first]);
+    expect(collision).not.toBe(first);
+    expect(collision).toMatch(/^[A-Za-z][A-Za-z0-9_]*Test$/);
+  });
+  it("includes the full large target when the caller supplies a bounded larger context", () => {
+    const body = "x".repeat(24500) + "TAIL_VALIDATION_METHOD";
+    const prompt = buildWorkerPrompt({ role: "test_designer", class_name: "LargeService", package_name: "a", dependencies_signatures: [], existing_tests_summary: [], uncovered_areas: [], policy_rules: [], class_body: body }, 32768);
+    expect(prompt).toContain("TAIL_VALIDATION_METHOD");
+    expect(prompt).not.toContain("KESILDI");
+  });
   it("dort rol tanimli olmali", () => {
     expect(WORKER_ROLES).toEqual(["analyzer", "test_designer", "reviewer", "gap_analyzer"]);
   });

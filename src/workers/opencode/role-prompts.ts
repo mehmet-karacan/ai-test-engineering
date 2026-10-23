@@ -25,6 +25,14 @@ export interface WorkerPromptContext {
 
 export const WORKER_ROLES: readonly WorkerRole[] = ["analyzer", "test_designer", "reviewer", "gap_analyzer"] as const;
 
+export function candidateTestClassName(className: string, jobId: string, iteration: number, existingNames: readonly string[]): string {
+  const base = `${className}Generated${jobId.replace(/-/g, "").slice(0, 8)}_${iteration}`;
+  const used = new Set(existingNames);
+  let name = `${base}Test`;
+  for (let ordinal = 2; used.has(name); ordinal++) name = `${base}_${ordinal}Test`;
+  return name;
+}
+
 /**
  * W01/F04: context manifest - govde/bolum kesme kararlari kayitli olur; sessiz kesme yok.
  */
@@ -62,16 +70,16 @@ export function buildContextManifest(context: WorkerPromptContext, classBodyLimi
   return { entries, total_context_chars: total, excluded_notes: excludedNotes };
 }
 
-export function buildWorkerPrompt(context: WorkerPromptContext): string {
+export function buildWorkerPrompt(context: WorkerPromptContext, classBodyLimit = 12000): string {
   const roleIntro = roleIntroFor(context.role);
   // 10.2 + W01/F04: gercek govde prompt'a girer; 12000 karakterden uzunsa ACIK truncation isareti ile
   // (sessiz kesme yok; 'birebir' etiketi yalniz gercekten tam govde icin).
   const classBodyFull = context.class_body && context.class_body.length > 0;
-  const classBodyTruncated = classBodyFull && context.class_body!.length > 12000;
+  const classBodyTruncated = classBodyFull && context.class_body!.length > classBodyLimit;
   const classBodyLabel = !classBodyFull
     ? []
     : classBodyTruncated
-      ? [`## Hedef sinifin gercek govdesi (ILK 12000 KARAKTER; TOPLAM ${context.class_body!.length}; KESILDI)`, context.class_body!.slice(0, 12000), ""]
+      ? [`## Hedef sinifin gercek govdesi (ILK ${classBodyLimit} KARAKTER; TOPLAM ${context.class_body!.length}; KESILDI)`, context.class_body!.slice(0, classBodyLimit), ""]
       : ["## Hedef sinifin gercek govdesi (birebir)", context.class_body!, ""];
   // 10.3: cikti bicimi zorlamasi (RT21 pilot bulgusu: JSON zorlanmazsa model markdown java kodu
   // yaziyor; extractJsonCandidate bunu ceviremiyor):

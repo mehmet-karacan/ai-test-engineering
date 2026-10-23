@@ -30,7 +30,7 @@ import { MavenRunner, type RunResult } from "../runners/maven-runner.js";
 import { DockerRunner, DockerMavenRunner, scanMavenSettingsForSecrets } from "../runners/docker-runner.js";
 import { CustomerRunnerFactory } from "../runners/runner-factory.js";
 import { evaluateTarget, evaluateMetric } from "../coverage/coverage-math.js";
-import { buildWorkerPrompt, DEFAULT_POLICY_RULES, type TestFramework, type WorkerPromptContext } from "../workers/opencode/role-prompts.js";
+import { buildWorkerPrompt, candidateTestClassName, DEFAULT_POLICY_RULES, type TestFramework, type WorkerPromptContext } from "../workers/opencode/role-prompts.js";
 import { promptForJsonResult, WorkerRequestFailure, type WorkerPromptResult } from "../workers/opencode/worker-client.js";
 import { parseExactModelSpec, readWorkerProfileFromOpencodeConfig } from "../workers/opencode/profile-reader.js";
 import { CandidateChangeSetSchema } from "../workers/opencode/model-schemas.js";
@@ -1876,6 +1876,7 @@ export class JobDispatcher {
     const signatures: string[] = [];
     let classBody = "";
     let classBodyTruncated = false;
+    const classBodyLimit = 32768;
     if (targetFile) {
       const { methods } = scanJavaFile(targetFile, projectRoot);
       for (const method of methods) {
@@ -1884,7 +1885,7 @@ export class JobDispatcher {
       // 10.2 zorunlu baglam: hedef sinifin gercek govdesi prompt'a girer (RT21 pilot bulgusu:
       // govdesiz prompt'ta model kaynak kodu isteyen aciklama yaziyor, JSON uretemiyor).
       classBody = readFileSync(targetFile, "utf8");
-      if (classBody.length > 12000) {
+      if (classBody.length > classBodyLimit) {
         classBodyTruncated = true;
       }
     } else {
@@ -1898,6 +1899,8 @@ export class JobDispatcher {
 
     // mevcut test ozeti (bos degil; varken "Mevcut test yok" denemez):
     const testFiles = collectJavaFiles(projectRoot, module.test_root);
+    const acceptedRoot = join(this.workspaceRoot, "jobs", jobId, "accepted");
+    const acceptedTests = existsSync(acceptedRoot) ? collectJavaFiles(acceptedRoot, module.test_root) : [];
     const expectedTargetTestName = `${basename(targetRelativePath, ".java")}Test.java`;
     // The bounded summary must still include the exact test paired with the
     // target. Without this, a large test tree can hide an existing
@@ -1938,7 +1941,10 @@ export class JobDispatcher {
       class_name: targetFqn.split(".").pop() ?? targetFqn,
       package_name: targetFqn.split(".").slice(0, -1).join("."),
       dependencies_signatures: signatures,
-      existing_tests_summary: existingTests.length > 0 ? existingTests : ["bilinmiyor"],
+      existing_tests_summary: [
+        ...(existingTests.length > 0 ? existingTests : ["bilinmiyor"]),
+        ...acceptedTests.map(path => `Kabul edilmis test; koru: ${relative(acceptedRoot, path).replace(/\\/g, "/")}`),
+      ],
       uncovered_areas: uncoveredAreas.length > 0 ? uncoveredAreas : [`${targetFqn}: kapsanmamis alanlar (bilinmiyor)`],
       ...(feedback ? {
         previous_attempts: [{
@@ -1949,9 +1955,9 @@ export class JobDispatcher {
       } : {}),
       class_body: classBody.length > 0 ? classBody : "",
       test_framework: testFramework,
-      policy_rules: [...DEFAULT_POLICY_RULES],
+      policy_rules: [...DEFAULT_POLICY_RULES, `Yeni test sinifi adi ${candidateTestClassName(targetFqn.split(".").pop()!, jobId, generationIteration, [...testFiles, ...acceptedTests].map(path => basename(path, ".java")))} olsun; kabul edilmis dosyalari yeniden yazma.`],
     };
-    const prompt = buildWorkerPrompt(promptContext);
+    const prompt = buildWorkerPrompt(promptContext, classBodyLimit);
 
     // K03/B02: politika tool flags'i cagrida gercekten uygulanir (write/bash/task/web kapali):
     const { MAX_WORKER_REQUEST_TIMEOUT_MS, workerToolFlags } = await import("../workers/opencode/worker-config.js");
@@ -2075,7 +2081,7 @@ export class JobDispatcher {
         // Each candidate generation owns the server it registered. A timeout
         // or provider failure must not leave that child listening on the
         // deterministic job port and poison the next retry.
-        serverManager.stopOwnedServer();
+        await serverManager.stopOwnedServer();
       }
     }
 
@@ -2149,7 +2155,7 @@ export class JobDispatcher {
         throw failure;
       }
       const rawText = JSON.stringify(response.value);
-      finalizeAttempt("ok", promptResult, classBodyTruncated ? "CLASS_BODY_TRUNCATED_12K" : null, createHash("sha256").update(rawText, "utf8").digest("hex"));
+      finalizeAttempt("ok", promptResult, classBodyTruncated ? "CLASS_BODY_TRUNCATED_32K" : null, createHash("sha256").update(rawText, "utf8").digest("hex"));
       return changeset;
     } catch (error) {
       const failure = error instanceof WorkerRequestFailure ? error : new WorkerRequestFailure("SERVER_ERROR", String(error), promptResult);
@@ -2163,7 +2169,7 @@ export class JobDispatcher {
       throw failure;
     } finally {
       // Worker server yalniz bu aday isteginin sahip oldugu child'dir.
-      serverManager.stopOwnedServer();
+      await serverManager.stopOwnedServer();
     }
   }
 }

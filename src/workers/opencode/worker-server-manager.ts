@@ -129,7 +129,7 @@ export class WorkerServerManager {
     for (let i = 0; i < attempts; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       if (child.exitCode !== null || child.killed) {
-        this.stopOwnedServer();
+        await this.stopOwnedServer();
         throw new AppError("BLOCKED_ISOLATION", `Worker server baslatilamadi; process erken sonlandi (port ${this.options.port})`, {
           reason_code: "WORKER_SERVER_EXITED",
         });
@@ -139,7 +139,7 @@ export class WorkerServerManager {
         return client;
       }
     }
-    this.stopOwnedServer();
+    await this.stopOwnedServer();
     throw new AppError("BLOCKED_ISOLATION", `Worker server ${this.options.startupTimeoutMs} ms icinde hazir olmadi (port ${this.options.port})`, {
       reason_code: "WORKER_SERVER_UNAVAILABLE",
     });
@@ -236,11 +236,15 @@ export class WorkerServerManager {
   /**
    * Yalniz urun tarafindan baslatilan server'i durdurur; kullanici TUI'sine dokunmaz.
    */
-  stopOwnedServer(): void {
+  async stopOwnedServer(): Promise<void> {
     if (this.server && this.server.pid) {
       try {
         if (process.platform === "win32") {
-          spawn("taskkill", ["/pid", String(this.server.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
+          const killer = spawn("taskkill", ["/pid", String(this.server.pid), "/T", "/F"], { stdio: "ignore", shell: false, windowsHide: true });
+          await new Promise<void>((done) => {
+            killer.once("close", () => done());
+            killer.once("error", () => done());
+          });
         } else {
           this.server.kill("SIGTERM");
         }

@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { AppError } from "../../src/domain/errors.js";
 import {
   buildFrozenTargetList,
@@ -256,7 +256,7 @@ describe("P05-B: bounded repair feedback", () => {
     }
   });
 
-  it("final replay de frozen source'tan ayrik workspace kurar", async () => {
+  it.each([[], ["com.example.calc.CalcServiceTest"]])("final replay baseline selector kapsamini korur: %j", async (...selectors) => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-p06-frozen-final-"));
     const projectRoot = join(dir, "project");
     const frozenRoot = join(dir, "frozen");
@@ -264,9 +264,18 @@ describe("P05-B: bounded repair feedback", () => {
       cpSync(join(FIXTURES, "ac27-project"), projectRoot, { recursive: true });
       cpSync(projectRoot, frozenRoot, { recursive: true });
       writeFileSync(join(projectRoot, "live-only.txt"), "must-not-enter-final", "utf8");
+      const accepted = join(dir, "accepted");
+      const acceptedPath = join(accepted, "src/test/java/com/example/calc/NewGeneratedTest.java");
+      mkdirSync(dirname(acceptedPath), { recursive: true });
+      writeFileSync(acceptedPath, "package com.example.calc;\nimport org.junit.jupiter.api.Test;\npublic class NewGeneratedTest {\n @Test\n void works() {}\n}\n", "utf8");
       const fakeRunner = {
-        run: async (options: { working_dir: string; log_dir: string }): Promise<RunResult> => {
+        run: async (options: { working_dir: string; log_dir: string; properties: Record<string, string> }): Promise<RunResult> => {
           expect(existsSync(join(options.working_dir, "live-only.txt"))).toBe(false);
+          if (selectors.length === 0) expect(options.properties.test).toBeUndefined();
+          else {
+            expect(options.properties.test).toContain("com.example.calc.CalcServiceTest");
+            expect(options.properties.test).toContain("com.example.calc.NewGeneratedTest");
+          }
           return { exit_code: 0, duration_ms: 1, stdout_log_path: join(options.log_dir, "stdout.log"), stderr_log_path: join(options.log_dir, "stderr.log"), command: ["fake-maven"], timed_out: false };
         },
       } as unknown as MavenRunner;
@@ -276,9 +285,10 @@ describe("P05-B: bounded repair feedback", () => {
         target_fqns: ["com.example.calc.CalcService"],
         target_module_paths: [""],
         target_relative_paths: ["src/main/java/com/example/calc/CalcService.java"],
-        accepted_snapshot_dir: join(dir, "accepted"),
+        accepted_snapshot_dir: accepted,
         staging_root: join(dir, "staging"),
         workspace_root: join(dir, "final"),
+        test_selectors: selectors,
       });
       expect(result.workspace).not.toBe(projectRoot);
     } finally {
