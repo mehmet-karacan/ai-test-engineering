@@ -140,7 +140,7 @@ describe("P05-B: bounded repair feedback", () => {
     }
   });
 
-  it.each([0, 1])("ilk run sonucu %s sonrasi feedback'li tek repair dener ve limiti asmaz", async (firstExit) => {
+  it.each([{ firstExit: 0, interrupted: false }, { firstExit: 1, interrupted: false }, { firstExit: 1, interrupted: true }])("ilk run $firstExit, interrupted=$interrupted sonrasi repair baglamini ve limitini korur", async ({firstExit, interrupted}) => {
     const dir = mkdtempSync(join(tmpdir(), "aitest-p05-repair-"));
     const projectRoot = join(dir, "project");
     const stagingRoot = join(dir, "staging");
@@ -189,26 +189,32 @@ describe("P05-B: bounded repair feedback", () => {
         target_module_path: "",
         line_target_bps: 9000,
         branch_target_bps: 0,
-        budget: { max_candidate_iterations: 1, max_repairs_per_candidate: 1, no_progress_window: 3 },
+        budget: { max_candidate_iterations: 1, max_repairs_per_candidate: interrupted ? 2 : 1, no_progress_window: 3 },
         staging_root: stagingRoot,
         workspace_root: join(dir, "workspaces"),
         generate_candidate: async (feedback) => {
           if (feedback) {
             feedbacks.push(feedback);
+            if (interrupted && feedbacks.length === 1) throw new Error("invalid provider JSON");
           }
           return candidate;
         },
       });
 
-      expect(feedbacks).toHaveLength(1);
+      expect(feedbacks).toHaveLength(interrupted ? 2 : 1);
+      if (interrupted) {
+        expect(feedbacks[1]!.previous_candidate).toContain("void repair_scenario()");
+        expect(feedbacks[1]!.previous_failure).toContain("cannot find symbol: variable PERCENT");
+        expect(feedbacks[1]!.previous_failure).toContain("invalid provider JSON");
+      }
       expect(feedbacks[0]!.previous_candidate).toContain("void repair_scenario()");
       if (firstExit !== 0) expect(feedbacks[0]!.previous_failure).toContain("cannot find symbol: variable PERCENT");
       expect(feedbacks[0]!.previous_failure).not.toContain("private-secret");
       expect(feedbacks[0]!.attempt_kind).toBe("repair");
       expect(feedbacks[0]!.repair_ordinal).toBe(1);
       if (firstExit === 0) expect(feedbacks[0]!.previous_failure).toContain("kazanc yok");
-      expect(result.repairs_used).toBe(1);
-      expect(result.attempts_used).toBe(2);
+      expect(result.repairs_used).toBe(interrupted ? 2 : 1);
+      expect(result.attempts_used).toBe(interrupted ? 3 : 2);
       expect(result.outcome).toBe("TARGET_REACHED");
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });

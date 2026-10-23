@@ -531,7 +531,7 @@ export class CandidateLoop {
         repairsUsed++;
         repairFeedback = {
           ...feedback,
-          previous_candidate: repairCandidateContext(lastCandidate),
+          previous_candidate: repairCandidateContext(lastCandidate) || feedback.previous_candidate || "",
           attempt_kind: "repair",
           repair_ordinal: repairCount,
           repair_of_iteration: iteration,
@@ -634,11 +634,15 @@ export class CandidateLoop {
           run_exit_code: null,
         });
         const retry = scheduleRetry({
-          previous_failure: reason,
-          failed_tests: [],
-          quality_findings: [],
-          run_exit_code: null,
-          coverage_after_bps: null,
+          previous_failure: currentFeedback?.previous_failure
+            ? `${currentFeedback.previous_failure}\n${reason}`.slice(0, 8192) : reason,
+          // A failed generation produced no replacement candidate. Retain only
+          // this repair's context; a new logical iteration has no currentFeedback.
+          previous_candidate: currentFeedback?.previous_candidate ?? "",
+          failed_tests: currentFeedback?.failed_tests ?? [],
+          quality_findings: currentFeedback?.quality_findings ?? [],
+          run_exit_code: currentFeedback?.run_exit_code ?? null,
+          coverage_after_bps: currentFeedback?.coverage_after_bps ?? null,
         });
         if (retry === "stop") {
           break;
