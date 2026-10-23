@@ -1,0 +1,11 @@
+# Dependency types MCP checkpoint
+
+- Base93a1b73, izole dal codex/dependency-context-20261023. Kullanici DTO/enum/metot tipleri duzeltmesi ve80LINE+BRANCH tekrarini onayladi.
+- TDD once modulemissing/FAIL, sonra gercek javac/javap testi PASS. API max48tip/64KiB; javap yalniz public signature ve enum adlari; source/binary hash ve source-baseline esitligi, path containment, sensitivepath dislama ve explicit omissions. AgentTask scope deps dosyalari ve minimal line_ranges ile genisledi; manifestdigest raw sourcehashmanifest+prompt'a bagli,128KiB korundu.
+- GPU onceki baselineprobe45API/65400bytes; BigDecimal setters, UnitType.PERCENTAGE/AMOUNT, Oncelik.ONCELIK_1..5 gercek binaryden dogrulandi. Dump private kalir.
+- Gercek stdio MCP joba82a3465-64b8-4f52-9850-a0afdaff454c ayni scan8eb1ff08... FQN DeductionService, GLM-5.3-Flash-IT,80/80 ile baslatildi. Baseline/generation sonucu henuz yok; M04 tamamlandi sayilmaz. GPUapply yok.
+
+- Review: syncjavap eventloop blokaj bulgusu async execFile ve5sprocess/30stoplam/jobdeadline ile giderildi; timeoutmin1ms, staticenumimport ve defaultpackage regresyonlari eklendi. Tum bulgular kapandi.9dosya79testPASS, typecheck/build/lint0error89warning/localgatePASS. Kod ba481af main/originmain pushlandi.
+- Canli final: a82a3465-64b8-4f52-9850-a0afdaff454c COMPLETED/TARGET_NOT_MET_PLATEAU/AFFECTED_SCOPE.3dosya16yenitest; final651=640PASS+11skip,0failure/error; sourceproduction0, test-onlyPASSED, applyNOT_REQUESTED. LINE129covered143missed=%47.42, BRANCH34covered70missed=%32.69;80/80 hedefi SAGLANMADI.
+- Kaynakc703ffd22d4092f938fbc3f229906aa91516e4502e1c361809d65f52f5e3bf9b/buildd818a5be13c88014178efa3cb23019cfc695a506cdb01d702c882ad3e314ece5 tekrarkontrolayni. ReportExporterverify missing0/hashmismatch0; activejobs0. Private rapor jobs/a82a3465-64b8-4f52-9850-a0afdaff454c/reports/index.html; fullsonuc gpu-deduction-types-result-20261023.json.
+- Sonuc ilk3aday kabulunden sonra onay/update/delete behavior ve checkedException hatalariyla plateauya ulasti. Bu tipcontextduzeltmesinin basarisizligi veya80PASS iddiasi degildir; sonraki80hedefi icin kalan senaryo/gap odakli aday stratejisi gerekir. Eski resumeoutputidentitybug ayri kayitli kalir.

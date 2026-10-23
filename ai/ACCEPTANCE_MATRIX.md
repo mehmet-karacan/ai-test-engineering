@@ -1,3 +1,7 @@
+## 2026-10-23 Bagimlilik tipi duzeltmesi ve canli sonuc
+
+Baseline javap API ile DTO/enum/metot tipleri scope/hash/butce sinirlariyla aktariliyor. ba481af ana dala pushlandi;79odaktest9dosya/typecheck/build/lint0error89warning/localgate/bagimsizreview PASS. Canli MCP a82a3465-64b8-4f52-9850-a0afdaff454c COMPLETED/TARGET_NOT_MET_PLATEAU/AFFECTED_SCOPE:3dosya16yenitest, final651=640PASS+11skip/0FAIL. LINE129/272(%47.42), BRANCH34/104(%32.69);80/80 saglanmadi, M04 acik. Kaynak/buildhash ayni, GPUapply0. Son aday checkedException/behavior hatalari nedeniyle reddedildi. Kanit ai/checkpoints/2026-10-23-dependency-types.md; kabul ai/acceptance/dependency-types.json.
+
 ## 2026-10-23 DeductionService %80 hedef kosusu
 
 Kullanici DeductionService LINE/BRANCH %80 hedefini secti. Canli MCP job5651276d-94de-4997-973e-f326e62092d7 COMPLETED/TARGET_NOT_MET_PLATEAU, final635=624PASS+11skip/0FAIL; yeniacceptedtest0. %80 hedefi saglanmadi, M04 tamam degil. Ilk job37a7...2dosya10PASS/28.67LINE19.23BRANCH yalnizaraadaydir, finalFAILED/MISSING_BASELINE_TESTS; PASS gibi sunulmaz. Fullbaseline finalscope, bounded32kcontext, acceptednamecollision, Windowsworkerawait ve redactedcompilerfeedback duzeltildi;78odaktest/typecheck/build/lint0error/localgate/bagimsizreview PASS. Fixler ce80d0f ana dala pushlandi. Kalan: modele DTO/enum/bagimlilik imzalarini scopedcontext ile tasimak; resume immutable run-output identity bug. Kaynak/buildhash degismedi, GPUapply0. Detay ai/checkpoints/2026-10-23-deduction-generation.md.

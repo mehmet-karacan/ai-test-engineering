@@ -1,0 +1,21 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "dependency_api_fix": "VERIFIED",
+  "focused_tests": 79,
+  "independent_review": "APPROVED",
+  "live_job": "a82a3465-64b8-4f52-9850-a0afdaff454c",
+  "outcome": "TARGET_NOT_MET_PLATEAU",
+  "target_percent": 80,
+  "line_bps": 4742,
+  "branch_bps": 3269,
+  "accepted_test_files": 3,
+  "new_test_methods": 16,
+  "final_tests": {
+    "total": 651,
+    "passed": 640,
+    "failures": 0,
+    "skipped": 11
+  },
+  "apply_requested": false,
+  "evidence": "ai/checkpoints/2026-10-23-dependency-types.md"
+}
