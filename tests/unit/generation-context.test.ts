@@ -17,6 +17,7 @@ it("focuses missing public methods from the supplied trusted workspace, includin
 it("redacts previous candidate source and bounds or excludes unsafe content",()=>{
  const candidate = {schema_version:1 as const,changes:[{path:"src/test/java/a/Test.java",action:"create" as const,new_content:`class Test { String uri="https://user:secret@example.com"; String path="${homedir()}"; }`}]};
  const text=repairCandidateContext(candidate);expect(text).not.toContain("user:secret");expect(text).not.toContain(homedir());
+ expect(repairCandidateContext({...candidate,changes:[{...candidate.changes[0]!,action:"modify"}]})).toContain("class Test");
  expect(repairCandidateContext({...candidate,changes:[{...candidate.changes[0]!,path:"src/test/java/../../main/Sut.java"}]})).toBe("");
  expect(Buffer.byteLength(repairCandidateContext({...candidate,changes:[{...candidate.changes[0]!,new_content:"x".repeat(20000)}]}),"utf8")).toBeLessThan(16384);
 });

@@ -78,6 +78,7 @@ describe("role prompts", () => {
     expect(prompt).toContain("tekrar etme");
     expect(prompt).toContain("workingFixture()");
     expect(prompt).toContain("calisan fixture");
+    expect(prompt).toContain("Yalniz ODAK");
   });
 });
 

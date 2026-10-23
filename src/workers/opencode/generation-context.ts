@@ -14,7 +14,7 @@ export function redactContextSource(text: string): string {
 export function repairCandidateContext(candidate: CandidateChangeSet | null): string {
   const chunks: string[] = []; let bytes = 0;
   for (const change of candidate?.changes ?? []) {
-    if (change.action !== "create" || !/(^|\/)src\/test\/java\/.+\.java$/.test(change.path) || change.path.split(/[\\/]/).includes("..")) continue;
+    if (change.action === "delete" || !/(^|\/)src\/test\/java\/.+\.java$/.test(change.path) || change.path.split(/[\\/]/).includes("..")) continue;
     const text = redactContextSource(`// ${change.path}\n${change.new_content ?? ""}`);
     const size = Buffer.byteLength(text, "utf8");
     if (bytes + size > 16 * 1024) { chunks.push("[onceki aday kaynak butcesi nedeniyle kalan dosyalar haric]"); break; }
