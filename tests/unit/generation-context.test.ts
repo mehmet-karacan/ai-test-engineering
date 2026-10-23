@@ -21,3 +21,15 @@ it("redacts previous candidate source and bounds or excludes unsafe content",()=
  expect(repairCandidateContext({...candidate,changes:[{...candidate.changes[0]!,path:"src/test/java/../../main/Sut.java"}]})).toBe("");
  expect(Buffer.byteLength(repairCandidateContext({...candidate,changes:[{...candidate.changes[0]!,new_content:"x".repeat(20000)}]}),"utf8")).toBeLessThan(16384);
 });
+
+it("prioritizes remaining branches after the independent line target is met",()=>{
+ const root=mkdtempSync(join(tmpdir(),"branch-focus-"));
+ try{
+  const path=join(root,"target/site/jacoco/jacoco.xml");mkdirSync(join(path,".."),{recursive:true});
+  writeFileSync(path,'<report><package name="a"><class name="a/Service" sourcefilename="Service.java"><method name="noop" line="10"><counter type="LINE" covered="0" missed="1"/></method><method name="branchy" line="20"><counter type="LINE" covered="10" missed="0"/><counter type="BRANCH" covered="2" missed="4"/></method><counter type="LINE" covered="99" missed="1"/><counter type="BRANCH" covered="10" missed="10"/></class></package></report>');
+  const text=coverageGapContext(root,"a.Service","",["noop","branchy"],{line_bps:8000,branch_bps:8000}).join("\n");
+  expect(text).toContain("ODAK: branchy");expect(text).not.toContain("noop:");
+  expect(text).toContain("Satir hedefi saglandi");
+  expect(coverageGapContext(root,"a.Service","",["noop","branchy"],{line_bps:10000,branch_bps:8000}).join("\n")).toContain("ODAK: noop");
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

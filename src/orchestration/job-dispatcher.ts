@@ -806,6 +806,7 @@ export class JobDispatcher {
                 source_digest: sourceIdentity.source_digest,
                 root_digest: sourceIdentity.source_digest,
                 job_revision: jobs.getJob(job.id).row_version,
+                coverage_goal: {line_bps:targetSpec.line_target_bps,branch_bps:targetSpec.branch_target_bps},
               },
               trustedWorkspace,
             );
@@ -1853,6 +1854,7 @@ export class JobDispatcher {
       source_digest: string;
       root_digest: string;
       job_revision: number;
+      coverage_goal?: {line_bps:number;branch_bps:number};
     },
     trustedWorkspace?: string,
   ): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
@@ -1929,7 +1931,7 @@ export class JobDispatcher {
     // coverage aciklari: gercek satir/branch sayaclari:
     const coverageRoot = trustedWorkspace ?? join(this.workspaceRoot, "jobs", jobId, "baseline");
     const coverage = readCoverageAfterRun(coverageRoot, targetFqn, module.module_relative_path);
-    const uncoveredAreas: string[] = coverageGapContext(coverageRoot,targetFqn,module.module_relative_path,publicMethods);
+    const uncoveredAreas: string[] = coverageGapContext(coverageRoot,targetFqn,module.module_relative_path,publicMethods,agentContext?.coverage_goal);
     if (coverage?.line) {
       uncoveredAreas.push(`LINE: ${coverage.line.covered}/${coverage.line.covered + coverage.line.missed}`);
     }

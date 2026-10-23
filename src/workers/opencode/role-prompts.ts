@@ -125,7 +125,7 @@ export function buildWorkerPrompt(context: WorkerPromptContext, classBodyLimit =
     "Checked exception bildiren API cagrilari ve Mockito verify/stub cagrilari icin test/setup metodunda throws Exception bildir. Beklenen exception'i assertThrows ile dogrula; hatayi catch ile yutma.",
     "Fixture kurarken SUT'un okudugu DTO id ve enum kodu alanlarini tamamen doldur; enum sayisini tahmin etme, gercek enum getValue()/benzeri API'yi kullan. Getter durum/tarih turetiyorsa sadece setter'a bakarak beklenen durum yazma.",
     "SUT repository.save sonucunu tekrar kullaniyorsa mock save ayni entity'yi dondursun (thenAnswer); varsayilan null sonuca guvenme. Strict stubbing hatasini lenient/any ile gizlemek yerine fixture argumanini duzelt.",
-    "Yalniz ODAK verilen public metodun henuz kapsanmamis ana akis/kosullari icin yeni aday yaz; baska public metot testlerini bu dosyaya ekleme. ODAK yoksa kapsanmamis bir davranis sec. Once gecerli girdili ana akisi test et; kabul edilmis senaryolari tekrarlama. Private metodu reflection ile cagirma.",
+    "Yalniz ODAK verilen public metodun henuz kapsanmamis ana akis/kosullari icin yeni aday yaz; baska public metot testlerini bu dosyaya ekleme. ODAK yoksa kapsanmamis bir davranis sec. Henuz kapsanmiyorsa once gecerli girdili ana akisi test et; kabul edilmis senaryolari tekrarlama. Private metodu reflection ile cagirma.",
     "Yeni test dosyasi adi mevcut test siniflarindan farkli olmali; mevcut sinif yolunu tekrar kullanma.",
     "Plan, analiz, gerekce veya ic muhakeme yazma; dogrudan JSON sonucunla basla.",
     "new_content 12000 karakteri gecmemeli.",
