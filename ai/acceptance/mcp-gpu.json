@@ -4,7 +4,7 @@
   "M01": "VERIFIED",
   "M02": "VERIFIED",
   "M03": "VERIFIED",
-  "M04": "TARGET_MET_WITH_CODEX_ASSISTANCE_VERIFIED_BY_MCP",
+  "M04": "ASSISTED_TARGET_MET_AUTONOMOUS_TARGET_NOT_MET",
   "M05": "VERIFIED_CONFIGURED_MODEL_AND_MAVEN_PROBE_AND_MCP_HANDSHAKE",
   "M06": "FIXES_FOCUSED_TESTS_REVIEW_LOCAL_GATE_AND_PUSH_VERIFIED",
   "coverage_job_id": "8eb1ff08-c040-4d03-8750-b125a8bf995d",
@@ -16,7 +16,7 @@
   },
   "generation_started": true,
   "apply_requested": false,
-  "evidence": "ai/checkpoints/2026-10-23-deduction-behavior-completion.md",
+  "evidence": "ai/checkpoints/2026-10-23-deduction-autonomous.md",
   "generation_job_id": "a82a3465-64b8-4f52-9850-a0afdaff454c",
   "previous_generation_job_id": "37a7a63f-b539-4a90-9e37-de2adc3f6a34",
   "target_percent": {
@@ -30,14 +30,14 @@
     "failures": 0,
     "skipped": 11
   },
-  "overall_delivery": "ASSISTED_TARGET_VERIFIED_PATCH_READY_ORIGINAL_APPLY_NOT_REQUESTED",
+  "overall_delivery": "ASSISTED_PATCH_READY_AUTONOMOUS_80_NOT_MET",
   "final_generated_test_files": 3,
   "final_coverage": {
     "line_bps": 4742,
     "branch_bps": 3269
   },
   "assisted_verification_job_id": "bf1a70b3-7dbd-4363-b84a-2098e03696c9",
-  "autonomous_opencode_target_met": "NOT_RETESTED",
+  "autonomous_opencode_target_met": false,
   "assisted_final_tests": {
     "total": 681,
     "passed": 670,
@@ -48,5 +48,11 @@
   "assisted_final_coverage": {
     "line_bps": 9963,
     "branch_bps": 9519
+  },
+  "latest_autonomous_verification_job_id": "bb055aed-db22-4fe5-990f-d3c80104953c",
+  "latest_autonomous_outcome": "TARGET_NOT_MET_PLATEAU",
+  "latest_autonomous_coverage": {
+    "line_bps": 1029,
+    "branch_bps": 1250
   }
 }

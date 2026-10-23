@@ -1,0 +1,45 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "date": "2026-10-23",
+  "job_id": "bb055aed-db22-4fe5-990f-d3c80104953c",
+  "product_commit": "e880a15d7d87e5391df809b7a6f32f2f00488ea4",
+  "model": "litellm/GLM-5.3-Flash-IT",
+  "model_calls": 4,
+  "model_output_job_artifact_hash_matches": 4,
+  "manual_tests_supplied": false,
+  "source_unchanged": true,
+  "outcome": "TARGET_NOT_MET_PLATEAU",
+  "autonomous_target_met": false,
+  "verification_level": "AFFECTED_SCOPE",
+  "target_percent": {
+    "line": 80,
+    "branch": 80
+  },
+  "final_line": {
+    "covered": 28,
+    "missed": 244,
+    "percent": 10.29
+  },
+  "final_branch": {
+    "covered": 13,
+    "missed": 91,
+    "percent": 12.5
+  },
+  "test_files_added": 1,
+  "test_methods_added": 5,
+  "final_tests": {
+    "total": 640,
+    "passed": 629,
+    "skipped": 11,
+    "failures": 0,
+    "errors": 0
+  },
+  "missing_original_test_invocations": 0,
+  "original_apply": false,
+  "report_verification": {
+    "missing": [],
+    "hash_mismatch": []
+  },
+  "audit_sha256": "ce628501ed7c11863a38028874c8af51d7b5bd4f72e01cfddaf6a1d8a1e2f0d6",
+  "evidence": "ai/checkpoints/2026-10-23-deduction-autonomous.md"
+}

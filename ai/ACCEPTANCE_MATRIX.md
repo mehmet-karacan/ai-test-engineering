@@ -1,4 +1,9 @@
 
+## 2026-10-23 Otomatik Deduction dogrulamasi
+
+Kullanici istegiyle gercek GPU root'tan model tek basina tekrarlandi; onceki generated/manual test aktarilmadi. MCP bb055aed-db22-4fe5-990f-d3c80104953c COMPLETED/TARGET_NOT_MET_PLATEAU:4gercekGLMcall/1acceptedfile5test. Final640=629PASS+11skip/0failure/error; LINE28/272(%10.29), BRANCH13/104(%12.50).80/80 OTOMATIK SAGLANMADI. Onceki99.63/95.19 Codex-assisted kaniti ayridir.4modeloutput/jobartifacthashmatch, baseline635testretained,source/buildayni,apply0,reportverify0missing0mismatch. Kanit ai/checkpoints/2026-10-23-deduction-autonomous.md ve ai/acceptance/deduction-autonomous.json. Bu tur urun/test kodu degismedi.
+
+
 ## 2026-10-23 Deduction davranis tamamlamasi
 
 Codex destekli test tamamlamasi ayri kopyada gercek MCP fullscan bf1a70b3 ile dogrulandi:681=670PASS+11skip,0failure/error; LINE271/272(%99.63), BRANCH99/104(%95.19). %80 hedefi bu kopyada saglandi; asil GPUapply0. MCP repair actualfailure/checkedthrows duzeltmesi43odaktest/typecheck/build/lint0error/localgate/bagimsizreviewPASS. Bu yeni otonom OpenCode kosusu degildir; eski modelplateau tarihsel kalir. Kanit ai/checkpoints/2026-10-23-deduction-behavior-completion.md; kabul ai/acceptance/deduction-behavior-completion.json. G2/yayin ayri karar; CI kapali. Eski resume-output ve scan_id olmayan native pin preflight sorunu ayri kayitli.
