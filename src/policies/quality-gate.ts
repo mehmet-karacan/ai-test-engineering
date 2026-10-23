@@ -78,6 +78,11 @@ function stripLiteralsAndComments(content: string): string {
   return out;
 }
 
+function hasMockitoVerification(maskedText: string): boolean {
+  return /\bverify\s*\(/.test(maskedText)
+    || /\bverify(?:NoInteractions|NoMoreInteractions|ZeroInteractions)\s*\(\s*[A-Za-z_$][\w$]*(?=\s*[,.)])/.test(maskedText);
+}
+
 /**
  * F02/Q05/Q06: Terminal dogrulamasi olan fluent assertion zincirlerini tanir.
  * JUnit/AssertJ/Truth: isEqualTo/hasXxx/contains... sonrasi isTrue veya bir match/verify terminali.
@@ -95,7 +100,7 @@ function hasMeaningfulAssertion(bodyText: string): boolean {
   }
 
   // 2) Mockito verify ve fail() anlamli oracle sayilir (AC34/13.2); yanlis ret olmasin.
-  if (/\bverify\s*\(/.test(text) || /\bfail\s*\(/.test(text)) {
+  if (hasMockitoVerification(text) || /\bfail\s*\(/.test(text)) {
     return true;
   }
 
@@ -188,7 +193,7 @@ export function scanTestQuality(content: string, path: string): QualityScanResul
   }
 
   if (hasTestMethod && findings.every((f) => f.rule_id !== "NO_ASSERTION")) {
-    const onlyNotNull = /\bassertNotNull\s*\(/.test(maskedContent) && !/assert(Throws|Equals|NotEquals|True|False|Iterable|Array)\s*\(/.test(maskedContent) && !/\bverify\s*\(/.test(maskedContent) && !/\bfail\s*\(/.test(maskedContent);
+    const onlyNotNull = /\bassertNotNull\s*\(/.test(maskedContent) && !/assert(Throws|Equals|NotEquals|True|False|Iterable|Array)\s*\(/.test(maskedContent) && !hasMockitoVerification(maskedContent) && !/\bfail\s*\(/.test(maskedContent);
     if (onlyNotNull) {
       findings.push({ rule_id: "WEAK_ONLY_NOTNULL", severity: "major", location: path, evidence: "yalniz assertNotNull" });
     }

@@ -52,3 +52,21 @@ describe("D07/F09: SUT shadowing tespiti", () => {
     expect(different).toBe(false);
   });
 });
+
+describe("Mockito negative interaction oracles", () => {
+  it.each(["verifyNoInteractions", "verifyNoMoreInteractions", "verifyZeroInteractions"])("accepts %s with a mock argument", (method) => {
+    const result = scanTestQuality(`class T { @Test\n void a() { sut.remove(null); org.mockito.Mockito.${method}(repository); } }`, "T.java");
+    expect(result.passed).toBe(true);
+  });
+
+  it("does not label a negative interaction oracle as only-not-null", () => {
+    const result = scanTestQuality("class T { @Test\n void a() { assertNotNull(sut); verifyNoInteractions(repository); } }", "T.java");
+    expect(result.passed).toBe(true);
+  });
+
+  it.each(["verifyNoInteractions();", "// verifyNoInteractions(repository);\n", 'String s = "verifyNoInteractions(repository)";'])("rejects absent executable oracle: %s", (body) => {
+    const result = scanTestQuality(`class T { @Test\n void a() { ${body} } }`, "T.java");
+    expect(result.passed).toBe(false);
+    expect(result.findings.some(f => f.rule_id === "NO_ASSERTION")).toBe(true);
+  });
+});
