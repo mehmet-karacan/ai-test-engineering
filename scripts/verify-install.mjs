@@ -2,16 +2,18 @@
  * Node.js kurulum dogrulama: prerequisite + dist + runtime + config + smoke.
  * cmd.exe uzerinden: node scripts/verify-install.mjs
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { parseInstallClient } from "./install-options.mjs";
 
 // K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
 const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), "..");
 
 async function main() {
+  const client = parseInstallClient(process.argv.slice(2));
   // K01/K03: desteklenmeyen platformda readiness sonucu uretilmez.
   // Aksi halde handshake veya mevcut dist dosyalari Windows hazirligi gibi raporlanabilir.
   if (process.platform !== "win32") {
@@ -43,7 +45,7 @@ async function main() {
     const paths = await import("../dist/configuration/runtime-paths.js");
     appRoot = paths.resolveRuntimeRoot();
     configPath = paths.resolveConfigPath();
-    openCodeConfigPath = paths.resolveOpenCodeConfigPath();
+    if (client === "opencode") openCodeConfigPath = paths.resolveOpenCodeConfigPath();
     let configuredRoot = appRoot;
     if (existsSync(configPath)) {
       try {
@@ -58,35 +60,50 @@ async function main() {
     dbPath = paths.resolveDbPath(configuredRoot);
   }
 
-  console.log("[verify] kayitli OpenCode entry");
-  if (openCodeConfigPath && existsSync(openCodeConfigPath)) {
+  if (client === "none") {
+    console.log("[verify] MCP stdio tanimi");
     try {
-      const { readConfigFile } = await import("../dist/configuration/config-merge.js");
-      const entryConfig = readConfigFile(openCodeConfigPath).parsed;
-      openCodeConfig = entryConfig;
-      const entry = entryConfig?.mcp?.["ai-test-engineering"];
-      const { evaluateRegisteredMcpEntry } = await import("../dist/configuration/readiness.js");
-      registeredEntry = evaluateRegisteredMcpEntry({ entry, entry_js: join(repoRoot, "dist", "mcp", "stdio-entry.js"),
+      const definition = JSON.parse(readFileSync(join(appRoot, "config", "mcp-server.json"), "utf8"));
+      const { evaluateMcpServerDefinition } = await import("../dist/configuration/readiness.js");
+      registeredEntry = evaluateMcpServerDefinition({ definition, entry_js: join(repoRoot, "dist", "mcp", "stdio-entry.js"),
         config_path: configPath, db_path: dbPath, ambient: process.env });
-      const entryOk = registeredEntry.valid;
-      if (entryOk) console.log("  OK: gercek kayitli entry config/DB ile eslesiyor");
-      else { console.log("  EKSIK: kayitli entry config/DB ile eslesmiyor"); ok = false; }
+      if (registeredEntry.valid) console.log("  OK: stdio tanimi config/DB ile eslesiyor");
+      else { console.log("  NOT_READY: stdio tanimi komut/config/DB ile eslesmiyor"); ok = false; }
     } catch (error) {
-      console.log(`  BASARISIZ: OpenCode config parse edilemedi: ${error instanceof Error ? error.message : String(error)}`);
+      console.log(`  NOT_READY: stdio tanimi okunamadi: ${error instanceof Error ? error.message : String(error)}`);
       ok = false;
     }
   } else {
-    console.log("  EKSIK: kayitli OpenCode entry yok");
-    ok = false;
+    console.log("[verify] kayitli OpenCode entry");
+    if (openCodeConfigPath && existsSync(openCodeConfigPath)) {
+      try {
+        const { readConfigFile } = await import("../dist/configuration/config-merge.js");
+        const entryConfig = readConfigFile(openCodeConfigPath).parsed;
+        openCodeConfig = entryConfig;
+        const entry = entryConfig?.mcp?.["ai-test-engineering"];
+        const { evaluateRegisteredMcpEntry } = await import("../dist/configuration/readiness.js");
+        registeredEntry = evaluateRegisteredMcpEntry({ entry, entry_js: join(repoRoot, "dist", "mcp", "stdio-entry.js"),
+          config_path: configPath, db_path: dbPath, ambient: process.env });
+        const entryOk = registeredEntry.valid;
+        if (entryOk) console.log("  OK: gercek kayitli entry config/DB ile eslesiyor");
+        else { console.log("  EKSIK: kayitli entry config/DB ile eslesmiyor"); ok = false; }
+      } catch (error) {
+        console.log(`  BASARISIZ: OpenCode config parse edilemedi: ${error instanceof Error ? error.message : String(error)}`);
+        ok = false;
+      }
+    } else {
+      console.log("  EKSIK: kayitli OpenCode entry yok");
+      ok = false;
+    }
+    console.log("[verify] OpenCode test-engineering skill");
+    const { verifyOpenCodeSkill } = await import("../dist/configuration/opencode-skill-install.js");
+    const skillMatches = openCodeConfigPath && verifyOpenCodeSkill(
+      join(repoRoot, "integrations", "opencode", "skills", "test-engineering", "SKILL.md"),
+      join(dirname(openCodeConfigPath), "skills", "test-engineering", "SKILL.md"),
+    );
+    if (skillMatches) console.log("  OK: kurulu skill paketle byte/hash eslesiyor");
+    else { console.log("  NOT_READY: skill eksik veya farkli; node scripts/install.mjs ve ozel skill backup'ini kontrol edin"); ok = false; }
   }
-  console.log("[verify] OpenCode test-engineering skill");
-  const { verifyOpenCodeSkill } = await import("../dist/configuration/opencode-skill-install.js");
-  const skillMatches = openCodeConfigPath && verifyOpenCodeSkill(
-    join(repoRoot, "integrations", "opencode", "skills", "test-engineering", "SKILL.md"),
-    join(dirname(openCodeConfigPath), "skills", "test-engineering", "SKILL.md"),
-  );
-  if (skillMatches) console.log("  OK: kurulu skill paketle byte/hash eslesiyor");
-  else { console.log("  NOT_READY: skill eksik veya farkli; node scripts/install.mjs ve ozel skill backup'ini kontrol edin"); ok = false; }
   if (appRoot && existsSync(appRoot)) {
     console.log(`  OK: ${appRoot}`);
   } else {
@@ -95,7 +112,7 @@ async function main() {
   }
 
   console.log("[verify] config");
-  if (appRoot && existsSync(join(appRoot, "config", "config.json"))) {
+  if (configPath && existsSync(configPath)) {
     console.log("  OK: config mevcut");
   } else {
     console.log("  EKSIK: config yok");
@@ -105,20 +122,20 @@ async function main() {
   // Readiness kontrolleri ayri yuzeylerdir: handshake PASS olmasi model veya
   // native Maven yetenegini otomatik READY yapmaz.
   console.log("[verify] model readiness");
-  if (appConfig && openCodeConfig) {
+  if (appConfig && (client === "none" || openCodeConfig)) {
     const { evaluateWorkerReadiness } = await import("../dist/configuration/readiness.js");
     const workerEnabled = registeredEntry?.valid === true && registeredEntry.worker_enabled;
     const model = evaluateWorkerReadiness({
       enabled: workerEnabled,
       profiles: appConfig.worker_profiles,
       default_profile: appConfig.default_worker_profile,
-      configured_model: typeof openCodeConfig.model === "string" ? openCodeConfig.model : undefined,
-      configured_providers: openCodeConfig.provider && typeof openCodeConfig.provider === "object" ? openCodeConfig.provider : {},
+      configured_model: typeof openCodeConfig?.model === "string" ? openCodeConfig.model : undefined,
+      configured_providers: openCodeConfig?.provider && typeof openCodeConfig.provider === "object" ? openCodeConfig.provider : {},
     });
     console.log(`  ${model.status}: model (${model.reason_code ?? model.evidence_level})`);
     if (model.status !== "READY") ok = false;
   } else {
-    console.log("  NOT_READY: model (CONFIG_OR_OPENCODE_MISSING)");
+    console.log(client === "none" ? "  NOT_READY: model (CONFIG_MISSING)" : "  NOT_READY: model (CONFIG_OR_OPENCODE_MISSING)");
     ok = false;
   }
 

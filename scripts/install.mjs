@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { parseInstallClient } from "./install-options.mjs";
 
 // K08/B07: fileURLToPath - percent encoding/bosluk/Unicode dogru fiziksel path verir (E02).
 const thisFile = fileURLToPath(import.meta.url);
@@ -33,7 +34,8 @@ function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-export async function mainInstall() {
+export async function mainInstall(args = process.argv.slice(2)) {
+  const client = parseInstallClient(args);
   // K01/K03: bu kurulum girisi yalniz Windows native dagitimini destekler.
   // Desteklenmeyen platformda npm/build veya kullanici config merge'i baslamaz.
   if (process.platform !== "win32") {
@@ -88,37 +90,68 @@ export async function mainInstall() {
   const effectiveConfig = loadConfig(configPath);
   const dbPath = resolveDbPath(effectiveConfig.storage.root);
 
-  step("Bolum 5: OpenCode MCP baglantisi (minimal merge, ezme yok)");
-  const opencodeConfigPath = resolveOpenCodeConfigPath();
   const entryJs = join(repoRoot, "dist", "mcp", "stdio-entry.js");
+  const definitionPath = join(appRoot, "config", "mcp-server.json");
   const { buildRegisteredMcpEnvironment } = await import("../dist/configuration/readiness.js");
-  const { readConfigFile } = await import("../dist/configuration/config-merge.js");
-  const previousOpenCode = existsSync(opencodeConfigPath) ? readConfigFile(opencodeConfigPath).parsed : {};
-  const serverEnvironment = buildRegisteredMcpEnvironment(previousOpenCode?.mcp?.["ai-test-engineering"]?.environment, process.env, configPath, dbPath);
+  let opencodeConfigPath;
+  let previousOpenCode = {};
+  // Client none never resolves, reads, or writes an OpenCode path or skill.
+  if (client === "opencode") {
+    opencodeConfigPath = resolveOpenCodeConfigPath();
+    const { readConfigFile } = await import("../dist/configuration/config-merge.js");
+    previousOpenCode = existsSync(opencodeConfigPath) ? readConfigFile(opencodeConfigPath).parsed : {};
+  }
+  let previousDefinition = {};
+  try {
+    if (existsSync(definitionPath)) previousDefinition = JSON.parse(readFileSync(definitionPath, "utf8"));
+  } catch {
+    // The ownership writer backs up and preserves malformed user definitions too.
+  }
+  const previousEnvironment = client === "opencode" ? previousOpenCode?.mcp?.["ai-test-engineering"]?.environment : previousDefinition?.env;
+  const serverEnvironment = buildRegisteredMcpEnvironment(previousEnvironment, process.env, configPath, dbPath);
   const serverEntry = {
     type: "local",
     command: ["node", entryJs],
     environment: serverEnvironment,
   };
   const backupDir = join(appRoot, "backups");
+  const installManifestPath = join(appRoot, "install-manifest.json");
+  if (!existsSync(installManifestPath)) {
+    const ownedFiles = configCreatedByInstall && existsSync(configPath)
+      ? [{ path: configPath, sha256: sha256File(configPath) }] : [];
+    writeFileSync(installManifestPath, JSON.stringify({ schema_version: 1, owned_files: ownedFiles }, null, 2) + "\n", "utf8");
+    step("  OK: install manifest yazildi");
+  }
+  step("Bolum 5: MCP stdio tanimi");
+  const { installMcpServerDefinition } = await import("../dist/configuration/mcp-server-definition.js");
+  const definition = { schema_version: 1, transport: "stdio", command: process.execPath, args: [entryJs], env: serverEnvironment };
+  const installedDefinition = installMcpServerDefinition({ definitionPath, manifestPath: installManifestPath, backupDir, definition });
+  if (installedDefinition.status === "preserved") {
+    step(`  NOT_READY: ozel/degistirilmis MCP tanimi korundu; backup: ${installedDefinition.backup_path}`);
+    return 1;
+  }
+  step(`  OK: stdio tanimi ${installedDefinition.status} (${definitionPath})`);
 
-  if (!existsSync(opencodeConfigPath)) {
-    mkdirSync(dirname(opencodeConfigPath), { recursive: true });
-    writeFileSync(opencodeConfigPath, JSON.stringify({ mcp: { "ai-test-engineering": serverEntry } }, null, 2) + "\n", "utf8");
-    step(`  OK: OpenCode config olusturuldu (${opencodeConfigPath})`);
-  } else {
-    // K08/B07: mergeConfigRecord dynamic import (dist bootstrap'tan sonra uretilir; temiz clone'da statik import yok):
-    const { mergeConfigRecord } = await import("../dist/configuration/config-merge.js");
-    const merge = mergeConfigRecord(opencodeConfigPath, {
-      record_path: ["mcp", "ai-test-engineering"],
-      new_value: serverEntry,
-      backup_dir: backupDir,
-    });
-    if (merge.changed) {
-      step(`  OK: minimal merge yapildi (backup: ${merge.backup_path})`);
-      step(`  Korunan ust alanlar: ${merge.preserved_keys.join(", ")}`);
+  if (client === "opencode") {
+    step("  OpenCode MCP baglantisi (minimal merge, ezme yok)");
+    if (!existsSync(opencodeConfigPath)) {
+      mkdirSync(dirname(opencodeConfigPath), { recursive: true });
+      writeFileSync(opencodeConfigPath, JSON.stringify({ mcp: { "ai-test-engineering": serverEntry } }, null, 2) + "\n", "utf8");
+      step(`  OK: OpenCode config olusturuldu (${opencodeConfigPath})`);
     } else {
-      step("  OK: kayit zaten guncel; degisiklik yok (idempotent)");
+      // K08/B07: mergeConfigRecord dynamic import (dist bootstrap'tan sonra uretilir; temiz clone'da statik import yok):
+      const { mergeConfigRecord } = await import("../dist/configuration/config-merge.js");
+      const merge = mergeConfigRecord(opencodeConfigPath, {
+        record_path: ["mcp", "ai-test-engineering"],
+        new_value: serverEntry,
+        backup_dir: backupDir,
+      });
+      if (merge.changed) {
+        step(`  OK: minimal merge yapildi (backup: ${merge.backup_path})`);
+        step(`  Korunan ust alanlar: ${merge.preserved_keys.join(", ")}`);
+      } else {
+        step("  OK: kayit zaten guncel; degisiklik yok (idempotent)");
+      }
     }
   }
 
@@ -129,7 +162,8 @@ export async function mainInstall() {
     windowsHide: true,
     encoding: "utf8",
     timeout: 60000,
-    env: { ...process.env, AITEST_CONFIG: configPath, AITEST_DB_PATH: dbPath },
+    env: { ...process.env, ...serverEnvironment, AITEST_CONFIG: configPath, AITEST_DB_PATH: dbPath,
+      AITEST_SMOKE_COMMAND_JSON: JSON.stringify([definition.command, ...definition.args]) },
   });
   if (smoke.status !== 0) {
     console.error(`  BLOCKED: MCP handshake smoke basarisiz: ${smoke.error?.message || smoke.stderr || smoke.stdout || "exit bilinmiyor"}`);
@@ -139,29 +173,20 @@ export async function mainInstall() {
 
   // P08: uninstall yalniz install'in sahip oldugu, degistirilmemis dosyalari
   // silebilsin. Mevcut config merge edildiyse tum dosya sahiplenilmez.
-  const installManifestPath = join(appRoot, "install-manifest.json");
-  if (!existsSync(installManifestPath)) {
-    const ownedFiles = configCreatedByInstall && existsSync(configPath)
-      ? [{ path: configPath, sha256: sha256File(configPath) }]
-      : [];
-    writeFileSync(installManifestPath, JSON.stringify({ schema_version: 1, owned_files: ownedFiles }, null, 2) + "\n", "utf8");
-    step("  OK: install manifest yazildi");
-  } else {
-    step("  OK: mevcut install manifest korundu");
-  }
-
-  step("Bolum 7: OpenCode test-engineering skill");
-  const { installOpenCodeSkill } = await import("../dist/configuration/opencode-skill-install.js");
-  const skill = installOpenCodeSkill({
-    sourcePath: join(repoRoot, "integrations", "opencode", "skills", "test-engineering", "SKILL.md"),
-    destinationPath: join(dirname(opencodeConfigPath), "skills", "test-engineering", "SKILL.md"),
-    manifestPath: installManifestPath,
-    backupDir,
-  });
-  if (skill.status === "preserved") {
-    step(`  NOT_READY: ozel/degistirilmis skill korundu; backup: ${skill.backup_path}; paket skill'i ile elle karsilastirin`);
-  } else {
-    step(`  OK: skill ${skill.status}; OpenCode'u yeniden acin`);
+  if (client === "opencode") {
+    step("Bolum 7: OpenCode test-engineering skill");
+    const { installOpenCodeSkill } = await import("../dist/configuration/opencode-skill-install.js");
+    const skill = installOpenCodeSkill({
+      sourcePath: join(repoRoot, "integrations", "opencode", "skills", "test-engineering", "SKILL.md"),
+      destinationPath: join(dirname(opencodeConfigPath), "skills", "test-engineering", "SKILL.md"),
+      manifestPath: installManifestPath,
+      backupDir,
+    });
+    if (skill.status === "preserved") {
+      step(`  NOT_READY: ozel/degistirilmis skill korundu; backup: ${skill.backup_path}; paket skill'i ile elle karsilastirin`);
+    } else {
+      step(`  OK: skill ${skill.status}; OpenCode'u yeniden acin`);
+    }
   }
 
   // Windows editorleri config basina UTF-8 BOM koyabilir; loader ayni
@@ -169,11 +194,13 @@ export async function mainInstall() {
   const persistedConfig = JSON.parse(readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""));
   const { evaluateWorkerReadiness } = await import("../dist/configuration/readiness.js");
   let opencodeConfig = {};
-  try {
-    opencodeConfig = readConfigFile(opencodeConfigPath).parsed;
-  } catch {
-    // Config merge daha once basarili olsa da readiness, bozuk provider
-    // config'ini sessizce READY saymaz.
+  if (client === "opencode") {
+    try {
+      const { readConfigFile } = await import("../dist/configuration/config-merge.js");
+      opencodeConfig = readConfigFile(opencodeConfigPath).parsed;
+    } catch {
+      // A changed/invalid provider configuration must not become READY.
+    }
   }
   const selectedModelReadiness = evaluateWorkerReadiness({
     enabled: serverEnvironment.AITEST_WORKER_ENABLED === "1",
@@ -218,11 +245,12 @@ export async function mainInstall() {
   console.log("");
   console.log("KURULUM TAMAMLANDI.");
   console.log(`Runtime veri: ${appRoot}`);
-  console.log("Kullanim: Java projesinde OpenCode'u acin, dogal dille hedefi soyleyin.");
+  console.log(client === "opencode" ? "Kullanim: Java projesinde OpenCode'u acin, dogal dille hedefi soyleyin."
+    : `Kullanim: MCP client'inize ${definitionPath} icindeki command/args/env alanlarini kaydedin.`);
   return 0;
 }
 
-mainInstall().then((code) => process.exit(code)).catch((error) => {
+if (process.argv[1] && resolve(process.argv[1]) === thisFile) mainInstall().then((code) => process.exit(code)).catch((error) => {
   console.error(`[kurulum] beklenmeyen hata: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });
