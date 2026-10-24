@@ -64,4 +64,16 @@ describe("durable apply view read boundary", () => {
     expect(result).not.toHaveProperty("private_debug");
     expect(result?.verification).not.toHaveProperty("private_debug");
   });
+  it("preserves validated retained-file conflicts while excluding unknown conflict fields", () => {
+    view.state = "CONFLICT";
+    Object.assign(view, { conflicts: [{ path: "src/test/java/NewTest.java", reason: "File changed by user", private_debug: "private" }] }); persist();
+    expect(getApplyOperationView(db, "job")).toHaveProperty("conflicts", [{ path: "src/test/java/NewTest.java", reason: "File changed by user" }]);
+  });
+  it.each([
+    { conflicts: null }, { conflicts: "not-an-array" }, { conflicts: [{ path: "../outside", reason: "escape" }] },
+    { conflicts: [{ path: "src/test/java/NewTest.java", reason: 123 }] },
+    { conflicts: [{ path: "src/test/java/NewTest.java", reason: "" }] },
+  ])("rejects malformed optional conflict facts (%j)", ({ conflicts }) => {
+    Object.assign(view, { conflicts }); persist(); expect(getApplyOperationView(db, "job")).toBeNull();
+  });
 });

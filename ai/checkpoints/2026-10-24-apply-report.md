@@ -79,3 +79,20 @@ entegrasyonda mevcut migration tablosuna dokunmaz.
 Sonuc tekrar 5 dosya/61 test PASS, exit0. Typecheck ve uc degisen TS/test
 dosyasinda eslint exit0. Onceki generation/kanit ve legacy no-op kabulleri
 korundu. Bu followup yalniz report/helper/fixture/checkpoint dosyalaridir.
+
+## Korunan cakismali dosyalarin raporlanmasi
+
+Ana koordinatorden gelen optional conflicts[{path,reason}] kontrati salt
+okunur getter'da dogrulanip kopyalanir. Alan yoksa eski view'a eklenmez;
+bos dizi, alan verilmisse korunur. Dizi/relative path/dolu string reason
+kontrolleri yapilir, conflict icindeki ek alanlar tasinmaz. Shared kontrat
+ana koordinatore aittir; bu izole dalda structural optional type uyumlulugu
+kullanildi, shared dosya degistirilmedi.
+
+Rapor ekran/print HTML'i kullanici tarafindan degistirilmis oldugu icin
+korunan dosya yolunu ve nedeni escaped text olarak gosterir. summary.txt
+ayni gercekleri duz metin olarak korur. JSON'da conflict kaydi bulunur.
+Yeni 7 regresyon once RED (alan tasinmiyor/gecersiz kayit reddedilmiyordu),
+sonra GREEN. XSS reason ekran ve print'te markup olarak calisamaz; dosya
+yolu korunur. Son 5 dosya/68 test PASS; typecheck ve scoped eslint exit0.
+Musteri/model/Maven/browser/push yok; root integration/review devam eder.

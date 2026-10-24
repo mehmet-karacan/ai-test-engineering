@@ -93,4 +93,19 @@ describe("application facts remain separate from generation facts", () => {
     expect(verifyCurrentReport(services, jobId).hash_mismatch).toContain("evidence/original.txt");
     expect(readFileSync(join(reportRoot, "report.json"))).toEqual(before);
   });
+  it("identifies retained user-edited files and escapes conflict reasons on all report surfaces", () => {
+    operation.state = "CONFLICT"; operation.phase = "done";
+    Object.assign(operation, { conflicts: [{ path: "src/test/java/NewTest.java", reason: "<script>user edited file</script>" }] }); persist();
+    verifyCurrentReport(services, jobId, prepareReportVerification(services, jobId));
+    expect(read().application).toHaveProperty("conflicts", [{ path: "src/test/java/NewTest.java", reason: "<script>user edited file</script>" }]);
+    const html = readFileSync(join(reportRoot, "index.html"), "utf8");
+    const screen = html.split('id="application"')[1]?.split('</section>')[0] ?? "";
+    const print = html.split('id="print-application"')[1]?.split('</section>')[0] ?? "";
+    for (const surface of [screen, print]) {
+      expect(surface).toContain("Korunan cakismali dosya: src/test/java/NewTest.java");
+      expect(surface).toContain("&lt;script&gt;user edited file&lt;/script&gt;");
+      expect(surface).not.toContain("<script>user edited file</script>");
+    }
+    expect(readFileSync(join(reportRoot, "summary.txt"), "utf8")).toContain("Korunan cakismali dosya: src/test/java/NewTest.java / Neden: <script>user edited file</script>");
+  });
 });

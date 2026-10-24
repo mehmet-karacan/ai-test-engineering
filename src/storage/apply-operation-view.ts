@@ -1,6 +1,9 @@
 import type Database from "better-sqlite3";
 import type { ApplyOperationView, ApplyPlan, ApplyVerification } from "../domain/apply-contracts.js";
 
+// Structural compatibility while the coordinator extends the shared optional contract.
+type StoredApplyOperation = ApplyOperationView & { conflicts?: Array<{ path: string; reason: string }> };
+
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const digest = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
@@ -26,7 +29,7 @@ export function getApplyOperationView(db: Database.Database, jobId: string): App
   } | undefined;
   if (!row) return null;
   try {
-    const view = JSON.parse(row.view_json) as ApplyOperationView;
+    const view = JSON.parse(row.view_json) as StoredApplyOperation;
     const plan = JSON.parse(row.plan_json) as ApplyPlan;
     if (!view || !plan || view.operation_id !== row.operation_id || view.job_id !== jobId || row.job_id !== jobId
       || plan.job_id !== jobId || plan.schema_version !== 1 || plan.verification_scope !== "FULL_PROJECT_SNAPSHOT"
@@ -40,6 +43,8 @@ export function getApplyOperationView(db: Database.Database, jobId: string): App
       || new Set(plan.files.map(file => file.path)).size !== plan.files.length
       || !Array.isArray(view.applied_paths) || !view.applied_paths.every(item => path(item) && plan.files.some(file => file.path === item))
       || new Set(view.applied_paths).size !== view.applied_paths.length
+      || (view.conflicts !== undefined && (!Array.isArray(view.conflicts)
+        || !view.conflicts.every(conflict => conflict && path(conflict.path) && text(conflict.reason))))
       || !(view.verification === null || validVerification(view.verification))) return null;
     if (view.state === "APPLIED" && (view.phase !== "done" || view.verification?.status !== "PASSED"
       || view.applied_paths.length !== plan.files.length)) return null;
@@ -47,6 +52,7 @@ export function getApplyOperationView(db: Database.Database, jobId: string): App
     return {
       operation_id: view.operation_id, job_id: view.job_id, state: view.state, phase: view.phase,
       checkpoint_id: view.checkpoint_id, patch_digest: view.patch_digest, applied_paths: [...view.applied_paths],
+      ...(view.conflicts !== undefined ? { conflicts: view.conflicts.map(conflict => ({ path: conflict.path, reason: conflict.reason })) } : {}),
       created_at: view.created_at, updated_at: view.updated_at, message: view.message,
       verification: verification === null ? null : {
         status: verification.status, scope: verification.scope, total: verification.total, passed: verification.passed,

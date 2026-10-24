@@ -1,8 +1,10 @@
 import type { ApplyOperationView } from "../domain/apply-contracts.js";
 
+type ApplicationDetails = ApplyOperationView & { conflicts?: Array<{ path: string; reason: string }> };
+
 const escape = (value: unknown) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-export function applicationSummary(application?: ApplyOperationView): string[] {
+export function applicationSummary(application?: ApplicationDetails): string[] {
   if (!application) return [];
   const verification = application.verification;
   return [
@@ -10,6 +12,7 @@ export function applicationSummary(application?: ApplyOperationView): string[] {
     `Operation: ${application.operation_id} / Checkpoint: ${application.checkpoint_id} / Patch SHA-256: ${application.patch_digest}`,
     `Uygulanan yollar: ${application.applied_paths.length}`,
     `Uygulama sonucu: ${application.message}`,
+    ...(application.conflicts ?? []).map(conflict => `Korunan cakismali dosya: ${conflict.path} / Neden: ${conflict.reason}`),
     ...(verification ? [
       `Apply verification: ${verification.status} / ${verification.scope}`,
       "Dogrulama, uygulanan asil projenin hash-dogrulanmis owned kopyasinda tum proje testlerini calistirir.",
