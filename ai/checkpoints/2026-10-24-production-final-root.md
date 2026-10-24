@@ -70,3 +70,13 @@ Windows line ending farki raporlandi, gizlenmedi. Skill byte-esit.
 Typecheck/build/helper/localgatePASS,lint0error89eskiuyari. Bagimsiz P1/P2=0.
 Son metadata commitleri testli355kodgirdisini korur. Mainbuild/installedverify
 ve remoteHEAD teslimde tekrar kontrol edilecek.
+
+## Kurulu main kabul kontrolu
+
+4709b8d mainFF sonrasi build/localgate/verify-install PASS. ModelCONFIGURED ve
+MavenCAPABILITY_PROBED READY. Gercek kayitliargv/env ve skill bytehash ayni;
+stdio9arac. EskiGPU670testlikrapor manifesti degismedi; readonlystatus
+1767/1874/1821ms, outcome/lifecycle tutarli. Kullanici config'i ayni.
+Son bagimsiz release reviewer 148/1261/rawhash/canary/installer/perf355code
+girdisini dogruladi; P1/P2=0, yeni006/391GO iddiasi yok. Bu sadece metadata
+commitidir; sonHEADbuildstamp/smoke/remoteHEAD teslimde tekrar dogrulanir.

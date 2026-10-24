@@ -131,5 +131,25 @@
     "10k-artifact polling hashes all bytes and may take seconds; no sub-second SLA",
     "Legacy 006/391 full GO was not reissued; this is active 009 readiness",
     "CI remains disabled; Docker/macOS, tag/publication/deployment and customer source changes are excluded"
-  ]
+  ],
+  "installed_main": {
+    "verified_commit": "4709b8d1dbb04c4687a14161ef38a82714f6c5e8",
+    "build": "PASS",
+    "local_release_gate": "LOCAL_PASS",
+    "verify_install": "PASS",
+    "model_readiness": "READY_CONFIGURED",
+    "maven_readiness": "READY_CAPABILITY_PROBED",
+    "registered_entry_valid": true,
+    "tools": 9,
+    "installed_skill_byte_exact": true,
+    "existing_gpu_report_unchanged": true,
+    "readonly_status_duration_ms": [
+      1767,
+      1874,
+      1821
+    ],
+    "user_config_unchanged": true,
+    "proof_sha256": "4443ebb46cb93a80480143a338af9d4e0e8313361d20765482b2b9466b7e4cdb",
+    "deployment_executed": false
+  }
 }
