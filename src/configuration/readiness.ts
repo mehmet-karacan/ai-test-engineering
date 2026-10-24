@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
 import { lstatSync } from "node:fs";
+import { WorkerBackendSchema } from "../workers/backend-config.js";
 /**
  * P08/PP43: kurulum ve dogrulama yuzeyleri icin ayrik readiness siniflandirmasi.
  *
@@ -47,11 +48,16 @@ export function evaluateWorkerReadiness(input: WorkerReadinessInput): ReadinessR
   if (!profile) {
     return notReady("WORKER_PROFILE_NOT_FOUND", "Secili worker profili config icinde yok");
   }
+  if (input.profiles.filter(candidate => candidate.profile_name === selectedName).length !== 1
+      && input.profiles.some(candidate => candidate.profile_name === selectedName && candidate.backend && typeof candidate.backend === "object" && "kind" in candidate.backend && candidate.backend.kind !== "opencode")) {
+    return notReady("WORKER_PROFILE_AMBIGUOUS", "Secili CLI profil adi birden fazla kayitla eslesiyor");
+  }
   const backend = profile.backend;
   if (backend !== undefined && (!backend || typeof backend !== "object" || !("kind" in backend))) {
     return notReady("WORKER_BACKEND_INVALID", "Worker backend baglamasi gecersiz");
   }
   if (backend && typeof backend === "object" && "kind" in backend && backend.kind !== "opencode") {
+    if (!WorkerBackendSchema.safeParse(backend).success) return notReady("WORKER_BACKEND_INVALID", "CLI backend baglamasi gecersiz");
     let executable: unknown;
     if (backend.kind === "cli_json" && "command" in backend && Array.isArray(backend.command)
       && backend.command.length > 0 && backend.command.every(value => typeof value === "string" && value.trim().length > 0)) {

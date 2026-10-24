@@ -1,6 +1,6 @@
 /** Exact, secret-free inference backend selection. No executable/model fallback. */
 import { createHash } from "node:crypto";
-import { fstatSync, openSync, closeSync, readFileSync, statSync } from "node:fs";
+import { fstatSync, openSync, closeSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { extname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import type { AppConfig, WorkerProfile } from "../configuration/config-schema.js";
@@ -9,8 +9,8 @@ import { parseExactModelSpec } from "./opencode/profile-reader.js";
 
 const ExactNameSchema = z.string().min(1).max(256).refine(value => !/\s/.test(value), "Kimlik bosluk iceremez");
 const AbsolutePathSchema = z.string().min(1).max(32767).refine(value =>
-  !value.includes("\0") && isAbsolute(value) && (process.platform !== "win32" || /^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+[\\/])/i.test(value)),
-"Tam mutlak dosya yolu gerekli");
+  !value.includes("\0") && isAbsolute(value) && (process.platform !== "win32" || /^[a-z]:[\\/]/i.test(value)),
+"Yerel surucu uzerinde tam mutlak dosya yolu gerekli");
 const ExecutableSchema = AbsolutePathSchema.refine(value => process.platform !== "win32" || extname(value).toLowerCase() === ".exe", "Windows native exe gerekli");
 export const CliEnvReferenceNameSchema = z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
@@ -87,11 +87,23 @@ function bind(profile: WorkerProfile): WorkerBinding {
   };
   if (backend.kind === "opencode") return WorkerBindingSchema.parse(binding);
   const command = backend.kind === "cli_json" ? backend.command : [backend.executable];
+  // Desktop CLI launchers often sit below a version-switching junction.
+  // Pin its real file, so resume also rejects a launcher retargeted by upgrade.
+  const canonicalFile = (path: string): string => {
+    try { return realpathSync.native(path); }
+    catch { return invalid("CLI executable/input okunamadi; fallback uygulanmaz"); }
+  };
+  command[0] = canonicalFile(command[0]!);
+  if (backend.kind === "codex_cli") backend.executable = command[0]!;
   const paths = [command[0]!];
-  for (const argument of command.slice(1)) {
+  for (const [offset, argument] of command.slice(1).entries()) {
     if (!isAbsolute(argument) || paths.some(path => normalizedPath(path) === normalizedPath(argument))) continue;
     try {
-      if (statSync(argument).isFile()) paths.push(argument);
+      if (statSync(argument).isFile()) {
+        const actual = canonicalFile(argument);
+        command[offset + 1] = actual;
+        if (!paths.some(path => normalizedPath(path) === normalizedPath(actual))) paths.push(actual);
+      }
     } catch (error) {
       // An absent absolute output path is not a command input. Other read errors fail closed.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") invalid("CLI arguman dosyasi okunamadi");

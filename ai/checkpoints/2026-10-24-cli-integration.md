@@ -24,3 +24,14 @@ mutasyon yok. Tekrar install entry import'u testlerde kullanilmaz.
 
 Devam: gercek sentetik Codex generation+Maven/JaCoCo, OpenCode regresyonu,
 clientnone kurulum, bagimsiz review ve tam Windows suite. CI kapali.
+
+Canli ilk Codex denemesi model0/TARGET_NOT_MET_PLATEAU: kurulu CLI'nin
+surum junction'i constructor'da reddediliyordu. Gercek executable ve file
+argumanlarini selection'da canonical path+hash ile dondurme eklendi;
+RED1FAIL30PASS -> GREEN37PASS. Ikinci canary: scan model0, secim sonrasi
+1Codex call, TARGET_REACHED,6/6PASS, asil kaynak ayni. Son kod kaniti yeniden
+alinacak. Bagimsiz review'daki directory-argv pin hatasi RED->GREEN;
+UNC config/native pin uyusmazligi erken schema RED->GREEN; tekrarli CLI
+profilinin yanlisREADY sonucu RED->GREEN. Iki config/readiness dosyasi45PASS.
+Bagimsiz config/integration review3dosya42PASS/P1P2yok; executor/install
+review4dosya40PASS, uc bulgu yukarida kapatildi. Final recheck bekliyor.

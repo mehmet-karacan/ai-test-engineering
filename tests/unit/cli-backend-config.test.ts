@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { WorkerProfileSchema } from "../../src/configuration/config-schema.js";
@@ -25,6 +25,19 @@ function contractInput(): JobContractInput {
 }
 
 describe("CLI backend config and immutable domain", () => {
+  it("freezes actual executable targets below an installed Windows junction", async () => {
+    const { resolveWorkerBinding } = await import("../../src/workers/backend-config.js");
+    const root = mkdtempSync(join(tmpdir(), "cli-alias-")); temporaryRoots.push(root);
+    const actual = join(root, "release"); mkdirSync(actual);
+    const alias = join(root, "current"); symlinkSync(actual, alias, "junction");
+    const exe = join(actual, "worker.exe"); writeFileSync(exe, "native fixture");
+    const config = defaultConfig();
+    config.worker_profiles = [{ ...profile, backend: { kind: "codex_cli", executable: join(alias, "worker.exe") } }];
+    const selected = resolveWorkerBinding(config, { worker_profile: "cli" })!;
+    expect(selected.backend).toEqual({ kind: "codex_cli", executable: realpathSync.native(exe) });
+    expect(selected.command_inputs?.[0]?.path).toBe(realpathSync.native(exe));
+    expect(config.worker_profiles[0]!.backend).toEqual({ kind: "codex_cli", executable: join(alias, "worker.exe") });
+  });
   it("preserves an explicit backend when parsing a worker profile", () => {
     expect(WorkerProfileSchema.parse({ ...profile, backend }).backend).toEqual(backend);
   });
@@ -154,6 +167,7 @@ describe("exact backend selection", () => {
     }
     expect(WorkerBackendSchema.safeParse({ kind: "codex_cli", executable: "C:relative.exe" }).success).toBe(false);
     expect(WorkerBackendSchema.safeParse({ kind: "codex_cli", executable: "\\drive-missing.exe" }).success).toBe(false);
+    expect(WorkerBackendSchema.safeParse({ kind: "codex_cli", executable: "\\\\server\\share\\worker.exe" }).success).toBe(false);
     expect(WorkerBackendSchema.safeParse({ kind: "codex_cli", executable: join(root, "wrapper.cmd") }).success).toBe(false);
     expect(WorkerBackendSchema.safeParse({ kind: "cli_json", command: [] }).success).toBe(false);
   });

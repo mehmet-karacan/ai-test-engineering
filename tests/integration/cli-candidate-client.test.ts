@@ -26,6 +26,13 @@ async function request(client: CliCandidateClient, extra: Record<string, unknown
 }
 afterEach(async () => { await Promise.all(clients.splice(0).map((client) => client.stopOwnedServer())); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); delete process.env.AITE_CLI_SECRET; delete process.env.AITE_UNREFERENCED_SECRET; delete process.env.AITE_CLI_PROBE; delete process.env.AITE_CLI_MODE; });
 describe.skipIf(process.platform !== "win32")("owned CLI candidate client", () => {
+  it("preserves existing directory arguments without treating them as pinned files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cli-directory-")); roots.push(root);
+    const probe = join(root, "probe.json");
+    const client = new CliCandidateClient({ backend: { kind: "cli_json", command: [process.execPath, fixture, "valid", probe, root] }, workRoot: join(root, "private") }); clients.push(client);
+    expect((await request(client)).value).toHaveProperty("schema_version", 1);
+    expect(JSON.parse(readFileSync(probe, "utf8")).argv.at(-1)).toBe(root);
+  });
   it("sends bounded envelope by stdin with exact static argv and only referenced secret env", async () => {
     process.env.AITE_CLI_SECRET = "retained-secret"; process.env.AITE_UNREFERENCED_SECRET = "must-not-pass";
     const { client, probe, root } = make(); const result = await request(client);

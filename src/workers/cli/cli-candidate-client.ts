@@ -97,7 +97,7 @@ export class CliCandidateClient {
         if (!isAbsolute(input.path) || !/^[a-f0-9]{64}$/u.test(input.sha256) || pins.has(resolve(input.path).toLowerCase())) throw new Error("pin");
         pins.set(resolve(input.path).toLowerCase(), { ...input });
       }
-      for (const path of [command[0], ...command.slice(1).filter((arg) => isAbsolute(arg) && existsSync(arg)), process.execPath, BRIDGE]) {
+      for (const path of [command[0], ...command.slice(1).filter((arg) => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile()), process.execPath, BRIDGE]) {
         regularAbsolute(path);
         if (!pins.has(resolve(path).toLowerCase())) pins.set(resolve(path).toLowerCase(), { path, sha256: hashFile(path) });
       }

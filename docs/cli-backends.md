@@ -52,6 +52,10 @@ Worker profilleri runtime `config/config.json` icinde secilir. `backend`
 alani olmayan eski profil OpenCode olarak devam eder. CLI icin
 `default_worker_profile` veya bir MCP istegindeki `worker_profile` acikca
 secilmelidir; CLI bulunamazsa OpenCode'a otomatik gecis yapilmaz.
+Yalniz `model_profile` verilirse birebir provider/model ile eslesen tek CLI
+profili de secilebilir; ayni model icin birden fazla profil varsa
+`worker_profile` gerekir. Var olan OpenCode profillerini koruyup yeni CLI
+profilini listeye ekleyin; varsayilani degistirmek zorunlu degildir.
 
 Ornek profil alanlari (diger config alanlarinizi koruyun):
 
@@ -78,6 +82,28 @@ Native Windows executable yolu mutlak `.exe` olmalidir. Wrapper
 `candidate-json-v1` protokolunde stdin JSON alip stdout'a tek aday JSON
 yazmalidir; her genel amacli CLI bu protokolu dogrudan desteklemez.
 Codex kendi mevcut CLI oturumunu kullanir; yeni API key olusturulmaz.
+Executable ve dosya argumanlari yerel surucu uzerinde olmali; UNC native
+pin katmaninda desteklenmez. Kurulumdaki junction/surum yonlendirmesi gercek
+dosyaya cozulup hash ile sabitlenir. CLI guncellenirse yarida kalan eski
+isin executable kontrati degismis olur; sessiz devam yerine yeni is acilir.
+
+Genel wrapper stdin'i EOF'ye kadar okuyup su envelope'u isler:
+
+```json
+{"schema_version":1,"prompt":"...","model":{"providerID":"provider","modelID":"exact-model"},"json_schema":{"type":"object"}}
+```
+
+`json_schema` tam CandidateChangeSet semasidir. Stdout'a yalniz bu semaya
+uyan tek JSON yazin; aciklama/log stdout'a yazilmaz. Protokolun adi
+candidate-json-v1'dir; envelope'da ayri protocol alani yoktur. Wrapper
+engine-owned bos runtime dizininde, shell:false ile baslar; proje dosyasi
+ve CWD bilgisi yerine bounded prompt baglamini kullanir. Nonzero exit,
+bos/bozuk/yarim JSON, timeout, iptal ve cikti limitini asma adayi reddeder.
+Prompt en cok 4MiB, sonuc en cok gorevin max_output_bytes butcesi (8MiB
+ust sinir), stderr en cok min(64KiB, sonuc butcesi). Ham stderr rapora
+tasinmaz. `secret_reference_names` yalniz aktarilacak ortam degiskeninin
+adidir; deger config'e yazilmaz. NODE_OPTIONS/NODE_PATH/CODEX_HOME bu
+listeden gecmez; Codex auth dizini gerekiyorsa backend.auth_home kullanilir.
 
 Worker ilk kurulumda varsayilan olarak kapalidir. Acmak icin kurulumdan
 once CMD'de `set AITEST_WORKER_ENABLED=1` kullanin. Upgrade kayitli flag ve

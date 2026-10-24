@@ -10,6 +10,11 @@ const temporary = () => { const root = mkdtempSync(join(tmpdir(), "aitest-cli-in
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 3 }); });
 
 describe("client-neutral worker readiness", () => {
+  it("rejects ambiguous CLI profile names instead of advertising READY", () => {
+    const profile = { profile_name: "cli", provider_id: "p", model_id: "m", backend: { kind: "codex_cli", executable: process.execPath } };
+    expect(readiness.evaluateWorkerReadiness({ enabled: true, profiles: [profile, { ...profile, model_id: "other" }], default_profile: "cli", configured_model: undefined, configured_providers: {} }))
+      .toMatchObject({ status: "NOT_READY", reason_code: "WORKER_PROFILE_AMBIGUOUS" });
+  });
   const evaluate = (backend: unknown, options: Record<string, unknown> = {}) => readiness.evaluateWorkerReadiness({
     enabled: true, profiles: [{ profile_name: "cli", provider_id: "cli", model_id: "chosen", backend }],
     default_profile: "cli", configured_model: "other/chat", configured_providers: {}, ...options,
