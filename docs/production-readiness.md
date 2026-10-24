@@ -39,8 +39,14 @@ degistirmez; main build ve kurulu MCP kimligi teslimde tekrar kontrol edilir.
    > ve dal icin %80 hedefle test uret, mevcut testleri koru ve sonucu dogrula.
 
 Sonucu gercek outcome/verification/coverage/test sayilariyla kabul edin.
-TARGET_NOT_MET veya BASELINE_FAILED basari diye sunulmaz. Apply halen
-PATCH_ONLY; testleri asil repoya uygulama ayri karardir. Native Maven Windows
+TARGET_NOT_MET veya BASELINE_FAILED basari diye sunulmaz. `test_apply`
+varsayilan preview'dir; asil repoya yeni test eklemek icin plan kimligine
+sabitlenmis apply ve OpenCode insan formu onayi ayri karardir. APPLIED ancak
+uygulanan asil projenin hash-dogrulanmis owned kopyasindaki tum proje
+testleri PASS oldugunda verilir (`FULL_PROJECT_SNAPSHOT`). Basarisiz veya
+iptal edilen dogrulama kendi degismemis dosyalarini geri alir; cakismalar
+CONFLICT/RECOVERY_REQUIRED ile acik kalir. Application kaniti generation
+outcome/coverage olcumlerini yukseltmez. Native Maven Windows
 hesabinin dosya ve ag yetkileriyle calisir; OS sandbox degildir.
 
 ## Isletim

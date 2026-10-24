@@ -14,15 +14,18 @@ import { buildReport07 } from "./report07-renderer.js";
 import { projectReport07Facts, type Report07Facts } from "./report07-facts.js";
 import type { JobRow } from "../storage/job-repository.js";
 import type { AllowedTestRoot } from "../policies/policy-guard.js";
+import type { ApplyOperationView } from "../domain/apply-contracts.js";
+import { applicationReport, applicationSummary } from "./application-report.js";
 
 type ReportJobState = Pick<JobRow, "id" | "lifecycle" | "phase" | "outcome" | "verification_level" | "apply_state">;
 
-export function withJobRuntime(data: ReportData, job: ReportJobState): ReportData {
+export function withJobRuntime(data: ReportData, job: ReportJobState, application?: ApplyOperationView | null): ReportData {
   if (data.job_id !== job.id) throw new AppError("REPORT_EXPORT_FAILED", "Rapor ile is kimligi eslesmiyor");
+  if (application && application.job_id !== job.id) throw new AppError("REPORT_EXPORT_FAILED", "Uygulama ile is kimligi eslesmiyor");
   const runtime = { ...data.runtime };
   if (job.outcome === null) delete runtime.stop_code;
   else runtime.stop_code = job.outcome;
-  return {
+  const current: ReportData = {
     ...data,
     outcome: job.outcome ?? "UNAVAILABLE",
     verification_scope: job.verification_level,
@@ -30,6 +33,10 @@ export function withJobRuntime(data: ReportData, job: ReportJobState): ReportDat
     runtime: { ...runtime, lifecycle: job.lifecycle, phase: job.phase,
       checkpoint_valid: data.runtime?.checkpoint_valid ?? null },
   };
+  // Undefined preserves the historical caller contract; null authoritatively clears stale facts.
+  if (application === null) delete current.application;
+  else if (application !== undefined) current.application = structuredClone(application);
+  return current;
 }
 
 export interface ReportTarget {
@@ -83,6 +90,7 @@ export interface ReportEvidence {
 }
 
 export interface ReportData {
+  application?: ApplyOperationView;
   report07?: Report07Facts;
   runtime?: { lifecycle:string; phase:string; stop_code?:string; checkpoint_valid:boolean|null };
   schema_version: 1;
@@ -186,6 +194,7 @@ th { background: #f8fafc; }
 </div>
 
 <h2>Sinif bazli once/sonra</h2>
+${applicationReport(data.application)}
 <div class="card"><table>
 <tr><th>Hedef</th><th>FQCN</th><th>LINE</th><th>BRANCH</th></tr>
 ${targetRows}
@@ -312,7 +321,7 @@ export class ReportExporter {
   }
 
   /** Reproject only an intact publication; never bless modified evidence. */
-  synchronizeRuntime(job: ReportJobState): { missing: string[]; hash_mismatch: string[] } {
+  synchronizeRuntime(job: ReportJobState, application?: ApplyOperationView | null): { missing: string[]; hash_mismatch: string[] } {
     const manifestPath = containedReportPath(this.reportRoot, "manifest.json");
     const before = existsSync(manifestPath) ? readFileSync(manifestPath) : null;
     const verified = this.verifyExport();
@@ -327,9 +336,10 @@ export class ReportExporter {
     const reportBytes = readFileSync(containedReportPath(this.reportRoot, "report.json"));
     if (!matches(reportBytes,"report.json")) return {missing:[],hash_mismatch:["report.json"]};
     const data = JSON.parse(reportBytes.toString("utf8")) as ReportData;
-    const current = withJobRuntime(data, job);
+    const current = withJobRuntime(data, job, application);
     if (JSON.stringify(data.runtime) === JSON.stringify(current.runtime) && data.outcome === current.outcome
-      && data.apply_state === current.apply_state && data.verification_scope === current.verification_scope) return verified;
+      && data.apply_state === current.apply_state && data.verification_scope === current.verification_scope
+      && JSON.stringify(data.application) === JSON.stringify(current.application)) return verified;
     const core = new Set(["report.json", "index.html", "summary.txt", "manifest.json", "PUBLISHED"]);
     const extra: Record<string, Buffer> = {};
     for (const artifact of manifest.artifacts) {
@@ -633,6 +643,7 @@ export function buildSummary(data: ReportData): string {
     `Test eklenen: ${data.tests_added}`,
     `Test degisen: ${data.tests_modified}`,
     `Production degisikligi: ${data.production_changed_files}`,
+    ...applicationSummary(data.application),
   ];
   return lines.join("\n") + "\n";
 }

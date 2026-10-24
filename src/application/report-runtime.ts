@@ -5,6 +5,7 @@ import { ReportExporter, withJobRuntime, type ReportData } from "../reporting/re
 import type { Services } from "./services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
+import { getApplyOperationView } from "../storage/apply-operation-view.js";
 
 export interface PreparedReportVerification {
   jobId: string;
@@ -40,20 +41,22 @@ export function verifyCurrentReport(services: Services, jobId: string, prepared?
   try {
     return services.storage!.db.transaction(() => {
       const job = services.jobs!.getJob(jobId);
+      const application = getApplyOperationView(services.storage!.db, jobId);
       // The enclosing response transaction now excludes heavy evidence I/O. A
       // concurrent publisher or state change invalidates this proof; refresh
       // remains on the original serialized, fully revalidated path.
       if (prepared?.jobId === jobId
         && prepared.manifest.equals(readFileSync(join(root, "manifest.json")))
         && prepared.publication.equals(readFileSync(join(root, "PUBLISHED")))) {
-        const current = withJobRuntime(prepared.data, job);
+        const current = withJobRuntime(prepared.data, job, application);
         if (JSON.stringify(prepared.data.runtime) === JSON.stringify(current.runtime)
           && prepared.data.outcome === current.outcome && prepared.data.apply_state === current.apply_state
-          && prepared.data.verification_scope === current.verification_scope) {
+          && prepared.data.verification_scope === current.verification_scope
+          && JSON.stringify(prepared.data.application) === JSON.stringify(current.application)) {
           return { missing: [], hash_mismatch: [], job, facts: projectReportStatusFacts(prepared.data, jobId) };
         }
       }
-      const verified = new ReportExporter(root).synchronizeRuntime(job);
+      const verified = new ReportExporter(root).synchronizeRuntime(job, application);
       const facts = verified.missing.length === 0 && verified.hash_mismatch.length === 0
         ? projectReportStatusFacts(JSON.parse(readFileSync(join(root, "report.json"), "utf8")), jobId) : null;
       return { ...verified, job, facts };

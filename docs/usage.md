@@ -30,7 +30,34 @@ Once [Windows kurulumu ve readiness dogrulamasi](installation.md) tamamlanmalidi
    - `project_inspect`: proje envanteri
    - `test_start`: kalici job baslatir, `job_id` doner
    - `test_status`: durumu sorgular
-4. Sonuc `READY_FOR_REVIEW` olarak sunulur: rapor yolu, before/after sayaclari, kalan gap'ler.
+4. `test_result` gercek lifecycle/outcome/verification/apply durumunu, rapor yolunu, before/after sayaclarini ve kalan gap'leri verir.
+
+## Kabul edilmis testleri asil projeye uygulama
+
+`test_apply({job_id, project_root, mode:"preview"})` yazmadan plan hazirlar.
+Plan proje kokunu, checkpoint_id/patch_digest kimligini ve yeni test
+dosyalarini gosterir. `mode:"apply"` ayni checkpoint_id ve patch_digest ile
+cagrilir; OpenCode insan onay formunda kabul ve `approved:true` gerekir.
+Modelin yazdigi approval_reference onay degildir. Form destegi yoksa,
+red veya iptal halinde kaynak dosyalarina yazilmaz.
+
+Uygulama arka planda surer. Ayni job_id ve donen operation_id'yi
+`test_status` / `test_result` application alanindan takip edin. APPLYING
+tamamlandi demek degildir; APPLIED ancak tam test dogrulamasi PASS ise verilir.
+Mevcut testler/POM/production dosyalari korunur, yalniz plandaki yeni testler
+eklenir; var olan dosya ezilmez. Dogrulama uygulanan asil projenin
+hash-dogrulanmis owned kopyasinda filtresiz tum Maven testleri ve JaCoCo
+ile yapilir (`FULL_PROJECT_SNAPSHOT`); asil dizinde dogrudan Maven kosusu
+iddiasi yoktur.
+
+Rapor application bolumunde operation, asama, test toplam/PASS/failure/error/
+skip sayilari, mevcut testlerin korunmasi, tum testlerin varligi ve hata/geri
+alma nedeni ayrica verilir. Onceki generation sonucu ve hedef coverage
+olcumleri korunur. Basarisiz/iptal dogrulama yalniz operation'in kendi
+ekledigi ve degistirilmemis dosyalarini geri alir. CONFLICT veya
+RECOVERY_REQUIRED kullanici degisikligi ya da tamamlanamayan cleanup'i
+aciklar; eski operation icin `mode:"recover"` kullanilir. Retry yeni preview
+ve yeni insan onayi ister. Onceki application alani olmayan raporlar gecerlidir.
 
 ## Devam ve inceleme
 
@@ -49,7 +76,7 @@ Once [Windows kurulumu ve readiness dogrulamasi](installation.md) tamamlanmalidi
 | `project_query` | yok | evet | Sinirli sorgu (view + cursor) |
 | `test_start` | job kaydi | evet | Kalici job; idempotency key destekli |
 | `test_status` | yok | evet | Durum + event'ler |
-| `test_apply` | kullanici projesi | evet | Onayli degisiklik aktarimi (varsayilan kapali) |
+| `test_apply` | apply onayi sonrasi yeni testler | evet | preview (varsayilan), insan formuyla apply, recover |
 
 ## Ciktilar
 
