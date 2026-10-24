@@ -20,3 +20,9 @@ genel HTTP adapter, production candidate brief aktarimi, OpenCode talimatlari
 ve23regresyon. Kalici rol enum/sessionlineage degismedi. Yeni customer/Maven/
 apply yok. Main teslim/build/kurulu skill ve remote HEAD son adimda kontrol
 edilir. Ozel kanitlar runtime'da, hashleri acceptance JSON'da.
+
+Kurulu main uygulama72398a1: build/yerel gate PASS;9dosya97test PASS.
+Stdio9arac, explicit gorev/teslim ve typed schema PASS; mevcut670testlik
+rapor manifesti ayni. Kurulu skill main ile byte-esit; kullanici config ve
+ana model izinleri ayni. OpenCode yeniden acildiginda yeni skill yuklenir.
+Son dokuman commitinden sonra build/smoke ve remote HEAD tekrar kontrol edilir.

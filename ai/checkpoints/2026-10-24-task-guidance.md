@@ -53,3 +53,14 @@
 - Devam: main commit/FF/build/yerel gate/kurulu MCP kontrolu; kurulu skill
   eski hash kontrolu ve yedekle guncellenir. Ana model izinleri ve kullanici
   opencode.json ayni kalir. Son remote HEAD eslesmesi teslimde dogrulanir.
+
+## Kurulu main teslim kontrolu
+
+- Uygulama commit72398a1 main dalina fast-forward edildi. Main build/yerel
+  gate PASS;9dosya97test PASS. Kurulu stdio MCP9arac, explicit task/delivery
+  ve typed schema dogrulandi. Eski rapor manifesti ve670testlik sonuc ayni.
+- OpenCode skill eski hash/yedek kontrolunden sonra main byte-lariyla
+  guncellendi; opencode.json ve ana model izinleri ayni. Opsiyonel primary
+  agent kurulumu yapilmadi. Kanit digestleri acceptance JSON icindedir.
+- Bu kayit commitinden sonra main build damgasi/stdio kontrolu yenilenir;
+  push sonrasi remote HEAD eslesmesi teslim mesajinda dogrulanir.

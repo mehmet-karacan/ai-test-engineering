@@ -63,5 +63,24 @@
     "JSON Schema omits custom UTF-8 refinement; runtime validator still enforces bytes",
     "Historical same-key task recreation immutable revision/budget conflicts are outside this instruction task",
     "No new customer Maven/model/apply, UI, CI, deployment or full391 release GO"
-  ]
+  ],
+  "installed_main": {
+    "implementation_commit": "72398a12c4d9b6cbc29ace323da02e3b26781b70",
+    "build": "PASS",
+    "local_release_gate": "LOCAL_PASS",
+    "focused_files_passed": 9,
+    "focused_tests_passed": 97,
+    "mcp_tools": 9,
+    "explicit_task_brief": true,
+    "delivery_overrides_stage": true,
+    "typed_output_schema": true,
+    "existing_report_manifest_unchanged": true,
+    "existing_report_total_tests": 670,
+    "skill_matches_main": true,
+    "user_config_unchanged": true,
+    "main_model_permissions_changed": false,
+    "main_smoke_proof_sha256": "eb3392c5aef58b5cb67d9209463d3e5be741c14c1fb5e43834a626b2f5c14955",
+    "installed_skill_proof_sha256": "774ec411631ee0f3c96f05cc2bc0a2091af3f914a215a03dce6a4bda1c9c7117",
+    "focused_log_sha256": "531c86e605b03386f2ce24b79bd71d7d422e50a7651531b3f6dce0ad3ed664c4"
+  }
 }
