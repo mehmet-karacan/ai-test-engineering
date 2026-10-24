@@ -1,6 +1,4 @@
 import { isAbsolute, resolve } from "node:path";
-import { lstatSync } from "node:fs";
-import { WorkerBackendSchema } from "../workers/backend-config.js";
 /**
  * P08/PP43: kurulum ve dogrulama yuzeyleri icin ayrik readiness siniflandirmasi.
  *
@@ -23,7 +21,7 @@ export interface ReadinessResult {
 
 export interface WorkerReadinessInput {
   enabled: boolean;
-  profiles: readonly { profile_name: string; provider_id: string; model_id: string; backend?: unknown }[];
+  profiles: readonly { profile_name: string; provider_id: string; model_id: string }[];
   default_profile: string | undefined;
   configured_model: string | undefined;
   configured_providers: Readonly<Record<string, unknown>>;
@@ -47,32 +45,6 @@ export function evaluateWorkerReadiness(input: WorkerReadinessInput): ReadinessR
   const profile = input.profiles.find((candidate) => candidate.profile_name === selectedName);
   if (!profile) {
     return notReady("WORKER_PROFILE_NOT_FOUND", "Secili worker profili config icinde yok");
-  }
-  if (input.profiles.filter(candidate => candidate.profile_name === selectedName).length !== 1
-      && input.profiles.some(candidate => candidate.backend && typeof candidate.backend === "object" && "kind" in candidate.backend && candidate.backend.kind !== "opencode")) {
-    return notReady("WORKER_PROFILE_AMBIGUOUS", "Secili CLI profil adi birden fazla kayitla eslesiyor");
-  }
-  const backend = profile.backend;
-  if (backend !== undefined && (!backend || typeof backend !== "object" || !("kind" in backend))) {
-    return notReady("WORKER_BACKEND_INVALID", "Worker backend baglamasi gecersiz");
-  }
-  if (backend && typeof backend === "object" && "kind" in backend && backend.kind !== "opencode") {
-    if (!WorkerBackendSchema.safeParse(backend).success) return notReady("WORKER_BACKEND_INVALID", "CLI backend baglamasi gecersiz");
-    let executable: unknown;
-    if (backend.kind === "cli_json" && "command" in backend && Array.isArray(backend.command)
-      && backend.command.length > 0 && backend.command.every(value => typeof value === "string" && value.trim().length > 0)) {
-      executable = backend.command[0];
-    } else if (backend.kind === "codex_cli" && "executable" in backend) executable = backend.executable;
-    if (typeof executable !== "string" || !executable.trim() || !isAbsolute(executable)
-      || process.platform === "win32" && (!/\.exe$/i.test(executable) || !/^(?:[a-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+[\\/])/i.test(executable))) {
-      return notReady("WORKER_BACKEND_INVALID", "CLI icin mutlak executable baglamasi gerekli");
-    }
-    if (!input.default_profile) return notReady("CLI_PROFILE_SELECTION_REQUIRED", "CLI profili default_worker_profile ile acikca secilmeli");
-    try {
-      if (!lstatSync(executable).isFile()) throw new Error("not a regular file");
-    } catch { return notReady("WORKER_EXECUTABLE_MISSING", "Secili CLI executable normal dosya olarak bulunamadi"); }
-    return { capability: "model", status: "READY", evidence_level: "CONFIGURED", reason_code: null,
-      detail: "Secili CLI profili ve yerel executable baglamasi yapilandirildi" };
   }
   const expectedModel = `${profile.provider_id}/${profile.model_id}`;
   if (input.configured_model !== expectedModel) {
@@ -170,17 +142,4 @@ export function buildRegisteredMcpEnvironment(previous: unknown, ambient: Record
     if (ambient[key] !== undefined) result[key] = ambient[key];
   }
   return result;
-}
-
-/** Client-neutral stdio definition; reuse exact command/env validation and precedence. */
-export function evaluateMcpServerDefinition(input: {
-  definition: unknown; entry_js: string; config_path: string; db_path: string;
-  ambient: Record<string, string | undefined>;
-}): ReturnType<typeof evaluateRegisteredMcpEntry> {
-  const definition = input.definition && typeof input.definition === "object" ? input.definition as Record<string, unknown> : {};
-  const args = Array.isArray(definition["args"]) ? definition["args"] : [];
-  const result = evaluateRegisteredMcpEntry({ ...input, entry: { type: "local", command: [definition["command"], ...args], environment: definition["env"] } });
-  const expectedExecutable = typeof definition["command"] === "string" && isAbsolute(definition["command"])
-    && resolve(definition["command"]).toLowerCase() === resolve(process.execPath).toLowerCase();
-  return { ...result, valid: result.valid && expectedExecutable && definition["schema_version"] === 1 && definition["transport"] === "stdio" };
 }

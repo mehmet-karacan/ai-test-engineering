@@ -4,7 +4,6 @@
  */
 import { z } from "zod";
 import { resolveRuntimeRoot } from "./runtime-paths.js";
-import { CliEnvReferenceNameSchema, WorkerBackendSchema } from "../workers/backend-config.js";
 
 export const StorageConfigSchema = z.object({
   root: z.string().min(1).max(1024),
@@ -25,18 +24,10 @@ export const BudgetDefaultsSchema = z.object({
 export type BudgetDefaults = z.infer<typeof BudgetDefaultsSchema>;
 
 export const WorkerProfileSchema = z.object({
-  backend: WorkerBackendSchema.optional(),
   profile_name: z.string().min(1).max(128),
   provider_id: z.string().min(1).max(128),
   model_id: z.string().min(1).max(256),
   secret_reference_names: z.array(z.string().min(1).max(128)).max(16).default([]),
-}).superRefine((profile, context) => {
-  if (profile.backend === undefined || profile.backend.kind === "opencode") return;
-  for (const [index, name] of profile.secret_reference_names.entries()) {
-    if (!CliEnvReferenceNameSchema.safeParse(name).success) {
-      context.addIssue({ code: "custom", path: ["secret_reference_names", index], message: "CLI secret referansi normal ortam degiskeni adi olmali" });
-    }
-  }
 });
 export type WorkerProfile = z.infer<typeof WorkerProfileSchema>;
 

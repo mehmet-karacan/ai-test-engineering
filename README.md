@@ -1,6 +1,6 @@
 # ai-test-engineering
 
-Kalici hafizali ve yalniz test gelistiren Windows native MCP urunu. OpenCode varsayilandir; genel JSON protokolune uyumlu CLI worker'lari ve ek Codex CLI adapter'i de secilebilir. Maven/JUnit/JaCoCo sonucunu private execution kopyasinda olcer; rapor ve checkpoint'leri kullanici runtime dizininde saklar.
+OpenCode uzerinden kullanilan, kalici hafizali ve yalniz test gelistiren Windows native MCP urunu. Maven/JUnit/JaCoCo sonucunu private execution kopyasinda olcer; rapor ve checkpoint'leri kullanici runtime dizininde saklar.
 
 ## Baslangic
 
@@ -11,8 +11,6 @@ node scripts/install.mjs
 ```
 
 [Kurulum](docs/installation.md), [model ve proje ayarlari](docs/configuration.md), [kullanim](docs/usage.md) ve [backup/isletim](docs/operations.md) adimlarini izleyin. Ilk kurulum worker'i kendiliginden acmaz. Model/Maven/MCP readiness ve production kabul kapilari ayri kanitlardir.
-
-OpenCode disinda MCP stdio kaydi ve CLI worker secimi icin [client ve backend rehberini](docs/cli-backends.md) izleyin. `node scripts/install.mjs --client none` OpenCode ayarlarina dokunmadan stdio baglanti dosyasini olusturur.
 
 OpenCode'da genel coverage raporu isteyin; olculmus onerilerden sinifi secince generation baslatilir. Production kaynak/POM degistirilmez; asil projeye test uygulanmasi ayri acik onay gerektirir. Yerel yonetim UI'i yoktur; kurumsal HTML sonuc raporu vardir.
 

@@ -5,7 +5,6 @@
  * - Remote URL credential temizleme (7.1): token/kullanici bilgisi saklanmaz.
  */
 import { createHash } from "node:crypto";
-import { WorkerBackendSchema } from "../workers/backend-config.js";
 
 export interface SuspiciousKeyFinding {
   key: string;
@@ -69,7 +68,6 @@ export function buildSecretFreeConfigSnapshot(config: {
       provider_id: p["provider_id"],
       model_id: p["model_id"],
       secret_reference_names: p["secret_reference_names"],
-      ...(p["backend"] === undefined ? {} : { backend: WorkerBackendSchema.parse(p["backend"]) }),
     })),
     allowed_root_count: config.allowed_project_roots.length,
   };

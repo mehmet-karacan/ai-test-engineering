@@ -100,28 +100,4 @@ describe("S05 durable candidate agent bridge", () => {
     expect(row).toEqual({ status: "READY", job_id: job.id });
     expect(taskRepo.getTask(task.task_id).accepted_output_artifact_id).toBe(output!.artifact_id);
   }, 15000);
-  it.each(["ok", "invalid", "TIMEOUT", "CANCELLED"])("supports a protocol-neutral candidate transport (%s)", async kind => {
-    root = mkdtempSync(join(tmpdir(), "aitest-candidate-transport-"));
-    storage = new Storage({dbPath:join(root,"state.db")});storage.migrate();
-    const project = new ProjectRepository(storage.db).ensureLocation(root,"cli",null);
-    const job = new JobRepository(storage.db).createJob({locationId:project.location.id,requestDigest:randomUUID()});
-    const artifacts = new ArtifactStore({root:join(root,"artifacts")}), snapshot=randomUUID(), sourcePath="src/main/java/Payment.java";
-    mkdirSync(join(root,"src/main/java"),{recursive:true});writeFileSync(join(root,sourcePath),"class Payment {}\n");
-    const task=contract(job.id,project.project.id,project.location.id,snapshot,sourcePath);
-    const repo=new AgentTaskRepository(storage.db);repo.createTask(task);let calls=0;
-    const transport={createSession:async()=>({session_id:"generic-session"}),abortSession:async()=>{},generate:async(input:{prompt:string;model:{providerID:string;modelID:string};max_output_bytes:number;signal:AbortSignal})=>{
-      calls++;expect(input.prompt).toContain("Payment");expect(input.model).toEqual({providerID:task.model_binding.provider_id,modelID:task.model_binding.model_id});expect(input.max_output_bytes).toBe(task.budget.max_output_bytes);expect(input.signal).toBeInstanceOf(AbortSignal);
-      if(kind==="TIMEOUT"||kind==="CANCELLED")throw Object.assign(new Error("bounded failure"),{kind});
-      const value=kind==="invalid"?{unexpected:true}:{schema_version:1,changes:[{path:"src/test/java/PaymentCliTest.java",action:"create",new_content:"class PaymentCliTest {}"}]};
-      return {value,text:JSON.stringify(value),message_id:null,usage:{input_tokens:3,output_tokens:4}};
-    }};
-    const adapter=new CandidateAgentSessionAdapter(transport as never,{db:storage.db,artifacts,jobId:job.id,toolFlags:{}});
-    const provider=new FileSystemContextProvider({rootPath:root,rootDigest:task.allowed_context_scope.root_digest});
-    const result=(await new AgentScheduler({tasks:repo,adapter,contextProvider:provider,ownerId:"transport-test"}).run({taskIds:[task.task_id],parentSessionId:"dispatcher"}))[0]!;
-    expect(calls).toBe(1);
-    expect(result.outcome_kind).toBe(kind==="ok"?"COMPLETED":kind==="invalid"?"PROVIDER_ERROR":kind);
-    if(kind==="ok"){expect(result.accepted).toBe(true);expect(artifacts.verify(result.result!.artifact_refs[0]!.sha256)).toBe(true);}
-    else expect(repo.getTask(task.task_id).accepted_output_artifact_id).toBeNull();
-  });
-
 });

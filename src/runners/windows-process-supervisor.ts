@@ -41,8 +41,6 @@ export function assertWindowsProcessHelper(): void {
 }
 
 export interface NativeProcessPlan {
-  /** Explicit CLI mode excludes unused Maven inputs; default preserves legacy Maven guards. */
-  invocationKind?: "maven_cmd" | "cli";
   executable: string;
   cwd: string;
   /** Optional owned root; implicit .mvn inputs above it are outside the run. */
@@ -117,16 +115,6 @@ export function processPinPaths(plan: NativeProcessPlan): string[] {
     paths.set(absolute.toLowerCase(), absolute);
   };
   add(plan.executable, true);
-  if (plan.invocationKind === "cli") {
-    if (!plan.pinRoot || !isAbsolute(plan.pinRoot) || !plan.pinnedInputs) {
-      throw new AppError("BLOCKED_ISOLATION", "CLI invocation requires owned root and frozen pins");
-    }
-    const inside = relative(resolve(plan.pinRoot), resolve(plan.cwd));
-    if (inside.startsWith("..") || isAbsolute(inside)) throw new AppError("BLOCKED_ISOLATION", "CLI cwd outside owned root");
-    add(cmdExecutable(plan.env), true);
-    for (const argument of plan.argv) add(argument, true);
-    return [...paths.values()];
-  }
   const cwd = resolve(plan.cwd);
   const pinRoot = plan.pinRoot === undefined ? null : resolve(plan.pinRoot);
   if (pinRoot !== null) {
@@ -251,8 +239,7 @@ export class WindowsProcessSupervisor {
     if (process.platform !== "win32") {
       throw new AppError("BLOCKED_ISOLATION", "UNSUPPORTED_PLATFORM");
     }
-    if (!isAbsolute(plan.executable) || !(plan.executable.toLowerCase().endsWith(".cmd") ||
-        (plan.invocationKind === "cli" && plan.executable.toLowerCase().endsWith(".exe")))) {
+    if (!isAbsolute(plan.executable) || !plan.executable.toLowerCase().endsWith(".cmd")) {
       throw new AppError("INVALID_PARAMETERS", "Expected absolute .cmd executable");
     }
     if (!isAbsolute(plan.cwd) || plan.timeoutMs <= 0 || !Number.isFinite(plan.timeoutMs)) {

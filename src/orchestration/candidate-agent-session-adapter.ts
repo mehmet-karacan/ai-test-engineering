@@ -6,7 +6,6 @@
  * satiri yazilir. AgentScheduler bu artifact referansini fenced task sonucu
  * olarak kabul eder; caller yalniz bu referansi okuyarak changeset'i alir.
  */
-import type { CandidateInferenceClient } from "../workers/candidate-client.js";
 import { createHash } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
 import { CandidateChangeSetSchema, type CandidateChangeSet } from "../workers/opencode/model-schemas.js";
@@ -66,7 +65,7 @@ export interface CandidateAgentSessionAdapterOptions {
  */
 export class CandidateAgentSessionAdapter implements AgentSessionAdapter {
   constructor(
-    private readonly client: OpenCodeWorkerClient | CandidateInferenceClient,
+    private readonly client: OpenCodeWorkerClient,
     private readonly options: CandidateAgentSessionAdapterOptions,
   ) {}
 
@@ -86,11 +85,13 @@ export class CandidateAgentSessionAdapter implements AgentSessionAdapter {
     input.signal.addEventListener("abort", abort, { once: true });
     try {
       const timeoutMs = Math.max(1, Math.min(MAX_WORKER_REQUEST_TIMEOUT_MS, Math.floor(input.contract.budget.remaining_minutes * 60_000)));
-      const model = { providerID: input.model.provider_id, modelID: input.model.model_id };
-      const response = "generate" in this.client
-        ? await this.client.generate({session_id:input.session_id,prompt:input.context.text,model,timeout_ms:timeoutMs,max_output_bytes:input.contract.budget.max_output_bytes,signal:input.signal})
-        : await promptForJsonResult(this.client, {session_id:input.session_id,prompt:input.context.text,model,tools:this.options.toolFlags,timeout_ms:timeoutMs});
-      const usage = "usage" in response ? response.usage : response.result.usage;
+      const response = await promptForJsonResult(this.client, {
+        session_id: input.session_id,
+        prompt: input.context.text,
+        model: { providerID: input.model.provider_id, modelID: input.model.model_id },
+        tools: this.options.toolFlags,
+        timeout_ms: timeoutMs,
+      });
       const parsed = CandidateChangeSetSchema.safeParse(response.value);
       if (!parsed.success) return emptyOutcome("PROVIDER_ERROR", "candidate changeset schema invalid");
       const changeset: CandidateChangeSet = parsed.data;
@@ -149,19 +150,12 @@ export class CandidateAgentSessionAdapter implements AgentSessionAdapter {
         changed_paths: changeset.changes.map((change) => change.path),
         run_refs: [],
         next_action: "candidate_loop_apply",
-        usage,
+        usage: response.result.usage,
       };
     } catch (error) {
       if (error instanceof WorkerRequestFailure) {
         const mapped = mapFailure(error);
         return error.result?.usage ? { ...mapped, usage: error.result.usage } : mapped;
-      }
-      if ("generate" in this.client) {
-        const kind = error && typeof error === "object" && "kind" in error ? error.kind : "PROVIDER_ERROR";
-        if (kind === "TIMEOUT" || kind === "CANCELLED" || kind === "EMPTY_FINAL" || kind === "TRUNCATED_JSON" || kind === "BLOCKED") {
-          return emptyOutcome(kind, `candidate backend ${kind.toLowerCase()}`);
-        }
-        return emptyOutcome("PROVIDER_ERROR", "candidate backend failed");
       }
       return emptyOutcome("PROVIDER_ERROR", `candidate bridge error: ${String(error).slice(0, 256)}`);
     } finally {
