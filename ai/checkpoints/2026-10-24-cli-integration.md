@@ -35,3 +35,8 @@ UNC config/native pin uyusmazligi erken schema RED->GREEN; tekrarli CLI
 profilinin yanlisREADY sonucu RED->GREEN. Iki config/readiness dosyasi45PASS.
 Bagimsiz config/integration review3dosya42PASS/P1P2yok; executor/install
 review4dosya40PASS, uc bulgu yukarida kapatildi. Final recheck bekliyor.
+
+Mixed config'te unrelated CLI varken tekrarli legacydefault readiness'i
+gercek seciciyle uyumsuzdu; RED1FAIL14PASS -> GREEN15PASS. Purelegacy
+readiness davranisi korundu. Final suite onceki kaynakta basladigi icin
+bu ek duzeltme sonrasi build+tam suite yeni kaynakta yeniden kosulacak.

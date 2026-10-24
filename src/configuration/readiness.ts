@@ -49,7 +49,7 @@ export function evaluateWorkerReadiness(input: WorkerReadinessInput): ReadinessR
     return notReady("WORKER_PROFILE_NOT_FOUND", "Secili worker profili config icinde yok");
   }
   if (input.profiles.filter(candidate => candidate.profile_name === selectedName).length !== 1
-      && input.profiles.some(candidate => candidate.profile_name === selectedName && candidate.backend && typeof candidate.backend === "object" && "kind" in candidate.backend && candidate.backend.kind !== "opencode")) {
+      && input.profiles.some(candidate => candidate.backend && typeof candidate.backend === "object" && "kind" in candidate.backend && candidate.backend.kind !== "opencode")) {
     return notReady("WORKER_PROFILE_AMBIGUOUS", "Secili CLI profil adi birden fazla kayitla eslesiyor");
   }
   const backend = profile.backend;

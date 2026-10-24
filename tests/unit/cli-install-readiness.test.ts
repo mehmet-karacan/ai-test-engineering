@@ -15,6 +15,13 @@ describe("client-neutral worker readiness", () => {
     expect(readiness.evaluateWorkerReadiness({ enabled: true, profiles: [profile, { ...profile, model_id: "other" }], default_profile: "cli", configured_model: undefined, configured_providers: {} }))
       .toMatchObject({ status: "NOT_READY", reason_code: "WORKER_PROFILE_AMBIGUOUS" });
   });
+  it("matches mixed-config ambiguity while retaining legacy-only readiness", () => {
+    const old = { profile_name: "old", provider_id: "p", model_id: "m" };
+    const input = { enabled: true, profiles: [old, old], default_profile: "old", configured_model: "p/m", configured_providers: { p: {} } };
+    expect(readiness.evaluateWorkerReadiness(input).status).toBe("READY");
+    expect(readiness.evaluateWorkerReadiness({ ...input, profiles: [...input.profiles, { profile_name: "cli", provider_id: "c", model_id: "x", backend: { kind: "codex_cli", executable: process.execPath } }] }))
+      .toMatchObject({ status: "NOT_READY", reason_code: "WORKER_PROFILE_AMBIGUOUS" });
+  });
   const evaluate = (backend: unknown, options: Record<string, unknown> = {}) => readiness.evaluateWorkerReadiness({
     enabled: true, profiles: [{ profile_name: "cli", provider_id: "cli", model_id: "chosen", backend }],
     default_profile: "cli", configured_model: "other/chat", configured_providers: {}, ...options,
