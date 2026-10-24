@@ -21,7 +21,7 @@ import { NativeProcessRegistry } from "../orchestration/native-process-registry.
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { readProjectCoverageResult, readProjectCoverageFailure, type ProjectCoverageResult, type ProjectCoverageFailure } from "../storage/project-coverage-result.js";
 import type { ReportStatusFacts } from "../reporting/report-projection.js";
-import { verifyCurrentReport } from "./report-runtime.js";
+import { verifyCurrentReport, prepareReportVerification } from "./report-runtime.js";
 import { MAX_WORKER_REQUEST_TIMEOUT_MS } from "../workers/opencode/worker-config.js";
 import { jobContext, nextJobAction, hasPendingCleanup, type JobContext } from "./job-context.js";
 
@@ -285,10 +285,11 @@ export interface TestResultResult {
 export async function handleTestResult(input: unknown, services: Services): Promise<TestResultResult> {
   const parsed = TestResultInputSchema.parse(input);
   const { storage, jobs } = requireStorage(services);
+  const prepared = parsed.job_id ? prepareReportVerification(services, parsed.job_id) : undefined;
   return storage.db.transaction(() => {
     let job = jobs.getJob(parsed.job_id);
     assertJobProjectContext(job, parsed.project_root, storage);
-    const publishedVerification = verifyCurrentReport(services, job.id);
+    const publishedVerification = verifyCurrentReport(services, job.id, prepared);
     job = publishedVerification.job ?? job;
 
     // K07/B06: son trusted coverage yalniz dispatcher'in final replay DB kanitindan

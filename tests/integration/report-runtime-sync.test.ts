@@ -134,4 +134,35 @@ describe("published report runtime agrees with the authoritative job", () => {
     expect(result.report_path).toBeNull();expect(result.report_facts).toBeNull();
     expect(readFileSync(join(reportRoot,"manifest.json"))).toEqual(before);
   });
+  it("hashes steady publication evidence before acquiring the response writer lock",async()=>{
+    finish(); await handleTestResult({job_id:jobId},services);
+    const second=new Storage({dbPath:join(root,"state.db")}); second.db.pragma("busy_timeout = 1");
+    second.db.exec("CREATE TABLE poll_probe (n INTEGER)");
+    const original=ReportExporter.prototype.verifyExport; let observed=false;
+    try {
+      vi.spyOn(ReportExporter.prototype,"verifyExport").mockImplementation(function(this:ReportExporter,...args){
+        second.db.prepare("INSERT INTO poll_probe(n) VALUES(1)").run(); observed=true;
+        return original.apply(this,args);
+      });
+      const result=await handleTestResult({job_id:jobId},services);
+      expect(observed).toBe(true); expect(result.report_path).not.toBeNull();
+      expect(second.db.prepare("SELECT COUNT(*) AS n FROM poll_probe").get()).toEqual({n:1});
+    } finally {second.close();}
+  });
+  it("rechecks authoritative state changed by another connection during evidence hashing",async()=>{
+    finish(); await handleTestResult({job_id:jobId},services);
+    const second=new Storage({dbPath:join(root,"state.db")}); second.db.pragma("busy_timeout = 1");
+    const original=ReportExporter.prototype.verifyExport; let changed=false;
+    try {
+      vi.spyOn(ReportExporter.prototype,"verifyExport").mockImplementation(function(this:ReportExporter,...args){
+        const result=original.apply(this,args);
+        if(!changed){second.db.prepare("UPDATE test_jobs SET apply_state='APPLIED',row_version=row_version+1 WHERE id=?").run(jobId);changed=true;}
+        return result;
+      });
+      const result=await handleTestResult({job_id:jobId},services);
+      expect(changed).toBe(true); expect(result.apply_state).toBe("APPLIED"); expect(read().apply_state).toBe("APPLIED");
+      expect(result.report_path).not.toBeNull();
+    } finally {second.close();}
+  });
+
 });

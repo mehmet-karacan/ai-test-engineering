@@ -781,3 +781,59 @@ describe("S09: legacy-only manifest Windows scope gate'ini gecemez", () => {
     }
   });
 });
+
+
+describe("Production: complete shipped build identity", () => {
+  it.each(["changed", "deleted", "added", "duplicate"])("rejects %s transitive dist artifacts", (variant) => {
+    const dir = copyRepoForNegative();
+    try {
+      const path = join(dir, "dist", "application", "services.js");
+      if (variant === "changed") writeFileSync(path, readFileSync(path, "utf8") + "\nthrow new Error('stale');\n");
+      if (variant === "deleted") rmSync(path);
+      if (variant === "added") writeFileSync(join(dir, "dist", "unrecorded.js"), "export const stale = true;");
+      if (variant === "duplicate") {
+        const stampPath = join(dir, "dist", "build-stamp.json");
+        const stamp = JSON.parse(readFileSync(stampPath, "utf8"));
+        stamp.dist_artifacts.push(stamp.dist_artifacts[0]);
+        writeFileSync(stampPath, JSON.stringify(stamp));
+      }
+      const gate = runGate(dir, ["--local"]);
+      expect(gate.status).not.toBe(0);
+      expect(gate.resultJson?.decision).toBe("LOCAL_FAIL");
+      expect(reasonCodes(gate)).toContain("DIST_STAMP_UYUSMAZ");
+    } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+  });
+  it("binds shipped OpenCode instructions to the source identity", () => {
+    const dir = copyRepoForNegative();
+    try {
+      const integrations = join(dir, "integrations", "opencode");
+      mkdirSync(integrations, { recursive: true });
+      writeFileSync(join(integrations, "SKILL.md"), "Initial task instructions");
+      const stamp = spawnSync(process.execPath, [join(dir, "scripts", "write-build-stamp.mjs")], { cwd: dir, encoding: "utf8", windowsHide: true });
+      expect(stamp.status).toBe(0);
+      writeFileSync(join(integrations, "SKILL.md"), "Changed task instructions");
+      const gate = runGate(dir, ["--local"]);
+      expect(gate.status).not.toBe(0);
+      expect(reasonCodes(gate)).toContain("DIST_STALE_TREE");
+    } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+  });
+});
+
+
+describe("Production: full manifest shipped inventory", () => {
+  it.each(["missing", "duplicate", "bytes"])("rejects %s transitive manifest evidence", (variant) => {
+    const dir = copyRepoForNegative();
+    try {
+      writeMinimalValidManifest(dir);
+      const path = join(dir, "ai", "acceptance", "evidence-manifest.json");
+      const manifest = JSON.parse(readFileSync(path,"utf8"));
+      const entry = manifest.build.dist_artifacts.find((file: DistArtifact) => file.relative_path === "dist/application/services.js");
+      expect(entry).toBeDefined();
+      if (variant === "missing") manifest.build.dist_artifacts = manifest.build.dist_artifacts.filter((file: DistArtifact) => file !== entry);
+      if (variant === "duplicate") manifest.build.dist_artifacts.push(entry);
+      if (variant === "bytes") entry.bytes++;
+      writeFileSync(path, JSON.stringify(manifest));
+      expect(reasonCodes(runGate(dir))).toContain("EVIDENCE_DIST_UYUSMAZ");
+    } finally { rmSync(dir,{recursive:true,force:true,maxRetries:3,retryDelay:100}); }
+  });
+});

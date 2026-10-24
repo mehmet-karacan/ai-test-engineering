@@ -16,7 +16,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
-export const TREE_DIGEST_DIRS = ["src", "scripts", "native", "tests", "docs", "ai/acceptance"];
+export const TREE_DIGEST_DIRS = ["src", "scripts", "native", "tests", "docs", "integrations", "ai/acceptance"];
 export const TREE_DIGEST_ROOT_FILES = ["package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts", "eslint.config.mjs"];
 export const BUILD_INPUT_FILES = [
   "package.json",
@@ -111,13 +111,17 @@ export function computeBuildInputDigest(repoRoot) {
 
 export function distArtifactList(repoRoot) {
   const list = [];
-  for (const rel of DIST_ARTIFACTS) {
+  const walk = (rel) => {
     const abs = join(repoRoot, rel);
-    if (existsSync(abs)) {
+    if (!existsSync(abs)) return;
+    if (statSync(abs).isDirectory()) {
+      for (const name of readdirSync(abs)) walk(`${rel}/${name}`);
+    } else if (rel !== BUILD_STAMP_REL) {
       list.push({ relative_path: rel, sha256: sha256File(abs), bytes: statSync(abs).size });
     }
-  }
-  return list;
+  };
+  walk("dist");
+  return list.sort((a, b) => a.relative_path.localeCompare(b.relative_path));
 }
 
 export function computeSourceIdentity(repoRoot, gitIdentity) {

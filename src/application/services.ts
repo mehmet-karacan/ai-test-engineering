@@ -25,7 +25,7 @@ import { InventoryScanService } from "./inventory-scan-service.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import type { ReportStatusFacts } from "../reporting/report-projection.js";
-import { verifyCurrentReport } from "./report-runtime.js";
+import { verifyCurrentReport, prepareReportVerification } from "./report-runtime.js";
 import { jobContext, nextJobAction, type JobContext } from "./job-context.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
@@ -624,6 +624,7 @@ export interface TestStatusResult {
 export async function handleTestStatus(input: unknown, services: Services): Promise<TestStatusResult> {
   const parsed = TestStatusInputSchema.parse(input);
   const { jobs, storage } = requireServices(services);
+  const prepared = parsed.job_id ? prepareReportVerification(services, parsed.job_id) : undefined;
   return storage.db.transaction(() => {
     let job: JobRow;
     if (parsed.job_id) {
@@ -642,7 +643,7 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
     }
 
     assertJobProjectContext(job, parsed.project_root, requireServices(services).storage);
-    const publishedVerification = verifyCurrentReport(services, job.id);
+    const publishedVerification = verifyCurrentReport(services, job.id, prepared);
     job = publishedVerification.job ?? job;
     const events = jobs.listEvents(job.id, parsed.event_cursor, 50);
     // K07/B06: last_trusted_coverage yalniz dispatcher final replay DB kanitindan okunur;

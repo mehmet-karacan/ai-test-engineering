@@ -117,7 +117,7 @@ function distArtifactList() {
 // PR01: secret kontrolu calisma kapsamiyla dogru isimlendirilir; yayinlanacak Git/paket
 // artifact envanterini kapsar. Iki dosya kapsam disidir: bu script (kendi pattern
 // literalleri) ve sentetik fixture anahtari iceren bilinen test dosyasi.
-const SECRET_SCAN_DIRS = ["src", "scripts", "docs", "tests", "dist", "ai/acceptance"];
+const SECRET_SCAN_DIRS = ["src", "scripts", "docs", "integrations", "tests", "dist", "ai/acceptance"];
 const SECRET_SCAN_ROOT_FILES = ["package.json", "package-lock.json", "README.md", "tsconfig.json", "vitest.config.ts", "eslint.config.mjs"];
 const SECRET_SCAN_SKIP_FILES = new Set([resolve(__filename_placeholder())]);
 const SECRET_SCAN_ALLOW_FILES = new Set([join(repoRoot, "tests", "unit", "fin09-patch-export.test.ts")]);
@@ -288,8 +288,18 @@ function checkBuildStamp(identity) {
     addReason("DIST_EKSIK", "dist artifacts uretilmemis; dagitilacak build yok");
     return;
   }
+  const currentPaths = new Set(currentDist.map((entry) => entry.relative_path));
+  const stampPaths = new Set(stampDist.map((entry) => entry?.relative_path));
+  if (stampPaths.size !== stampDist.length || stampDist.length !== currentDist.length
+    || stampDist.some((entry) => !currentPaths.has(entry?.relative_path))) {
+    addReason("DIST_STAMP_UYUSMAZ", "Build stamp ve dagitilan tum dist dosyalarinin tekil envanteri ayni degil");
+  }
+  for (const required of DIST_ARTIFACTS) {
+    if (!existsSync(join(repoRoot, required))) addReason("DIST_EKSIK", required);
+  }
+  const stampByPath = new Map(stampDist.map((entry) => [entry?.relative_path, entry]));
   for (const artifact of currentDist) {
-    const entry = stampDist.find((d) => d?.relative_path === artifact.relative_path);
+    const entry = stampByPath.get(artifact.relative_path);
     if (!entry) {
       addReason("DIST_STAMP_UYUSMAZ", `${artifact.relative_path} build stamp'te kayitli degil`);
     } else if (entry.sha256 !== artifact.sha256 || entry.bytes !== artifact.bytes) {
@@ -737,13 +747,17 @@ function verifyEvidenceManifest(identity, catalog, universe) {
     problems.push({ code: "EVIDENCE_BUILD_UYUSMAZ", detail: "manifest build_input_digest, build input digesleriyle uyusmuyor" });
   }
   const distList = Array.isArray(build.dist_artifacts) ? build.dist_artifacts : [];
-  for (const distRel of DIST_ARTIFACTS) {
-    const abs = join(repoRoot, distRel);
-    const entry = distList.find((d) => d?.relative_path === distRel);
-    if (!entry) {
-      problems.push({ code: existsSync(abs) ? "EVIDENCE_DIST_UYUSMAZ" : "EVIDENCE_DIST_EKSIK", detail: `${distRel} manifest build.dist_artifacts'ta dogru kayitli degil` });
-    } else if (!existsSync(abs) || sha256File(abs) !== entry.sha256) {
-      problems.push({ code: "EVIDENCE_DIST_UYUSMAZ", detail: `${distRel} hash uyusmuyor (dagitilacak build kanitla bagli degil)` });
+  const currentDist = identity.dist_artifacts;
+  const currentPaths = new Set(currentDist.map((entry) => entry.relative_path));
+  const manifestDistByPath = new Map(distList.map((entry) => [entry?.relative_path, entry]));
+  if (manifestDistByPath.size !== distList.length || distList.length !== currentDist.length
+    || distList.some((entry) => !currentPaths.has(entry?.relative_path))) {
+    problems.push({ code: "EVIDENCE_DIST_UYUSMAZ", detail: "Manifest tum dist dosyalarinin tekil envanteriyle eslesmiyor" });
+  }
+  for (const artifact of currentDist) {
+    const entry = manifestDistByPath.get(artifact.relative_path);
+    if (!entry || entry.sha256 !== artifact.sha256 || entry.bytes !== artifact.bytes) {
+      problems.push({ code: "EVIDENCE_DIST_UYUSMAZ", detail: `${artifact.relative_path} hash/boyut uyusmuyor` });
     }
   }
   // PR01: dagitilacak build, kabul run'unda kanitlanan kaynakla derlenmis build olmalidir.
@@ -770,11 +784,14 @@ function verifyEvidenceManifest(identity, catalog, universe) {
       problems.push({ code: "EVIDENCE_DIST_LOCKFILE_UYUSMAZ", detail: "build stamp lockfile_sha256, kabul run lockfile'i ile uyusmuyor" });
     }
     if (stamp && Array.isArray(stamp.dist_artifacts)) {
-      for (const distRel of DIST_ARTIFACTS) {
-        const abs = join(repoRoot, distRel);
-        const entry = stamp.dist_artifacts.find((d) => d?.relative_path === distRel);
-        if (existsSync(abs) && (!entry || entry.sha256 !== sha256File(abs) || entry.bytes !== statSync(abs).size)) {
-          problems.push({ code: "EVIDENCE_DIST_STAMP_UYUSMAZ", detail: `${distRel} guncel dist baytlari, build stamp kaydiyla uyusmuyor (stamp eski veya dist sonradan degisti)` });
+      const stampByPath = new Map(stamp.dist_artifacts.map((entry) => [entry?.relative_path, entry]));
+      if (stampByPath.size !== stamp.dist_artifacts.length || stamp.dist_artifacts.length !== currentDist.length) {
+        problems.push({ code: "EVIDENCE_DIST_STAMP_UYUSMAZ", detail: "Stamp dist envanteri eksik veya mukerrer" });
+      }
+      for (const artifact of currentDist) {
+        const entry = stampByPath.get(artifact.relative_path);
+        if (!entry || entry.sha256 !== artifact.sha256 || entry.bytes !== artifact.bytes) {
+          problems.push({ code: "EVIDENCE_DIST_STAMP_UYUSMAZ", detail: `${artifact.relative_path} guncel build stamp kaydiyla eslesmiyor` });
         }
       }
     }
