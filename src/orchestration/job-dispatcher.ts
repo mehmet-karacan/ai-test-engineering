@@ -1101,10 +1101,7 @@ export class JobDispatcher {
         ...evidenceMissing.map((missing) => ({ relative_path: missing.relative_path, kind: missing.kind, stage: missing.kind === "checkpoint_manifest" ? "checkpoint" as const : "final" as const, run_id: null, redacted: false, required: missing.required })),
       ];
       const reportOutcome = evidenceMissing.length > 0 ? "FINAL_VERIFICATION_FAILED" : finalOutcome;
-      const workerModels = storage.db
-        .prepare<[string], { role: string; provider_id: string; model_id: string }>("SELECT DISTINCT role, provider_id, model_id FROM worker_attempts WHERE job_id = ? ORDER BY role, provider_id, model_id")
-        .all(job.id)
-        .map((model) => ({ role: model.role, provider: model.provider_id, model: model.model_id }));
+      const workerModels = inventory.listUsedModels(job.id);
       const testOnlyStatus = !replaySucceeded || !checkpointTrusted || evidenceMissing.length > 0
         ? "NOT_RUN" as const
         : changeProjection.production_changed_files > 0

@@ -834,6 +834,18 @@ export class InventoryRepository {
   /**
    * FIN03/14.2: Worker attempt kaydi - provider/model profil snapshot'i, session/message, usage/repair.
    */
+  /** Durable AgentTask attempts and legacy worker calls share one report provenance view. */
+  listUsedModels(jobId: string): Array<{role:string;provider:string;model:string}> {
+    return this.db.prepare<[string,string],{role:string;provider_id:string;model_id:string}>(`
+      SELECT role, provider_id, model_id FROM worker_attempts WHERE job_id = ?
+      UNION
+      SELECT t.role, a.provider_id, a.model_id FROM agent_attempts a
+        JOIN agent_tasks t ON t.task_id = a.task_id AND t.job_id = a.job_id
+        WHERE a.job_id = ?
+      ORDER BY role, provider_id, model_id
+    `).all(jobId, jobId).map(row => ({role:row.role,provider:row.provider_id,model:row.model_id}));
+  }
+
   writeWorkerAttempt(input: {
     job_id: string;
     attempt_ordinal: number;

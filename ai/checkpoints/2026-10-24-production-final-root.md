@@ -42,3 +42,17 @@ BASEf1c77c1; branch codex/production-final-20261024. Auditlerde somut hatalar bu
   bagimsiz reviewer17+52PASS ve hash sirasinda yeni job yarisi PASS.
 - Bagimsiz core/reportreview4dosya72PASS/engelleyici0; lifecycle9dosya89PASS
   /engelleyici0. Install yeni JSONC followup review ve finalfull/canary bekler.
+
+## Gercek canary bulgusu
+
+- c5fa8a1 sentetik scan052abb0a: WAITING_INPUT/COVERAGE_ANALYZED, model0.
+  Secim sonrasi6539aaa3: COMPLETED/TARGET_REACHED;1testdosyasi/3yenitest,
+  final6/6PASS0skip, LINE11/11 BRANCH10/10, asil fixture source ayni.
+- Canary harness eski worker_attempts tablosunu saydigi icin false PASS
+  vermedi; gercek yeni agent_attempts tablosunda1GLM istegi vardir. Gercek
+  urun bug'u: report.models da yalniz eski tabloyu okudugu icin bos kalmisti.
+  Durable+legacy tekilmodelprovenance sorgusu eklendi; kullanilmamis task ve
+  baska job sayilmaz, duplicate model bir kez yer alir. Regresyon RED1.
+- Ilkfullsuite kaynakdegisikliginden once owned PowerShell process agaci
+  belirlenerek durduruldu; PASS iddiasi yok, onceki log TEMP'te saklandi.
+  Son kodda fullsuite ve gercek canary yeniden kosulacak.
