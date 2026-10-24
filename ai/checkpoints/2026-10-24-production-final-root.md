@@ -56,3 +56,17 @@ BASEf1c77c1; branch codex/production-final-20261024. Auditlerde somut hatalar bu
 - Ilkfullsuite kaynakdegisikliginden once owned PowerShell process agaci
   belirlenerek durduruldu; PASS iddiasi yok, onceki log TEMP'te saklandi.
   Son kodda fullsuite ve gercek canary yeniden kosulacak.
+
+## Son kod kabul paketi
+
+437b043:148dosya1261testPASS0SKIP,429.25s,exit0;49yeni test.
+Canary41314909:6/6PASS,LINE11/11,BRANCH10/10,1GLM/1dosya/3yeni test;
+asilsourcedegismedi, model raporda, missing/hashmismatch0. Izole operator
+clean/upgrade/idempotence/JSONC-BOM backup/customenv/negatifready/editedskill/
+uninstall preservation PASS. Private harness plainJSON/CRLFbytevarsayimlari
+duzeltilip raw byte ve commonparse ile tekrarlandi; urun hatasi degildi.
+Installer kaynaklari c5fa8a1 ile final kodda Git-normalized LF ayni; raw
+Windows line ending farki raporlandi, gizlenmedi. Skill byte-esit.
+Typecheck/build/helper/localgatePASS,lint0error89eskiuyari. Bagimsiz P1/P2=0.
+Son metadata commitleri testli355kodgirdisini korur. Mainbuild/installedverify
+ve remoteHEAD teslimde tekrar kontrol edilecek.

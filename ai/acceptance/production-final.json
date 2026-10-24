@@ -1,0 +1,135 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "kind": "PRODUCTION_FINAL",
+  "date": "2026-10-24",
+  "decision": "READY_FOR_USER_WINDOWS_NATIVE_DEPLOYMENT",
+  "base_commit": "f1c77c1fbbf5e720cc78920293be540845125564",
+  "verified_code_commit": "437b0439fa8e6d98a4d142f3b095d27ec836f2ad",
+  "code_digest": "f83e43750df45494b8a272bce81cb90abff27a09b1cf3a0b26090f2f6afbbf38",
+  "code_input_files": 355,
+  "new_tests": 49,
+  "full_windows_suite": {
+    "files_passed": 148,
+    "tests_passed": 1261,
+    "failed": 0,
+    "skipped": 0,
+    "duration_seconds": 429.25,
+    "exit_code": 0,
+    "json_sha256": "b3d512057c239771e1ee8fd26189cdc496ba3f9bc9d36deb5058066cefe82515",
+    "log_sha256": "b5cf306c08b73845d8b8968d6fb08fa1ec78a293327f0d79c65d4fffa84c10f8",
+    "report07_browser_included": true
+  },
+  "verification": {
+    "typecheck": "PASS",
+    "build": "PASS",
+    "native_helper_provenance": "PASS",
+    "lint_errors": 0,
+    "existing_lint_warnings": 89,
+    "local_release_gate": "LOCAL_PASS",
+    "optional_ps1_syntax": "PASS_NOT_EXECUTED"
+  },
+  "independent_review": {
+    "remaining_p1_p2": 0,
+    "core_report_tests": 72,
+    "query_followup_tests": 69,
+    "lifecycle_tests": 89,
+    "installer_final_tests": 38,
+    "model_metadata_tests": 1,
+    "brief_sha256": "6a189b408e2aa2c9007981bb384c735bb226dbc633dc37ab3de121fcd0cf7ec9"
+  },
+  "real_canary": {
+    "project": "synthetic sample-maven-project",
+    "scan_job_id": "38af532a-0a77-4ca4-a24d-4829aa48439e",
+    "generation_job_id": "41314909-5c4e-4deb-be80-78f45ad7fca3",
+    "scan_model_calls": 0,
+    "generation_model_calls": 1,
+    "manual_test_completion": false,
+    "model": "litellm/GLM-5.3-Flash-IT",
+    "lifecycle": "COMPLETED",
+    "outcome": "TARGET_REACHED",
+    "run_summary": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "test_files_added": 1,
+    "new_test_cases": 3,
+    "line": {
+      "covered": 11,
+      "total": 11,
+      "bps": 10000
+    },
+    "branch": {
+      "covered": 10,
+      "total": 10,
+      "bps": 10000
+    },
+    "original_source_unchanged": true,
+    "production_changed_files": 0,
+    "model_metadata_in_published_report": true,
+    "missing_artifacts": 0,
+    "hash_mismatches": 0,
+    "applied_files": 0,
+    "proof_sha256": "c7871a8422c942f7e4107fe606cbb73b52e6c5dea1fdb4bb17231a3d61a3fe11",
+    "report_manifest_sha256": "5bb1e6f261efb9026d049abce40cf3e156f1cab514c61632bf9bf02ee58be565"
+  },
+  "clean_install": {
+    "source_commit": "c5fa8a1c81abbfa589f2418b38f94929985cc023",
+    "clean_install_passed": true,
+    "upgrade_environment_preserved": true,
+    "jsonc_bom_backup_exact": true,
+    "app_config_unchanged": true,
+    "skill_byte_exact": true,
+    "configured_readiness_passed": true,
+    "provider_live_check_in_this_fixture": false,
+    "command_negative_rejected": true,
+    "disabled_negative_rejected": true,
+    "worker_negative_rejected": true,
+    "reinstall_idempotent": true,
+    "custom_skill_preserved_and_not_ready": true,
+    "uninstall_preserved_user_data_and_other_settings": true,
+    "installer_inputs_git_normalized_match": true,
+    "proof_sha256": "851f56ddde59909e085f57e017bc0b161f01a1e5b3e79b2bbc1ef848ff45b97c"
+  },
+  "performance": {
+    "artifact_counts": [
+      1000,
+      4000,
+      10000
+    ],
+    "heavy_hash_writer_allowed": 36,
+    "response_writer_blocked_for_consistency": 36,
+    "consistent_responses": 36,
+    "hashes_skipped": 0,
+    "measurement_commit": "c5fa8a1",
+    "raw_sha256": "67ebd6b516caad4a640afd9b468c627a5d2601615059f37bb338d68f60307bea",
+    "baseline_collection_bytes_before": 100663322,
+    "baseline_collection_bytes_after": 26,
+    "scope": "single-host synthetic workloads with parallel test load; not a latency SLO"
+  },
+  "closed_findings": [
+    "physical Maven receipt identity on resume",
+    "durable candidate ordinal and consumed budget",
+    "in-flight AgentTask recovery and stale result fencing",
+    "multi-target checkpoint and adopted decision atomicity",
+    "custom Maven test-root report counts",
+    "omitted JaCoCo method branch counter",
+    "quadratic evidence lookup and unnecessary baseline IO",
+    "heavy hashing under SQLite writer lock",
+    "complete dist and integration instruction provenance",
+    "allowlist-safe read-only installation smoke",
+    "skill ownership and backup",
+    "registered command/enabled/environment readiness",
+    "upgrade environment preservation",
+    "JSONC/BOM config/profile/provider parsing",
+    "durable model identity missing in report"
+  ],
+  "limits": [
+    "99.99 percent error-free operation remains an operational target, not a test guarantee",
+    "Coverage targets and existing project/provider failures remain explicit outcomes",
+    "10k-artifact polling hashes all bytes and may take seconds; no sub-second SLA",
+    "Legacy 006/391 full GO was not reissued; this is active 009 readiness",
+    "CI remains disabled; Docker/macOS, tag/publication/deployment and customer source changes are excluded"
+  ]
+}

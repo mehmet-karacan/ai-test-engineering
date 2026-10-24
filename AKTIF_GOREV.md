@@ -1,3 +1,17 @@
+## 2026-10-24 Production son hazirlik
+
+Windows native OpenCode + MCP, kullanicinin production kurulumuna hazir.
+437b043 kodunda 148 dosya / 1261 test PASS, 0 FAIL / 0 SKIP; 49 yeni test.
+Typecheck/build/helper/localgate PASS, lint 0 error / 89 mevcut warning.
+Bagimsiz capraz incelemelerde kalan P1/P2=0. Gercek sentetik canary: genel
+coverage/model0/WAITING_INPUT; secim sonrasi 1 GLM istegi, final 6/6 PASS,
+LINE11/11 BRANCH10/10, 1 dosya/3 yeni test; asil kaynak ayni, model raporda.
+Izole clean/upgrade/JSONC-backup/negatif readiness/custom skill/uninstall PASS.
+36/36 agir hash okumasinda DB writer ilerledi; response kilidi korundu.
+%99.99 hatasizlik olculmus veya garanti edilmis sayilmaz. Eski 006/391 GO
+bu kaynak icin yeniden verilmedi. CI kapali; G3 yayin/deploy kullanicida.
+Kabul: ai/acceptance/production-final.json. Operator: docs/production-readiness.md.
+
 # AKTIF_GOREV: OpenCode + MCP GPU Fusion akisi
 
 ## 2026-10-24 Gorev odakli model yonlendirmesi
