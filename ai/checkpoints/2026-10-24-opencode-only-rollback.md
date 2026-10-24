@@ -28,3 +28,10 @@ degisimi yok, kalan P1/P2yok. Yeni musteri/model/Maven generation kosusu yok.
 
 Devam noktasi: rollback commit/main FF, main fresh build/kurulu OpenCode
 verify ve push/remote HEAD kontrolu. CI kapali; G3 yayin yok.
+
+93ae03f main FF sonrasi fresh build/kurulu verify-install/localgate PASS.
+Kurulu skill byte/hash ayni; model CONFIGURED,Maven CAPABILITY_PROBED.
+Gercek MCP SDK9tool/list/read-only call PASS; start/resume worker_profile
+parametresi yok,stale CLImodul0,generic runtime export yok. Main urun kodu
+ceb1285 ile Git diff'te birebir ayni. Son kayit yalniz bu metadata'dir;
+source stamp ve push/remoteHEAD karsilastirmasi kapanis komutundadir.
