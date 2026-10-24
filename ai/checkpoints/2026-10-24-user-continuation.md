@@ -65,3 +65,18 @@
 - Devam: identity/ASCII/privacy/staged-diff kontrolu, commit; main fast-forward,
   build ve kurulu MCP smoke. Kurulu skill ancak eski hash eslesirse yedeklenip
   guncellenir; kullanici opencode.json ve ana model izinleri korunur.
+
+## Kurulu main teslim kontrolu
+
+- Uygulama commit 951a8d6947d5f81ccefed42cdb4d50f074aa590a main'e
+  fast-forward edildi. Main build/local release gate PASS, 5 dosya / 83 test
+  PASS. Source degisikligi yok; tam Windows1188PASS/1SKIP kaniti gecerlidir.
+- Kurulu MCP gercek eski GPU raporunu status/result ile salt okunur sorguladi:
+  9 arac, result/cancel/apply project_root semalari ve job_context mevcut.
+  COMPLETED/TARGET_REACHED, 670 test =659PASS/11SKIP; manifest hash ayni.
+  Yeni GPU Maven/model/apply yok.
+- Kurulu OpenCode skill once eski SHA ile kontrol edilip ozel alanda yedeklendi,
+  sonra main ile byte-esit guncellendi. opencode.json hash ayni; ana model
+  arac izinleri degismedi. Kanit hashleri acceptance JSON'da.
+- Son islem: teslim kaydi commit'i, main build stamp yenileme, son MCP smoke
+  ve origin/main push; uzak HEAD eslesmesi terminal kanitiyla dogrulanir.

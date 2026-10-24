@@ -112,5 +112,27 @@
     "No manual OpenCode UI Stop or live long JVM/provider interruption claim",
     "Configured legacy native missing-input pins remain typed fail-closed; generation worker permissions retained",
     "Full391 release GO not claimed; local gate only"
-  ]
+  ],
+  "installed_main": {
+    "implementation_commit": "951a8d6947d5f81ccefed42cdb4d50f074aa590a",
+    "focused_files_passed": 5,
+    "focused_tests_passed": 83,
+    "build": "PASS",
+    "local_release_gate": "LOCAL_PASS",
+    "tools": 9,
+    "project_context_schemas": true,
+    "existing_report_manifest_unchanged": true,
+    "existing_report_test_counts": {
+      "total": 670,
+      "passed": 659,
+      "failed": 0,
+      "skipped": 11
+    },
+    "installed_skill_matches_main": true,
+    "user_opencode_config_unchanged": true,
+    "main_model_permissions_changed": false,
+    "focus_log_sha256": "a1d5d27ef7dc735806be921c07b384abf2b3794a4eeaf2d88b7420d69c7a93f9",
+    "private_mcp_proof_sha256": "88a55139fa54d7afd6bb230e796a15b5c2e9722aa67ef227104aae32dd60c23a",
+    "private_skill_proof_sha256": "c27650a01012f2c95e4af7911cfed5a95e2a67847595e83d514fc94fdeaf396d"
+  }
 }

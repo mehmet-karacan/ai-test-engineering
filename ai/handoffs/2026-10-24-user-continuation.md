@@ -25,3 +25,8 @@ semalari/aciklamalari, dispatcher/checkpoint/native terminal cleanup ve
 OpenCode skill. Yeni38test + mevcut GC fixture duzeltmesi. Runtime log/model/
 provider bilgileri public'e alinmadi. Son main build/smoke, kurulu skill ve
 remote HEAD eslesmesi teslim adiminda kontrol edilir.
+
+Kurulu main kontrolu tamam: 951a8d6 uygulama commit'i, build/local gate PASS,
+83 focused test PASS. Eski GPU raporunun manifest ve test sayilari ayni.
+OpenCode skill yedekli guncel, ana config/model izinleri ayni. Son teslim
+kaydi sonrasi build stamp ve uzak HEAD eslesmesi dogrulanir.
