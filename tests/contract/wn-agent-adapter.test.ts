@@ -36,7 +36,7 @@ function contract(): AgentTaskContract {
 }
 
 describe("WN44 OpenCode agent session adapter", () => {
-  it("session lineage, model binding ve bounded JSON sonucu korur", async () => {
+  it.each([false,true])("session lineage, model binding ve gorev amacini korur (explicit brief %s)", async explicit => {
     let prompt: Record<string, unknown> | null = null;
     const { server, port } = await start(async (req, res) => {
       if (req.method === "POST" && req.url === "/session") {
@@ -53,7 +53,8 @@ describe("WN44 OpenCode agent session adapter", () => {
       res.writeHead(404); res.end();
     });
     try {
-      const task = contract();
+      const assignment={objective:"Diagnose the calculation bug and propose a small code correction",deliverables:["Correction proposal with example code"],acceptance_criteria:["Explain behavior from scoped source"]};
+      const task = {...contract(),...(explicit?{assignment}:{})};
       const adapter = new OpenCodeAgentSessionAdapter(new OpenCodeWorkerClient({ base_url: `http://127.0.0.1:${port}` }));
       const descriptor = await adapter.createSession({ task_id: task.task_id, parent_session_id: "parent-session", role: task.role, model: task.model_binding, context_manifest_digest: "c".repeat(64) });
       const result = await adapter.execute({
@@ -65,6 +66,20 @@ describe("WN44 OpenCode agent session adapter", () => {
       expect(result.usage).toEqual({ input_tokens: 11, output_tokens: 7 });
       expect(JSON.stringify(prompt)).toContain("Context manifest digest");
       expect(JSON.stringify(prompt)).toContain("parent-session");
+      const sent=String((prompt!.parts as Array<{text:string}>)[0]!.text);
+      expect(sent).toContain("## Gorevin amaci");
+      expect(sent).toContain("## Beklenen teslim");
+      expect(sent).toContain("## Kabul olcutleri");
+      const schemaLine=sent.split("\n").find(line=>line.startsWith("JSON Schema: "));
+      expect(schemaLine).toBeDefined();
+      const schema=JSON.parse(schemaLine!.slice("JSON Schema: ".length));
+      expect(schema.properties.summary.type).toBe("string");
+      expect(schema.properties.artifact_refs.items.type).toBe("object");
+      if(explicit){
+        expect(sent).toContain(assignment.objective);
+        expect(sent).toContain(assignment.deliverables[0]);
+        expect(sent).toContain(assignment.acceptance_criteria[0]);
+      }
     } finally { server.close(); }
   }, 15000);
 

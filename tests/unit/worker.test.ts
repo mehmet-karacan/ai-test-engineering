@@ -31,7 +31,7 @@ describe("role prompts", () => {
     expect(WORKER_ROLES).toEqual(["analyzer", "test_designer", "reviewer", "gap_analyzer"]);
   });
 
-  it("analyzer prompt'u kod yazma iceren olmali", () => {
+  it("analyzer prompt'u analiz teslimini ve kaynak kanitini belirtmeli", () => {
     const prompt = buildWorkerPrompt({
       role: "analyzer",
       class_name: "PaymentService",
@@ -41,7 +41,9 @@ describe("role prompts", () => {
       uncovered_areas: ["resolveStatus false/false"],
       policy_rules: [...DEFAULT_POLICY_RULES],
     });
-    expect(prompt).toContain("KOD YAZMA");
+    expect(prompt).not.toContain("KOD YAZMA");
+    expect(prompt).toContain("observed_behaviors");
+    expect(prompt).not.toContain('"changes":[');
     expect(prompt).toContain("PaymentService");
     expect(prompt).toContain("resolveStatus false/false");
     expect(prompt).toContain("Production kaynak dosyalarini degistiremezsin");
@@ -78,7 +80,8 @@ describe("role prompts", () => {
     expect(prompt).toContain("tekrar etme");
     expect(prompt).toContain("workingFixture()");
     expect(prompt).toContain("calisan fixture");
-    expect(prompt).toContain("Yalniz ODAK");
+    expect(prompt).toContain("ODAK verilen kapsanmamis davranisi onceliklendir");
+    expect(prompt).toContain("bagli public metotlari");
   });
 });
 

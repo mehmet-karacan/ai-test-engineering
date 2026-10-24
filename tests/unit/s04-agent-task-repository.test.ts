@@ -73,6 +73,13 @@ describe("S04 durable AgentTask claim/attempt/complete", () => {
     expect(() => tasks.createTask({ ...contract, task_id: randomUUID(), source_digest: "c".repeat(64) })).toThrow(/idempotency/i);
   });
 
+  it("gorev amaci teslim ve kabul olcutlerini kalici tutar; ayni anahtarla sessiz degistirmez",()=>{
+    const assignment={objective:"Explain failure and propose a precise correction",deliverables:["Correction proposal"],acceptance_criteria:["Use source evidence"]};
+    const created=tasks.createTask({...contract,assignment});
+    expect(tasks.getTask(created.task_id).contract).toMatchObject({assignment});
+    expect(()=>tasks.createTask({...contract,task_id:randomUUID(),assignment:{...assignment,objective:"Different task"}})).toThrow(/idempotency/i);
+  });
+
   it("job/location/project capraz kimligi trusted task olarak yazilmaz", () => {
     expect(() => tasks.createTask({ ...contract, task_id: randomUUID(), project_id: randomUUID(), idempotency_key: `foreign-${randomUUID()}` })).toThrow(/project\/location/i);
   });

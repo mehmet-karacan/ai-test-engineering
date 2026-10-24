@@ -55,6 +55,17 @@ export const ModelBindingSchema = z.object({
 });
 export type ModelBinding = z.infer<typeof ModelBindingSchema>;
 
+export const TaskAssignmentSchema = z.object({
+  objective: z.string().trim().min(1).max(2048),
+  deliverables: z.array(z.string().trim().min(1).max(1024)).min(1).max(16),
+  acceptance_criteria: z.array(z.string().trim().min(1).max(1024)).min(1).max(16),
+}).superRefine((assignment, context) => {
+  if (Buffer.byteLength(JSON.stringify(assignment), "utf8") > 8 * 1024) {
+    context.addIssue({code:"custom",message:"Task assignment 8 KiB UTF-8 sinirini asiyor"});
+  }
+});
+export type TaskAssignment = z.infer<typeof TaskAssignmentSchema>;
+
 export const AgentTaskContractSchema = z.object({
   schema_version: z.literal(1),
   task_id: IdSchema,
@@ -65,6 +76,8 @@ export const AgentTaskContractSchema = z.object({
   source_snapshot_id: IdSchema,
   source_digest: DigestSchema,
   role: AgentRoleSchema,
+  /** Optional for persisted legacy tasks; stage labels never replace a task brief. */
+  assignment: TaskAssignmentSchema.optional(),
   parent_task_id: IdSchema.nullable(),
   dependency_task_ids: z.array(IdSchema).max(32),
   input_artifact_refs: z.array(ArtifactRefSchema).max(64),

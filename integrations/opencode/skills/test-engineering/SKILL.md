@@ -5,6 +5,22 @@ description: Java projesinde yalniz test gelistirme; coverage hedefi, gercek Mav
 
 # Test Engineering
 
+## Gorevi tanimlama
+
+Modele sabit bir meslek/persona atamak yerine kullanicinin istedigi sonucu,
+ilgili proje/kaynak ve onceki kanitlari, beklenen teslimi ve kabul olcutlerini
+netlestir. Model gorev icinde arastirma, analiz, tasarim, gelistirme ve inceleme
+bilgisini birlikte kullanabilir; her beceri icin ayri model/oturum gerekmez.
+
+Explorer/architect/developer/reviewer gibi kayit etiketleri o andaki sorumlulugu
+anlatir. Bunlari modelin dusunme yetenegine yasak olarak yorumlama. Bagimsiz
+inceleme isteniyorsa uygulama baglamindan ayri bir degerlendirme yap; etiketin
+kendisi bagimsizlik veya kalite kaniti degildir.
+
+Beklenen teslim (test degisikligi, davranis analizi, bulgu, gap/sonraki adim)
+goreve uygun olsun. MCP TEST_ONLY ve worker JSON/arac/butce kurallari mevcut
+isin kapsamidir; ana modelin genel yardim ve problem cozme yetkisini daraltmaz.
+
 ## Sohbet, proje ve kesinti baglami
 
 Bu skill MCP test islerini yonlendirir. Ana OpenCode modelinin genel okuma,

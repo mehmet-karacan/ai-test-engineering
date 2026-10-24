@@ -1,0 +1,67 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "kind": "TASK_GUIDANCE",
+  "date": "2026-10-24",
+  "base_commit": "b57e15c4ccff729ee6921124c89b95ced3759854",
+  "new_tests": 23,
+  "full_windows_suite": {
+    "files_passed": 139,
+    "files_skipped": 1,
+    "tests_passed": 1211,
+    "tests_skipped": 1,
+    "exit_code": 0,
+    "log_sha256": "f083579ce942a01c109da7a0ec01719732ce1131edd11ec7005bdeacd6826d29"
+  },
+  "verification": {
+    "typecheck": "PASS",
+    "build": "PASS",
+    "lint_errors": 0,
+    "existing_lint_warnings": 89,
+    "local_release_gate": "LOCAL_PASS"
+  },
+  "behavior": {
+    "stage_labels_unchanged": true,
+    "explicit_delivery_overrides_stage": true,
+    "assignment_fields": [
+      "objective",
+      "deliverables",
+      "acceptance_criteria"
+    ],
+    "legacy_contracts_without_assignment_supported": true,
+    "runtime_schemas_not_relaxed": true,
+    "worker_and_main_permissions_unchanged": true,
+    "independent_review_preserved": true
+  },
+  "review": {
+    "blockers_remaining": 0,
+    "independently_passed_tests": 19,
+    "files": 2,
+    "brief_sha256": "9df41721e06ab6c730ba297aa54276b6b20ce14c24534b70d1f9bb791496f903"
+  },
+  "real_model": {
+    "model": "litellm/GLM-5.3-Flash-IT",
+    "sessions": 7,
+    "final_deliveries": [
+      "analysis",
+      "review",
+      "gap",
+      "candidate"
+    ],
+    "all_final_schemas_passed": true,
+    "generation_prompt_reused_only_after_exact_hash_match": true,
+    "initial_failed_schemas": [
+      "analysis",
+      "gap"
+    ],
+    "initial_proof_sha256": "73db724da4710bb9f69688873deae29395760446f24cb176cdb326f3aa05a7f0",
+    "combined_proof_sha256": "890627d6936dbb64e2477fc1a10fb04b0f176ac11d0e993e8933ebddb0a310f1",
+    "customer_jobs": 0,
+    "maven_runs": 0,
+    "scope": "synthetic task and typed-output verification; no generated Java execution or performance-gain claim"
+  },
+  "known_limits": [
+    "JSON Schema omits custom UTF-8 refinement; runtime validator still enforces bytes",
+    "Historical same-key task recreation immutable revision/budget conflicts are outside this instruction task",
+    "No new customer Maven/model/apply, UI, CI, deployment or full391 release GO"
+  ]
+}

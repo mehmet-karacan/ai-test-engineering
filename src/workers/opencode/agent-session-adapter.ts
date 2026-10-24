@@ -8,6 +8,7 @@ import type { AgentTaskContract } from "../../domain/agent-contracts.js";
 import type { AgentContextPackage } from "./context-provider.js";
 import { OpenCodeWorkerClient, promptForJsonResult, WorkerRequestFailure } from "./worker-client.js";
 import { defaultWorkerConfig, MAX_WORKER_REQUEST_TIMEOUT_MS, workerToolFlags } from "./worker-config.js";
+import { renderTaskBrief, defaultAgentAssignment } from "./task-brief.js";
 
 const OutcomeSchema = z.object({
   kind: z.enum(["COMPLETED", "EMPTY_FINAL", "INTERMEDIATE_TOOL", "TRUNCATED_JSON", "PROVIDER_ERROR", "TIMEOUT", "CANCELLED", "BLOCKED"]),
@@ -29,7 +30,8 @@ const OutcomeSchema = z.object({
 
 function promptFor(contract: AgentTaskContract, contextText: string, contextManifestDigest: string, parentSessionId: string, sessionId: string): string {
   return [
-    `Role: ${contract.role}`,
+    ...renderTaskBrief(contract.assignment ?? defaultAgentAssignment(contract.role)),
+    `Asama etiketi (kayit icin): ${contract.role}`,
     `Task: ${contract.task_id}`,
     `Parent session: ${parentSessionId}`,
     `Child session: ${sessionId}`,
@@ -38,6 +40,8 @@ function promptFor(contract: AgentTaskContract, contextText: string, contextMani
     `Expected output schema: ${contract.expected_output_schema}`,
     "Only use the scoped context below. Do not call tools, read files, write files, or access other sessions.",
     "Return only JSON with kind, summary, findings_count, blocking_findings_count, artifact_refs, changed_paths, run_refs, next_action.",
+    `JSON Schema: ${JSON.stringify(z.toJSONSchema(OutcomeSchema))}`,
+    "Do the analysis/design/development/checking needed for this task; the JSON format limits the final transport, not the skills used to solve it.",
     "\n## Scoped context\n",
     contextText,
   ].join("\n");

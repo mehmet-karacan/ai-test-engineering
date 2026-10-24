@@ -92,7 +92,8 @@ describe("RT21: prompt baglaminda hedef sinifin gercek govdesi (10.2)", () => {
   it("candidate cikti boyutu ve dogrudan JSON kurali truncation riskini azaltir", () => {
     const prompt = buildWorkerPrompt(baseContext({ class_body: "public class Y {}" }));
     expect(prompt).toContain("Tek bir kucuk test dosyasi olustur; yeni adayda en fazla 3 @Test metodu ve 160 satir yaz. Onarimda onceki testleri silme.");
-    expect(prompt).toContain("Plan, analiz, gerekce veya ic muhakeme yazma; dogrudan JSON sonucunla basla.");
+    expect(prompt).toContain("Gereken davranis analizini, test tasarimini, gelistirmeyi ve son kontrolu yap");
+    expect(prompt).toContain("nihai teslimi dogrudan JSON olarak ver");
     expect(prompt).toContain("new_content 12000 karakteri gecmemeli.");
     expect(prompt).toContain("Yeni test dosyasi adi mevcut test siniflarindan farkli olmali; mevcut sinif yolunu tekrar kullanma.");
   });

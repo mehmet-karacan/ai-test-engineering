@@ -18,6 +18,19 @@ function contractFixture() {
 }
 
 describe("S04 agent runtime contract", () => {
+  const assignment={objective:"Find the cause and propose a tested correction",deliverables:["Minimal correction proposal"],acceptance_criteria:["Use actual source and observed failure"]};
+  it("preserves an explicit task assignment through persisted JSON parsing",()=>{
+    const parsed=AgentTaskContractSchema.parse({...contractFixture(),assignment});
+    expect(AgentTaskContractSchema.parse(JSON.parse(JSON.stringify(parsed)))).toMatchObject({assignment});
+  });
+  it.each([
+    {...assignment,objective:"  "},
+    {...assignment,deliverables:[]},
+    {...assignment,acceptance_criteria:[]},
+    {objective:"\u4e2d".repeat(2000),deliverables:["\u4e2d".repeat(1000)],acceptance_criteria:["source"]},
+  ])("rejects incomplete or oversized task briefs %#",brief=>{
+    expect(()=>AgentTaskContractSchema.parse({...contractFixture(),assignment:brief})).toThrow();
+  });
   it("contract artifact ve context kimliklerini dogrular", () => {
     const contract = AgentTaskContractSchema.parse(contractFixture());
     expect(contract.role).toBe("reviewer");

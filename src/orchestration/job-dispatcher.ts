@@ -1965,6 +1965,17 @@ export class JobDispatcher {
       : "";
     const promptContext: WorkerPromptContext = {
       role: "test_designer",
+      delivery_kind: "candidate",
+      assignment: {
+        objective: `${targetFqn} icin ${feedback ? "onceki adayin bildirilen hatasini gider ve gecerli davranis testlerini koru" : "verilen coverage aciklarini azaltan anlamli bir test adayi gelistir"}. Bu cagri tum isin tek aday adimidir.`,
+        deliverables: ["CandidateChangeSet JSON: test dosyasinin tam icerigi; production/build ve mevcut test dosyalarina degisiklik yok."],
+        acceptance_criteria: [
+          ...(agentContext?.coverage_goal?.line_bps ? [`Isin LINE hedefi %${agentContext.coverage_goal.line_bps / 100}; bu aday hedefe olculebilir ilerleme saglamali.`] : []),
+          ...(agentContext?.coverage_goal?.branch_bps ? [`Isin BRANCH hedefi %${agentContext.coverage_goal.branch_bps / 100}; kalan karar/kosullari gercek SUT uzerinden dogrula.`] : []),
+          "Mevcut testleri koru; proje frameworku ve gercek API tipleriyle Maven derleme/test dogrulamasina uygun aday teslim et.",
+          "Maven/JaCoCo ve kalite kabulunu motor yapar; model beyanini test veya coverage basarisi sayma.",
+        ],
+      },
       class_name: targetFqn.split(".").pop() ?? targetFqn,
       package_name: targetFqn.split(".").slice(0, -1).join("."),
       dependencies_signatures: signatures,
@@ -2064,6 +2075,7 @@ export class JobDispatcher {
           secrets_excluded: true,
         },
         expected_output_schema: "candidate-change-set-v1",
+        assignment: promptContext.assignment,
         budget: {
           max_attempts: 1,
           remaining_attempts: 1,

@@ -53,6 +53,7 @@ export {
   AgentRoleSchema,
   ModelBindingSchema,
   AgentTaskContractSchema,
+  TaskAssignmentSchema,
   AgentTaskResultSchema,
   InventoryScanResultSchema,
   assertAgentTaskResultMatchesContract,
@@ -64,6 +65,7 @@ export type {
   AgentRole,
   ModelBinding,
   AgentTaskContract,
+  TaskAssignment,
   AgentTaskResult,
   InventoryScanResult,
 } from "./domain/agent-contracts.js";

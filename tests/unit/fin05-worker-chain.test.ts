@@ -10,7 +10,7 @@ import { isStaleWorkerResponse } from "../../src/orchestration/job-dispatcher.js
 import { extractJsonCandidate, parseModelOutput, CandidateChangeSetSchema, TestPlanSchema, AnalysisArtifactSchema } from "../../src/workers/opencode/model-schemas.js";
 
 describe("FIN05: worker prompt semali zincir", () => {
-  it("analyzer rolunden kod yazma talimati cikmaz; analiz uzmani intro'su var", () => {
+  it("analiz gorevi kaynak kanitini ve analiz teslimini belirtir", () => {
     const prompt = buildWorkerPrompt({
       role: "analyzer",
       class_name: "PaymentService",
@@ -20,7 +20,9 @@ describe("FIN05: worker prompt semali zincir", () => {
       uncovered_areas: ["LINE: 40/100"],
       policy_rules: [...DEFAULT_POLICY_RULES],
     });
-    expect(prompt).toContain("KOD YAZMA");
+    expect(prompt).not.toContain("KOD YAZMA");
+    expect(prompt).toContain("observed_behaviors");
+    expect(prompt).not.toContain('"changes":[');
     expect(prompt).toContain("PaymentService");
     expect(prompt).toContain("public int add(int a, int b)");
     expect(prompt).not.toContain("SILENCE");
@@ -41,7 +43,7 @@ describe("FIN05: worker prompt semali zincir", () => {
 
   it("onceki denemeler tekrar etme bolumune girer (repair feedback gercekten gider)", () => {
     const prompt = buildWorkerPrompt({
-      role: "test_developer" as never,
+      role: "test_designer",
       class_name: "X",
       package_name: "p",
       dependencies_signatures: [],
