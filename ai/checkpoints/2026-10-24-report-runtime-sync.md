@@ -29,3 +29,10 @@
 - Bekleyen Java coverage testi record parse sorununu ortaya cikardi; per-call JavaParser ile duzeltildi. Java support clean verify16/16PASS. Onceki G2 teslim kayitlari ve tarihsel Oct14handoff kontrol edilerek bu teslimde korunur; eski kabuller yeniden onaylanmis sayilmaz.
 - Browser baglantisi rastgele hazir porta gitmez; fresh owned profile DevToolsActivePort, OS-assigned port ve browserWebSocketkimligi dogrulanir. Chrome gercek DOM/print/PDF/offline/link kaniti gecti; onceki basarisiz paket logu saklandi.
 - Runtime rapor/log/blob/session dosyalari public'e alinmadi; yeni customer/model kosusu, GPU Git islemi veya CI/yayin yok. Process-crash atomicity/full391 GO iddiasi yok. Kabul: ai/acceptance/report-runtime-sync.json.
+
+## Ana dizin teslim dogrulamasi
+
+- Uygulama commit: adce017c37a5a00fb84cc79a828d61979d026b61. Main dalina fast-forward edildi. Bekleyen 6 dosya once SHA ile kontrol edilip dar kapsamli stash ile korundu; committed kopyalarin eski icerigi tasidigi dogrulandiktan sonra yalniz bu gecici stash kaldirildi. Main temiz.
+- Ana dizin build ve local release gate PASS. Kurulu MCP ayni commit'ten 9 arac ile acildi; gercek eski rapor sonucu COMPLETED / TARGET_REACHED / NOT_REQUESTED. Manifest yeniden yazilmadi; 670 testin 659 PASS / 11 SKIP sonucu korundu. Yeni model veya musteri Maven kosusu yok.
+- Main focused 4 dosya / 29 test PASS (20 yeni rapor, 4 gercek browser, 5 report authority). Java support JDK21 clean verify 16/16 PASS. Kanit hashleri ai/acceptance/report-runtime-sync.json icinde.
+- Son islem: bu teslim kaydini commit et, main build stamp'ini son HEAD ile yenile, origin/main push ve uzak HEAD eslesmesini kontrol et. Push sonucu terminal kanitiyla kullaniciya bildirilir.

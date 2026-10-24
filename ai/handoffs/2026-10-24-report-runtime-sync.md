@@ -10,4 +10,4 @@
 - Browser baglantisi rastgele hazir porta gitmez; fresh owned profile DevToolsActivePort, OS-assigned port ve browserWebSocketkimligi dogrulanir. Chrome gercek DOM/print/PDF/offline/link kaniti gecti; onceki basarisiz paket logu saklandi.
 - Runtime rapor/log/blob/session dosyalari public'e alinmadi; yeni customer/model kosusu, GPU Git islemi veya CI/yayin yok. Process-crash atomicity/full391 GO iddiasi yok. Kabul: ai/acceptance/report-runtime-sync.json.
 
-- Devam: kalan6main dosyasi commit kapsaminda; main ile entegrasyonda hashli stash/restore kontrolu kullanilir. Son main build, MCP smoke ve remote HEAD eslesmesi dogrulanir.
+- Ana dizin entegrasyonu tamamlandi: bekleyen 6 dosya korunarak commit edildi; main build/local gate PASS, 29 odakli test ve Java 16 test PASS. Kurulu MCP adce017 commit'inden gercek raporu COMPLETED / NOT_REQUESTED olarak dogruladi; manifest ayni. Son teslim kaydi sonrasi build stamp ve uzak HEAD eslesmesi kontrol edilir.

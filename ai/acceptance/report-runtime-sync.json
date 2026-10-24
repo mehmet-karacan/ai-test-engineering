@@ -83,5 +83,22 @@
     "Process-crash atomicity not claimed; transaction/export failure and rollback tested",
     "No new customer/model runs or deployment/full391 acceptance",
     "Browser proof is for owned Chrome; unrelated browser sessions are not used"
-  ]
+  ],
+  "installed_main_verification": {
+    "implementation_commit": "adce017c37a5a00fb84cc79a828d61979d026b61",
+    "tools": 9,
+    "focused_files_passed": 4,
+    "focused_tests_passed": 29,
+    "java_tests_passed": 16,
+    "build": "PASS",
+    "local_release_gate": "LOCAL_PASS",
+    "lifecycle": "COMPLETED",
+    "apply_state": "NOT_REQUESTED",
+    "manifest_unchanged": true,
+    "main_pending_files_preserved": 6,
+    "main_clean_after_integration": true,
+    "focus_log_sha256": "44e019fed561590dca9b6ddbec15327692b83b6faa32c9300eca081ffdfd90d6",
+    "java_log_sha256": "7411d52823825c80eb689f7d938ac6b9fe17f280d946b7e3f0298e03d8f4c925",
+    "private_mcp_proof_sha256": "3803f50b620886f6b5399ea0af421e23eafa7ed94b3fda9abb3edfe682c582c1"
+  }
 }
