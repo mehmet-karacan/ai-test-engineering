@@ -29,7 +29,13 @@
   request cancellation/late acceptance, iki client ve requestId baglantisi,
   model onay spoof girisleri. Gercek stdio child process: accept ve decline.
 - typecheck PASS; build ve uc native helper verifier PASS; lint --quiet PASS
-  (0 error). Bare npm test baslatildi; sonuc ayri takip kaydinda yazilacak.
+  (0 error).
+- Bare npm test, ozel AC67/browser girdileri olmadan varsayilan paralellikle
+  baslatildi. Koordinator karariyla sahip shell+child process agaci durduruldu;
+  tam paket PASS veya kabul iddiasi yok. Gorulen iki pilot.test.ts hatasi
+  AITEST_AC67_MODEL_OUTPUT bulunmamasindandir. Private log SHA256:
+  A446FE9F900F515B5BAB599AC24518C8C54E067410ABF96E265128F56C9A47A1.
+- Salt okunur kurulu CLI surum kontrolu: opencode v2.1.4.
 - Gercek OpenCode insan UI onayi kaniti degildir. Customer checkout/model/
   Maven kosusu, config/account degisikligi, yayin/CI acma veya push yoktur.
 - Devam: root koordinator bu requestApplyApproval callback'ini tuketir;
