@@ -1,0 +1,73 @@
+# Native create-only test publisher
+
+- Gorev: AITE-MCP-GPU-009, onayli apply plani Task1. Taban aced11e.
+- Plan SHA256: 08971BEB23BD3C2D2EE3B41059AA72638F3EF54A4967C8122A5517712B4E5FF4.
+- Izole managed worktree: apply-publisher; branch codex/apply-publisher-20261024.
+- Sahiplik: yalniz workspace-test-publisher.ts, odak native testi ve bu checkpoint.
+
+## Davranis
+
+WorkspaceTestPublisher({workspace,storeRoot,operationId,allowedTestRoots})
+API'si prepare(files), publish(), rollback(), verify() saglar. prepare icin
+dosya sekli {path,sha256,content:Buffer}; publish tum owned hedef yollarini,
+rollback {removed_paths,conflicts:[{path,reason}]} dondurur.
+
+Yeni .java testleri canonical/allowlist/Windows name kurallari ve SHA256 ile
+dogrulanir. Case collision, traversal, ADS, junction, normal dosya parent'i
+ve planlanan dosyanin baska dosyaya parent olmasi reddedilir. Tam dosya
+paketinin hedefleri ve kaynak digest'leri ilk publish'ten once kontrol edilir.
+
+Runtime store proje disinda ve ayni volume'da olmalidir. Immutable plan,
+workspace/store/operation-directory FileId'lerini ve exact dosya paketini
+baglar. Plan/source dosyalari exclusive create + fsync; journal append +
+fsync kullanir. Kaynaklar runtime store'da kalir, repoya yazilmaz.
+
+Mevcut native copy-owned yeni sibling stage olusturur. Donen FileId+SHA
+receipt'i journal'a fsync edilmeden native NO_REPLACE rename cagrilmaz.
+Native no-follow helper tum workspace yazma/silme islemlerinde root/FileId/
+boyut/SHA ve single-link kosullarini dogrular. Native C++ degismedi.
+
+Ayni constructor+prepare exact plana ait journal'i yukler. Native rename
+sonrasi ama published journal oncesi hardkill'de FileId receipt'inden sahiplik
+dogrulanir. Unknown byte-identical mevcut dosya receipt olmadan owned
+sayilmaz. Rollback yalniz kendi degismemis dosyalarini siler; kullanici
+duzenlemesi, FileId replacement veya belirsiz stage conflict olarak korunur.
+Rollback sonrasi ayni operation id ile yeni publish reddedilir.
+
+## Kanit
+
+- RED: eksik publisher davranislari 4 FAIL; ardindan ilk15 GREEN.
+- Ayri RED->GREEN: normal dosya parent, planlanan file-as-parent, store-root
+  replacement, ikinci kaynak digest'i bozuldugunda ilk hedefe yazmama.
+- Son odak: node node_modules/vitest/vitest.mjs run
+  tests/integration/workspace-test-publisher.test.ts: 25/25 PASS, exit0.
+- node node_modules/typescript/bin/tsc --noEmit: PASS, exit0.
+- Iki owned dosyada dogrudan eslint: 0 error / 0 warning, exit0.
+- Gercek child SIGKILL: native stage kopyasi sonrasi receipt oncesi ve native
+  rename sonrasi published journal oncesi. Windows SIGKILL sonucunu status1 /
+  signal=null olarak verir; fixture marker+bos stderr+filesystem kaniti var.
+- Gercek late collision: ilk native publish sonrasi ikinci hedefe dis dosya
+  eklenir; ilk owned test ve ikinci owned stage geri alinir, dis dosya kalir.
+- Idempotent publish/reload/rollback, user edit, byte-identical yeni FileId,
+  source tamper ve incomplete journal senaryolari PASS.
+
+Ilk genis odak tekrarinda paylasilan host yukunde bir 30s timeout goruldu
+(18 PASS/1 timeout). Native ancestor kontrolu tekrarlari kaldirildi ve mevcut
+native test lock kaydedildi. Son tam odak25PASS; timeout gizlenmedi.
+
+## Sinirlar ve devam
+
+- copy-owned donmeden once process hardkill olursa stage icin durable
+  receipt olusmamis olabilir. Bu dosya silinmez; conflict/recovery gerekir.
+- Yeni bos parent dizinler korunur. Directory delete/ownership primitifi
+  olmadan recursive cleanup yapilmaz; preexisting dizinler silinmez.
+- Truncated/bozuk journal veya root identity mismatch exception ile fail
+  closed olur; operator recovery gerekir, basari uydurulmaz.
+- Node journal dosyalari private runtime store trust boundary'sindadir;
+  native no-follow sahiplik kapisi workspace dosyalarina uygulanir.
+- Ayni operation'in paralel cagrilarini coordinator lease/fence serialize
+  etmelidir. Publisher yeni checkout testlerini birlestiren mutex degildir.
+- Tam Windows suite, coordinator integration ve bagimsiz final review ana
+  koordinatorde kalir. Bu alt gorev kendi nihai reviewer'i degildir.
+- Musteri/model/Maven kosusu, CI, yayin veya push yapilmadi. node_modules
+  yalniz mevcut intact main dizinine junction; install/npm ci kullanilmadi.
