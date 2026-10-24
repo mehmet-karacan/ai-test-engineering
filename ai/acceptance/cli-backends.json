@@ -196,5 +196,19 @@
     "first_codex": "Rejected installed alias before model call; canonical path regression fixed; successful reruns retained",
     "first_install": "Incomplete fixture config rejected; full valid private config rerun passed",
     "first_suite": "Interrupted: missing required AC67/browser inputs and default parallelism; final complete suite used recorded inputs/maxWorkers2; logs retained privately"
+  },
+  "delivery": {
+    "checked_main_commit": "b13ad6cda4a5f0b572360312159a7b4266edfa3b",
+    "main_build": "PASS",
+    "installed_opencode_verify": "PASS",
+    "installed_skill_byte_hash_unchanged": true,
+    "existing_app_opencode_config_unchanged": true,
+    "default_worker_unchanged": true,
+    "generic_definition_exported": true,
+    "actual_generic_sdk_tools": 9,
+    "start_resume_worker_profile_schema": true,
+    "readonly_call": "PASS",
+    "export_proof_sha256": "78beeaaa6bf31c8d2f0f7e3cd17eb69aa49a139b241dce17608661fb7f4408bb",
+    "sdk_proof_sha256": "e038d4a7de5977d5efe025926a01edcd73be7e153e44e68f4b53f8eaadbbf132"
   }
 }

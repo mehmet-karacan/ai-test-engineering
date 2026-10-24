@@ -23,3 +23,11 @@ runtime worker profile/default'u kendiliginden degistirilmez; operator
 genel wrapper'i kurup docs/cli-backends.md ile yeni profil ekler. Mevcut
 OpenCode baglantisi calisan eski process ise MCP yeniden baglaninca yeni
 arac semasini alir. CI kapali,G3 yayin kullanicida.
+
+Main b13ad6c FF/build/localgate/kurulu verify-install PASS; kurulu OpenCode
+skill byte/hash ayni,model CONFIGURED/Maven CAPABILITY_PROBED. Generic stdio
+tanimi mevcut runtime'a ownership helper ile export edildi; app config,
+OpenCode config ve default worker byte/semantik ayni. Generic definition
+ile actual SDK9tool/startresume worker_profile schema/read-only call PASS.
+Executable370filedigest ayni. Kapanis metadata sonrasi build ve pushremote
+HEAD eslesmesi son adimdir. Kullanici MCP baglantisini yenileyebilir.
