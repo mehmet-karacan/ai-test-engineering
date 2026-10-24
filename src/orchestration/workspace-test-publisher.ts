@@ -1,10 +1,10 @@
 /** Create-only publishing. Native handles pin every workspace mutation to FileId + SHA. */
 import { createHash } from "node:crypto";
-import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { PolicyGuard, type AllowedTestRoot } from "../policies/policy-guard.js";
-import { appendWindowsOwnedFile, copyWindowsOwnedFile, createWindowsOwnedEmptyFile, deleteWindowsOwnedFile, inspectWindowsPath, packagedWindowsFileHelper,
+import { appendWindowsOwnedFile, copyWindowsOwnedFile, createWindowsOwnedEmptyFile, createWindowsOwnedFile, deleteWindowsOwnedFile, ensureWindowsOwnedDirectory, inspectWindowsPath, packagedWindowsFileHelper,
   renameWindowsOwnedFile, verifyWindowsOwnedFile, type WindowsCopyResult, type WindowsFileIdentity,
   type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 
@@ -35,13 +35,6 @@ function canonical(path: string): void {
   if (!path || isAbsolute(path) || path.includes("\\") || path.split("/").some(part =>
     !part || part === "." || part === ".." || /[<>:"|?*]|\p{Cc}/u.test(part) || /[. ]$/u.test(part) ||
     /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/iu.test(part))) fail("Path must be a canonical relative Windows path");
-}
-function durableCreate(path: string, value: Buffer | string): void {
-  const fd = openSync(path, "wx", 0o600);
-  try { const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value); let offset = 0;
-    while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
-    fsyncSync(fd);
-  } finally { closeSync(fd); }
 }
 
 export class WorkspaceTestPublisher {
@@ -85,7 +78,8 @@ export class WorkspaceTestPublisher {
     const planned = files.map((file, index): PlannedFile => {
       canonical(file.path);
       if (!file.path.endsWith(".java") || !guard.checkPath(file.path).allowed || unique.has(file.path.toLowerCase()) ||
-          !Buffer.isBuffer(file.content) || !file.content.length || !/^[a-f0-9]{64}$/u.test(file.sha256) || digest(file.content) !== file.sha256) fail("Invalid test batch path, collision or digest");
+          !Buffer.isBuffer(file.content) || !file.content.length || file.content.length > 16 * 1024 * 1024 ||
+          !/^[a-f0-9]{64}$/u.test(file.sha256) || digest(file.content) !== file.sha256) fail("Invalid test batch path, collision or digest");
       unique.add(file.path.toLowerCase());
       const parent = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) + "/" : "";
       return { path: file.path, sha256: file.sha256, bytes: file.content.length,
@@ -100,9 +94,11 @@ export class WorkspaceTestPublisher {
       }
     }
     // Existing runtime directories must themselves pass native no-follow inspection.
-    this.assertExistingAncestors(this.options.storeRoot);
-    this.options.beforeMutation?.(); mkdirSync(this.options.storeRoot, { recursive: true });
-    const storeId = inspectWindowsPath(this.helper, this.options.storeRoot);
+    let storeAnchor = this.options.storeRoot;
+    while (!present(storeAnchor)) { const parent = dirname(storeAnchor); if (parent === storeAnchor) fail("No existing store ancestor"); storeAnchor = parent; }
+    const storeAnchorId = inspectWindowsPath(this.helper, storeAnchor);
+    this.options.beforeMutation?.();
+    const storeId = ensureWindowsOwnedDirectory(this.helper, storeAnchor, relative(storeAnchor, this.options.storeRoot), storeAnchorId);
     if (storeId.volumeSerial !== this.workspaceId.volumeSerial) fail("Store and workspace must share a volume");
     const plan: PublisherPlan = { version: 2, operationId: this.options.operationId, workspace: this.options.workspace,
       workspaceId: this.workspaceId, storeRoot: this.options.storeRoot, storeId,
@@ -121,16 +117,21 @@ export class WorkspaceTestPublisher {
     }
     this.states = planned.map(() => ({ copying: false, published: false }));
     for (const file of planned) { this.assertTargetAncestors(file.path); if (present(join(this.options.workspace, file.path)) || present(join(this.options.workspace, file.stage))) fail("Existing test or stage is not owned by this operation"); }
-    this.assertExistingAncestors(this.operationRoot);
-    this.options.beforeMutation?.(); mkdirSync(this.operationRoot, { recursive: true }); plan.operationDirectoryId = inspectWindowsPath(this.helper, this.operationRoot);
+    this.options.beforeMutation?.();
+    plan.operationDirectoryId = ensureWindowsOwnedDirectory(this.helper, this.options.storeRoot,
+      relative(this.options.storeRoot, this.operationRoot), storeId);
     // A preexisting journal without its plan is never adopted.
     if (present(join(this.operationRoot, "journal.jsonl"))) fail("Orphan publisher journal");
     this.options.beforeMutation?.();
     plan.journalIdentity = createWindowsOwnedEmptyFile(this.helper, this.operationRoot, "journal.jsonl", plan.operationDirectoryId);
     this.journalReceipt = plan.journalIdentity;
-    this.options.beforeMutation?.(); durableCreate(planPath, JSON.stringify(plan));
+    this.options.beforeMutation?.(); createWindowsOwnedFile(this.helper, this.operationRoot, "plan.json", plan.operationDirectoryId, Buffer.from(JSON.stringify(plan)));
     this.plan = plan; this.planHash = digest(JSON.stringify(plan));
-    files.forEach((file, index) => { this.options.beforeMutation?.(); durableCreate(join(this.operationRoot, `source-${index}`), file.content); });
+    files.forEach((file, index) => {
+      this.options.beforeMutation?.();
+      const receipt = createWindowsOwnedFile(this.helper, this.operationRoot, `source-${index}`, plan.operationDirectoryId!, file.content);
+      if (receipt.sha256 !== file.sha256 || receipt.bytes !== planned[index]!.bytes) fail("Prepared source bytes changed");
+    });
   }
 
   publish(): string[] {

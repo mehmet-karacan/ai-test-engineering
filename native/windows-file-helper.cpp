@@ -370,8 +370,7 @@ struct TwoBlobGuardItem {
 };
 
 // Session commands are bounded before allocating an untrusted full line.
-bool readSessionLine(std::string& line) {
-  constexpr size_t maximum = 1024 * 1024;
+bool readSessionLine(std::string& line, size_t maximum = 1024 * 1024) {
   line.clear();
   for (;;) {
     const int next = std::cin.get();
@@ -1427,6 +1426,29 @@ int verifyOwned(int argc, wchar_t** argv) {
 }
 
 // Capture the journal's original FileId on the same handle that exclusively creates it.
+int ensureDirectoryOwned(int argc, wchar_t** argv) {
+  if (argc != 6) return 2;
+  std::vector<Handle> chain;
+  Identity rootId, directoryId;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, chain) ||
+      !identity(chain.back().value, rootId) || !expectedRoot(rootId, argv[4], argv[5])) return 2;
+  if (argv[3][0] != L'\0') {
+    std::wstring ignored;
+    std::vector<std::wstring> parts;
+    if (!splitPath(argv[3], false, ignored, parts)) return 2;
+    for (const auto& part : parts) {
+      Handle child;
+      if (!openChild(chain.back().value, part, true, false, FILE_READ_ATTRIBUTES, child) &&
+          !openChild(chain.back().value, part, true, true, FILE_READ_ATTRIBUTES, child) &&
+          !openChild(chain.back().value, part, true, false, FILE_READ_ATTRIBUTES, child)) return 2;
+      chain.push_back(std::move(child));
+    }
+  }
+  if (!identity(chain.back().value, directoryId)) return 2;
+  printIdentity(directoryId);
+  return 0;
+}
+
 int createEmptyOwned(int argc, wchar_t** argv) {
   if (argc != 6) return 2;
   std::vector<Handle> root, file;
@@ -1438,6 +1460,35 @@ int createEmptyOwned(int argc, wchar_t** argv) {
         GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES, file, true, FILE_SHARE_READ) ||
       !FlushFileBuffers(file.back().value) || !snapshot(file.back().value, fileId, digest) || fileId.bytes != 0) return 2;
   printIdentity(fileId, digest);
+  return 0;
+}
+
+// Initialize immutable plan/source bytes under the exact held operation directory.
+// Hex stdin avoids Windows CRT newline/Ctrl-Z translation of arbitrary buffers.
+int createContentOwned(int argc, wchar_t** argv) {
+  if (argc != 8) return 2;
+  std::vector<Handle> root, file;
+  Identity rootId;
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root) ||
+      !identity(root.back().value, rootId) || !expectedRoot(rootId, argv[4], argv[5])) return 2;
+  std::puts("CREATE_READY"); std::fflush(stdout);
+  std::string encoded, bytes;
+  if (!readSessionLine(encoded, 32 * 1024 * 1024) || !decodeBytesHex(encoded, bytes) ||
+      ascii(argv[6]) != std::to_string(bytes.size()) ||
+      !openRelative(root.back().value, argv[3], false,
+        GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | DELETE, file, true, FILE_SHARE_READ)) return 2;
+  DWORD written = 0;
+  Identity created;
+  unsigned char digest[32]{};
+  if (!WriteFile(file.back().value, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) ||
+      written != bytes.size() || !FlushFileBuffers(file.back().value) ||
+      !snapshot(file.back().value, created, digest) || created.bytes != bytes.size() ||
+      ascii(argv[7]) != ascii(digestHex(digest))) {
+    FILE_DISPOSITION_INFO disposition{TRUE};
+    SetFileInformationByHandle(file.back().value, FileDispositionInfo, &disposition, sizeof(disposition));
+    return 2;
+  }
+  printIdentity(created, digest);
   return 0;
 }
 
@@ -1631,6 +1682,8 @@ int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"verify-owned") == 0) return verifyOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"append-owned") == 0) return appendOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"create-empty-owned") == 0) return createEmptyOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"create-content-owned") == 0) return createContentOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"ensure-directory-owned") == 0) return ensureDirectoryOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"blob-verify-session") == 0) return blobVerifySession(argc, argv);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;

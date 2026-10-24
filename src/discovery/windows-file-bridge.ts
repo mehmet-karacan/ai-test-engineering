@@ -184,6 +184,16 @@ export function verifyWindowsOwnedFile(helper: WindowsFileHelperSpec, root: stri
 }
 
 /** Exclusive empty-file creation and identity capture use the same held native handle. */
+export function ensureWindowsOwnedDirectory(helper: WindowsFileHelperSpec, root: string, relativePath: string,
+  expectedRoot: WindowsFileIdentity): WindowsFileIdentity {
+  const fields = invoke(helper, ["ensure-directory-owned", root, relativePath, expectedRoot.volumeSerial, expectedRoot.fileId]);
+  if (fields.length !== 5) {
+    throw new AppError("BLOCKED_ISOLATION", "Invalid owned directory receipt", { reason_code: "WINDOWS_OWNED_DIRECTORY_UNCERTAIN" });
+  }
+  return identity(fields);
+}
+
+/** Exclusive empty-file creation and identity capture use the same held native handle. */
 export function createWindowsOwnedEmptyFile(helper: WindowsFileHelperSpec, root: string, relativePath: string,
   expectedRoot: WindowsFileIdentity): WindowsCopyResult {
   const fields = invoke(helper, ["create-empty-owned", root, relativePath, expectedRoot.volumeSerial, expectedRoot.fileId]);
@@ -191,6 +201,21 @@ export function createWindowsOwnedEmptyFile(helper: WindowsFileHelperSpec, root:
     throw new AppError("BLOCKED_ISOLATION", "Invalid owned empty create receipt", { reason_code: "WINDOWS_OWNED_CREATE_UNCERTAIN" });
   }
   return { ...identity(fields), sha256: fields[5]! };
+}
+
+/** Exclusive buffer creation pins the expected root and writes bounded hex-framed bytes. */
+export function createWindowsOwnedFile(helper: WindowsFileHelperSpec, root: string, relativePath: string,
+  expectedRoot: WindowsFileIdentity, content: Buffer): WindowsCopyResult {
+  if (!Buffer.isBuffer(content) || content.length === 0 || content.length > 16 * 1024 * 1024) {
+    throw new AppError("BLOCKED_ISOLATION", "Invalid owned file content", { reason_code: "WINDOWS_OWNED_CREATE_INVALID" });
+  }
+  const sha256 = createHash("sha256").update(content).digest("hex");
+  const result = invokeOwned(helper, ["create-content-owned", root, relativePath, expectedRoot.volumeSerial,
+    expectedRoot.fileId, String(content.length), sha256], "CREATE_READY", content.toString("hex"));
+  if (result.bytes !== content.length || result.sha256 !== sha256 || result.linkCount !== 1) {
+    throw new AppError("BLOCKED_ISOLATION", "Owned create bytes changed", { reason_code: "WINDOWS_OWNED_CREATE_UNCERTAIN" });
+  }
+  return result;
 }
 
 /** Append one JSON journal line while a no-follow, single-link native handle pins the leaf. */

@@ -141,3 +141,47 @@ Son verification: ayni kaynakta 5 dosya/71 test PASS, exit0 (37 publisher,
 provenance PASS. Native source/binary/manifest ve yalniz izinli test/build
 artifact'leri staged kontrolunden gecti; local Git kimligi, ASCII ve secret
 taramasi tekrarlandi. Publish/push veya customer/model/Maven kosusu yok.
+
+## 2026-10-25 Bagimsiz review P2 initialization root swap
+
+Inceleme, journal olusturulduktan sonra operation root'un junction ile
+degistirilmesinin Node plan/source create'i yabanci dizine yonlendirdigini
+buldu. RED: beforeMutation #4 ve #5'te yabanci plan/source yazimi goruldu.
+Root'un dar ek yetkisiyle kalan recursive mkdir noktasi da incelendi:
+RED mutation #2 storeRoot swap'i yabanci apply-publisher dizini olusturdu.
+
+Native create-content-owned, beklenen operation root FileId'sini tutar;
+exclusive create, write, FlushFileBuffers ve exact bytes/SHA receipt ayni
+no-follow handle zinciri altindadir. Bounded hex stdin CRLF/Ctrl-Z/binary
+byte'larini CRT text donusumunden korur. Tek source file limiti16MiB;
+buyuk icerik ilk batch dogrulamasinda reddedilir. CRLF, Ctrl-Z, NUL ve
+0xff iceren600005byte fixture aynen korunur; ikinci create overwrite yapmaz.
+
+Native ensure-directory-owned, var olan ancestor/storeRoot FileId'sini
+once yakalar; yeni tum komponentleri held relative no-follow handle ile
+olusturur veya acar. Mutation #1/#2 storeRoot ve #4/#5 operationRoot swap
+regresyonlarinda yabanci dosya/dizin olusmaz. Publisher initialization'da
+Node dosya/dizin mutation'i kalmadi. Bu genel OS sandbox iddiasi degildir.
+
+Mevcut C++ /W4 /WX komutuyla production ve fault fixture yeniden derlendi.
+Source SHA1422fabd1cf4217622dd89c32f70f2bf30607a107ab085dd99bc4f768615cb44;
+production SHA6432c44eafaab326c6df28b9382fe5374235ae04e88ac58a0d1a14e149bb6f26;
+fault SHA145917c3c3c57066b3ad509c13188e55c83485c6b2bc4050271a46e3c765745a.
+
+## Gercek OpenCode initialize kapasite kaniti
+
+Kurulu CLI --version gercek2.1.4 dondurdu. mcp list --standalone desteklenmez;
+yerel api --help ve private OpenAPI'den api --standalone yolu dogrulandi.
+Yalniz private standalone runtime'a noop MCP sunucusu eklendi. Initialize
+istemci kimligi opencode2.1.4 ve elicitation.form kapasitesi goruldu.
+Private kanit SHA2568103D4BDFC061A5E1E71DAD12FA37AC67E02697819B6FAF8D53F3E2BADFBF434.
+Ham private icerik bu checkpoint'e alinmadi. Child-only HOME/XDG/APPDATA
+izolasyonu kullanildi; global/user/managed config ve provider degismedi,
+mevcut servis sonlandirilmadi, probe process'i kalmadi. Model/Maven0;
+actual human UI click kaniti iddiasi yoktur.
+
+Son initialization duzeltmesi: 5 dosya76/76PASS (42 publisher+34 mevcut
+native bridge/restore),72.36s; typecheck/scoped lint0error0warning/native
+production verifier/fault fixture provenance PASS. Tam suite koordinatorde;
+bagimsiz native reviewer source'u yeniden okur. Commit oncesi local Git
+kimligi, staged diff, ASCII ve gizlilik taramasi tekrarlandi.

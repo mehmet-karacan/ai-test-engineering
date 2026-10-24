@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WorkspaceTestPublisher } from "../../src/orchestration/workspace-test-publisher.js";
 import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
-import { createWindowsOwnedEmptyFile, inspectWindowsPath, packagedWindowsFileHelper, verifyWindowsOwnedFile } from "../../src/discovery/windows-file-bridge.js";
+import { createWindowsOwnedEmptyFile, createWindowsOwnedFile, inspectWindowsPath, packagedWindowsFileHelper, verifyWindowsOwnedFile } from "../../src/discovery/windows-file-bridge.js";
 
 registerWindowsNativeTestLock("workspace-test-publisher");
 
@@ -262,6 +262,32 @@ describe.skipIf(process.platform !== "win32")("native create-only test publisher
     expect(() => publisher.publish()).toThrow("LEASE_LOST");
     expect(readdirSync(join(f.workspace, "src/test/java"))).toEqual([]);
     armed = false; expect(publisher.rollback()).toEqual({ removed_paths: [], conflicts: [] });
+  });
+  it.each([4, 5])("refuses an operation-root junction swap before initialization mutation %s", boundary => {
+    const f = fixture(); const outside = join(f.root, "foreign"); mkdirSync(outside); let mutations = 0;
+    const operationRoot = join(f.storeRoot, "apply-publisher/operation-1");
+    const publisher = new WorkspaceTestPublisher({ ...f.options, beforeMutation: () => {
+      if (++mutations === boundary) { renameSync(operationRoot, join(f.root, "old-operation")); symlinkSync(outside, operationRoot, "junction"); }
+    } });
+    expect(() => publisher.prepare([file()])).toThrow();
+    expect(readdirSync(outside)).toEqual([]);
+    expect(readdirSync(join(f.workspace, "src/test/java"))).toEqual([]);
+  });
+  it.each([1, 2])("creates no foreign directory after store-root swap at mutation %s", boundary => {
+    const f = fixture(); const outside = join(f.root, "foreign"); mkdirSync(outside); let mutations = 0;
+    const publisher = new WorkspaceTestPublisher({ ...f.options, beforeMutation: () => {
+      if (++mutations === boundary) { renameSync(f.storeRoot, join(f.root, "old-store")); symlinkSync(outside, f.storeRoot, "junction"); }
+    } });
+    expect(() => publisher.prepare([file()])).toThrow(); expect(readdirSync(outside)).toEqual([]);
+  });
+  it("preserves CRLF, Ctrl-Z and binary bytes in bounded native content creation", () => {
+    const f = fixture(); const helper = packagedWindowsFileHelper(); const root = inspectWindowsPath(helper, f.storeRoot);
+    const content = Buffer.concat([Buffer.from("\r\n\x1a\x00\xff", "latin1"), Buffer.alloc(600_000, 42)]);
+    const receipt = createWindowsOwnedFile(helper, f.storeRoot, "content.bin", root, content);
+    expect(receipt.sha256).toBe(createHash("sha256").update(content).digest("hex"));
+    expect(readFileSync(join(f.storeRoot, "content.bin"))).toEqual(content);
+    expect(() => createWindowsOwnedFile(helper, f.storeRoot, "content.bin", root, Buffer.from("replacement"))).toThrow();
+    expect(readFileSync(join(f.storeRoot, "content.bin"))).toEqual(content);
   });
   it("handles a late collision without deleting the colliding file", () => {
     const f = fixture(); const one = file(); const two = file("src/test/java/Second.java");
