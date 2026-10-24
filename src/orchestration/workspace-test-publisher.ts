@@ -1,7 +1,7 @@
 /** Create-only publishing. Native handles pin every workspace mutation to FileId + SHA. */
 import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { PolicyGuard, type AllowedTestRoot } from "../policies/policy-guard.js";
 import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, packagedWindowsFileHelper,
@@ -54,8 +54,11 @@ export class WorkspaceTestPublisher {
       !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,119}$/u.test(options.operationId)) fail("Invalid publisher roots or operation id");
     this.options = { ...options, workspace: resolve(options.workspace), storeRoot: resolve(options.storeRoot),
       allowedTestRoots: options.allowedTestRoots.map(root => ({ ...root })) };
-    const storeRelative = relative(this.options.workspace, this.options.storeRoot);
-    if (!storeRelative || (!storeRelative.startsWith("..") && !isAbsolute(storeRelative))) fail("Publisher store must be outside workspace");
+    this.operationRoot = join(this.options.storeRoot, "apply-publisher", this.options.operationId);
+    for (const privateRoot of [this.options.storeRoot, this.operationRoot]) {
+      const privateRelative = relative(this.options.workspace, privateRoot);
+      if (privateRelative !== ".." && !privateRelative.startsWith(`..${sep}`) && !isAbsolute(privateRelative)) fail("Publisher store and operation directory must be outside workspace");
+    }
     this.helper = packagedWindowsFileHelper();
     this.workspaceId = inspectWindowsPath(this.helper, this.options.workspace);
     for (const root of this.options.allowedTestRoots) {
@@ -63,7 +66,6 @@ export class WorkspaceTestPublisher {
       canonical(root.test_root);
     }
     if (!this.options.allowedTestRoots.length) fail("Allowed test roots are required");
-    this.operationRoot = join(this.options.storeRoot, "apply-publisher", this.options.operationId);
   }
 
   /** No workspace writes until every target has passed preflight. Reload binds exact immutable input. */

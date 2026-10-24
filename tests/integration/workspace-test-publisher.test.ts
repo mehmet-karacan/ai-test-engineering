@@ -156,6 +156,17 @@ describe.skipIf(process.platform !== "win32")("native create-only test publisher
     expect(() => f.publisher.publish()).toThrow();
     expect(readdirSync(join(f.workspace, "src/test/java"))).toEqual([]);
   });
+  it.each(["runtime", "..runtime"])("rejects runtime store inside workspace under %s", name => {
+    const f = fixture(); const storeRoot = join(f.workspace, name);
+    expect(() => new WorkspaceTestPublisher({ ...f.options, storeRoot }).prepare([file()])).toThrow();
+    expect(existsSync(storeRoot)).toBe(false);
+    expect(readdirSync(f.workspace)).toEqual(["src"]);
+  });
+  it("rejects an operation directory inside workspace when storeRoot is its ancestor", () => {
+    const f = fixture(); const workspace = join(f.root, "apply-publisher"); mkdirSync(workspace);
+    expect(() => new WorkspaceTestPublisher({ ...f.options, workspace, storeRoot: f.root }).prepare([file()])).toThrow();
+    expect(readdirSync(workspace)).toEqual([]);
+  });
   it("rejects changed source content before any workspace copy", () => {
     const f = fixture(); f.publisher.prepare([file()]);
     writeFileSync(join(f.storeRoot, "apply-publisher/operation-1/source-0"), "class Changed {}");

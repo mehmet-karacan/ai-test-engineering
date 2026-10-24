@@ -71,3 +71,18 @@ native test lock kaydedildi. Son tam odak25PASS; timeout gizlenmedi.
   koordinatorde kalir. Bu alt gorev kendi nihai reviewer'i degildir.
 - Musteri/model/Maven kosusu, CI, yayin veya push yapilmadi. node_modules
   yalniz mevcut intact main dizinine junction; install/npm ci kullanilmadi.
+
+## Bagimsiz review P2 containment duzeltmesi
+
+Bagimsiz inceleme, relative.startsWith('..') kontrolunun '..runtime' adli
+normal alt dizini yanlislikla disarida saydigini buldu. Native regression
+RED: workspace/..runtime altina private kaynak yazildi; ayrica storeRoot
+disarida olsa da hesaplanan operationRoot workspace icine dusebildi.
+
+Kontrol artik exact '..', '..'+platform separator veya absolute relative
+sonucuyla gercek parent/cross-drive cikisini ayirir. Hem storeRoot hem
+operationRoot constructor'da, herhangi bir yazmadan once reddedilir.
+Uc regresyon (normal child, '..runtime' child, ancestor-store operation
+overlap): RED2/3 -> GREEN3/3. Son tum odak28/28PASS (23.86s), tsc --noEmit
+PASS, scoped eslint0error0warningPASS. Staged diff/ASCII/gizlilik ve local
+Git kimligi yeniden kontrol edildi. Tam suite/nihai review koordinatorde.
