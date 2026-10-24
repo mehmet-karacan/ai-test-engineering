@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { StringDecoder } from "node:string_decoder";
 import type { ReportData, ReportTarget } from "./report-generator.js";
-import { isTestSourcePath } from "./report-projection.js";
+import { reportTestPathClassifier } from "./report-projection.js";
 
 export type FactStatus = "KNOWN" | "UNAVAILABLE" | "INVALID" | "NOT_APPLICABLE" | "NOT_RUN";
 export interface CoverageFact { status: FactStatus; covered: number | null; missed: number | null; total: number | null; bps: number | null; target_bps: number | null; met: boolean | null }
@@ -71,8 +71,11 @@ function textNode(value:unknown):string|null {
   if(value&&typeof value==='object')return String((value as XmlNode)['#text']??'');
   return null;
 }
-function metric(node:XmlNode,kind:string):CoverageFact {
+function metric(node:XmlNode,kind:string,method=false):CoverageFact {
   const counters=arr(node.counter).filter(c=>c['@_type']===kind);
+  // JaCoCo XMLCoverageWriter omits counters whose total is zero. This applies
+  // to a method with no branches; class/target reconciliation stays strict.
+  if(method&&kind==='BRANCH'&&counters.length===0)return coverageFact({covered:0,missed:0,total:0,bps:0,target_bps:0,met:false,validity:'NOT_APPLICABLE'});
   if(counters.length!==1)return {...coverageFact(null),status:counters.length?'INVALID':'UNAVAILABLE'};
   const covered=numberAttribute(counters[0]!,'covered'),missed=numberAttribute(counters[0]!,'missed'),total=covered+missed;
   return coverageFact({covered,missed,total,bps:total?Math.floor(covered*10000/total):0,target_bps:0,met:false,validity:'VALID'});
@@ -99,13 +102,14 @@ export function projectReport07Facts(data:ReportData,extraFiles:Record<string,st
     facts.verified_artifacts.push(entry.relative_path);
   }
   const patches=records.filter(r=>r.entry.kind==='patch'&&r.entry.relative_path.endsWith('.json'));
+  const testPathAllowed=reportTestPathClassifier(data.project_root,data.test_roots);
   for(const {bytes} of patches)try {
     const patch=JSON.parse(bytes.toString('utf8')) as {job_id:string;checkpoint_id:string|null;files:Array<{path:string;action:string}>};
     if(patch.job_id!==data.job_id||patch.checkpoint_id!==data.checkpoint_id||!Array.isArray(patch.files))throw Error('PATCH_IDENTITY');
     let added=0,modified=0;
     for(const file of patch.files) {
       if(!safeEvidenceHref(file.path)||!['create','modify','delete'].includes(file.action))throw Error('PATCH_PATH');
-      if(isTestSourcePath(file.path)){if(file.action==='create')added++;else modified++;}
+      if(testPathAllowed(file.path)){if(file.action==='create')added++;else modified++;}
     }
     if(added!==data.tests_added||modified!==data.tests_modified)throw Error('PATCH_COUNTERS');
     facts.changes={status:'KNOWN',added,modified};
@@ -160,7 +164,8 @@ export function projectReport07Facts(data:ReportData,extraFiles:Record<string,st
   }
   const expected=data.run_summary;
   const matching=runRecords.length>0&&Object.values(expected).every(integer)&&totals.total===expected.total&&totals.passed===expected.passed&&totals.failures+totals.errors===expected.failed&&totals.skipped===expected.skipped&&totals.total===totals.passed+totals.failures+totals.errors+totals.skipped;
-  const missingRequired=(data.evidence??[]).some(e=>e.required&&['surefire_xml','failsafe_xml'].includes(e.kind)&&!runRecords.some(r=>r.entry.relative_path===e.relative_path));
+  const runRecordPaths=new Set(runRecords.map(r=>r.entry.relative_path));
+  const missingRequired=(data.evidence??[]).some(e=>e.required&&['surefire_xml','failsafe_xml'].includes(e.kind)&&!runRecordPaths.has(e.relative_path));
   if(!invalid&&matching&&!missingRequired)facts.test_run={status:'KNOWN',...totals};
   else if(runRecords.length||missingRequired){facts.test_run.status='INVALID';facts.diagnostics.push('TEST_RUN_RECONCILIATION_FAILED');}
   // Partial files remain individually inspectable; they never establish a passing aggregate.
@@ -175,7 +180,7 @@ export function projectReport07Facts(data:ReportData,extraFiles:Record<string,st
         if(seen.has(key)){ambiguous.add(key);continue;}seen.add(key);
         const line=metric(cls,'LINE'),branch=metric(cls,'BRANCH');
         for(const [kind,value] of [['line',line],['branch',branch]] as const) {const declared=coverageFact(target[kind]);if(value.covered!==declared.covered||value.missed!==declared.missed)throw Error('TARGET_COUNTER_MISMATCH');}
-        for(const method of arr(cls.method))facts.methods.push({fqn,module_path:modulePath,name:String(method['@_name']??''),descriptor:method['@_desc']===undefined?null:String(method['@_desc']),line:metric(method,'LINE'),branch:metric(method,'BRANCH'),evidence_path:entry.relative_path});
+        for(const method of arr(cls.method))facts.methods.push({fqn,module_path:modulePath,name:String(method['@_name']??''),descriptor:method['@_desc']===undefined?null:String(method['@_desc']),line:metric(method,'LINE'),branch:metric(method,'BRANCH',true),evidence_path:entry.relative_path});
       }
     }catch {facts.diagnostics.push('INVALID_JACOCO_DETAILS:'+entry.relative_path);}
   }

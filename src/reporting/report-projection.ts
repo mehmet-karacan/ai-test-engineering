@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { PolicyGuard, type AllowedTestRoot } from "../policies/policy-guard.js";
 
 export interface AcceptedChangeProjection {
   tests_added: number;
@@ -37,12 +38,20 @@ function originalPathExists(projectRoot: string, path: string): boolean {
   return !escaped && existsSync(candidate);
 }
 
-export function projectAcceptedChanges(projectRoot: string, changes: Array<{ path: string; action: string }>): AcceptedChangeProjection {
+/** New reports use the same module-root policy that accepted the patch. */
+export function reportTestPathClassifier(projectRoot: string, testRoots?: AllowedTestRoot[]): (path: string) => boolean {
+  if (testRoots === undefined) return isTestSourcePath; // Historical reports lack root metadata.
+  const policy = new PolicyGuard(projectRoot, testRoots);
+  return path => policy.checkPath(path).allowed;
+}
+
+export function projectAcceptedChanges(projectRoot: string, changes: Array<{ path: string; action: string }>, testRoots?: AllowedTestRoot[]): AcceptedChangeProjection {
   let testsAdded = 0;
   let testsModified = 0;
   let productionChangedFiles = 0;
+  const testPathAllowed = reportTestPathClassifier(projectRoot, testRoots);
   for (const change of changes) {
-    const testPath = isTestSourcePath(change.path);
+    const testPath = testPathAllowed(change.path);
     if (!testPath) {
       productionChangedFiles++;
       continue;

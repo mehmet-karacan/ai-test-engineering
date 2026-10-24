@@ -13,6 +13,7 @@ import { sanitizeNarrativeFields } from "./report-data-contract.js";
 import { buildReport07 } from "./report07-renderer.js";
 import { projectReport07Facts, type Report07Facts } from "./report07-facts.js";
 import type { JobRow } from "../storage/job-repository.js";
+import type { AllowedTestRoot } from "../policies/policy-guard.js";
 
 type ReportJobState = Pick<JobRow, "id" | "lifecycle" | "phase" | "outcome" | "verification_level" | "apply_state">;
 
@@ -96,6 +97,8 @@ export interface ReportData {
   iterations: ReportIteration[];
   tests_added: number;
   tests_modified: number;
+  /** Module test roots used by the accepting patch policy; absent on legacy exports. */
+  test_roots?: AllowedTestRoot[];
   run_summary: { total: number; passed: number; failed: number; skipped: number };
   gates: Array<{ name: string; status: "PASSED" | "FAILED" | "NOT_RUN"; detail: string }>;
   gaps: Array<{ gap_key: string; blocker: string; attempted: string[] }>;
@@ -316,8 +319,9 @@ export class ReportExporter {
     if (verified.missing.length || verified.hash_mismatch.length) return verified;
     if (!before || !before.equals(readFileSync(manifestPath))) return {missing:[],hash_mismatch:["manifest.json"]};
     const manifest = JSON.parse(before.toString("utf8")) as {artifacts:Array<{relative_path:string;sha256:string;bytes:number}>};
+    const artifactsByPath = new Map(manifest.artifacts.map(artifact => [artifact.relative_path, artifact]));
     const matches = (bytes: Buffer, name: string) => {
-      const entry = manifest.artifacts.find(artifact => artifact.relative_path === name);
+      const entry = artifactsByPath.get(name);
       return entry?.bytes === bytes.length && entry.sha256 === createHash("sha256").update(bytes).digest("hex");
     };
     const reportBytes = readFileSync(containedReportPath(this.reportRoot, "report.json"));
@@ -372,8 +376,9 @@ export class ReportExporter {
         ...(definition?.required !== undefined ? { required: definition.required } : {}),
       });
     }
+    const extraByPath = new Map(extraEntries.map(entry => [entry.relative_path, entry]));
     const missingDefinitions = (reportData.evidence ?? [])
-      .filter((entry) => entry.required === true && !extraEntries.some((file) => file.relative_path === entry.relative_path))
+      .filter((entry) => entry.required === true && !extraByPath.has(entry.relative_path))
       .map((entry) => ({ ...entry, sha256: null, bytes: null }));
     reportData.evidence = [...extraEntries, ...missingDefinitions].sort((a, b) => a.relative_path.localeCompare(b.relative_path));
     // W06/F13/N02: facts-only sanitization - model narrative alanlari report JSON'a giremez;
@@ -400,7 +405,7 @@ export class ReportExporter {
     };
     for (const [name, content] of Object.entries(extraFiles ?? {})) {
       this.write(name, content, files);
-      const evidence = extraEntries.find((entry) => entry.relative_path === name);
+      const evidence = extraByPath.get(name);
       (manifest["artifacts"] as Array<Record<string, unknown>>).push({
         relative_path: name,
         sha256: evidence?.sha256 ?? createHash("sha256").update(content).digest("hex"),
@@ -571,8 +576,7 @@ export class ReportExporter {
       }
       for (const [path, evidence] of evidenceByPath) {
         const required = evidence["required"] === true;
-        const artifact = (artifacts as Array<Record<string, unknown>>).find((entry) => entry["relative_path"] === path);
-        if (required && !artifact) {
+        if (required && !names.has(path)) {
           structuralErrors.push(`evidence eksik: ${path}`);
         }
         if (required && (evidence["sha256"] === null || evidence["bytes"] === null)) {

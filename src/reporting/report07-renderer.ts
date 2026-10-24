@@ -43,8 +43,9 @@ export function buildReport07(data:ReportData):string {
   const stageLabels={baseline:'Başlangıç',progress:'İlerleme',final:'Son doğrulama'};
   const gateNames:Record<string,string>={test_only_policy:'Production ve POM bütünlüğü',final_replay:'Son test koşusu'};
   const kindNames:Record<string,string>={jacoco_xml:'JaCoCo XML',jacoco_asset:'JaCoCo HTML / kaynak',surefire_xml:'Surefire XML',failsafe_xml:'Failsafe XML',run_log:'Koşu günlüğü',checkpoint_manifest:'Checkpoint kaydı',patch:'Kabul edilen değişiklik',accepted_source:'Doğrulanmış kaynak',extra:'Ek kanıt'};
+  const verifiedPaths=new Set(facts.verified_artifacts);
   const evidenceRows=(data.evidence??[]).map(e=>{
-    const verified=facts.verified_artifacts.includes(e.relative_path),href=verified?safeEvidenceHref(e.relative_path):null;
+    const verified=verifiedPaths.has(e.relative_path),href=verified?safeEvidenceHref(e.relative_path):null;
     return [href?`<a href="${esc07(href)}">${esc07(e.relative_path)}</a>`:esc07(e.relative_path),esc07(kindNames[e.kind]??'Kanıt'),esc07(e.run_id??'Veri yok'),href?`${e.bytes} bayt<span class="secondline">SHA-256 ${esc07(e.sha256)}</span>`:'Veri yok',verified?'Doğrulandı'+(e.redacted?' (sansürlenmiş)':''):'Doğrulanmadı'];
   });
   const view:Report07View={targets:data.targets.map(t=>({fqn:t.fqn,module:t.module_path??'',line:coverageFact(t.line),branch:coverageFact(t.branch)})),facts,

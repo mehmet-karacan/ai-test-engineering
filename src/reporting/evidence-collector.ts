@@ -41,6 +41,8 @@ export interface AcceptedChangeEvidenceInput {
 }
 
 interface CollectorInput {
+  /** Baseline freezes only the hash-pinned JaCoCo XML, without walking assets/logs. */
+  jacoco_xml_only?: boolean;
   workspace: string;
   module_paths: string[];
   run_id: string;
@@ -192,6 +194,7 @@ export function collectFinalReplayEvidence(input: CollectorInput): FinalReplayEv
     } else {
       addMissing(result, jacocoDestination, "jacoco_xml", "JACOCO_XML_MISSING");
     }
+    if (input.jacoco_xml_only) continue;
     for (const asset of walkFiles(jacocoRoot)) {
       if (asset === jacocoXml) {
         continue;
@@ -216,7 +219,7 @@ export function collectFinalReplayEvidence(input: CollectorInput): FinalReplayEv
     }
   }
 
-  for (const [logPath, destination] of [[input.stdout_log_path, "stdout.log"], [input.stderr_log_path, "stderr.log"]] as const) {
+  for (const [logPath, destination] of input.jacoco_xml_only ? [] : [[input.stdout_log_path, "stdout.log"], [input.stderr_log_path, "stderr.log"]] as const) {
     let path: string;
     try {
       path = resolve(logPath);

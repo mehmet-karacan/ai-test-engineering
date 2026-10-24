@@ -987,7 +987,8 @@ export class JobDispatcher {
       const checkpointVerification = bestCheckpointId ? checkpoints.verifyCheckpoint(bestCheckpointId) : null;
       const checkpointTrusted = bestCheckpointId === null || checkpointVerification?.valid === true;
       const acceptedChanges = checkpointVerification?.valid && checkpointVerification.manifest ? checkpointVerification.manifest.accepted_changes : [];
-      const changeProjection = projectAcceptedChanges(projectRoot, acceptedChanges);
+      const reportTestRoots = resolvedTargets.map(({ module }) => ({ module_relative_path: module.module_relative_path, test_root: module.test_root }));
+      const changeProjection = projectAcceptedChanges(projectRoot, acceptedChanges, reportTestRoots);
       const runSummary = projectRunSummary(finalReports);
       // P07-B: baseline/progress/final ayni DB provenance zincirinden projekte edilir.
       // Eksik stage kaydi null/NOT_RUN olarak kalir; 0 ile doldurulmaz.
@@ -1123,6 +1124,7 @@ export class JobDispatcher {
         iterations: reportIterations,
         tests_added: changeProjection.tests_added,
         tests_modified: changeProjection.tests_modified,
+        test_roots: reportTestRoots,
         run_summary: runSummary,
         gates: [
           { name: "test_only_policy", status: testOnlyStatus, detail: testOnlyStatus === "PASSED" ? "production degisikligi 0; final replay ve evidence dogrulandi" : testOnlyStatus === "FAILED" ? "production degisikligi var" : "final replay veya evidence dogrulanmadi" },

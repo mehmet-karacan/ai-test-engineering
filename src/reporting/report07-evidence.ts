@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {join,resolve} from 'node:path';
 import {collectFinalReplayEvidence,type FinalReplayEvidence} from './evidence-collector.js';
 export function collectReport07BaselineEvidence(input:Parameters<typeof collectFinalReplayEvidence>[0]&{expected_reports:Array<{path:string;sha256:string|null}>}):FinalReplayEvidence {
-  const collected=collectFinalReplayEvidence(input),result:FinalReplayEvidence={files:[],missing:[]};
+  const collected=collectFinalReplayEvidence({...input,jacoco_xml_only:true}),result:FinalReplayEvidence={files:[],missing:[]};
   for(const file of collected.files.filter(f=>f.kind==='jacoco_xml')) {
     const modules=input.module_paths.filter(module=>file.relative_path===`evidence/final-replay/${module||'root'}/jacoco.xml`);
     const module=modules.length===1?modules[0]:undefined;
