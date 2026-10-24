@@ -1,3 +1,23 @@
+## 2026-10-24 Rapor durum esleme tamamlandi
+
+- Kullanici snapshot sorununu duzeltme ve kalan degisiklikleri commit/push yapma yetkisi verdi. Yeni rapor terminal DB row'u ile ayni lifecycle/outcome/verification/apply durumunu tasir. Tamamlama, verified export ve event ayni immediate transaction'dadir; hata durumunda DB rollback ve PUBLISHED iptali uygulanir.
+- Eski raporlar yalniz PUBLISHED/manifest/hash dogrulamasi sonrasi status/result uzerinden yenilenir. Sorgu yaniti ayni kilit altinda hazirlanir; kanitlar ilk manifest SHA/size degerleriyle yeniden karsilastirilir. Bozuk/yayinsiz rapor guvenilir hale getirilmez.
+- Gercek job5f6a657a: RUNNING -> COMPLETED, READY_FOR_REVIEW -> NOT_REQUESTED.1670kanit dosyasi,670testlik sonuc ve olcum tarihi ayni; DB row/job/worker sayilari degismedi. Ikinci okuma idempotent.
+- Son tam Windows suite: 136 dosya / 1150 test PASS; 1 dosya / 1 test SKIP; exit0.20yeni integration senaryosu, typecheck/build/localgate PASS; lint0error/89mevcutwarning. Bagimsiz review engelleyicisiz.
+- Bekleyen Java coverage testi record parse sorununu ortaya cikardi; per-call JavaParser ile duzeltildi. Java support clean verify16/16PASS. Onceki G2 teslim kayitlari ve tarihsel Oct14handoff kontrol edilerek bu teslimde korunur; eski kabuller yeniden onaylanmis sayilmaz.
+- Browser baglantisi rastgele hazir porta gitmez; fresh owned profile DevToolsActivePort, OS-assigned port ve browserWebSocketkimligi dogrulanir. Chrome gercek DOM/print/PDF/offline/link kaniti gecti; onceki basarisiz paket logu saklandi.
+- Runtime rapor/log/blob/session dosyalari public'e alinmadi; yeni customer/model kosusu, GPU Git islemi veya CI/yayin yok. Process-crash atomicity/full391 GO iddiasi yok. Kabul: ai/acceptance/report-runtime-sync.json.
+
+## 2026-10-23 DeductionService: asil GPU uygulamasi dogrulandi
+
+- Kullanici G2 uygulamasini acikca onayladi. Job `5f6a657a-2187-42f3-81ea-8851b1178d65` icin son dogrulanmis 12 test dosyasi / 35 test, byte/hash ayniligi korunarak asil GPU backend src/test/java dizinine aktarildi.
+- MCP test_apply halen PATCH_ONLY. Uygulama, acik kullanici onayiyla dosya aktarimi olarak yapildi; MCP DB'sine sahte APPLIED veya approval kaydi yazilmadi.
+- Asil dizinde JDK21/Maven3.9.16 ile clean + JaCoCo prepare-agent + tum Maven testleri + JaCoCo report: exit 0 / BUILD SUCCESS. Sinif filtresi yok; skip/failure-ignore bayraklari false.
+- Sonuc: 670 test = 659 PASS + 11 mevcut SKIP, 0 failure/error. Onceki 635 test invocation eksiksiz korundu.
+- DeductionService: LINE 263/272 (%96.69), BRANCH 85/104 (%81.73); iki %80 hedefi asil checkout'ta da saglandi. update LINE47/47 BRANCH12/14; deleteLogical LINE17/17 BRANCH7/10.
+- 990 mevcut kaynak/ayar dosyasi ve 153 src/test dosyasi ayni hash ile korundu; production/POM/mevcut test degisikligi yok. Maven testleri 2 runtime logunu guncelledi ve 1 arsiv logu olusturdu.
+- GPU Git commit/push veya yayin yapilmadi. Ham kaynak/model/log ve hash manifestleri LOCALAPPDATA/ai-test-engineering altinda; public kayitta yalniz sonuc ve kanit digest'leri bulunur.
+
 ## 2026-10-23 DeductionService: otomatik %80 hedefi
 
 - Gercek GPU root'tan, onceki veya elle yazilmis test aktarilmadan OpenCode + MCP kosusu tamamlandi. Job `5f6a657a-2187-42f3-81ea-8851b1178d65`: `TARGET_REACHED / AFFECTED_SCOPE`; model `litellm/GLM-5.3-Flash-IT`, reasoning low.

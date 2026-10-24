@@ -2,6 +2,7 @@ import { baselineDiagnostic } from "./baseline-diagnostic.js";
 import { projectNativeExecution, type ProjectNativeExecution } from "../configuration/project-native-execution.js";
 import { buildDependencyContext } from "../workers/opencode/dependency-context.js";
 import { coverageGapContext } from "../workers/opencode/generation-context.js";
+import { publishFinalReport } from "./report-finalization.js";
 import { effectiveMavenEnvironment } from "../runners/native-toolchain.js";
 /**
  * Job dispatcher: test_start ile baslayan kalici isin asamalarini gercekten yurutur.
@@ -1099,7 +1100,7 @@ export class JobDispatcher {
         snapshot_id: snapshotId,
         outcome: reportOutcome,
         verification_scope: "AFFECTED_SCOPE",
-        apply_state: "READY_FOR_REVIEW",
+        apply_state: latestBeforeFinalize.apply_state,
         targets: resolvedTargets.map((rt) => {
           const coverage = finalCoverage.get(rt.fqn);
           const linePair = coverage?.line;
@@ -1134,28 +1135,10 @@ export class JobDispatcher {
         evidence: reportEvidence,
       };
       const exporter = new ReportExporter(reportDir);
-      const exportResult = exporter.export(reportData, extraEvidence);
-      if (!exportResult.verification_passed) {
-        throw new AppError("REPORT_EXPORT_FAILED", "Rapor export dogrulamasi basarisiz", {
-          missing_files: exportResult.missing_files,
-          hash_mismatch: exportResult.hash_mismatch,
-        });
-      }
+      const exportResult = publishFinalReport({services:this.services,jobId:job.id,exporter,data:reportData,
+        extraFiles:extraEvidence,outcome:reportOutcome as Outcome,assertLease});
       phases.push(`report_${exportResult.verification_passed ? "ok" : "inconsistent"}`);
-      const terminalOutcome = reportOutcome as Outcome;
-      const afterOutcome = jobs.updateOutcome(job.id, terminalOutcome, jobs.getJob(job.id).row_version);
-      const afterVerification = jobs.updateVerificationLevel(
-        job.id,
-        verificationLevelForReport(terminalOutcome),
-        afterOutcome.row_version,
-      );
-      jobs.updateLifecycle(
-        job.id,
-        terminalOutcome === "FINAL_VERIFICATION_FAILED" ? "FAILED" : "COMPLETED",
-        afterVerification.row_version,
-      );
       phases.push("completed");
-      jobs.appendEvent({ job_id: job.id, event_type: "verification_completed", phase: "verification", origin: "JobDispatcher" });
 
       ownedRunners.delete(job.id);
       ownedWorkerServers.delete(job.id);

@@ -1,6 +1,8 @@
 package com.aitest.support;
 
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParserConfiguration;
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
@@ -53,6 +55,16 @@ public final class JavaMetadataScanner {
     private JavaMetadataScanner() {
     }
 
+    private static CompilationUnit parse(Path javaFile) throws IOException {
+        // Metadata parsing must accept record declarations without changing
+        // StaticJavaParser's shared configuration or the customer toolchain.
+        var parser = new JavaParser(new ParserConfiguration()
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.BLEEDING_EDGE));
+        var result = parser.parse(javaFile);
+        if (!result.isSuccessful()) throw new ParseProblemException(result.getProblems());
+        return result.getResult().orElseThrow(() -> new ParseProblemException(result.getProblems()));
+    }
+
     public static ScanResult scanFile(Path javaFile, Path projectRoot) {
         List<SymbolInfo> symbols = new ArrayList<>();
         List<MethodInfo> methods = new ArrayList<>();
@@ -60,7 +72,7 @@ public final class JavaMetadataScanner {
 
         CompilationUnit cu;
         try {
-            cu = StaticJavaParser.parse(javaFile);
+            cu = parse(javaFile);
         } catch (IOException e) {
             throw new UncheckedIOException("Java dosyasi okunamadi: " + javaFile, e);
         } catch (Exception e) {
@@ -145,7 +157,7 @@ public final class JavaMetadataScanner {
 
     public static List<ClassOrInterfaceType> referencedTypes(Path javaFile) {
         try {
-            CompilationUnit cu = StaticJavaParser.parse(javaFile);
+            CompilationUnit cu = parse(javaFile);
             return cu.findAll(ClassOrInterfaceType.class);
         } catch (IOException e) {
             throw new UncheckedIOException("Java dosyasi okunamadi: " + javaFile, e);

@@ -12,6 +12,24 @@ import { AppError } from "../domain/errors.js";
 import { sanitizeNarrativeFields } from "./report-data-contract.js";
 import { buildReport07 } from "./report07-renderer.js";
 import { projectReport07Facts, type Report07Facts } from "./report07-facts.js";
+import type { JobRow } from "../storage/job-repository.js";
+
+type ReportJobState = Pick<JobRow, "id" | "lifecycle" | "phase" | "outcome" | "verification_level" | "apply_state">;
+
+export function withJobRuntime(data: ReportData, job: ReportJobState): ReportData {
+  if (data.job_id !== job.id) throw new AppError("REPORT_EXPORT_FAILED", "Rapor ile is kimligi eslesmiyor");
+  const runtime = { ...data.runtime };
+  if (job.outcome === null) delete runtime.stop_code;
+  else runtime.stop_code = job.outcome;
+  return {
+    ...data,
+    outcome: job.outcome ?? "UNAVAILABLE",
+    verification_scope: job.verification_level,
+    apply_state: job.apply_state,
+    runtime: { ...runtime, lifecycle: job.lifecycle, phase: job.phase,
+      checkpoint_valid: data.runtime?.checkpoint_valid ?? null },
+  };
+}
 
 export interface ReportTarget {
   module_path?: string;
@@ -286,11 +304,51 @@ export class ReportExporter {
     mkdirSync(this.reportRoot, { recursive: true });
   }
 
+  invalidatePublication(): void {
+    rmSync(join(this.reportRoot, "PUBLISHED"), { force: true });
+  }
+
+  /** Reproject only an intact publication; never bless modified evidence. */
+  synchronizeRuntime(job: ReportJobState): { missing: string[]; hash_mismatch: string[] } {
+    const manifestPath = containedReportPath(this.reportRoot, "manifest.json");
+    const before = existsSync(manifestPath) ? readFileSync(manifestPath) : null;
+    const verified = this.verifyExport();
+    if (verified.missing.length || verified.hash_mismatch.length) return verified;
+    if (!before || !before.equals(readFileSync(manifestPath))) return {missing:[],hash_mismatch:["manifest.json"]};
+    const manifest = JSON.parse(before.toString("utf8")) as {artifacts:Array<{relative_path:string;sha256:string;bytes:number}>};
+    const matches = (bytes: Buffer, name: string) => {
+      const entry = manifest.artifacts.find(artifact => artifact.relative_path === name);
+      return entry?.bytes === bytes.length && entry.sha256 === createHash("sha256").update(bytes).digest("hex");
+    };
+    const reportBytes = readFileSync(containedReportPath(this.reportRoot, "report.json"));
+    if (!matches(reportBytes,"report.json")) return {missing:[],hash_mismatch:["report.json"]};
+    const data = JSON.parse(reportBytes.toString("utf8")) as ReportData;
+    const current = withJobRuntime(data, job);
+    if (JSON.stringify(data.runtime) === JSON.stringify(current.runtime) && data.outcome === current.outcome
+      && data.apply_state === current.apply_state && data.verification_scope === current.verification_scope) return verified;
+    const core = new Set(["report.json", "index.html", "summary.txt", "manifest.json", "PUBLISHED"]);
+    const extra: Record<string, Buffer> = {};
+    for (const artifact of manifest.artifacts) {
+      if (!core.has(artifact.relative_path)) {
+        const bytes = readFileSync(containedReportPath(this.reportRoot, artifact.relative_path));
+        if (!matches(bytes,artifact.relative_path)) return {missing:[],hash_mismatch:[artifact.relative_path]};
+        extra[artifact.relative_path] = bytes;
+      }
+    }
+    try {
+      const result = this.export(current, extra);
+      return { missing: result.missing_files, hash_mismatch: result.hash_mismatch };
+    } catch (error) {
+      this.invalidatePublication();
+      throw error;
+    }
+  }
+
   export(data: ReportData, extraFiles?: Record<string, string | Buffer>): ExportResult {
     const files: ExportResult["files"] = [];
     // Yeni export baslamadan once eski yayin marker'i gecersizlesir; herhangi
     // bir ara hata eski raporu yeni rapor gibi gostermemelidir.
-    rmSync(join(this.reportRoot, "PUBLISHED"), { force: true });
+    this.invalidatePublication();
     // Exporter, HTML/JSON/manifest'in ayni normalize edilmis facts snapshot'ini
     // kullanmasini saglar; caller'in reportData nesnesi yerinde degistirilmez.
     const reportData = structuredClone(data) as ReportData;

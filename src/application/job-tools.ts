@@ -2,7 +2,7 @@
  * Kalan MCP araclari: test_resume, test_cancel, test_result, test_apply use-case'leri.
  * MCP handler'larin cagirdigi application katmani; is mantigi burada.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
@@ -20,8 +20,8 @@ import { NativeToolchainRecordStore } from "../orchestration/native-toolchain-re
 import { NativeProcessRegistry } from "../orchestration/native-process-registry.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { readProjectCoverageResult, readProjectCoverageFailure, type ProjectCoverageResult, type ProjectCoverageFailure } from "../storage/project-coverage-result.js";
-import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
-import { ReportExporter } from "../reporting/report-generator.js";
+import type { ReportStatusFacts } from "../reporting/report-projection.js";
+import { verifyCurrentReport } from "./report-runtime.js";
 import { MAX_WORKER_REQUEST_TIMEOUT_MS } from "../workers/opencode/worker-config.js";
 
 function nativePathIdentity(value: string): string {
@@ -248,69 +248,64 @@ export interface TestResultResult {
 export async function handleTestResult(input: unknown, services: Services): Promise<TestResultResult> {
   const parsed = TestResultInputSchema.parse(input);
   const { storage, jobs } = requireStorage(services);
-  const job = jobs.getJob(parsed.job_id);
+  return storage.db.transaction(() => {
+    let job = jobs.getJob(parsed.job_id);
+    const publishedVerification = verifyCurrentReport(services, job.id);
+    job = publishedVerification.job ?? job;
 
-  // K07/B06: son trusted coverage yalniz dispatcher'in final replay DB kanitindan
-  // okunur; kullanici checkout'undaki stale jacoco.xml trusted sayilmaz.
-  let lastCoverage: { percent: number; basisPoints: number } | null = null;
-  const coverageRow = storage.db
-    .prepare<[string], { line_covered: number; line_missed: number }>(
-      "SELECT line_covered, line_missed FROM coverage_snapshots WHERE job_id = ? AND before_after = 'after' AND line_validity = 'OK' ORDER BY created_at DESC LIMIT 1",
-    )
-    .get(job.id);
-  if (coverageRow) {
-    const total = coverageRow.line_covered + coverageRow.line_missed;
-    if (total > 0) {
-      const bps = Math.floor((coverageRow.line_covered * 10000) / total);
-      lastCoverage = { percent: bps / 100, basisPoints: bps };
+    // K07/B06: son trusted coverage yalniz dispatcher'in final replay DB kanitindan
+    // okunur; kullanici checkout'undaki stale jacoco.xml trusted sayilmaz.
+    let lastCoverage: { percent: number; basisPoints: number } | null = null;
+    const coverageRow = storage.db
+      .prepare<[string], { line_covered: number; line_missed: number }>(
+        "SELECT line_covered, line_missed FROM coverage_snapshots WHERE job_id = ? AND before_after = 'after' AND line_validity = 'OK' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(job.id);
+    if (coverageRow) {
+      const total = coverageRow.line_covered + coverageRow.line_missed;
+      if (total > 0) {
+        const bps = Math.floor((coverageRow.line_covered * 10000) / total);
+        lastCoverage = { percent: bps / 100, basisPoints: bps };
+      }
     }
-  }
 
-  const checkpoints = new CheckpointStore(storage.db, services.config.storage.root);
-  const bestCheckpoint = checkpoints.bestCheckpoint(job.id);
+    const checkpoints = new CheckpointStore(storage.db, services.config.storage.root);
+    const bestCheckpoint = checkpoints.bestCheckpoint(job.id);
 
-  // gercek rapor yolu: JobDispatcher'in urettigi reports dizini (workspaceRoot/jobs/<id>/reports):
-  // report_path yalniz PUBLISHED dogrulamasi gecmis authoritative export'ta
-  // sunulur; stale index.html veya bozuk/eksik manifest rapor yolunu yetkili
-  // sayilamaz (PR07/PP40).
-  const reportRoot = join(services.config.storage.root, "jobs", job.id, "reports");
-  const reportDir = join(reportRoot, "index.html");
-  const reportJsonPath = join(reportRoot, "report.json");
-  const publishedVerification = existsSync(join(reportRoot, "PUBLISHED")) ? new ReportExporter(reportRoot).verifyExport() : { missing: ["PUBLISHED"], hash_mismatch: [] };
-  const publicationVerified = publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0;
-  const reportPath = publicationVerified && existsSync(reportDir) ? reportDir : null;
-  let reportFacts: ReportStatusFacts | null = null;
-  if (publicationVerified && existsSync(reportJsonPath)) {
-    try {
-      reportFacts = projectReportStatusFacts(JSON.parse(readFileSync(reportJsonPath, "utf8")), job.id);
-    } catch {
-      reportFacts = null;
-    }
-  }
+    // gercek rapor yolu: JobDispatcher'in urettigi reports dizini (workspaceRoot/jobs/<id>/reports):
+    // report_path yalniz PUBLISHED dogrulamasi gecmis authoritative export'ta
+    // sunulur; stale index.html veya bozuk/eksik manifest rapor yolunu yetkili
+    // sayilamaz (PR07/PP40).
+    const reportRoot = join(services.config.storage.root, "jobs", job.id, "reports");
+    const reportDir = join(reportRoot, "index.html");
+    const publicationVerified = publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0 && existsSync(join(reportRoot, "PUBLISHED"));
+    const reportPath = publicationVerified && existsSync(reportDir) ? reportDir : null;
+    const reportFacts = publicationVerified ? publishedVerification.facts ?? null : null;
 
-  // artifact refs: o job'a ait kayitli artifact'ler (registry'den):
-  const artifactRows = storage.db
-    .prepare<[string], { relative_store_path: string; sha256: string }>(
-      "SELECT relative_store_path, sha256 FROM artifacts WHERE job_id = ? ORDER BY created_at DESC LIMIT 20",
-    )
-    .all(job.id);
+    // artifact refs: o job'a ait kayitli artifact'ler (registry'den):
+    const artifactRows = storage.db
+      .prepare<[string], { relative_store_path: string; sha256: string }>(
+        "SELECT relative_store_path, sha256 FROM artifacts WHERE job_id = ? ORDER BY created_at DESC LIMIT 20",
+      )
+      .all(job.id);
 
-  return {
-    job_id: job.id,
-    outcome: job.outcome,
-    lifecycle: job.lifecycle,
-    verification_level: job.verification_level,
-    apply_state: job.apply_state,
-    best_checkpoint_id: bestCheckpoint,
-    last_trusted_coverage: lastCoverage,
-    report_path: reportPath,
-    report_facts: reportFacts,
-    artifact_refs: artifactRows.map((a) => `${a.relative_store_path}#${a.sha256.slice(0, 12)}`),
-    ...(() => { const scan = readProjectCoverageResult(services, job.id); if (!scan || job.outcome !== "COVERAGE_ANALYZED") return {};
-      const { classes, ...summary } = scan;
-      return { coverage_scan: { ...summary, class_count: classes.length } }; })(),
-    ...(() => { const failure = readProjectCoverageFailure(services, job.id); return failure ? { coverage_scan_failure: failure } : {}; })(),
-  };
+    return {
+      job_id: job.id,
+      outcome: job.outcome,
+      lifecycle: job.lifecycle,
+      verification_level: job.verification_level,
+      apply_state: job.apply_state,
+      best_checkpoint_id: bestCheckpoint,
+      last_trusted_coverage: lastCoverage,
+      report_path: reportPath,
+      report_facts: reportFacts,
+      artifact_refs: artifactRows.map((a) => `${a.relative_store_path}#${a.sha256.slice(0, 12)}`),
+      ...(() => { const scan = readProjectCoverageResult(services, job.id); if (!scan || job.outcome !== "COVERAGE_ANALYZED") return {};
+        const { classes, ...summary } = scan;
+        return { coverage_scan: { ...summary, class_count: classes.length } }; })(),
+      ...(() => { const failure = readProjectCoverageFailure(services, job.id); return failure ? { coverage_scan_failure: failure } : {}; })(),
+    };
+  }).immediate();
 }
 
 export interface TestApplyResult {

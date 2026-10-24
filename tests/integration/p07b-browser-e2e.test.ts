@@ -110,14 +110,32 @@ async function connectCdp(wsUrl: string): Promise<CdpSession> {
 }
 
 async function startBrowser(browser: string, userDataDir: string): Promise<{ cdp: CdpSession; stop: () => void }> {
-  const port = 19300 + Math.floor(Math.random() * 500);
-  const child = spawn(browser, ["--headless", "--disable-gpu", "--no-sandbox", "--disable-background-networking", `--user-data-dir=${userDataDir}`, `--remote-debugging-port=${port}`, "about:blank"], {
+  // Bind an OS-assigned port and trust only this fresh profile's marker.
+  // A random fixed port could belong to an unrelated existing Edge session.
+  const child = spawn(browser, ["--headless", "--disable-gpu", "--no-sandbox", "--disable-background-networking", `--user-data-dir=${userDataDir}`, "--remote-debugging-port=0", "about:blank"], {
     stdio: ["ignore", "ignore", "ignore"],
     windowsHide: true,
     detached: false,
   });
   let cdp: CdpSession | null = null;
   try {
+    const activePortPath = join(userDataDir, "DevToolsActivePort");
+    let port = 0;
+    let browserPath = "";
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if (existsSync(activePortPath)) {
+        try {
+          const lines = readFileSync(activePortPath, "utf8").trim().split(/\r?\n/);
+          port = Number(lines[0]); browserPath = lines[1] ?? "";
+          if (Number.isInteger(port) && port > 0 && port <= 65535 && /^\/devtools\/browser\//.test(browserPath)) break;
+        } catch { /* browser may still be writing its marker */ }
+      }
+      if (child.exitCode !== null && child.exitCode !== 0) throw new Error("Owned browser exited before publishing its endpoint");
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    expect(existsSync(activePortPath), "Owned browser endpoint marker is required").toBe(true);
+    expect(Number.isInteger(port) && port > 0 && port <= 65535).toBe(true);
+    expect(browserPath).toMatch(/^\/devtools\/browser\//);
     const versionUrl = `http://127.0.0.1:${port}/json/version`;
     let versionBody: string | null = null;
     for (let attempt = 0; attempt < 40 && !versionBody; attempt++) {
@@ -129,6 +147,8 @@ async function startBrowser(browser: string, userDataDir: string): Promise<{ cdp
       }
     }
     expect(versionBody, "CDP endpointine erisilemedi").toBeTruthy();
+    const version = JSON.parse(versionBody!) as {webSocketDebuggerUrl:string};
+    expect(new URL(version.webSocketDebuggerUrl).pathname).toBe(browserPath);
     const targets = JSON.parse(await (await fetch(`http://127.0.0.1:${port}/json`)).text()) as Array<{ type: string; url: string; webSocketDebuggerUrl?: string }>;
     const page = targets.find((t) => t.type === "page");
     expect(page?.webSocketDebuggerUrl, "CDP page target bulunamadi").toBeTruthy();

@@ -30,3 +30,10 @@
 - Browser: kurulu Chrome'da DOM/gercek print CSS/PDF/offline/link 4/4 PASS. Edge PDF bu ortamda Printing is not available dondu; Edge PDF PASS iddiasi yok, kurulum veya policy degisikligi yok.
 - Ilk tam paketteki tek PDF hatasi ve onarim kaniti korundu. GPU/Sky/customer/model kosusu, CI veya bekletilen session dosyasi degisikligi yok.
 - Bilinen rapor yayin-ani runtime snapshot sorunu onceki backlogda ayri kalir; full391 GO/yayin iddiasi yok. Kanit: ai/acceptance/user-flow-robustness.json.
+
+## Yerel kurulum sonrasi dogrulama
+
+- Kod commit50b27fb main'e fast-forward alindi. Onceden var olan5dirty/untracked dosya byte/hash ayniligiyla korundu.
+- Ana dizinde build ve LOCAL_PASS release kapisi gecti. Ana dizin follow-up:4dosya72/72testPASS;52kullanici senaryosu ve4gercekChrome browser kontrolu dahil.
+- OpenCode'un ana dist stdio girisi gercek SDK ile acildi;9MCP araci sunuldu ve onceki dogrulanmis is TARGET_REACHED olarak okundu. Yeni customer/Maven/model isi baslatilmadi.
+- Tam paket kaniti:134dosya1130PASS/1SKIP; son local takip gecti. Bu teslim yerelde commitli; bu yeni tur icin remote push yapilmadi.

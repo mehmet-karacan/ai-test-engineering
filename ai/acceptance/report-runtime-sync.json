@@ -1,0 +1,87 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "date": "2026-10-24",
+  "kind": "REPORT_RUNTIME_SYNC",
+  "base_commit": "50b27fb0f8daf94fb91d539caec0559211fca885",
+  "new_integration_cases": 20,
+  "full_windows_suite": {
+    "files_passed": 136,
+    "files_skipped": 1,
+    "tests_passed": 1150,
+    "tests_skipped": 1,
+    "exit_code": 0,
+    "log_sha256": "64b043fddca25d9a0eb24720fc00b82f471988145a0f53cfdd07ff401352b406"
+  },
+  "java_support": {
+    "tests_passed": 16,
+    "failed": 0,
+    "skipped": 0,
+    "command": "mvn -B -ntp -f java-support/pom.xml clean verify",
+    "log_sha256": "0ab595b0452d7db7600c88cfe25d3c8d1b74b0cf43515385e7c3cf7e649ef021"
+  },
+  "typecheck": "PASS",
+  "build": "PASS",
+  "local_release_gate": "LOCAL_PASS",
+  "lint": {
+    "errors": 0,
+    "existing_warnings": 89
+  },
+  "independent_review": {
+    "remaining_blockers": 0,
+    "independently_passed_tests": 20,
+    "resolved_P2": "publication verification escaped its lock"
+  },
+  "actual_old_report": {
+    "job_id": "5f6a657a-2187-42f3-81ea-8851b1178d65",
+    "before_runtime": {
+      "lifecycle": "RUNNING",
+      "phase": "verification",
+      "stop_code": "TARGET_REACHED",
+      "checkpoint_valid": true
+    },
+    "after_runtime": {
+      "lifecycle": "COMPLETED",
+      "phase": "verification",
+      "stop_code": "TARGET_REACHED",
+      "checkpoint_valid": true
+    },
+    "before_apply": "READY_FOR_REVIEW",
+    "after_apply": "NOT_REQUESTED",
+    "preserved_evidence_files": 1670,
+    "counts": {
+      "total": 670,
+      "passed": 659,
+      "failed": 0,
+      "skipped": 11
+    },
+    "manifest_verification": {
+      "missing": [],
+      "hash_mismatch": []
+    },
+    "manifest_sha256": "1a3c713964b6b87f57aa95e70cb953f1b6448d798063e44bf8d336e825bb8314",
+    "state_unchanged": true,
+    "idempotent": true,
+    "new_model_jobs": 0,
+    "private_audit_sha256": "bcb8baedd7524c2022d6122b27281dd75ce086b75ca8c351cfc37694b28fefbc"
+  },
+  "failures_preserved": {
+    "first_full_suite": {
+      "tests_passed": 1149,
+      "tests_failed": 1,
+      "tests_skipped": 1,
+      "failure": "CDP Printing is not available",
+      "log_sha256": "b04febd6d8df68b69f5d10797e034380d83fbe1f2a4f0943f71867ead15904ab"
+    },
+    "pending_java_test": {
+      "tests": 16,
+      "failed": 1,
+      "failure": "recordKindRaporlanir",
+      "log_sha256": "70b483c9c71192b23179cdc852684f238abbe81ef9253bbfc76bb5668d015a30"
+    }
+  },
+  "known_limits": [
+    "Process-crash atomicity not claimed; transaction/export failure and rollback tested",
+    "No new customer/model runs or deployment/full391 acceptance",
+    "Browser proof is for owned Chrome; unrelated browser sessions are not used"
+  ]
+}

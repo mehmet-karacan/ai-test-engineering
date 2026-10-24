@@ -5,7 +5,7 @@ import { projectNativeExecution } from "../configuration/project-native-executio
  * P02: guvenli kesif (snapshot, envanter, target resolution) eklendi.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, statSync, readFileSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { TestStartInputSchema, TestStatusInputSchema, ProjectInspectInputSchema, ProjectQueryInputSchema, percentToBasisPoints } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
@@ -24,8 +24,8 @@ import { InventoryQueryService } from "./inventory-query.js";
 import { InventoryScanService } from "./inventory-scan-service.js";
 import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
-import { projectReportStatusFacts, type ReportStatusFacts } from "../reporting/report-projection.js";
-import { ReportExporter } from "../reporting/report-generator.js";
+import type { ReportStatusFacts } from "../reporting/report-projection.js";
+import { verifyCurrentReport } from "./report-runtime.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
@@ -617,66 +617,61 @@ export interface TestStatusResult {
 
 export async function handleTestStatus(input: unknown, services: Services): Promise<TestStatusResult> {
   const parsed = TestStatusInputSchema.parse(input);
-  const { jobs } = requireServices(services);
-  let job: JobRow;
-  if (parsed.job_id) {
-    job = jobs.getJob(parsed.job_id);
-  } else if (parsed.project_root) {
-    const canonicalRoot = canonicalProjectRoot(parsed.project_root);
-    const projects = new ProjectRepository((requireServices(services)).storage.db);
-    const locations = projects.listLocationsProjects(canonicalRoot);
-    const latest = jobs.findLatestJobByLocations(locations.map((l) => l.id));
-    if (!latest) {
-      throw new AppError("INVALID_PARAMETERS", `Bu projede job bulunamadi: ${parsed.project_root}`);
+  const { jobs, storage } = requireServices(services);
+  return storage.db.transaction(() => {
+    let job: JobRow;
+    if (parsed.job_id) {
+      job = jobs.getJob(parsed.job_id);
+    } else if (parsed.project_root) {
+      const canonicalRoot = canonicalProjectRoot(parsed.project_root);
+      const projects = new ProjectRepository((requireServices(services)).storage.db);
+      const locations = projects.listLocationsProjects(canonicalRoot);
+      const latest = jobs.findLatestJobByLocations(locations.map((l) => l.id));
+      if (!latest) {
+        throw new AppError("INVALID_PARAMETERS", `Bu projede job bulunamadi: ${parsed.project_root}`);
+      }
+      job = latest;
+    } else {
+      throw new AppError("INVALID_PARAMETERS", "job_id veya project_root gereklidir");
     }
-    job = latest;
-  } else {
-    throw new AppError("INVALID_PARAMETERS", "job_id veya project_root gereklidir");
-  }
 
-  assertJobProjectContext(job, parsed.project_root, requireServices(services).storage);
-  const events = jobs.listEvents(job.id, parsed.event_cursor, 50);
-  // K07/B06: last_trusted_coverage yalniz dispatcher final replay DB kanitindan okunur;
-  // kullanici checkout'undaki eski XML trusted veri degildir.
-  let lastTrustedCoverage: { percent: number; basisPoints: number } | null = null;
-  const storage = requireServices(services).storage;
-  const coverageRow = storage.db
-    .prepare<[string], { line_covered: number; line_missed: number }>(
-      "SELECT line_covered, line_missed FROM coverage_snapshots WHERE job_id = ? AND before_after = 'after' AND line_validity = 'OK' ORDER BY created_at DESC LIMIT 1",
-    )
-    .get(job.id);
-  if (coverageRow) {
-    const total = coverageRow.line_covered + coverageRow.line_missed;
-    if (total > 0) {
-      const basisPoints = Math.floor((coverageRow.line_covered * 10000) / total);
-      lastTrustedCoverage = { percent: basisPoints / 100, basisPoints };
+    assertJobProjectContext(job, parsed.project_root, requireServices(services).storage);
+    const publishedVerification = verifyCurrentReport(services, job.id);
+    job = publishedVerification.job ?? job;
+    const events = jobs.listEvents(job.id, parsed.event_cursor, 50);
+    // K07/B06: last_trusted_coverage yalniz dispatcher final replay DB kanitindan okunur;
+    // kullanici checkout'undaki eski XML trusted veri degildir.
+    let lastTrustedCoverage: { percent: number; basisPoints: number } | null = null;
+    const coverageRow = storage.db
+      .prepare<[string], { line_covered: number; line_missed: number }>(
+        "SELECT line_covered, line_missed FROM coverage_snapshots WHERE job_id = ? AND before_after = 'after' AND line_validity = 'OK' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(job.id);
+    if (coverageRow) {
+      const total = coverageRow.line_covered + coverageRow.line_missed;
+      if (total > 0) {
+        const basisPoints = Math.floor((coverageRow.line_covered * 10000) / total);
+        lastTrustedCoverage = { percent: basisPoints / 100, basisPoints };
+      }
     }
-  }
-  const reportRoot = join(services.config.storage.root, "jobs", job.id, "reports");
-  const reportPath = join(reportRoot, "report.json");
-  let reportFacts: ReportStatusFacts | null = null;
-  const publishedVerification = existsSync(join(reportRoot, "PUBLISHED")) ? new ReportExporter(reportRoot).verifyExport() : { missing: ["PUBLISHED"], hash_mismatch: [] };
-  if (publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0 && existsSync(reportPath)) {
-    try {
-      reportFacts = projectReportStatusFacts(JSON.parse(readFileSync(reportPath, "utf8")), job.id);
-    } catch {
-      reportFacts = null;
-    }
-  }
-  return {
-    job_id: job.id,
-    lifecycle: job.lifecycle,
-    phase: job.phase,
-    outcome: job.outcome,
-    verification_level: job.verification_level,
-    apply_state: job.apply_state,
-    last_trusted_coverage: lastTrustedCoverage,
-    report_facts: reportFacts,
-    events: events.map((e) => ({ sequence: e.sequence, event_type: e.event_type, phase: e.phase })),
-    required_action: job.lifecycle === "WAITING_INPUT" && job.outcome === "COVERAGE_ANALYZED"
-      ? "test_result onerilerini kullaniciya sun; kullanici secince test_start(coverage_scan_id, targets) cagir"
-      : job.lifecycle === "INTERRUPTED" ? "test_resume ile devam edilebilir" : null,
-  };
+    const reportRoot = join(services.config.storage.root, "jobs", job.id, "reports");
+    const reportFacts = publishedVerification.missing.length === 0 && publishedVerification.hash_mismatch.length === 0
+      && existsSync(join(reportRoot, "PUBLISHED")) ? publishedVerification.facts ?? null : null;
+    return {
+      job_id: job.id,
+      lifecycle: job.lifecycle,
+      phase: job.phase,
+      outcome: job.outcome,
+      verification_level: job.verification_level,
+      apply_state: job.apply_state,
+      last_trusted_coverage: lastTrustedCoverage,
+      report_facts: reportFacts,
+      events: events.map((e) => ({ sequence: e.sequence, event_type: e.event_type, phase: e.phase })),
+      required_action: job.lifecycle === "WAITING_INPUT" && job.outcome === "COVERAGE_ANALYZED"
+        ? "test_result onerilerini kullaniciya sun; kullanici secince test_start(coverage_scan_id, targets) cagir"
+        : job.lifecycle === "INTERRUPTED" ? "test_resume ile devam edilebilir" : null,
+    };
+  }).immediate();
 }
 
 export function targetBasisPoints(percent: number): { line: number; branch: number } {
