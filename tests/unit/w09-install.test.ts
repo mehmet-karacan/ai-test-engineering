@@ -143,7 +143,7 @@ describe("P08/PP43: kurulum readiness ayrimi (handshake pass urun-ready degildir
     expect(content).toContain("READY: MCP handshake");
     expect(content).toContain("NOT_READY: MCP handshake basarili");
     // NOT_READY mesaji eksik hazirlik girdisini acikca beyan eder (sessiz ready yok).
-    const notReady = /NOT_READY:[^"]*/.exec(content)?.[0] ?? "";
+    const notReady = /NOT_READY: MCP handshake basarili[^\n]*/.exec(content)?.[0] ?? "";
     expect(notReady).toContain("worker_profiles");
   });
 

@@ -149,6 +149,20 @@ export async function mainInstall() {
     step("  OK: mevcut install manifest korundu");
   }
 
+  step("Bolum 7: OpenCode test-engineering skill");
+  const { installOpenCodeSkill } = await import("../dist/configuration/opencode-skill-install.js");
+  const skill = installOpenCodeSkill({
+    sourcePath: join(repoRoot, "integrations", "opencode", "skills", "test-engineering", "SKILL.md"),
+    destinationPath: join(dirname(opencodeConfigPath), "skills", "test-engineering", "SKILL.md"),
+    manifestPath: installManifestPath,
+    backupDir,
+  });
+  if (skill.status === "preserved") {
+    step(`  NOT_READY: ozel/degistirilmis skill korundu; backup: ${skill.backup_path}; paket skill'i ile elle karsilastirin`);
+  } else {
+    step(`  OK: skill ${skill.status}; OpenCode'u yeniden acin`);
+  }
+
   // Windows editorleri config basina UTF-8 BOM koyabilir; loader ayni
   // normalizasyonu yaptigi icin kurulumun son readiness adimi da bunu kullanir.
   const persistedConfig = JSON.parse(readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""));

@@ -79,6 +79,14 @@ async function main() {
     console.log("  EKSIK: kayitli OpenCode entry yok");
     ok = false;
   }
+  console.log("[verify] OpenCode test-engineering skill");
+  const { verifyOpenCodeSkill } = await import("../dist/configuration/opencode-skill-install.js");
+  const skillMatches = openCodeConfigPath && verifyOpenCodeSkill(
+    join(repoRoot, "integrations", "opencode", "skills", "test-engineering", "SKILL.md"),
+    join(dirname(openCodeConfigPath), "skills", "test-engineering", "SKILL.md"),
+  );
+  if (skillMatches) console.log("  OK: kurulu skill paketle byte/hash eslesiyor");
+  else { console.log("  NOT_READY: skill eksik veya farkli; node scripts/install.mjs ve ozel skill backup'ini kontrol edin"); ok = false; }
   if (appRoot && existsSync(appRoot)) {
     console.log(`  OK: ${appRoot}`);
   } else {

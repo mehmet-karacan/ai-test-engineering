@@ -17,7 +17,16 @@ Runtime veri hedef kaynak reposuna veya bu gelistirme deposunun `ai/` klasorune 
 
 - SQLite WAL modunda; backup icin desteklenen yontem: `sqlite3 state.db ".backup 'backup.db'"` (DB kapaliyken veya online backup API).
 - Blob deposu content-addressed; backup'ta DB + blobs birlikte alinir.
-- Migration once backup ve disk kontrolu yapar; yarim kalirsa mevcut DB korunur.
+- Baslatma migration'lari checksum ve transaction ile uygular; otomatik upgrade backup'i veya bos disk kontrolu yapmaz. Upgrade oncesi operator asagidaki adimlari tamamlar.
+
+### Upgrade oncesi operator proseduru
+
+1. Calisan isleri `test_status` ile kontrol edin; devam eden isleri duraklatin. OpenCode ve bu urunun MCP sureclerini kapatin. Acik DB/native modul varken `npm ci`, build veya dosya geri yukleme yapmayin.
+2. Runtime DB, `blobs/`, `jobs/` (rapor ve kanitlar), config ve install manifestini ayni backup setine alin. DB aciksa yalniz state.db'yi kopyalamak WAL verisini kaybedebilir; SQLite online backup API/`.backup` kullanin. Kapali DB'de de kalan WAL/SHM dosyalarini silmeyin.
+3. Backup hedefindeki bos disk alanini ve dosya hash'lerini kontrol edin. DB kopyasinda `PRAGMA integrity_check;` ve `PRAGMA foreign_key_check;` calistirin; ilk sonuc `ok`, ikinci sonuc bos olmali. Blob/rapor dosyalarini da backup setiyle birlikte koruyun.
+4. `node scripts/install.mjs`, sonra `node scripts/verify-install.mjs` calistirin. Schema/checksum hatasinda tablo/migration kaydini elle degistirmeyin; MCP'yi kapatip dogrulanmis backup ve onceki kaynak/build ile geri donun. Daha yeni DB eski uygulamayla acilamaz.
+
+Restore sirasinda acik DB uzerine state.db kopyalamayin veya eski WAL/SHM ile yeni DB'yi birlestirmeyin. Urunun `restoreBackup` API'si DB/blob dogrulamasi, maintenance lock ve restore journal kullanir; bu API icin kullaniciya acik CLI yoktur. Manuel restore yerine bu API'yi kullanan kontrollu operator proseduru ve hedefe uygun dogrulama gerekir. Backup alinmasi tek basina restore'un dogrulandigi anlamina gelmez.
 
 ## Retention
 

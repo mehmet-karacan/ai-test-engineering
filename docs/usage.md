@@ -22,6 +22,8 @@ POM'da JaCoCo bulunmasi gerekmez: acik CLI modu sabit `org.jacoco:jacoco-maven-p
 
 ## Normal test gorevi
 
+Once [Windows kurulumu ve readiness dogrulamasi](installation.md) tamamlanmalidir. `test-engineering` skill'i installer tarafindan kullanici OpenCode dizinine kurulur; mevcut ozel dosya korunursa paket skill'iyle elle birlestirilir. Degisiklikten sonra OpenCode'u yeniden acin. Generation icin worker profili ve explicit `AITEST_WORKER_ENABLED=1` ayari gerekir; genel coverage taramasi model cagirmaz.
+
 1. Yetkilendirilmis Java projesinde OpenCode'u acin.
 2. Hedefinizi dogal dille soyleyin: "PaymentService icin coverage %90 olsun".
 3. OpenCode, `test-engineering` skill yardimiyla typed tool'lari cagirir:

@@ -1,44 +1,28 @@
 # ai-test-engineering
 
-OpenCode uzerinden kullanilan, kalici hafizali, yalniz test calisan bagimsiz test muhendisligi MCP urunu.
+OpenCode uzerinden kullanilan, kalici hafizali ve yalniz test gelistiren Windows native MCP urunu. Maven/JUnit/JaCoCo sonucunu private execution kopyasinda olcer; rapor ve checkpoint'leri kullanici runtime dizininde saklar.
 
-## Amac
+## Baslangic
 
-Kullanici yetkilendirilmis bir Java projesinde OpenCode'u acar ve dogal dille hedefini soyler (ornegin: "PaymentService icin coverage %90 olsun"). Sistem:
+Windows'ta Node.js 24+, OpenCode ve proje ile uyumlu yerel JDK/Maven kurulumundan sonra repo kokunde:
 
-1. Projeyi ve hedef sinifi dogru bulur (multi-module Maven destekli).
-2. Yalniz test olusturur veya gelistirir; production koduna dokunmaz.
-3. Maven/JUnit/JaCoCo ile sonucu gercekten olcer.
-4. Hedefe kadar kontrollu iterasyon yapar (checkpoint'li).
-5. Kesilirse ayni gorevden kalici durumla devam eder.
-6. Sonunda gercek sonucu ve kanitlarini sunar.
+```cmd
+node scripts/install.mjs
+```
 
-## Mevcut durum
+[Kurulum](docs/installation.md), [model ve proje ayarlari](docs/configuration.md), [kullanim](docs/usage.md) ve [backup/isletim](docs/operations.md) adimlarini izleyin. Ilk kurulum worker'i kendiliginden acmaz. Model/Maven/MCP readiness ve production kabul kapilari ayri kanitlardir.
 
-Gelistirme su an P01 (calisan dikey cekirdek) asamasinda. Ilerleme ve kararlari icin:
+OpenCode'da genel coverage raporu isteyin; olculmus onerilerden sinifi secince generation baslatilir. Production kaynak/POM degistirilmez; asil projeye test uygulanmasi ayri acik onay gerektirir. Yerel yonetim UI'i yoktur; kurumsal HTML sonuc raporu vardir.
 
-- `AKTIF_GOREV.md` - gorev sozlesmesi (kimlik, kurallar, kabul matrisi)
-- `AGENTS.md` - gelistirme protokolu
-- `ai/PROJECT_STATE.md` - guncel durum
-- `ai/BACKLOG.md` - is listesi
-- `docs/architecture.md` - mimari (P01 ile birlikte gelisir)
+## Gelistirme ve kabul
 
-## Temel prensipler
+Aktif gorev `AKTIF_GOREV.md`, gelistirme protokolu `AGENTS.md`, guncel durum `ai/PROJECT_STATE.md` ve kabul kayitlari `ai/ACCEPTANCE_MATRIX.md` icindedir. Tarihsel kabul mevcut kaynak/build icin otomatik production onayi degildir. GitHub CI kullanici karariyla kapalidir.
 
-- **Test-only:** Production kaynaklari, POM/build ve coverage politikalari degismez.
-- **Gercek olcum:** Coverage, modelin beyanindan degil guvenilir runner ciktilarindan hesaplanir.
-- **Kalici durum:** SQLite + hash'li artifact deposu; kesintiden checkpoint ile devam.
-- **Model-bagimsiz:** Ayni gorev baska yetkili modelle devralinabilir.
-- **Onayli uygulama:** Test degisiklikleri yalniz acik onayla kullanici projesine uygulanir.
-
-## Gelistirme
-
-```bash
-npm install
+```cmd
+npm ci
+npm run typecheck
 npm run build
 npm test
 ```
 
-## Lisans
-
-Henuz belirlenmedi; karar alindiginda burada ve `LICENSE` dosyasinda belirtilecek.
+Runtime DB/blob/log ve session kayitlari kaynak deposuna eklenmez. Lisans: `package.json` icinde `UNLICENSED`, paket private'dir; yayin ayri kullanici kararidir.

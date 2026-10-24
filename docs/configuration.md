@@ -2,7 +2,7 @@
 
 ## Config dosyasi
 
-Yer: `<USER_APP_DATA>/ai-test-engineering/config/config.json` (Windows: `%LOCALAPPDATA%`, Linux: `$XDG_DATA_HOME` veya `~/.local/share`).
+Windows native yer: `%LOCALAPPDATA%/ai-test-engineering/config/config.json`. Runtime root yoksa `%USERPROFILE%/AppData/Local` kullanilir. Linux/macOS bu teslim kapsaminda degildir.
 
 ```json
 {
@@ -55,8 +55,23 @@ Yer: `<USER_APP_DATA>/ai-test-engineering/config/config.json` (Windows: `%LOCALA
 | --- | --- |
 | `AITEST_CONFIG` | Config dosyasi yolu override |
 | `AITEST_DB_PATH` | DB yolu override (test amacli) |
+| `AITEST_WORKER_ENABLED` | Yalniz `1` degeri test uretim worker'ini acar; varsayilan kapalidir |
 | `OPENCODE_SERVER_PASSWORD` | OpenCode server basic auth (worker) |
 
 ## Model profilleri
 
 Model secimi: job'a acik verilen profil > proje profili > kullanici varsayilani. Dis saglayiciya sessiz fallback yapilmaz. Model kimlikleri harf/space dahil birebir dogrulanir; otomatik trim/rename yok.
+
+Ilk kurulum `worker_profiles: []` birakir; model profili veya worker flag'i kendiliginden eklenmez. Profilin `provider_id`/`model_id` degerleri mevcut OpenCode provider/model kaydiyla eslesmelidir. Ornegin yukaridaki profil icin OpenCode `model` alani `litellm/kurum/model-1` olur. `READY/CONFIGURED` yalniz yerel kimlik bagini dogrular; canli provider yetkisini veya cevap basarisini kanitlamaz.
+
+Worker'i kullanici acikca etkinlestirecekse CMD'de, kurulumdan once:
+
+```cmd
+set AITEST_WORKER_ENABLED=1
+node scripts/install.mjs
+node scripts/verify-install.mjs
+```
+
+Kurulum explicit flag'i OpenCode MCP girdisinin `environment` alanina kaydeder; OpenCode'u yeniden acin. Flag olmadan kurulum generation'i acmaz. Worker'i kapatmak icin `set AITEST_WORKER_ENABLED=0` ile yeniden kurun veya kayitli MCP environment degerini `0` yapin. Yeniden kurulum kayitli environment'i kurulum terminalinin explicit degerlerinden yeniden kurar; onceden acik worker'in korunmasi isteniyorsa flag'i tekrar verin.
+
+`AITEST_CONFIG` runtime MCP icin config override'idir; kurulum/dogrulayici standart kullanici config yolunu yonetir. Ozel config/DB kullanan kayitlarda environment bagini elle dogrulayin. Secret degerlerini komuta veya repodaki ornek config'e koymayin. Projeye ozel JDK secimi icin [native-project-profiles.md](native-project-profiles.md) belgesini kullanin.
