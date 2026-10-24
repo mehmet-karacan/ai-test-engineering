@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 const ProjectRootSchema = z.string().trim().min(1).max(1024);
+const WorkerProfileNameSchema = z.string().min(1).max(128).refine(value => !/\s/.test(value), "Worker profil kimligi bosluk iceremez");
 
 export const CoverageMetricSchema = z.enum(["LINE", "BRANCH"]);
 export type CoverageMetric = z.infer<typeof CoverageMetricSchema>;
@@ -45,6 +46,7 @@ export const TestStartInputSchema = z.object({
   coverage: CoverageGoalSchema,
   mode: ModeSchema.default("TEST_ONLY"),
   model_profile: z.string().min(1).max(128).optional(),
+  worker_profile: WorkerProfileNameSchema.optional(),
   idempotency_key: z.string().min(8).max(128).optional(),
 });
 export type TestStartInput = z.infer<typeof TestStartInputSchema>;
@@ -60,6 +62,7 @@ export const TestResumeInputSchema = z.object({
   job_id: z.string().uuid().optional(),
   project_root: ProjectRootSchema.optional(),
   model_profile: z.string().min(1).max(128).optional(),
+  worker_profile: WorkerProfileNameSchema.optional(),
 }).strict();
 export type TestResumeInput = z.infer<typeof TestResumeInputSchema>;
 

@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { resolveRuntimeRoot } from "./runtime-paths.js";
+import { WorkerBackendSchema } from "../workers/backend-config.js";
 
 export const StorageConfigSchema = z.object({
   root: z.string().min(1).max(1024),
@@ -24,6 +25,7 @@ export const BudgetDefaultsSchema = z.object({
 export type BudgetDefaults = z.infer<typeof BudgetDefaultsSchema>;
 
 export const WorkerProfileSchema = z.object({
+  backend: WorkerBackendSchema.optional(),
   profile_name: z.string().min(1).max(128),
   provider_id: z.string().min(1).max(128),
   model_id: z.string().min(1).max(256),

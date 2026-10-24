@@ -4,6 +4,7 @@
  * Model kimligi birebir korunur; tire/ek-refix duzeltmesi yoktur (6.1).
  */
 import { createHash } from "node:crypto";
+import { WorkerBindingSchema, type WorkerBinding } from "../workers/backend-config.js";
 
 export interface ContractTarget {
   selector: string;
@@ -34,6 +35,7 @@ export interface ConcreteTargetRef {
 }
 
 export interface JobContractInput {
+  worker_binding?: WorkerBinding;
   coverage_mode?: "configured" | "cli";
   job_id: string;
   project_id: string;
@@ -93,6 +95,7 @@ const IMMUTABLE_FIELDS: Array<keyof JobContract> = [
   "resolved_targets",
   "runner_kind",
   "model_profile",
+  "worker_binding",
   "policy_digest",
   "config_digest",
   "config_schema_version",
@@ -140,6 +143,7 @@ export function buildJobContract(input: JobContractInput, createdAt?: number): J
     scope: "TEST_ONLY",
     created_at: createdAt ?? Date.now(),
     ...input,
+    ...(input.worker_binding === undefined ? {} : { worker_binding: WorkerBindingSchema.parse(input.worker_binding) }),
   };
 }
 
