@@ -628,14 +628,16 @@ export class JobDispatcher {
       this.registerOwnedRunner(job.id, loopRunner);
       const loop = new CandidateLoop(loopRunner, { accepted_set_dir: acceptedDir, staging_root: stagingRoot });
       const loopResults = new Map<string, IterationLoopResult>();
-      let remainingAttemptBudget = Math.max(0, goal.attempt_budget ?? goal.budget.max_candidate_iterations);
+      let remainingAttemptBudget = Math.min(Math.max(0, goal.attempt_budget ?? goal.budget.max_candidate_iterations),
+        Math.max(0, (goal.contract_budget ?? goal.budget).max_candidate_iterations - inventory.candidateAttemptUsage(job.id).attempts_used));
+      let nextLogicalIteration = goal.start_iteration ?? 1;
+      const logicalIterationLimit = goal.iteration_limit ?? nextLogicalIteration + goal.budget.max_candidate_iterations - 1;
       let lastCandidateRunId: string | null = null;
 
       for (const resolved of resolvedTargets) {
         assertLease();
         if (remainingAttemptBudget <= 0) {
           phases.push("shared_candidate_budget_exhausted");
-          break;
         }
         const targetSpec = goal.targets.find((t) => t.selector === resolved.selector)!;
         const frozenBaselineCoverage = readCoverageAfterRun(
@@ -663,10 +665,16 @@ export class JobDispatcher {
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
           attempt_budget: remainingAttemptBudget,
-          start_attempt_ordinal: (storage.db.prepare<[string], { ordinal: number | null }>(
-            "SELECT MAX(attempt_ordinal) AS ordinal FROM candidate_iterations WHERE job_id = ?",
-          ).get(job.id)?.ordinal ?? 0) + 1,
-          ...(goal.iteration_limit !== undefined ? { iteration_limit: goal.iteration_limit } : {}),
+          start_attempt_ordinal: inventory.candidateAttemptUsage(job.id).next_ordinal,
+          on_attempt: (info) => {
+            assertLease();
+            const latest = jobs.getJob(job.id);
+            if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
+              throw new AppError("POLICY_VIOLATION", `Job ${latest.lifecycle} iken yeni deneme ayrilamaz`, { reason_code: latest.lifecycle });
+            }
+            inventory.reserveCandidateAttempt(job.id, info.attempt_ordinal, info.iteration, checkpoints.bestCheckpoint(job.id));
+          },
+          iteration_limit: logicalIterationLimit,
           ...(frozenBaselineCoverage ? { baseline_coverage: frozenBaselineCoverage } : {}),
           staging_root: stagingRoot,
           workspace_root: join(this.workspaceRoot, "jobs", job.id, "candidates", resolved.fqn.replace(/[^A-Za-z0-9_.-]/g, "_")),
@@ -746,7 +754,17 @@ export class JobDispatcher {
               const content = f.action === "delete" ? "" : readFileSync(absPath, "utf8");
               return { path: f.path, sha256: f.sha256, action: f.action, content };
             });
-            const published = checkpoints.publishCheckpoint(manifest, activeLease, null, checkpoints.publishAcceptedBlobs(job.id, acceptedBlobFiles));
+            const blobs = checkpoints.publishAcceptedBlobs(job.id, acceptedBlobFiles);
+            const published = storage.db.transaction(() => {
+              const checkpoint = checkpoints.publishCheckpoint(manifest, activeLease, null, blobs);
+              // Publish the accepted pointer and finish its reserved attempt
+              // together; recovery must not reject a checkpointed candidate.
+              inventory.writeCandidateIteration({ job_id: job.id, parent_checkpoint_id: manifest.parent_checkpoint_id,
+                attempt_ordinal: info.attempt_ordinal, iteration_ordinal: info.iteration, changeset_hash: info.changeset_hash,
+                strategy_key: null, decision: "adopted", decision_reason: info.reason,
+                coverage_before_bps: info.coverage_before_bps, coverage_after_bps: info.line_bps, error_fingerprint: null });
+              return checkpoint;
+            }).immediate();
             publishedCheckpointId = published.checkpoint_id;
           } catch (checkpointError) {
             process.stderr.write(`[aitest-dispatch] job ${job.id} accepted checkpoint publish hatasi: ${String(checkpointError)}\n`);
@@ -781,7 +799,7 @@ export class JobDispatcher {
               });
             }
           },
-          generate_candidate: async (feedback, generationIteration = goal.start_iteration ?? 1, trustedWorkspace) => {
+          generate_candidate: async (feedback, generationIteration = goal.start_iteration ?? 1, trustedWorkspace, physicalAttemptOrdinal) => {
             assertLease();
             const latest = jobs.getJob(job.id);
             if (latest.lifecycle === "CANCELLED" || latest.lifecycle === "PAUSED") {
@@ -816,14 +834,16 @@ export class JobDispatcher {
                 coverage_goal: {line_bps:targetSpec.line_target_bps,branch_bps:targetSpec.branch_target_bps},
               },
               trustedWorkspace,
+              physicalAttemptOrdinal,
             );
           },
           generation_failure_reason: () => this.workerEnabled ? null : "WORKER_DISABLED",
         };
-        const loopResult = await loop.iterate(iterateOptions, goal.start_iteration ?? 1);
+        const loopResult = await loop.iterate(iterateOptions, nextLogicalIteration);
         assertLease();
         loopResults.set(resolved.fqn, loopResult);
         remainingAttemptBudget = Math.max(0, remainingAttemptBudget - loopResult.attempts_used);
+        for (const attempted of loopResult.iterations) nextLogicalIteration = Math.max(nextLogicalIteration, attempted.iteration + 1);
         phases.push(`loop_${resolved.selector}_${loopResult.outcome}`);
       }
 
@@ -1479,10 +1499,10 @@ export class JobDispatcher {
     const snapshotManifest = snapshot.buildManifest();
     const currentIdentity = computeSourceIdentity(projectRoot, snapshotManifest);
     const plan = recovery.planRecovery(job, recoveryOwnerId, { current_identity: currentIdentity }, leaseTtlMs);
-    // S04/WN40: session/process kaybi sonrasi lease'i bitmis agent task'lari
-    // resume dispatch'e girmeden once INTERRUPTED olarak kapat. Yeni scheduler
-    // ayni task'i claimTask ile yeni fence ve attempt ordinal'iyle devralir.
-    const recoveredAgentTasks = new AgentTaskRepository(storage.db).recoverExpiredTasks(job.id);
+    // S04/WN40: job lease'i devralindi. Onceki candidate istegi task TTL'i
+    // kalsa da fenced durumdadir; kalici butceyi koruyup INTERRUPTED kapat.
+    new InventoryRepository(storage.db).interruptPendingCandidateAttempts(job.id);
+    const recoveredAgentTasks = new AgentTaskRepository(storage.db).recoverExpiredTasks(job.id, Date.now(), { interruptCandidates: true });
     if (recoveredAgentTasks.length > 0) {
       jobs.appendEvent({
         job_id: job.id,
@@ -1526,9 +1546,7 @@ export class JobDispatcher {
     let attemptBudget = contractBudget.max_candidate_iterations;
     const contractModelProfile = this.readJobContractModelProfile(storage, job);
     let goalModelProfile: string | null = contractModelProfile;
-    const recordedAttempts = storage.db
-      .prepare<[string], { attempt_count: number }>("SELECT COUNT(*) AS attempt_count FROM candidate_iterations WHERE job_id = ?")
-      .get(job.id)?.attempt_count ?? 0;
+    const recordedAttempts = new InventoryRepository(storage.db).candidateAttemptUsage(job.id).attempts_used;
     if (plan.action === "resume" && plan.checkpoint_id && plan.checkpoint_manifest) {
       const rb = resumeBudgetFromManifest(plan.checkpoint_manifest, configBudgets);
       budget = {
@@ -1566,7 +1584,7 @@ export class JobDispatcher {
         budget.max_candidate_iterations = Math.max(0, contractBudget.max_candidate_iterations - consumedIterations);
         startIteration = consumedIterations + 1;
       }
-      attemptBudget = Math.max(0, contractBudget.max_candidate_iterations - (recorded?.attempt_count ?? 0));
+      attemptBudget = Math.max(0, contractBudget.max_candidate_iterations - recordedAttempts);
       jobs.appendEvent({ job_id: job.id, event_type: "resume_fresh_start", phase: job.phase, origin: "resumeDispatch" });
     }
 
@@ -1880,6 +1898,7 @@ export class JobDispatcher {
       coverage_goal?: {line_bps:number;branch_bps:number};
     },
     trustedWorkspace?: string,
+    physicalAttemptOrdinal = 1,
   ): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
     // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
     const portOffset = Number.parseInt(createHash("sha256").update(jobId, "utf8").digest("hex").slice(0, 6), 16) % 2000;
@@ -2052,7 +2071,7 @@ export class JobDispatcher {
       };
       const tasks = new AgentTaskRepository(storage.db);
       const repairOrdinal = feedback?.repair_ordinal ?? 0;
-      const taskKey = [jobId, agentContext.source_snapshot_id, targetFqn, targetRelativePath, generationIteration, repairOrdinal, profile.provider_id, profile.model_id].join("|");
+      const taskKey = [jobId, agentContext.source_snapshot_id, targetFqn, targetRelativePath, generationIteration, repairOrdinal, profile.provider_id, profile.model_id, "physical", physicalAttemptOrdinal].join("|");
       const taskDigest = createHash("sha256").update(taskKey, "utf8").digest("hex");
       const taskId = `${taskDigest.slice(0, 8)}-${taskDigest.slice(8, 12)}-5${taskDigest.slice(13, 16)}-a${taskDigest.slice(17, 20)}-${taskDigest.slice(20, 32)}`;
       const workerBudget = workerRequestBudget(deadlineAt === undefined ? 5 * 60000 : Math.max(0, deadlineAt - Date.now()));

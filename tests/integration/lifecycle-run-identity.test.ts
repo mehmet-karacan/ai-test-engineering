@@ -56,6 +56,11 @@ describe("physical run and candidate identity across continuation", () => {
     expect(inventory.listTestRunProvenance(jobId).map(row => row.exit_code)).toEqual([0, 1]);
   });
 
+  it("does not reclaim legacy consumed slots when a newer attempt fails before an agent task is created", () => {
+    inventory.reserveCandidateAttempt(jobId, 2, 1, null);
+    expect(inventory.candidateAttemptUsage(jobId)).toEqual({ attempts_used: 2, next_ordinal: 3 });
+  });
+
   it("continues durable candidate ordinals after resume or a preceding target", async () => {
     const decisions: number[] = [];
     const options: IterateOptions = { project_root: root, target_fqn: "fixture.Target", target_module_path: "",
@@ -107,6 +112,15 @@ describe("physical run and candidate identity across continuation", () => {
       const ordinals: number[] = [];
       vi.spyOn(CandidateLoop.prototype, "iterate").mockImplementation(async options => {
         const ordinal = options.start_attempt_ordinal!; ordinals.push(ordinal);
+        const iteration = ordinal - 2;
+        options.on_attempt!({ attempt_ordinal: ordinal, iteration });
+        options.on_accepted!({ attempt_ordinal: ordinal, iteration, changeset_hash: `candidate-${ordinal}`,
+          coverage_before_bps: 0, reason: "fixture accepted", files: [], line_bps: 1000, branch_bps: null,
+          remaining_budget: { max_candidate_iterations: 1, max_repairs_per_candidate: 0, no_progress_window: 1 } });
+        // A process may die immediately after checkpoint publication and
+        // before CandidateLoop invokes on_decision. The decision is durable.
+        expect(services.storage!.db.prepare("SELECT decision FROM candidate_iterations WHERE job_id=? AND attempt_ordinal=?")
+          .get(start.job_id, ordinal)).toEqual({ decision: "adopted" });
         options.on_decision!({ attempt_ordinal: ordinal, iteration: 3, decision: "rejected", reason: "fixture",
           changeset_hash: `candidate-${ordinal}`, coverage_before_bps: 0, coverage_after_bps: null });
         return { best_coverage_bps: 0, best_branch_coverage_bps: null, iterations: [], budget_exhausted: false,

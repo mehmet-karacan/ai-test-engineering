@@ -409,21 +409,23 @@ export class AgentTaskRepository {
 
   /**
    * S04/WN40: restart/resume girisinde suresi dolmus calisan task'lari
-   * deterministik olarak INTERRUPTED'a alir. Lease'i halen gecerli task'a
-   * dokunulmaz; yeni owner claimTask ile yeni fence/attempt alir.
+   * deterministik olarak INTERRUPTED'a alir. Varsayilan gecerli task'a
+   * dokunmaz. Job lease'ini devralmis resume, onceki candidate task'larini
+   * da kapatir; yeni fiziksel aday ayri task/fence/butce kaydi kullanir.
    */
-  recoverExpiredTasks(jobId: string, now = Date.now()): AgentTaskRow[] {
+  recoverExpiredTasks(jobId: string, now = Date.now(), options: { interruptCandidates?: boolean } = {}): AgentTaskRow[] {
     if (!Number.isSafeInteger(now) || now < 0) {
       throw new AppError("INVALID_PARAMETERS", "Recovery zamani gecersiz");
     }
     const tx = this.db.transaction((): AgentTaskRow[] => {
       const rows = this.db
-        .prepare<[string, number], AgentTaskDbRow>(
+        .prepare<[string, number, number], AgentTaskDbRow>(
           `SELECT * FROM agent_tasks
-           WHERE job_id = ? AND state = 'RUNNING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
+           WHERE job_id = ? AND state = 'RUNNING' AND lease_expires_at IS NOT NULL AND (lease_expires_at <= ?
+             OR (? = 1 AND json_extract(contract_json, '$.expected_output_schema') = 'candidate-change-set-v1'))
            ORDER BY created_at, task_id`,
         )
-        .all(jobId, now);
+        .all(jobId, now, options.interruptCandidates ? 1 : 0);
       for (const row of rows) {
         const updated = this.db
           .prepare(
@@ -431,12 +433,16 @@ export class AgentTaskRepository {
              SET state = 'INTERRUPTED', lease_owner_id = NULL, lease_expires_at = NULL,
                  revision = revision + 1, updated_at = ?, row_version = row_version + 1
              WHERE task_id = ? AND state = 'RUNNING' AND row_version = ?
-               AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`,
+               AND lease_expires_at IS NOT NULL AND (lease_expires_at <= ?
+                 OR (? = 1 AND json_extract(contract_json, '$.expected_output_schema') = 'candidate-change-set-v1'))`,
           )
-          .run(now, row.task_id, row.row_version, now);
+          .run(now, row.task_id, row.row_version, now, options.interruptCandidates ? 1 : 0);
         if (updated.changes !== 1) {
           throw new AppError("POLICY_VIOLATION", "Expired AgentTask recovery CAS basarisiz", { reason_code: "AGENT_TASK_RECOVERY_CAS_CONFLICT" });
         }
+        this.db.prepare(`UPDATE agent_attempts SET status = 'INTERRUPTED', finished_at = ?, row_version = row_version + 1
+          WHERE task_id = ? AND owner_id = ? AND fence_token = ? AND status = 'RUNNING'`)
+          .run(now, row.task_id, row.lease_owner_id, row.lease_fence_token);
       }
       return rows.map((row) => toTaskRow(this.rawTaskById(row.task_id) as AgentTaskDbRow));
     });

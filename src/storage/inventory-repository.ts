@@ -926,6 +926,33 @@ export class InventoryRepository {
   /**
    * FIN03/14.2: Candidate iteration kaydi - parent accepted checkpoint, changeset hash, karar ve neden.
    */
+  candidateAttemptUsage(jobId: string): { attempts_used: number; next_ordinal: number } {
+    const decisions = this.db.prepare<[string], { n: number; ordinal: number | null }>(
+      "SELECT COUNT(*) AS n, MAX(attempt_ordinal) AS ordinal FROM candidate_iterations WHERE job_id = ?",
+    ).get(jobId)!;
+    // Pre-reservation versions could die with only a durable agent attempt.
+    // That physical request still consumes the same job-wide candidate pool.
+    const agents = this.db.prepare<[string], { n: number }>(
+      `SELECT COUNT(*) AS n FROM agent_attempts a JOIN agent_tasks t ON t.task_id = a.task_id
+       WHERE a.job_id = ? AND json_extract(t.contract_json, '$.expected_output_schema') = 'candidate-change-set-v1'`,
+    ).get(jobId)!;
+    return { attempts_used: Math.max(decisions.n, decisions.ordinal ?? 0, agents.n), next_ordinal: Math.max(decisions.ordinal ?? 0, agents.n) + 1 };
+  }
+
+  reserveCandidateAttempt(jobId: string, ordinal: number, iteration: number, parentCheckpointId: string | null): void {
+    this.writeCandidateIteration({ job_id: jobId, parent_checkpoint_id: parentCheckpointId,
+      attempt_ordinal: ordinal, iteration_ordinal: iteration, changeset_hash: "pending", strategy_key: null,
+      decision: "needs_review", decision_reason: "Candidate attempt started; decision pending",
+      coverage_before_bps: null, coverage_after_bps: null, error_fingerprint: "CANDIDATE_ATTEMPT_PENDING" });
+  }
+
+  /** Only called after resume acquired the job lease, fencing the prior run. */
+  interruptPendingCandidateAttempts(jobId: string): void {
+    this.db.prepare(`UPDATE candidate_iterations SET decision = 'rejected',
+      decision_reason = 'Candidate attempt interrupted before a durable decision', error_fingerprint = 'CANDIDATE_ATTEMPT_INTERRUPTED'
+      WHERE job_id = ? AND decision = 'needs_review' AND error_fingerprint = 'CANDIDATE_ATTEMPT_PENDING'`).run(jobId);
+  }
+
   writeCandidateIteration(input: {
     job_id: string;
     parent_checkpoint_id: string | null;
@@ -940,9 +967,15 @@ export class InventoryRepository {
     error_fingerprint: string | null;
   }): string {
     const existing = this.db
-      .prepare<[string, number], { id: string }>("SELECT id FROM candidate_iterations WHERE job_id = ? AND attempt_ordinal = ?")
+      .prepare<[string, number], { id: string; decision: string; error_fingerprint: string | null }>("SELECT id, decision, error_fingerprint FROM candidate_iterations WHERE job_id = ? AND attempt_ordinal = ?")
       .get(input.job_id, input.attempt_ordinal ?? input.iteration_ordinal);
     if (existing) {
+      if (existing.decision === "needs_review" && existing.error_fingerprint === "CANDIDATE_ATTEMPT_PENDING" && input.decision !== "needs_review") {
+        this.db.prepare(`UPDATE candidate_iterations SET parent_checkpoint_id = ?, iteration_ordinal = ?, changeset_hash = ?,
+          strategy_key = ?, decision = ?, decision_reason = ?, coverage_before_bps = ?, coverage_after_bps = ?, error_fingerprint = ? WHERE id = ?`)
+          .run(input.parent_checkpoint_id, input.iteration_ordinal, input.changeset_hash, input.strategy_key, input.decision,
+            input.decision_reason, input.coverage_before_bps, input.coverage_after_bps, input.error_fingerprint, existing.id);
+      }
       return existing.id;
     }
     const id = randomUUID();

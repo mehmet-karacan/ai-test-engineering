@@ -358,9 +358,8 @@ export interface IterateOptions {
   target_relative_path?: string;
   /** P05-B: resume'da logical limit start iteration'dan bagimsiz korunur. */
   iteration_limit?: number;
-  /** iteration is supplied so a restart can reuse the same durable task for
-   * the same logical candidate instead of creating a fresh UUID. */
-  generate_candidate: (feedback?: CandidateGenerationFeedback, iteration?: number, trustedWorkspace?: string) => Promise<CandidateChangeSet | null>;
+  /** Logical iteration and durable physical ordinal identify the request. */
+  generate_candidate: (feedback?: CandidateGenerationFeedback, iteration?: number, trustedWorkspace?: string, attemptOrdinal?: number) => Promise<CandidateChangeSet | null>;
   staging_root: string;
   timeout_ms_per_run?: number;
   /** PR06/PP26: tum aday ve repair denemeleri icin job'a ait mutlak deadline. */
@@ -371,7 +370,11 @@ export interface IterateOptions {
   workspace_root?: string;
   /** D05/F04: kabul kararindan sonra cagirilir (checkpoint/blob baglantisi) */
   on_accepted?: (info: {
+    attempt_ordinal: number;
     iteration: number;
+    changeset_hash: string;
+    coverage_before_bps: number | null;
+    reason: string;
     files: Array<{ path: string; sha256: string; action: "create" | "delete" }>;
     line_bps: number;
     branch_bps: number | null;
@@ -393,6 +396,8 @@ export interface IterateOptions {
   }) => void;
   /** Job-wide physical attempt ordinal; resume and later targets continue it. */
   start_attempt_ordinal?: number;
+  /** Persist the physical attempt before requesting any model output. */
+  on_attempt?: (info: { attempt_ordinal: number; iteration: number }) => void;
   /** P06/PP31: her candidate run'in test inventory/provenance kaydi icin callback. */
   on_run?: (info: {
     attempt_ordinal: number;
@@ -604,10 +609,11 @@ export class CandidateLoop {
       }
       const currentFeedback = repairFeedback;
       const attemptOrdinal = (options.start_attempt_ordinal ?? 1) + iterations.length;
+      options.on_attempt?.({ attempt_ordinal: attemptOrdinal, iteration });
       let candidate: CandidateChangeSet | null;
       try {
         lastCandidate = null;
-        candidate = await options.generate_candidate(currentFeedback, iteration, trustedWorkspace ?? frozenSourceRoot);
+        candidate = await options.generate_candidate(currentFeedback, iteration, trustedWorkspace ?? frozenSourceRoot, attemptOrdinal);
         lastCandidate = candidate;
       } catch (error) {
         const reason = `Worker aday uretimi basarisiz: ${String(error).slice(0, 500)}`;
@@ -1004,7 +1010,11 @@ export class CandidateLoop {
                 return { path: c.path, sha256: sha256Data(content), action: c.action === "delete" ? "delete" as const : "create" as const };
               });
           options.on_accepted({
+            attempt_ordinal: attemptOrdinal,
             iteration,
+            changeset_hash: candidateHash,
+            coverage_before_bps: previousBestCoverageBps,
+            reason: adoptedReason,
             files: acceptedFiles,
             line_bps: afterBps ?? 0,
             branch_bps: afterBranchBps,

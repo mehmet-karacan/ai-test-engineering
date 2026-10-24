@@ -1,0 +1,12 @@
+# Production lifecycle audit and fixes
+
+- Brief: production-final plan SHA256 363ed43f4a410389137a947874ae66f40794137194555d40164362f0739ca199; base f1c77c1.
+- Isolated branch: codex/prod-lifecycle-20261024. No customer, model, Maven or publication run.
+- Baseline/final replay physical executions previously reused one logical provenance key. A resumed truncated baseline threw STORAGE_ERROR; an untruncated replay could silently retain the old successful row. Physical start identity now distinguishes receipts; exact retries and legacy exact receipts stay idempotent.
+- Candidate physical ordinals previously restarted at one for every loop. Later target/resume decisions disappeared behind the old row. Dispatcher now allocates durable job-wide ordinals.
+- A hard-kill during candidate generation left a durable agent request without a candidate decision. Resume rebuilt the same task key with changed row-version/time budget, failing immutable task validation; reusing that task also exceeded its one-attempt budget. Requests are now reserved before generation, interrupted requests close explicitly, remaining budget comes from persisted consumption, and each new physical request has a distinct task key. Pre-upgrade agent-only requests still consume budget. Exhausted resumes make no new model request.
+- Accepted checkpoint publication and completion of its reserved decision share one immediate transaction, so recovery cannot label a checkpointed candidate as interrupted.
+- Multiple targets previously reused logical iteration one; the second accepted candidate failed the monotonic checkpoint guard. Logical iterations now continue between target loops with one absolute logical limit and one physical request pool.
+- RED/GREEN: original physical run collision (2 tests), candidate ordinal loss (1), dispatcher in-flight recovery (3), consumed-slot gap (1), checkpoint/decision crash window, and actual two-target CandidateLoop generation conflict were reproduced before their fixes.
+- Verification: 13 focused files, 118 tests PASS; typecheck and build PASS; changed-file lint 0 errors / 2 existing warnings. The execution/provider boundaries are synthetic; snapshots, real CandidateLoop, scheduler, SQLite tasks/attempts/lease transfer and checkpoint guards execute normally. No live JVM/provider hard-kill claim.
+- Remaining: root integration, independent review by another agent, full Windows suite and release/readiness checks. This implementer does not issue the final review.
