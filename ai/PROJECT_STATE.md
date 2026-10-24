@@ -1,3 +1,19 @@
+## 2026-10-24 Genel CLI adapteri
+
+OpenCode varsayilani korunarak cli_json genel adapteri, ek codex_cli adapter'i
+ve clientnone MCP stdio kurulumu tamamlandi. Kullanici onceligi genel CLI.
+3118a2b executable kodunda154dosya/1345test PASS,0FAIL0SKIP; build/typecheck/
+localgate PASS,lint0error89mevcutwarning. Bagimsiz kalan P1/P2=0.
+GenelCLI/Codex/OpenCode canary'leri ayri: scan model0,secim sonrasi1modelcall,
+6/6PASS,LINE11/11BRANCH10/10; asil kaynak ayni,apply0,unresolvedprocess0,
+reportmissing0/hashmismatch0. GenelCLI gercek cli_json binding ve private
+model wrapper ile dogrulandi; her vendorCLI canli dogrulandi iddiasi yok.
+Clientnone cleanclone install/verify PASS; OpenCode sentinel ayni/skill0.
+Worker/backend/model/commandhash/envref isimleri immutable; resume degisimi
+native probe oncesi reddeder. Eski config/digest yolu ayni; fallback yok.
+Kabul ai/acceptance/cli-backends.json; rehber docs/cli-backends.md. CI kapali,
+customerapply/yayin yok; %99.99 garanti ve full391/006 GO yeniden verilmedi.
+
 ## 2026-10-24 Production son hazirlik
 
 Windows native OpenCode + MCP, kullanicinin production kurulumuna hazir.

@@ -57,31 +57,28 @@ profili de secilebilir; ayni model icin birden fazla profil varsa
 `worker_profile` gerekir. Var olan OpenCode profillerini koruyup yeni CLI
 profilini listeye ekleyin; varsayilani degistirmek zorunlu degildir.
 
-Ornek profil alanlari (diger config alanlarinizi koruyun):
+Once genel CLI profili: bu nesneyi mevcut worker_profiles listesine ekleyin.
+OpenCode varsayilanini koruyup test_start isteginde worker_profile olarak
+general-cli secin. Komut, kurdugunuz JSON wrapper'in gercek yolu olmalidir:
 
 ```json
 {
-  "default_worker_profile": "codex-worker",
-  "worker_profiles": [
-    {
-      "profile_name": "codex-worker",
-      "provider_id": "codex",
-      "model_id": "your-explicit-model",
-      "backend": {
-        "kind": "codex_cli",
-        "executable": "C:\\approved-cli\\codex.exe"
-      }
-    }
-  ]
+  "profile_name": "general-cli",
+  "provider_id": "your-provider",
+  "model_id": "your-explicit-model",
+  "secret_reference_names": [],
+  "backend": {
+    "kind": "cli_json",
+    "command": ["C:\\Program Files\\nodejs\\node.exe", "C:\\approved-cli\\worker.mjs"]
+  }
 }
 ```
 
-Generic wrapper icin backend bicimi
-`{"kind":"cli_json","command":["C:\\approved-cli\\worker.exe"]}` olur.
+Wrapper dogrudan native executable da olabilir:
+`{"kind":"cli_json","command":["C:\\approved-cli\\worker.exe"]}`.
 Native Windows executable yolu mutlak `.exe` olmalidir. Wrapper
 `candidate-json-v1` protokolunde stdin JSON alip stdout'a tek aday JSON
 yazmalidir; her genel amacli CLI bu protokolu dogrudan desteklemez.
-Codex kendi mevcut CLI oturumunu kullanir; yeni API key olusturulmaz.
 Executable ve dosya argumanlari yerel surucu uzerinde olmali; UNC native
 pin katmaninda desteklenmez. Kurulumdaki junction/surum yonlendirmesi gercek
 dosyaya cozulup hash ile sabitlenir. CLI guncellenirse yarida kalan eski
@@ -104,6 +101,13 @@ ust sinir), stderr en cok min(64KiB, sonuc butcesi). Ham stderr rapora
 tasinmaz. `secret_reference_names` yalniz aktarilacak ortam degiskeninin
 adidir; deger config'e yazilmaz. NODE_OPTIONS/NODE_PATH/CODEX_HOME bu
 listeden gecmez; Codex auth dizini gerekiyorsa backend.auth_home kullanilir.
+
+Ek hazir adapter olarak Codex de secilebilir. Ayni profil alanlarinda
+backend'i `{"kind":"codex_cli","executable":"C:\\approved-cli\\codex.exe"}`
+yapin ve model_id'ye kurulu CLI'nin kullanabildigi tam modeli yazin.
+Codex kendi mevcut CLI oturumunu kullanir; yeni API key olusturulmaz.
+Genel CLI testindeki ornek wrapper bir model CLI'sini bu JSON protokolune
+uyarlar; wrapper secimi motorun o model urunune bagli olmasini gerektirmez.
 
 Worker ilk kurulumda varsayilan olarak kapalidir. Acmak icin kurulumdan
 once CMD'de `set AITEST_WORKER_ENABLED=1` kullanin. Upgrade kayitli flag ve

@@ -4,7 +4,7 @@ BASE ceb1285ebe1a606ad3e9c8d3955c90b5dd114f49. Izole d03b worktree,
 branch codex/cli-backends-20261024. Kullanici OpenCode korunarak baska
 CLI'larin eklenmesini istedi. Konusmadaki CI ifadesi CLI olarak yorumlandi;
 CI pipeline kapali. Tercih sorusu opsiyonel; kuruluCodex ilk gercekadapter
-secimi uygulayicinin karari. Yeni API key veya provider hesabi kurulmaz;
+secimi uygulayicinin karariydi; son kullanici tercihi genel CLI onceligi oldu. Yeni API key veya provider hesabi kurulmaz;
 Codex kendi mevcut ChatGPT CLI auth'unu kullanir. Global config degismez.
 
 ## Kararlar
@@ -41,17 +41,17 @@ Codex kendi mevcut ChatGPT CLI auth'unu kullanir. Global config degismez.
 
 ## Isler (TDD/plan, native execution; bagimsiz finalreview)
 
-- [ ] Backend schema/selection/secretfree snapshot ve eski config uyumu;
+- [x] Backend schema/selection/secretfree snapshot ve eski config uyumu;
   explicit profile/model uyumsuzlugu ve ambiguity RED->GREEN.
-- [ ] Owned CLI runner/Node bridge/protocol/Codex adapter, time/output bound,
+- [x] Owned CLI runner/Node bridge/protocol/Codex adapter, time/output bound,
   secret-env ve cancellation/process cleanup regressionlari RED->GREEN.
-- [ ] Dispatcher/durablecandidate integration, immutable request+resumebinding,
+- [x] Dispatcher/durablecandidate integration, immutable request+resumebinding,
   cancel/no-fallback ve shared artifactpublisher regresyonlari RED->GREEN.
-- [ ] Kurulum --client none ve backendreadiness, OpenCode legacy regressions;
+- [x] Kurulum --client none ve backendreadiness, OpenCode legacy regressions;
   docs/state/checkpoint/acceptance kalici guncelleme.
-- [ ] Sentetikproject genelcoverage/model0/selection/Codexgeneration/80hedef
+- [x] Sentetikproject genelcoverage/model0/selection/Codexgeneration/80hedef
   gercekMaven/JaCoCo/finalreport; OpenCode regresyonu; bagimsizreview/fullsuite.
-- [ ] Gitidentity/ASCII/privacy/stageddiff; commit/main/push/kurulumsmoke.
+- [x] Gitidentity/ASCII/privacy/stageddiff; commit/main/push/kurulumsmoke.
 
 ## Sinirlar
 

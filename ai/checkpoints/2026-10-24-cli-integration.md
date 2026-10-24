@@ -40,3 +40,24 @@ Mixed config'te unrelated CLI varken tekrarli legacydefault readiness'i
 gercek seciciyle uyumsuzdu; RED1FAIL14PASS -> GREEN15PASS. Purelegacy
 readiness davranisi korundu. Final suite onceki kaynakta basladigi icin
 bu ek duzeltme sonrasi build+tam suite yeni kaynakta yeniden kosulacak.
+
+Final3118a2b:154dosya/1345test PASS,0FAIL0SKIP,349.19s,exit0. Private AC67
+artifact ve browserpackages girdileriyle maxWorkers2 kullanildi. Ilk suite
+bu girdiler olmadan baslatildigi icin durduruldu; ilk log korundu. Son
+build/typecheck/lint0error89baselinewarning/localgate PASS. Bagimsiz
+review'da kalan P1/P2=0. Son kaynakta genelCLI ve Codex, onceki a0bf363'te
+legacyOpenCode canary PASS. Her biri1gercekmodelcall/6test/100LINE100BRANCH,
+asil kaynakayni; missing0/mismatch0/unresolvedprocess0/apply0.
+
+Gec gelen kullanici tercihi once genel CLI adapteri oldu. Genel cli_json
+backend ile private Codex wrapper stdinJSON->model->CandidateChangeSet->
+Maven/JaCoCo akisi ayri dogrulandi. Wrapper motorun zorunlu parcasi degil;
+operator kendi API/CLI'sini belgelenen protokole uyarlar. Codex hazir ek
+adapter olarak kalir. Kullanim rehberi genel protokolu once gosterir.
+
+Clientnone cleanclone install/verify0/0,OpenCode invalidsentinel byte-ayni,
+skillcreatedfalse,SDKinitialize/list/call PASS. Ilk install fixture eksik
+budgets/coverageconfig ile fail-closed oldu; tam valid configle tekrar PASS.
+Acceptance cli-backends.json ve ADR008 olusturuldu; son metadata ve main
+teslim adimlari handoff'ta. Executable370fileSHA korundu; docs/ai metadata
+sonrasi source/build yeniden damgalanir. CI kapali.

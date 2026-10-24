@@ -1,6 +1,6 @@
 # ai-test-engineering
 
-Kalici hafizali ve yalniz test gelistiren Windows native MCP urunu. OpenCode varsayilandir; Codex CLI ve protokole uyumlu diger CLI worker'lari da secilebilir. Maven/JUnit/JaCoCo sonucunu private execution kopyasinda olcer; rapor ve checkpoint'leri kullanici runtime dizininde saklar.
+Kalici hafizali ve yalniz test gelistiren Windows native MCP urunu. OpenCode varsayilandir; genel JSON protokolune uyumlu CLI worker'lari ve ek Codex CLI adapter'i de secilebilir. Maven/JUnit/JaCoCo sonucunu private execution kopyasinda olcer; rapor ve checkpoint'leri kullanici runtime dizininde saklar.
 
 ## Baslangic
 
