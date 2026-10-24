@@ -1,4 +1,8 @@
 import { baselineDiagnostic } from "./baseline-diagnostic.js";
+import { WorkerBindingSchema, resolveWorkerBinding, type WorkerBinding } from "../workers/backend-config.js";
+import { CliCandidateClient } from "../workers/cli/cli-candidate-client.js";
+import type { CandidateInferenceClient } from "../workers/candidate-client.js";
+import type { OpenCodeWorkerClient } from "../workers/opencode/worker-client.js";
 import { projectNativeExecution, type ProjectNativeExecution } from "../configuration/project-native-execution.js";
 import { buildDependencyContext } from "../workers/opencode/dependency-context.js";
 import { coverageGapContext } from "../workers/opencode/generation-context.js";
@@ -89,6 +93,7 @@ function inferTestFramework(testFiles: string[], module: PomModule, projectRoot:
 
 
 export interface GoalContract {
+  worker_binding?: WorkerBinding;
   native_execution?: ProjectNativeExecution;
   coverage_mode?: "configured" | "cli";
   coverage_scan?: { below_percent: number; recommendation_limit: number; source_digest: string; build_digest: string; project_id: string };
@@ -141,7 +146,8 @@ export interface DispatcherOptions {
 // MCP cancel yeni JobDispatcher ornegi uzerinden gelebilir. Kaynak sahipligi
 // instance alaninda tutulursa aktif worker/runner bulunamaz; registry job kimligi
 // ile sinirli tutulur ve yabanci process'e dokunulmaz.
-const ownedWorkerServers = new Map<string, import("../workers/opencode/worker-server-manager.js").WorkerServerManager>();
+interface OwnedWorker { stopOwnedServer(): Promise<void> }
+const ownedWorkerServers = new Map<string, OwnedWorker>();
 const ownedRunners = new Map<string, MavenRunner>();
 
 function isWithinStorageRoot(root: string, candidate: string): boolean {
@@ -171,7 +177,8 @@ function runOutputTruncation(run: RunResult): RunOutputTruncation | undefined {
 
 export class JobDispatcher {
   private readonly ownRunners = new Map<string,MavenRunner>();
-  private readonly ownWorkerServers = new Map<string,import("../workers/opencode/worker-server-manager.js").WorkerServerManager>();
+  private readonly ownWorkerServers = new Map<string, OwnedWorker>();
+  private readonly nativeRegistries = new Map<string, NativeProcessRegistry>();
   private readonly services: Services;
   private readonly runnerKind: RunnerKind;
   private readonly workerEnabled: boolean;
@@ -305,6 +312,7 @@ export class JobDispatcher {
           ? prepareCoverageWorkspace(projectRoot, join(this.workspaceRoot, "jobs", job.id, "coverage-preflight")) : projectRoot;
         const nativeOptions = { cwd: nativeRoot, env: effectiveMavenEnvironment(process.env, goal.native_execution ? { JAVA_HOME: goal.native_execution.java_home } : undefined), ...(goal.native_execution ? { nativeExecution: goal.native_execution } : {}), ...(goal.coverage_mode === "cli" ? { pinRoot: nativeRoot } : {}) };
         const nativeRegistry = new NativeProcessRegistry(storage.db, job.id, ownerId, acquired.lease.fencing_token);
+        this.nativeRegistries.set(job.id, nativeRegistry);
         const toolchain = await runnerFactory.prepareNativeCustomerToolchain(nativeOptions, nativeRegistry);
         assertLease();
         new NativeToolchainRecordStore(storage.db, this.workspaceRoot).pin(job.id, nativeOptions, toolchain);
@@ -835,6 +843,7 @@ export class JobDispatcher {
               },
               trustedWorkspace,
               physicalAttemptOrdinal,
+              goal.worker_binding,
             );
           },
           generation_failure_reason: () => this.workerEnabled ? null : "WORKER_DISABLED",
@@ -1279,6 +1288,7 @@ export class JobDispatcher {
       budget: goal.contract_budget ?? goal.budget,
       runner_kind: goal.runner_kind,
       model_profile: goal.model_profile,
+      ...(goal.worker_binding ? { worker_binding: goal.worker_binding } : {}),
       ...(goal.coverage_mode ? { coverage_mode: goal.coverage_mode } : {}),
       source_digest: sourceIdentity.source_digest,
       build_digest: sourceIdentity.build_digest,
@@ -1423,13 +1433,14 @@ export class JobDispatcher {
    * kalan iterasyon/butce best checkpoint manifest'inden yuklenir (config sifirlamaz);
    * SOURCE_CHANGED durumunda kontrollu rebaseline; dispatch'i bastan tekrar cagirmaz.
    */
-  async resumeDispatch(job: JobRow, projectRootHint?: string, requestedModel?: string | null, ownerIdOverride?: string): Promise<DispatchResult> {
+  async resumeDispatch(job: JobRow, projectRootHint?: string, requestedModel?: string | null, ownerIdOverride?: string, requestedWorkerProfile?: string): Promise<DispatchResult> {
     const storage = this.services.storage;
     const jobs = this.services.jobs;
     if (!storage || !jobs) {
       throw new AppError("INTERNAL_ERROR", "Storage servisleri baslatilmamis");
     }
     this.assertRecordedRunnerKind(storage, job);
+    const workerBinding = this.assertResumeWorkerBinding(storage, job, requestedWorkerProfile, requestedModel);
     const leases = new LeaseManager(storage.db);
     const checkpoints = new CheckpointStore(storage.db, this.workspaceRoot);
     const recovery = new RecoveryManager(storage.db, leases, checkpoints);
@@ -1622,6 +1633,7 @@ export class JobDispatcher {
       concreteBySelector.set(row.selector, list);
     }
     const goal: GoalContract = {
+      ...(workerBinding ? { worker_binding: workerBinding } : {}),
       job_id: job.id,
       ...(this.runnerKind === "windows_native" && new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id).nativeExecution ? { native_execution: new NativeToolchainRecordStore(storage.db, this.workspaceRoot).read(job.id).nativeExecution! } : {}),
       coverage_mode: this.readJobContractCoverageMode(storage, job),
@@ -1673,6 +1685,35 @@ export class JobDispatcher {
         contract_model: contractModel,
       });
     }
+  }
+
+  /** CLI backend, executable inputs and credential references are immutable. */
+  assertResumeWorkerBinding(storage: NonNullable<Services["storage"]>, job: JobRow, requestedProfile?: string, requestedModel?: string | null): WorkerBinding | undefined {
+    const row = storage.db.prepare<[string], { relative_store_path: string }>("SELECT relative_store_path FROM artifacts WHERE job_id=? AND kind='job_contract' AND status='READY' ORDER BY created_at DESC LIMIT 1").get(job.id);
+    let frozen: WorkerBinding | undefined;
+    if (row) {
+      const path = resolve(this.workspaceRoot, row.relative_store_path);
+      if (!isWithinStorageRoot(resolve(this.workspaceRoot), path)) throw new AppError("STORAGE_ERROR", "Worker contract path escape");
+      try {
+        const parsed = JSON.parse(readFileSync(path, "utf8")) as { worker_binding?: unknown };
+        if (parsed.worker_binding !== undefined) frozen = WorkerBindingSchema.parse(parsed.worker_binding);
+      } catch {
+        throw new AppError("STORAGE_ERROR", "Immutable worker contract invalid");
+      }
+    }
+    const conflict = (): never => { throw new AppError("POLICY_VIOLATION", "Resume worker backend immutable contract ile degistirilemez", { reason_code: "CONTRACT_CONFLICT" }); };
+    // Old jobs always retain their OpenCode path even when today's default is CLI.
+    if (!frozen) {
+      if (requestedProfile !== undefined) conflict();
+      return undefined;
+    }
+    if (requestedProfile !== undefined && requestedProfile !== frozen.profile_name) conflict();
+    let current: WorkerBinding | undefined;
+    try {
+      current = resolveWorkerBinding(this.services.config, { worker_profile: frozen.profile_name, ...(requestedModel ? { model_profile: requestedModel } : {}) });
+    } catch { return conflict(); }
+    if (JSON.stringify(current) !== JSON.stringify(frozen)) conflict();
+    return frozen;
   }
 
   assertRecordedRunnerKind(storage: NonNullable<Services["storage"]>, job: JobRow): void {
@@ -1853,7 +1894,7 @@ export class JobDispatcher {
   /**
    * W05/F11/N37: job'un owned worker server'i kayit altina alinir; cancel/pause'da sonlandirilir.
    */
-  registerOwnedWorkerServer(jobId: string, manager: import("../workers/opencode/worker-server-manager.js").WorkerServerManager): void {
+  registerOwnedWorkerServer(jobId: string, manager: OwnedWorker): void {
     this.ownWorkerServers.set(jobId,manager);
     ownedWorkerServers.set(jobId, manager);
   }
@@ -1866,6 +1907,7 @@ export class JobDispatcher {
     if (ownedRunners.get(jobId) === this.ownRunners.get(jobId)) ownedRunners.delete(jobId);
     if (ownedWorkerServers.get(jobId) === this.ownWorkerServers.get(jobId)) ownedWorkerServers.delete(jobId);
     this.ownRunners.delete(jobId);this.ownWorkerServers.delete(jobId);
+    this.nativeRegistries.delete(jobId);
   }
 
   private stopDispatchProcesses(jobId:string):void {
@@ -1896,14 +1938,37 @@ export class JobDispatcher {
     },
     trustedWorkspace?: string,
     physicalAttemptOrdinal = 1,
+    workerBinding?: WorkerBinding,
   ): Promise<import("../workers/opencode/model-schemas.js").CandidateChangeSet | null> {
     // K03/B02: sabit porta sessiz baglanma; urune ait kontrollu worker server manager.
-    const portOffset = Number.parseInt(createHash("sha256").update(jobId, "utf8").digest("hex").slice(0, 6), 16) % 2000;
-    const serverManager = defaultWorkerServerManager(projectRoot, { config_instance_key: jobId, port: 14096 + portOffset });
-    // W05/F11/N37: owned server cancel/pause icin kayit altina alinir
-    this.registerOwnedWorkerServer(jobId, serverManager);
-    const client = await serverManager.ensureRunning();
-    const profile = readWorkerProfileFromOpencodeConfig(undefined, requestedModel ?? undefined);
+    let serverManager: OwnedWorker;
+    let client: OpenCodeWorkerClient | CandidateInferenceClient;
+    let profile: { provider_id: string; model_id: string; base_url: string | null };
+    if (workerBinding && workerBinding.backend.kind !== "opencode") {
+      if (!agentContext || !this.nativeRegistries.has(jobId)) {
+        throw new AppError("BLOCKED_ISOLATION", "CLI candidate durable native ownership gerektirir", { reason_code: "CLI_OWNERSHIP_MISSING" });
+      }
+      const cli = new CliCandidateClient({
+        backend: workerBinding.backend.kind === "cli_json" ? workerBinding.backend : {
+          kind: "codex_cli", executable: workerBinding.backend.executable,
+          ...(workerBinding.backend.auth_home ? { auth_home: workerBinding.backend.auth_home } : {}),
+        },
+        workRoot: join(this.workspaceRoot, "jobs", jobId, "cli"),
+        ...(workerBinding.command_inputs ? { pinnedInputs: workerBinding.command_inputs } : {}),
+        ...(workerBinding.secret_reference_names ? { envReferenceNames: workerBinding.secret_reference_names } : {}),
+        lifecycle: this.nativeRegistries.get(jobId)!,
+      });
+      client = cli; serverManager = cli;
+      profile = { provider_id: workerBinding.provider_id, model_id: workerBinding.model_id, base_url: null };
+      this.registerOwnedWorkerServer(jobId, cli);
+    } else {
+      const portOffset = Number.parseInt(createHash("sha256").update(jobId, "utf8").digest("hex").slice(0, 6), 16) % 2000;
+      const manager = defaultWorkerServerManager(projectRoot, { config_instance_key: jobId, port: 14096 + portOffset });
+      serverManager = manager;
+      this.registerOwnedWorkerServer(jobId, manager);
+      client = await manager.ensureRunning();
+      profile = readWorkerProfileFromOpencodeConfig(undefined, requestedModel ?? undefined);
+    }
     // FIN03/14.2 + FIN05/6.3: worker attempt kaydi DB'ye yazilir; her request job/attempt/session
     // ile korele edilir; baska session'dan eski cevap kabul edilemez.
     const storage = this.services.storage;
@@ -2160,6 +2225,7 @@ export class JobDispatcher {
       }
     }
 
+    if ("generate" in client) throw new AppError("BLOCKED_ISOLATION", "CLI requires durable candidate bridge");
     const session = await client.createSession();
 
     // W01/F02: attempt kaydi istek ONCESI yazilir (durable); sonuc sonrasina guncellenir.

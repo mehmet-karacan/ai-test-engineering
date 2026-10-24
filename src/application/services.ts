@@ -28,6 +28,7 @@ import type { ReportStatusFacts } from "../reporting/report-projection.js";
 import { verifyCurrentReport, prepareReportVerification } from "./report-runtime.js";
 import { jobContext, nextJobAction, type JobContext } from "./job-context.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
+import { resolveWorkerBinding } from "../workers/backend-config.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
 import { readProjectCoverageResult } from "../storage/project-coverage-result.js";
@@ -248,7 +249,13 @@ export interface TestStartResult {
 
 export async function handleTestStart(input: unknown, services: Services): Promise<TestStartResult> {
   const parsed = TestStartInputSchema.parse(input);
-  const requestedModel = parsed.model_profile ? parseExactModelSpec(parsed.model_profile) : null;
+  const workerBinding = resolveWorkerBinding(services.config, {
+    ...(parsed.worker_profile ? { worker_profile: parsed.worker_profile } : {}),
+    ...(parsed.model_profile ? { model_profile: parsed.model_profile } : {}),
+  });
+  const requestedModel = workerBinding
+    ? { provider_id: workerBinding.provider_id, model_id: workerBinding.model_id }
+    : parsed.model_profile ? parseExactModelSpec(parsed.model_profile) : null;
   const canonicalRoot = canonicalProjectRoot(parsed.project_root);
   assertAllowedRoot(services.config, canonicalRoot);
   const { storage, jobs } = requireServices(services);
@@ -401,6 +408,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
     coverage: parsed.coverage,
     mode: parsed.mode,
     model_profile: parsed.model_profile,
+    ...(workerBinding ? { worker_binding: workerBinding } : {}),
     idempotency: parsed.idempotency_key,
     ...(parsed.coverage_scan_id ? { coverage_scan_id: parsed.coverage_scan_id } : {}),
   });
@@ -529,7 +537,8 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   if (parsed.coverage_scan_id) goal.coverage_mode = "cli";
   // P05/PR06: kullanicinin istedigi provider/model GoalContract'a birebir tasinir.
   // Worker bu kimligi prompt cagrisi sirasinda tekrar dogrular; sessiz default yoktur.
-  goal.model_profile = parsed.model_profile ?? null;
+  goal.model_profile = workerBinding ? `${workerBinding.provider_id}/${workerBinding.model_id}` : parsed.model_profile ?? null;
+  if (workerBinding) goal.worker_binding = workerBinding;
   // P05/PR06: frozen concrete hedef liste digest'i goal'a sabitlenir;
   // dispatcher dispatch'te ayni digest'i yeniden uretip dogrular (PP23).
   if (frozen) {
@@ -541,6 +550,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   // politikalari sessizce degismez.
   const configSnapshot = buildSecretFreeConfigSnapshot(services.config);
   const contract: JobContract = buildJobContract({
+    ...(workerBinding ? { worker_binding: workerBinding } : {}),
     ...(parsed.coverage_scan_id ? { coverage_mode: "cli" as const } : {}),
     job_id: job.id,
     project_id: location.project_id,
