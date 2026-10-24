@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "feature": "APPROVED_TEST_APPLY",
+  "date": "2026-10-25",
+  "status": "VERIFIED",
+  "product_scope": "Windows native OpenCode + MCP",
+  "verification_scope": "FULL_PROJECT_SNAPSHOT",
+  "full_suite": {
+    "commit": "6303f154",
+    "files": 156,
+    "passed": 1403,
+    "failed": 0,
+    "skipped": 0,
+    "sha256": "3bd7d562d35a80370e8b6dfda8b1a95394e706d3c0ff19d30406f39e3c408b46"
+  },
+  "final_hash_fix": {
+    "commit": "3f98656b0bb22da7c49225bec9801a7de720cca7",
+    "related_files": 3,
+    "related_tests_passed": 33,
+    "new_regressions": 5,
+    "typecheck": "PASS",
+    "lint_errors": 0,
+    "existing_lint_warnings": 89,
+    "independent_review": "NO_P1_P2"
+  },
+  "canary": {
+    "commit": "3f98656b0bb22da7c49225bec9801a7de720cca7",
+    "tree_digest": "3e1d964e80afaf7a6a085c27214729466a42261551cd25e66c823c94773d2aa8",
+    "fixture": "sample-maven-project",
+    "requested_line_percent": 80,
+    "requested_branch_percent": 80,
+    "scan_model_calls": 0,
+    "generation_model_calls": 1,
+    "model": "litellm/GLM-5.3-Flash-IT",
+    "outcome": "TARGET_REACHED",
+    "application_state": "APPLIED",
+    "new_files": 1,
+    "full_project_tests": 6,
+    "passed": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "preexisting_files_preserved": true,
+    "applied_bytes_match": true,
+    "runtime_backup_verified": true,
+    "human_form": "Actual MCP SDK form roundtrip with synthetic harness accept, one concrete batch; no manual human UI click claim",
+    "actual_opencode_version": "2.1.4",
+    "actual_opencode_form_capability": "VERIFIED_INITIALIZE",
+    "proof_sha256": "a548e0b8a01d03bd81a33d3d6e0d6c000ed2c6b49484b393ce922174ea0ade81",
+    "browser_proof_sha256": "b1982ee755365d663222e7ce45ec070a0758b135d2f7e69cf76846ea1b91dd39",
+    "browser": "Installed Chrome offline screen, print, afterprint and PDF PASS",
+    "private_evidence_folder": "approved-apply-live-1792876493829"
+  },
+  "upgrade": {
+    "schema_before": 9,
+    "schema_after": 10,
+    "preserved_referenced_files": 397,
+    "legacy_semantic_hash_metadata_repaired": 13,
+    "file_bytes_changed": 0,
+    "strict_primary_backup": "PASS",
+    "strict_backup_complete_sha256": "5b80be1d16f785a53a324527a6ba0950918d0e1dc7391f962f71a659d634131e",
+    "db_integrity": "ok",
+    "foreign_key_errors": 0
+  },
+  "independent_reviews": {
+    "coordinator": "apply_report",
+    "publisher": "apply_approval",
+    "hash_fix": "apply_approval",
+    "remaining_p1_p2": 0
+  },
+  "limits": [
+    "New Java test files only; no existing file overwrite",
+    "Full suite runs in a verified owned copy of the post-apply original",
+    "Only owned unchanged files roll back; uncertain ownership is RECOVERY_REQUIRED",
+    "CI remains disabled; customer checkout was not modified in this development run; G3 deployment separate",
+    "Full suite was on 6303f15; subsequent narrow artifact-hash delta passed 33 related tests and fresh end-to-end canary; no claim of a second full suite",
+    "99.99 percent reliability is not measured or guaranteed"
+  ]
+}

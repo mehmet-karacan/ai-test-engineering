@@ -21,7 +21,7 @@
 | Maven settings | P04: mount ONCESI secret taramasi (`scanMavenSettingsForSecrets`); credential'li/bos/eksik settings container'a girmez (PP19) |
 | Worker izinleri | bash/edit/write/task/web/grep/glob kapali (allowlist bos) |
 | Secret | Config'te secret degeri tasimaz; `{env:...}` referansi; profil secret scan (assertNoSecretValue) |
-| Apply | allow_workspace_apply=false varsayilan; expected-before hash + journal + conflict'te kullanici korumasI |
+| Apply | Varsayilan preview; somut MCP insan onayi + kaynak/hash + native sahiplik journal'i + tam proje dogrulamasi; cakismada kullanici dosyasi korunur |
 | Rapor XSS | escapeHtml tum untrusted metinler; harici CDN/script yok |
 
 ## 3. Yerel sentetik saldiri fixture seti (19.4)

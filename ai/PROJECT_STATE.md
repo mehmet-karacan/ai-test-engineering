@@ -1,3 +1,27 @@
+## 2026-10-25 Kullanici onayli test uygulama
+
+Kullanici istegiyle test_apply PATCH_ONLY stub'i tamamlandi. Preview somut
+checkpoint/patch/source/build/dosya/envanter/native profilini sunar; actual
+MCP insan formu accept+approved:true disinda metin onay sayilmaz. Yeni Java
+testleri native create-only sahiplik journal'iyle asil projeye aktarilir;
+mevcut test/POM/source degistirilmez. FULL_PROJECT_SNAPSHOT: uygulanan asil
+projenin hash-dogrulanmis owned kopyasinda tum Maven testleri/JaCoCo kosulur.
+APPLIED yalniz tam kanitla; hata/iptal kendi degismemis dosyalarini geri alir,
+kullanici degisikligi/belirsiz journal RECOVERY_REQUIRED olarak korunur.
+Recover eski islemi temizler; tekrar icin yeni onay gerekir. Sonuc/rapor/print
+uygulamayi generation outcome/coverage'dan ayri gosterir.
+
+156dosya/1403test tam paket PASS0FAIL0SKIP (6303f15). Son artifact-byte-hash
+onarimi 3dosya/33ilgili test PASS,5yeni regresyon; typecheck/build/helper PASS,
+lint0error89mevcutwarning. Bagimsiz coordinator/native/hash review P1P2=0.
+Son gercek sentetik canary: scan model0, secim sonrasi1GLM,1yeni dosya,
+6/6tumtestPASS,80/80TARGET_REACHED,APPLIED; mevcut dosyalar byte-ayni.
+Actual SDK form testharness onayi ve kuruluOpenCode2.1.4 formcapacity kaniti
+vardir; insanin UI tiklamasi iddiasi yok. Chrome offline/print/afterprint/PDF
+PASS. Yeni runtime strict backup PASS; primary eski13semantic-hashmetadata
+kaydi kanitli/CAS/audit ile dosya degismeden duzeltildi; strictbackupPASS.
+Kabul ai/acceptance/approved-test-apply.json. Main FF/build/installedverify ve
+push teslim asamasidir. CI kapali; G3 yayin yok;99.99garantisi verilmez.
 ## 2026-10-24 OpenCode-only geri alma
 
 Kullanici karariyla son genel CLI/Codex adapterleri ve clientnone kurulum
