@@ -1,6 +1,7 @@
 import type { Services } from "./services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { ProjectRepository } from "../storage/project-repository.js";
+import { getApplyOperationView } from "../storage/apply-operation-view.js";
 
 export interface JobContext {
   project_id: string;
@@ -43,6 +44,11 @@ function executionFacts(services: Services, job: JobRow): Pick<JobContext,"execu
 
 export function nextJobAction(services: Services, job: JobRow): string {
   const execution=executionFacts(services,job);
+  const application = getApplyOperationView(services.storage!.db, job.id);
+  if (application?.state === "APPLYING") return execution.execution_state === "ACTIVE_LEASE"
+    ? "Test uygulamasi ve tum proje dogrulamasi suruyor; test_status ile ayni operation_id izle; durdurmak icin test_cancel"
+    : "Yarim test uygulamasi var; test_apply mode=recover ile sahiplik dogrulamali geri alma dene; yeniden kosmak yeni onay gerektirir";
+  if (application?.state === "RECOVERY_REQUIRED") return "Test uygulamasi temizligi tamamlanmadi; test_apply mode=recover ve gerekirse dosya/surec sahipligi incelemesi gerekli";
   if (execution.execution_state === "CLEANUP_PENDING") return "test_status ile owned process temizligini incele; test_cancel ile temizligi yeniden dene; dogrulanmadan devralma";
   if (job.lifecycle === "COMPLETED") return "test_result ile dogrulanmis sonucu incele; bu is yeniden baslatilmaz";
   if (job.lifecycle === "CANCELLED") return "Is iptal edildi; yeniden uretim istenirse test_start ile yeni is baslat";

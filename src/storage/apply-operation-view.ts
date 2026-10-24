@@ -47,7 +47,7 @@ export function getApplyOperationView(db: Database.Database, jobId: string): App
         || !view.conflicts.every(conflict => conflict && path(conflict.path) && text(conflict.reason))))
       || !(view.verification === null || validVerification(view.verification))) return null;
     if (view.state === "APPLIED" && (view.phase !== "done" || view.verification?.status !== "PASSED"
-      || view.applied_paths.length !== plan.files.length)) return null;
+      || view.applied_paths.length !== plan.files.length || (view.conflicts?.length ?? 0) > 0)) return null;
     const verification = view.verification;
     return {
       operation_id: view.operation_id, job_id: view.job_id, state: view.state, phase: view.phase,

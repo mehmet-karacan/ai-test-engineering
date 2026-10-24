@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
+import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "./services.js";
 import type { ApplyCallContext } from "../domain/apply-contracts.js";
@@ -14,7 +14,9 @@ import type { JobRow } from "../storage/job-repository.js";
 import { ProjectRepository } from "../storage/project-repository.js";
 import { LeaseManager } from "../orchestration/lease-manager.js";
 import { CheckpointStore } from "../orchestration/checkpoint-store.js";
-import { defaultApplyConfig } from "../reporting/test-apply.js";
+import { handleWorkspaceTestApply, cancelWorkspaceApply, waitWorkspaceApply, type WorkspaceApplyResult } from "./test-apply.js";
+import { getApplyOperationView } from "../storage/apply-operation-view.js";
+import type { ApplyOperationView } from "../domain/apply-contracts.js";
 import { CustomerRunnerFactory, resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import { verifyNativeToolchain } from "../runners/native-toolchain.js";
 import { NativeToolchainRecordStore } from "../orchestration/native-toolchain-record.js";
@@ -194,6 +196,18 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
   assertJobProjectContext(job, parsed.project_root, requireStorage(services).storage);
 
   const db = requireStorage(services).storage.db;
+  const application = getApplyOperationView(db, job.id);
+  if (application && (application.state === "APPLYING" || application.state === "RECOVERY_REQUIRED")) {
+    cancelWorkspaceApply(job.id, services);
+    let stopTimer: ReturnType<typeof setTimeout> | undefined;
+    try { await Promise.race([waitWorkspaceApply(job.id), new Promise<void>(resolve => { stopTimer = setTimeout(resolve, 10_000); })]); }
+    finally { if (stopTimer) clearTimeout(stopTimer); }
+    const current = getApplyOperationView(db, job.id);
+    const pending = current?.state === "APPLYING" || current?.state === "RECOVERY_REQUIRED";
+    return { job_id: job.id, lifecycle: job.lifecycle, paused: false, cleanup_pending: pending,
+      job_context: jobContext(services, jobs.getJob(job.id)), required_action: nextJobAction(services, jobs.getJob(job.id)),
+      message: pending ? "Uygulama durdurma/temizlik bekliyor; uretim sonucu korunur" : "Uygulama durduruldu ve sahipli testler geri alindi; uretim sonucu korunur" };
+  }
   const pendingProcesses = () => db.prepare<[string],{n:number}>("SELECT COUNT(*) n FROM owned_processes WHERE job_id = ? AND cleanup_state <> 'CLOSED'").get(job.id)!.n > 0;
   const present = (current: JobRow, cleanupPending = false): TestCancelResult => ({
     job_id: current.id, lifecycle: current.lifecycle, paused: current.lifecycle === "PAUSED",
@@ -267,6 +281,7 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
 }
 
 export interface TestResultResult {
+  application?: ApplyOperationView;
   job_context: JobContext;
   required_action: string;
   coverage_scan_failure?: ProjectCoverageFailure;
@@ -336,6 +351,7 @@ export async function handleTestResult(input: unknown, services: Services): Prom
       lifecycle: job.lifecycle,
       verification_level: job.verification_level,
       apply_state: job.apply_state,
+      ...(() => { const application = getApplyOperationView(storage.db, job.id); return application ? { application } : {}; })(),
       best_checkpoint_id: bestCheckpoint,
       last_trusted_coverage: lastCoverage,
       report_path: reportPath,
@@ -349,32 +365,10 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   }).immediate();
 }
 
-export interface TestApplyResult {
-  job_id: string;
-  state: "APPLIED" | "CONFLICT" | "REJECTED" | "PATCH_ONLY";
-  operation_id: string | null;
-  applied_paths: string[];
-  conflicts: Array<{ path: string; reason: string }>;
-  message: string;
-}
+export type TestApplyResult = WorkspaceApplyResult;
 
-export async function handleTestApply(input: unknown, services: Services, _context: ApplyCallContext = {}): Promise<TestApplyResult> {
-  const parsed = TestApplyInputSchema.parse(input);
-  const { jobs } = requireStorage(services);
-  const job = jobs.getJob(parsed.job_id);
-  assertJobProjectContext(job, parsed.project_root, requireStorage(services).storage);
-  assertJobProjectContext(job, parsed.target_workspace, requireStorage(services).storage);
-
-  if (job.apply_state === "APPLIED") {
-    return { job_id: job.id, state: "APPLIED", operation_id: null, applied_paths: [], conflicts: [], message: "Is zaten uygulanmis; idempotent" };
-  }
-
-  const config = defaultApplyConfig();
-  if (!config.allow_workspace_apply) {
-    return { job_id: job.id, state: "PATCH_ONLY", operation_id: null, applied_paths: [], conflicts: [], message: "Workspace apply kapali; patch-only sonuc" };
-  }
-
-  throw new AppError("POLICY_VIOLATION", "Guvenilir onay adapter'i yok; patch-only sonuc doner", { reason_code: "APPLY_DISABLED" });
+export async function handleTestApply(input: unknown, services: Services, context: ApplyCallContext = {}): Promise<TestApplyResult> {
+  return handleWorkspaceTestApply(input, services, context);
 }
 
 function requireStorage(services: Services): { storage: NonNullable<Services["storage"]>; jobs: NonNullable<Services["jobs"]> } {

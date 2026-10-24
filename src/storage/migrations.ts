@@ -616,6 +616,27 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_fixture ON benchmark_trials(fixture_id,
   ALTER TABLE file_inventory ADD COLUMN native_bytes INTEGER;
   `,
     },
+  {
+    version: 10,
+    name: "onayli-test-uygulama-islemleri",
+    sql: `
+CREATE TABLE apply_operations (
+  operation_id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES test_jobs(id),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  plan_json TEXT NOT NULL,
+  view_json TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  fencing_token INTEGER NOT NULL,
+  approval_id TEXT NOT NULL UNIQUE REFERENCES job_approvals(approval_id),
+  active INTEGER NOT NULL CHECK(active IN (0,1)),
+  cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK(cancel_requested IN (0,1))
+);
+CREATE UNIQUE INDEX one_active_apply_per_job ON apply_operations(job_id) WHERE active=1;
+CREATE INDEX apply_operations_job ON apply_operations(job_id, created_at);
+`,
+  },
 ];
 
 export function migrate(db: BetterSqlite3.Database): void {

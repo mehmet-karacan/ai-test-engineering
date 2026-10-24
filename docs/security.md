@@ -35,7 +35,7 @@ Asagidaki saldiri denemeleri yerel fixture'larla isletilir; gercek kurum servisl
 5. Coverage forgery/stale evidence (jacoco parser validity; RT10 stale XML reddi)
 6. Test disable/filter oyunu (assertNoDisabled; FORBIDDEN_PATTERNS COVERAGE_REPORT)
 7. HTML XSS (fin09-patch-export.test.ts)
-8. Unauthorized apply (apply kapali + approval_reference < 8 red; report-apply testleri)
+8. Unauthorized apply (model metni onay degildir; somut batch icin MCP insan formu accept+approved:true gerekir; SDK/negatif onay testleri)
 9. Late worker writes (stale fence red; fin07)
 10. Cache poisoning (job'a ozel writable overlay; paylasilan trusted cache'e test kodu yazamaz — 8.3)
 

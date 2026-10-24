@@ -49,6 +49,14 @@ CONFLICT/RECOVERY_REQUIRED ile acik kalir. Application kaniti generation
 outcome/coverage olcumlerini yukseltmez. Native Maven Windows
 hesabinin dosya ve ag yetkileriyle calisir; OS sandbox degildir.
 
+Uygulama yalniz yeni Java test dosyasi ekler; mevcut dosyayi degistirmez.
+Native atomik aktarim icin runtime ve proje ayni Windows volume'de olmalidir.
+Belirsiz journal/surec sahipliginde kullanici dosyasi silinmez. `mode=recover`
+eski islemi geri alir; yeniden uygulama icin yeni onay gerekir. Olusturulan bos
+test dizinleri geri almada korunabilir. Schema10 uygulama defteri ekler;
+upgrade oncesi DB+blob+jobs yedegi gerekir, eski surume yalniz DB dosyasini
+geri tasiyarak donulmez.
+
 ## Isletim
 
 %99.99 hatasiz islem bir isletim hedefidir; test paketi veya bir canary bu

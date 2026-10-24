@@ -31,6 +31,8 @@ import { buildJobContract, contractRef, type JobContract } from "../domain/job-c
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
 import { readProjectCoverageResult } from "../storage/project-coverage-result.js";
+import { getApplyOperationView } from "../storage/apply-operation-view.js";
+import type { ApplyOperationView } from "../domain/apply-contracts.js";
 
 export const PARSER_VERSION = "statik-tarama-1";
 
@@ -86,9 +88,11 @@ export function assertAllowedRoot(config: AppConfig, canonicalRoot: string): voi
   if (config.allowed_project_roots.length === 0) {
     return;
   }
+  const normalize = (value: string) => process.platform === "win32" ? resolve(value).toLowerCase() : resolve(value);
+  const candidate = normalize(canonicalRoot);
   const allowed = config.allowed_project_roots.some((root: string) => {
-    const resolved = resolve(root);
-    return canonicalRoot === resolved || canonicalRoot.startsWith(resolved + sep);
+    const resolved = normalize(root);
+    return candidate === resolved || candidate.startsWith(resolved.endsWith(sep) ? resolved : resolved + sep);
   });
   if (!allowed) {
     throw new AppError("POLICY_VIOLATION", `Yetkili proje koku disinda: ${canonicalRoot}`);
@@ -608,6 +612,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
 }
 
 export interface TestStatusResult {
+  application?: ApplyOperationView;
   job_context: JobContext;
   job_id: string;
   lifecycle: string;
@@ -678,6 +683,7 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
       outcome: job.outcome,
       verification_level: job.verification_level,
       apply_state: job.apply_state,
+      ...(() => { const application = getApplyOperationView(storage.db, job.id); return application ? { application } : {}; })(),
       last_trusted_coverage: lastTrustedCoverage,
       report_facts: reportFacts,
       events: events.map((e) => ({ sequence: e.sequence, event_type: e.event_type, phase: e.phase })),

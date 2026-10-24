@@ -11,6 +11,10 @@ export interface ApplyPlan {
   patch_digest: string;
   files: ApplyFile[];
   verification_scope: "FULL_PROJECT_SNAPSHOT";
+  test_roots?: Array<{ module_relative_path: string; test_root: string }>;
+  native_execution?: { java_home: string; run_skipped_unit_tests: boolean };
+  verification_timeout_ms?: number;
+  test_inventory_digest?: string;
 }
 export interface ApplyApproval { action: "accept" | "decline" | "cancel"; approved: boolean }
 export type RequestApplyApproval = (plan: ApplyPlan, signal?: AbortSignal) => Promise<ApplyApproval>;
@@ -37,6 +41,7 @@ export interface ApplyOperationView {
   checkpoint_id: string;
   patch_digest: string;
   applied_paths: string[];
+  conflicts?: Array<{ path: string; reason: string }>;
   created_at: number;
   updated_at: number;
   verification: ApplyVerification | null;
