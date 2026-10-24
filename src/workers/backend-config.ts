@@ -1,7 +1,7 @@
 /** Exact, secret-free inference backend selection. No executable/model fallback. */
 import { createHash } from "node:crypto";
 import { fstatSync, openSync, closeSync, readFileSync, statSync } from "node:fs";
-import { extname, isAbsolute } from "node:path";
+import { extname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import type { AppConfig, WorkerProfile } from "../configuration/config-schema.js";
 import { AppError } from "../domain/errors.js";
@@ -12,6 +12,7 @@ const AbsolutePathSchema = z.string().min(1).max(32767).refine(value =>
   !value.includes("\0") && isAbsolute(value) && (process.platform !== "win32" || /^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+[\\/])/i.test(value)),
 "Tam mutlak dosya yolu gerekli");
 const ExecutableSchema = AbsolutePathSchema.refine(value => process.platform !== "win32" || extname(value).toLowerCase() === ".exe", "Windows native exe gerekli");
+export const CliEnvReferenceNameSchema = z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
 export const WorkerBackendSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("opencode") }).strict(),
@@ -24,13 +25,34 @@ export const WorkerBackendSchema = z.discriminatedUnion("kind", [
 ]);
 export type WorkerBackend = z.infer<typeof WorkerBackendSchema>;
 
+function normalizedPath(path: string): string {
+  const absolute = resolve(path);
+  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
+}
+
 export const WorkerBindingSchema = z.object({
   profile_name: ExactNameSchema,
   provider_id: ExactNameSchema,
   model_id: ExactNameSchema,
   backend: WorkerBackendSchema,
+  secret_reference_names: z.array(z.string().min(1).max(128)).max(16).optional(),
   command_inputs: z.array(z.object({ path: AbsolutePathSchema, sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(128).optional(),
-}).strict();
+}).strict().superRefine((binding, context) => {
+  const paths = (binding.command_inputs ?? []).map(input => normalizedPath(input.path));
+  if (new Set(paths).size !== paths.length) {
+    context.addIssue({ code: "custom", path: ["command_inputs"], message: "Ayni normalized command input tekrarlanamaz" });
+  }
+  if (binding.backend.kind === "opencode") return;
+  for (const [index, name] of (binding.secret_reference_names ?? []).entries()) {
+    if (!CliEnvReferenceNameSchema.safeParse(name).success) {
+      context.addIssue({ code: "custom", path: ["secret_reference_names", index], message: "CLI secret referansi normal ortam degiskeni adi olmali" });
+    }
+  }
+  const executable = binding.backend.kind === "codex_cli" ? binding.backend.executable : binding.backend.command[0];
+  if (executable === undefined || !paths.includes(normalizedPath(executable))) {
+    context.addIssue({ code: "custom", path: ["command_inputs"], message: "CLI executable icin frozen SHA256 kaydi gerekli" });
+  }
+});
 export type WorkerBinding = z.infer<typeof WorkerBindingSchema>;
 
 function invalid(message: string): never {
@@ -59,14 +81,15 @@ function hashRegularFile(path: string): string {
 
 function bind(profile: WorkerProfile): WorkerBinding {
   const backend = WorkerBackendSchema.parse(profile.backend ?? { kind: "opencode" });
-  const binding = WorkerBindingSchema.parse({
+  const binding = {
     profile_name: profile.profile_name, provider_id: profile.provider_id, model_id: profile.model_id, backend,
-  });
-  if (backend.kind === "opencode") return binding;
+    ...(profile.secret_reference_names.length === 0 ? {} : { secret_reference_names: profile.secret_reference_names }),
+  };
+  if (backend.kind === "opencode") return WorkerBindingSchema.parse(binding);
   const command = backend.kind === "cli_json" ? backend.command : [backend.executable];
   const paths = [command[0]!];
   for (const argument of command.slice(1)) {
-    if (!isAbsolute(argument) || paths.includes(argument)) continue;
+    if (!isAbsolute(argument) || paths.some(path => normalizedPath(path) === normalizedPath(argument))) continue;
     try {
       if (statSync(argument).isFile()) paths.push(argument);
     } catch (error) {
@@ -74,7 +97,7 @@ function bind(profile: WorkerProfile): WorkerBinding {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") invalid("CLI arguman dosyasi okunamadi");
     }
   }
-  return { ...binding, command_inputs: paths.map(path => ({ path, sha256: hashRegularFile(path) })) };
+  return WorkerBindingSchema.parse({ ...binding, command_inputs: paths.map(path => ({ path, sha256: hashRegularFile(path) })) });
 }
 
 /** Undefined deliberately preserves the historical OpenCode config/digest path. */
@@ -82,6 +105,8 @@ export function resolveWorkerBinding(config: Pick<AppConfig, "worker_profiles" |
   worker_profile?: string;
   model_profile?: string;
 }): WorkerBinding | undefined {
+  const cliEnabled = config.worker_profiles.some(profile => profile.backend !== undefined && profile.backend.kind !== "opencode");
+  if (input.worker_profile === undefined && !cliEnabled) return undefined;
   const model = input.model_profile === undefined ? undefined : parseExactModelSpec(input.model_profile);
   if (model && (!ExactNameSchema.safeParse(model.provider_id).success || !ExactNameSchema.safeParse(model.model_id).success)) {
     return invalid("Gecersiz provider/model kimligi; duzeltme uygulanmaz");

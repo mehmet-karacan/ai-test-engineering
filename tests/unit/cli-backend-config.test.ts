@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { WorkerProfileSchema } from "../../src/configuration/config-schema.js";
 import { defaultConfig } from "../../src/configuration/config-loader.js";
 import { buildSecretFreeConfigSnapshot } from "../../src/configuration/config-security.js";
@@ -11,7 +11,7 @@ import { assertContractImmutable, buildJobContract, contractDigest, type JobCont
 
 const profile = { profile_name: "cli", provider_id: "openai", model_id: "gpt-test", secret_reference_names: [] };
 const backend = { kind: "codex_cli" as const, executable: process.execPath };
-const binding = { profile_name: "cli", provider_id: "openai", model_id: "gpt-test", backend };
+const binding = { profile_name: "cli", provider_id: "openai", model_id: "gpt-test", backend, command_inputs: [{ path: process.execPath, sha256: "a".repeat(64) }] };
 function contractInput(): JobContractInput {
   return {
     job_id: "j", project_id: "p", location_id: "l", canonical_root: "C:/fixture",
@@ -103,7 +103,7 @@ describe("exact backend selection", () => {
     config.worker_profiles = [profile]; config.default_worker_profile = "cli";
     expect(resolveWorkerBinding(config, {})).toBeUndefined();
     expect(resolveWorkerBinding(config, { model_profile: "openai/gpt-test" })).toBeUndefined();
-    expect(resolveWorkerBinding(config, { worker_profile: "cli" })).toMatchObject({ ...binding, backend: { kind: "opencode" } });
+    expect(resolveWorkerBinding(config, { worker_profile: "cli" })).toEqual({ profile_name: "cli", provider_id: "openai", model_id: "gpt-test", backend: { kind: "opencode" } });
     config.worker_profiles = [{ ...profile, backend }];
     expect(resolveWorkerBinding(config, {})?.backend.kind).toBe("codex_cli");
     expect(resolveWorkerBinding(config, { model_profile: "openai/gpt-test" })?.backend.kind).toBe("codex_cli");
@@ -132,7 +132,8 @@ describe("exact backend selection", () => {
     config.worker_profiles = [{ ...profile, model_id: "gpt\ttest", backend }];
     expect(() => resolveWorkerBinding(config, { model_profile: "openai/gpt\ttest" })).toThrow();
     config.worker_profiles = [];
-    expect(() => resolveWorkerBinding(config, { model_profile: "openai/gpt\ttest" })).toThrow();
+    expect(resolveWorkerBinding(config, { model_profile: "openai/gpt\ttest" })).toBeUndefined();
+    config.worker_profiles = [{ ...profile, backend }];
     config.default_worker_profile = "missing";
     expect(() => resolveWorkerBinding(config, {})).toThrow();
   });
@@ -169,5 +170,79 @@ describe("exact backend selection", () => {
     expect(WorkerBindingSchema.safeParse(first).success).toBe(true);
     const original = buildJobContract({ ...contractInput(), worker_binding: first });
     expect(() => assertContractImmutable(original, buildJobContract({ ...contractInput(), worker_binding: second }))).toThrow(/worker_binding/);
+  });
+  it("leaves stale legacy default names on the old OpenCode path", async () => {
+    const { resolveWorkerBinding } = await import("../../src/workers/backend-config.js");
+    const config = defaultConfig();
+    config.worker_profiles = [profile];
+    config.default_worker_profile = "removed-profile";
+    expect(resolveWorkerBinding(config, {})).toBeUndefined();
+    expect(resolveWorkerBinding(config, { model_profile: "openai/gpt-test" })).toBeUndefined();
+    expect(resolveWorkerBinding(config, { model_profile: "openai/unlisted" })).toBeUndefined();
+    expect(() => resolveWorkerBinding(config, { worker_profile: "removed-profile" })).toThrow();
+  });
+  it("leaves duplicate legacy/OpenCode-only profiles on the old path without explicit selection", async () => {
+    const { resolveWorkerBinding } = await import("../../src/workers/backend-config.js");
+    const config = defaultConfig();
+    config.worker_profiles = [profile, { ...profile, backend: { kind: "opencode" } }];
+    config.default_worker_profile = "cli";
+    expect(resolveWorkerBinding(config, {})).toBeUndefined();
+    expect(resolveWorkerBinding(config, { model_profile: "openai/gpt-test" })).toBeUndefined();
+    expect(() => resolveWorkerBinding(config, { worker_profile: "cli" })).toThrow();
+    config.worker_profiles.push({ ...profile, profile_name: "other-cli", backend });
+    expect(() => resolveWorkerBinding(config, {})).toThrow();
+    expect(() => resolveWorkerBinding(config, { model_profile: "openai/gpt-test" })).toThrow();
+  });
+});
+
+describe("mandatory CLI executable pins in frozen bindings", () => {
+  it.each([backend, { kind: "cli_json" as const, command: [process.execPath, "--json"] }])("rejects missing executable pins for $kind", async selectedBackend => {
+    const { WorkerBindingSchema } = await import("../../src/workers/backend-config.js");
+    expect(WorkerBindingSchema.safeParse({ profile_name: "cli", provider_id: "openai", model_id: "gpt-test", backend: selectedBackend }).success).toBe(false);
+    expect(WorkerBindingSchema.safeParse({ ...binding, backend: selectedBackend, command_inputs: undefined }).success).toBe(false);
+    expect(WorkerBindingSchema.safeParse({ ...binding, backend: selectedBackend, command_inputs: [{ path: "C:/different.exe", sha256: "a".repeat(64) }] }).success).toBe(false);
+  });
+  it("rejects duplicate normalized input paths and malformed hashes", async () => {
+    const { WorkerBindingSchema } = await import("../../src/workers/backend-config.js");
+    const duplicatePath = `${dirname(process.execPath)}/./node.exe`;
+    expect(WorkerBindingSchema.safeParse({ ...binding, command_inputs: [binding.command_inputs[0], { path: duplicatePath, sha256: "b".repeat(64) }] }).success).toBe(false);
+    expect(WorkerBindingSchema.safeParse({ ...binding, command_inputs: [{ path: process.execPath, sha256: "bad-hash" }] }).success).toBe(false);
+  });
+  it("accepts one normalized executable pin and retains unpinned OpenCode compatibility", async () => {
+    const { WorkerBindingSchema } = await import("../../src/workers/backend-config.js");
+    expect(WorkerBindingSchema.safeParse(binding).success).toBe(true);
+    expect(WorkerBindingSchema.safeParse({ ...binding, command_inputs: [{ path: `${dirname(process.execPath)}/./node.exe`, sha256: "a".repeat(64) }] }).success).toBe(true);
+    expect(WorkerBindingSchema.safeParse({ profile_name: "old", provider_id: "p", model_id: "m", backend: { kind: "opencode" } }).success).toBe(true);
+    expect(WorkerBindingSchema.safeParse({ ...binding, backend: { kind: "cli_json", command: [] } }).success).toBe(false);
+  });
+});
+
+describe("immutable secret reference names", () => {
+  it("freezes nonempty CLI env references and rejects a resume reference change", async () => {
+    const { resolveWorkerBinding } = await import("../../src/workers/backend-config.js");
+    const config = defaultConfig();
+    config.worker_profiles = [{ ...profile, backend, secret_reference_names: ["CLI_API_TOKEN"] }];
+    const first = resolveWorkerBinding(config, { worker_profile: "cli" })!;
+    expect(first.secret_reference_names).toEqual(["CLI_API_TOKEN"]);
+    config.worker_profiles[0]!.secret_reference_names[0] = "OTHER_TOKEN";
+    expect(first.secret_reference_names).toEqual(["CLI_API_TOKEN"]);
+    const next = resolveWorkerBinding(config, { worker_profile: "cli" })!;
+    expect(() => assertContractImmutable(buildJobContract({ ...contractInput(), worker_binding: first }), buildJobContract({ ...contractInput(), worker_binding: next }))).toThrow(/worker_binding/);
+  });
+  it("omits empty reference arrays and preserves explicit OpenCode legacy reference syntax", async () => {
+    const { resolveWorkerBinding } = await import("../../src/workers/backend-config.js");
+    const config = defaultConfig(); config.worker_profiles = [{ ...profile, backend }];
+    expect(resolveWorkerBinding(config, { worker_profile: "cli" })).not.toHaveProperty("secret_reference_names");
+    config.worker_profiles = [{ ...profile, secret_reference_names: ["env:LEGACY_KEY"] }];
+    expect(WorkerProfileSchema.safeParse(config.worker_profiles[0]).success).toBe(true);
+    expect(resolveWorkerBinding(config, { worker_profile: "cli" })?.secret_reference_names).toEqual(["env:LEGACY_KEY"]);
+    expect(resolveWorkerBinding(config, {})).toBeUndefined();
+  });
+  it.each(["env:KEY", "KEY=value", " KEY", "KEY-NAME", "1KEY", "KEY\nNAME"])("rejects invalid CLI env reference %j in config and direct resolution", async name => {
+    const { resolveWorkerBinding } = await import("../../src/workers/backend-config.js");
+    const candidate = { ...profile, backend, secret_reference_names: [name] };
+    expect(WorkerProfileSchema.safeParse(candidate).success).toBe(false);
+    const config = defaultConfig(); config.worker_profiles = [candidate];
+    expect(() => resolveWorkerBinding(config, { worker_profile: "cli" })).toThrow();
   });
 });
