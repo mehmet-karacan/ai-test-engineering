@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { percentToBasisPoints } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
+import type { ApplyCallContext } from "../domain/apply-contracts.js";
 
 export interface ToolDefinition {
   name: string;
@@ -15,7 +16,7 @@ export interface ToolDefinition {
   handler: (input: unknown, context: ToolContext) => Promise<Record<string, unknown>>;
 }
 
-export interface ToolContext {
+export interface ToolContext extends ApplyCallContext {
   requestId: string;
   services: ServiceRegistry;
 }

@@ -4,6 +4,8 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { ServerRequest, ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { ToolRegistry, type ToolContext, type ServiceRegistry } from "./tool-registry.js";
 import { handleProjectInspect, handleTestStart, handleTestStatus, handleProjectQuery, type Services } from "../application/services.js";
 import { handleTestResume, handleTestCancel, handleTestResult, handleTestApply } from "../application/job-tools.js";
@@ -103,12 +105,12 @@ export function createToolRegistry(services: Services): ToolRegistry {
 
   registry.register({
     name: "test_apply",
-    description: "Sadece acik onayli test degisikliklerini uygular. Guvenilir onay yoksa patch-only sonuc doner.",
+    description: "mode=preview ile kabul edilmis yeni testlerin planini gosterir. mode=apply somut plan icin MCP insan onay formu ister; onaysiz yazmaz. mode=recover eski islemin guvenli geri almasini dener. Sonucu test_status/test_result ile izle; yalniz tam proje snapshot testleri gectiginde APPLIED olur.",
     inputSchema: TestApplyInputSchema,
     readOnly: false,
     idempotent: true,
-    handler: async (input) => {
-      return (await handleTestApply(input, services)) as unknown as Record<string, unknown>;
+    handler: async (input, context) => {
+      return (await handleTestApply(input, services, context)) as unknown as Record<string, unknown>;
     },
   });
 
@@ -132,12 +134,53 @@ export function registerToolsOnServer(server: McpServer, registry: ToolRegistry)
           openWorldHint: false,
         },
       },
-      async (args: Record<string, unknown>, extra: { requestId: string | number | undefined }) => {
+      async (args: Record<string, unknown>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
+        let active = true;
+        let approvalRequested = false;
         const context: ToolContext = {
           requestId: extra.requestId !== undefined ? String(extra.requestId) : crypto.randomUUID(),
           services: serviceRegistry,
+          signal: extra.signal,
         };
-        const result = await registry.call(tool.name, args, context);
+        if (tool.name === "test_apply" && server.server.getClientCapabilities()?.elicitation?.form) {
+          context.requestApplyApproval = async (plan, signal) => {
+            const cancelled = { action: "cancel" as const, approved: false };
+            const combinedSignal = signal ? AbortSignal.any([extra.signal, signal]) : extra.signal;
+            if (!active || approvalRequested || combinedSignal.aborted) return cancelled;
+            approvalRequested = true;
+            try {
+              const response = await server.server.elicitInput({
+                mode: "form",
+                message: [
+                  "Yeni test dosyalarini asagidaki asil projeye uygulamayi onayliyor musunuz?",
+                  "Mevcut dosyalar degistirilmez. Uygulama sonrasi tum testler, asil kaynaklarin dogrulanmis ayri kopyasinda calisir (FULL_PROJECT_SNAPSHOT).",
+                  `Proje: ${plan.project_root}`,
+                  `Job: ${plan.job_id}; proje kimligi: ${plan.project_id}; checkpoint: ${plan.checkpoint_id}`,
+                  `Patch SHA256: ${plan.patch_digest}`,
+                  `Kaynak SHA256: ${plan.source_digest}; build SHA256: ${plan.build_digest}`,
+                  "Yeni dosyalar (proje kokune gore yol / SHA256 / byte):",
+                  ...plan.files.map(file => `${file.path} / ${file.sha256} / ${file.bytes}`),
+                ].join("\n"),
+                requestedSchema: {
+                  type: "object",
+                  properties: { approved: { type: "boolean", title: "Bu somut test uygulama planini onayliyorum", default: false } },
+                  required: ["approved"],
+                },
+              }, { signal: combinedSignal, relatedRequestId: extra.requestId,
+                timeout: 120_000, maxTotalTimeout: 120_000, resetTimeoutOnProgress: false });
+              if (!active || combinedSignal.aborted) return cancelled;
+              return { action: response.action, approved: response.action === "accept" && response.content?.approved === true };
+            } catch {
+              return cancelled;
+            }
+          };
+        }
+        let result;
+        try {
+          result = await registry.call(tool.name, args, context);
+        } finally {
+          active = false;
+        }
         return {
           content: [
             {

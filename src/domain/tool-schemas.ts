@@ -106,12 +106,13 @@ export type ProjectQueryInput = z.infer<typeof ProjectQueryInputSchema>;
 
 export const TestApplyInputSchema = z.object({
   job_id: z.string().uuid(),
+  mode: z.enum(["preview", "apply", "recover"]).default("preview"),
   project_root: ProjectRootSchema.optional(),
-  checkpoint_id: z.string().uuid(),
-  patch_digest: z.string().length(64),
-  target_workspace: z.string().min(1).max(1024),
-  approval_reference: z.string().min(8).max(256),
-});
+  checkpoint_id: z.string().uuid().optional(),
+  patch_digest: z.string().regex(/^[a-fA-F0-9]{64}$/u, "Patch digest SHA256 hex olmalidir").optional(),
+  target_workspace: ProjectRootSchema.optional(),
+  approval_reference: z.string().min(8).max(256).optional(),
+}).strict();
 export type TestApplyInput = z.infer<typeof TestApplyInputSchema>;
 
 export function percentToBasisPoints(percent: number): number {

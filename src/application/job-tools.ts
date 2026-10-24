@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "./services.js";
+import type { ApplyCallContext } from "../domain/apply-contracts.js";
 import { canonicalProjectRoot, assertJobProjectContext } from "./services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { ProjectRepository } from "../storage/project-repository.js";
@@ -357,7 +358,7 @@ export interface TestApplyResult {
   message: string;
 }
 
-export async function handleTestApply(input: unknown, services: Services): Promise<TestApplyResult> {
+export async function handleTestApply(input: unknown, services: Services, _context: ApplyCallContext = {}): Promise<TestApplyResult> {
   const parsed = TestApplyInputSchema.parse(input);
   const { jobs } = requireStorage(services);
   const job = jobs.getJob(parsed.job_id);
