@@ -391,6 +391,8 @@ export interface IterateOptions {
     coverage_after_bps: number | null;
     error_fingerprint?: string | null;
   }) => void;
+  /** Job-wide physical attempt ordinal; resume and later targets continue it. */
+  start_attempt_ordinal?: number;
   /** P06/PP31: her candidate run'in test inventory/provenance kaydi icin callback. */
   on_run?: (info: {
     attempt_ordinal: number;
@@ -601,7 +603,7 @@ export class CandidateLoop {
         break;
       }
       const currentFeedback = repairFeedback;
-      const attemptOrdinal = iterations.length + 1;
+      const attemptOrdinal = (options.start_attempt_ordinal ?? 1) + iterations.length;
       let candidate: CandidateChangeSet | null;
       try {
         lastCandidate = null;

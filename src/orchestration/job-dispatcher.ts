@@ -663,6 +663,9 @@ export class JobDispatcher {
           branch_target_bps: targetSpec.branch_target_bps,
           budget: goal.budget,
           attempt_budget: remainingAttemptBudget,
+          start_attempt_ordinal: (storage.db.prepare<[string], { ordinal: number | null }>(
+            "SELECT MAX(attempt_ordinal) AS ordinal FROM candidate_iterations WHERE job_id = ?",
+          ).get(job.id)?.ordinal ?? 0) + 1,
           ...(goal.iteration_limit !== undefined ? { iteration_limit: goal.iteration_limit } : {}),
           ...(frozenBaselineCoverage ? { baseline_coverage: frozenBaselineCoverage } : {}),
           staging_root: stagingRoot,

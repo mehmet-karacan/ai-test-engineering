@@ -376,8 +376,14 @@ export class InventoryRepository {
     output_truncation?: RunOutputTruncation | undefined;
   }): string {
     assertNoPendingRunOutputReceipt(this.db, input.job_id, "run_output_truncation");
-    const provenanceKey = [input.job_id, input.stage, input.attempt_ordinal ?? 0, input.iteration_ordinal ?? 0].join(":");
-    const existing = this.db.prepare<[string], { id: string }>("SELECT id FROM test_run_provenance WHERE provenance_key = ?").get(provenanceKey);
+    // A resumed dispatch executes baseline/final replay again. Their logical
+    // stage/ordinal stays the same, but each physical run has its own receipt.
+    // Keep exact retries (including pre-upgrade rows) idempotent.
+    const logicalKey = [input.job_id, input.stage, input.attempt_ordinal ?? 0, input.iteration_ordinal ?? 0].join(":");
+    const provenanceKey = `${logicalKey}:${input.started_at}`;
+    const existing = this.db.prepare<[string, string, number], { id: string }>(
+      "SELECT id FROM test_run_provenance WHERE provenance_key = ? OR (provenance_key = ? AND started_at = ?)",
+    ).get(provenanceKey, logicalKey, input.started_at);
     const id = existing?.id ?? randomUUID();
     const truncation = input.output_truncation;
     const hasTruncation = truncation !== undefined && [
