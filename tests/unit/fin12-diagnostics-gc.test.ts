@@ -393,7 +393,7 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
 
   it("checkpoint manifest artifact'i her zaman pin (GC silinmez)", () => {
     const job = jobs.createJob({ locationId, requestDigest: "digest-gc-4" });
-    jobs.updateLifecycle(job.id, "COMPLETED", 0);
+    jobs.updateLifecycle(job.id, "RUNNING", 0);
     const checkpoints = new CheckpointStore(storage.db, dir);
     const leaseManager = new LeaseManager(storage.db);
     const lease = leaseManager.acquire(job.id, "owner-gc", 300000);
@@ -425,8 +425,14 @@ describe("FIN12: retention/GC iki asamali (14.4/PRO26)", () => {
       generation: 0,
       created_at: Date.now() - 10 * 24 * 60 * 60 * 1000,
     }, { owner_id: lease.lease.owner_id, fencing_token: lease.lease.fencing_token }, null);
+    jobs.updateLifecycle(job.id,"COMPLETED",jobs.getJob(job.id).row_version);
+    leaseManager.release(job.id,lease.lease.owner_id);
+    // A collectable control proves that the pinned assertion is not merely
+    // passing because the fixture still owns an active execution lease.
+    const control=insertArtifact(job.id,"temp","unpinned-control",-2*24*60*60*1000);
 
     const dryRun = gcDryRun(storage.db, defaultRetentionPolicy());
+    expect(dryRun.candidates.some(c=>c.artifact_id === control.id)).toBe(true);
     // checkpoint manifest artifact'i pinned:
     expect(dryRun.candidates.some((c) => c.kind === "checkpoint_manifest")).toBe(false);
   });

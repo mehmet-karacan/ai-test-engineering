@@ -5,7 +5,7 @@
  * yeniden kurulmus olarak assertion'a girer.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -22,6 +22,10 @@ import { LeaseManager } from "../../src/orchestration/lease-manager.js";
 import { NativeProcessRegistry } from "../../src/orchestration/native-process-registry.js";
 import { WindowsProcessSupervisor } from "../../src/runners/windows-process-supervisor.js";
 import type { Services } from "../../src/application/services.js";
+import { CheckpointStore, type CheckpointManifest } from "../../src/orchestration/checkpoint-store.js";
+import { SourceSnapshot, computeSourceIdentity } from "../../src/discovery/source-snapshot.js";
+import { handleTestCancel } from "../../src/application/job-tools.js";
+import { Storage } from "../../src/storage/storage.js";
 
 const FIXTURES = join(process.cwd(), "tests", "fixtures");
 const MODEL = "litellm/Qwen3.8-27B-IT";
@@ -36,13 +40,17 @@ interface PreparedJob {
 
 const digest = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
 
-async function prepareJob(coverageMode: "configured" | "cli" = "configured"): Promise<PreparedJob> {
+async function prepareJob(coverageMode: "configured" | "cli" = "configured", completePins = false): Promise<PreparedJob> {
   const dir = join(tmpdir(), `aitest-p05b-resume-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const projectDir = join(dir, "project");
   const artifactRoot = join(dir, "artifacts");
   const services = createDefaultServicesForTest(join(dir, "state.db"), artifactRoot);
   services.config.storage.root = artifactRoot;
   cpSync(join(FIXTURES, "sample-maven-project"), projectDir, { recursive: true });
+  if (completePins) {
+    mkdirSync(join(projectDir,".mvn"),{recursive:true});
+    for (const name of ["maven.config","jvm.config","extensions.xml"]) writeFileSync(join(projectDir,".mvn",name),"");
+  }
 
   let initialGoal: GoalContract | null = null;
   const dispatchSpy = vi.spyOn(JobDispatcher.prototype, "dispatch").mockImplementation(async (_job, goal) => {
@@ -143,6 +151,108 @@ describe("P05-B resume zinciri", () => {
     while (cleanups.length > 0) {
       cleanups.pop()!();
     }
+  });
+
+  it("real owned native version probes resume a paused checkpoint twice without resetting files or attempt budget", async () => {
+    const p=await prepareJob("cli",true);
+    cleanups.push(()=>{p.services.storage?.close();rmSync(join(p.artifactRoot,".."),{recursive:true,force:true});});
+    vi.spyOn(CustomerRunnerFactory.prototype,"assertNativeCustomerReady").mockImplementation(()=>undefined);
+    const store=new CheckpointStore(p.services.storage!.db,p.artifactRoot);
+    const identity=computeSourceIdentity(p.projectDir,new SourceSnapshot(p.projectDir).buildManifest());
+    const path="src/test/java/com/example/payment/AcceptedTest.java",content="package com.example.payment; class AcceptedTest {}\n";
+    const job=p.services.jobs!.getJob(p.jobId);
+    const manifest:CheckpointManifest={schema_version:1,job_id:job.id,project_id:"fixture",location_id:job.location_id,
+      target_ids:["PaymentService"],user_goal:"coverage:90",source_snapshot_id:job.source_snapshot_id,
+      head_commit:identity.head_commit,source_digest:identity.source_digest,dirty_digest:identity.dirty_digest,build_digest:identity.build_digest,
+      policy_digest:null,parser_version:"fixture",toolchain:{native_maven:new NativeToolchainRecordStore(p.services.storage!.db,p.artifactRoot).read(job.id).identity},
+      accepted_changes:[{path,sha256:digest(content),action:"create"}],parent_checkpoint_id:null,baseline_run_id:null,last_trusted_run_id:null,
+      active_phase:"generation",next_action:"candidate_accepted",remaining_budget:{max_candidate_iterations:3,max_repairs_per_candidate:1,no_progress_window:2,remaining_attempts:3},
+      requested_model:MODEL,resolved_model:MODEL,worker_session_ref:null,generation:2,created_at:Date.now()};
+    const blobs=store.publishAcceptedBlobs(job.id,[{path,sha256:digest(content),action:"create",content}]);
+    const checkpoint=store.publishCheckpoint(manifest,null,null,blobs).checkpoint_id;
+    const consumed=p.goal.budget.max_candidate_iterations-1;
+    for(let n=1;n<=consumed;n++) p.services.storage!.db.prepare("INSERT INTO candidate_iterations (id,job_id,attempt_ordinal,iteration_ordinal,changeset_hash,decision,created_at) VALUES (?,?,?,2,?,'rejected',?)").run(randomUUID(),job.id,n,digest(`rejected-${n}`),Date.now());
+    const dispatch=vi.spyOn(JobDispatcher.prototype,"dispatch").mockImplementation(async j=>({job_id:j.id,phases_completed:[],final_outcome:"BOUNDARY_ONLY",best_coverage:null,error:null}));
+    for (let n=1;n<=2;n++) {
+      p.services.jobs!.updateLifecycle(job.id,"PAUSED",p.services.jobs!.getJob(job.id).row_version);
+      const result=await handleTestResume({job_id:job.id,project_root:p.projectDir},p.services);
+      expect(result.resumed).toBe(true);
+      await vi.waitFor(()=>expect(dispatch).toHaveBeenCalledTimes(n),{timeout:65000});
+      const goal=dispatch.mock.calls[n-1]![1];
+      expect(goal.start_iteration).toBe(3);expect(goal.budget.max_candidate_iterations).toBe(3);
+      expect(goal.attempt_budget).toBe(1);
+      expect(readFileSync(join(p.artifactRoot,"jobs",job.id,"accepted",path),"utf8")).toBe(content);
+      expect(store.bestCheckpoint(job.id)).toBe(checkpoint);
+      expect(new LeaseManager(p.services.storage!.db).get(job.id).expires_at).toBeLessThanOrEqual(Date.now());
+      await handleTestCancel({job_id:job.id,reason:"pause"},p.services);
+    }
+  },150000);
+
+  it.each([false,true])("a newer pause invalidates an in-flight resume before RUNNING (native registration %s)",async registered=>{
+    const p=await prepareJob();cleanups.push(()=>{p.services.storage?.close();rmSync(join(p.artifactRoot,".."),{recursive:true,force:true});});
+    p.services.jobs!.updateLifecycle(p.jobId,"PAUSED",p.services.jobs!.getJob(p.jobId).row_version);
+    vi.spyOn(CustomerRunnerFactory.prototype,"assertNativeCustomerReady").mockImplementation(()=>undefined);
+    let finish!:()=>void,entered!:()=>void;
+    const started=new Promise<void>(resolve=>entered=resolve),pending=new Promise<void>(resolve=>finish=resolve);
+    vi.spyOn(NativeToolchainRecordStore.prototype,"verify").mockImplementationOnce(async()=>{
+      const lease=new LeaseManager(p.services.storage!.db).get(p.jobId);
+      const native=new NativeProcessRegistry(p.services.storage!.db,p.jobId,lease.owner_id,lease.fencing_token);
+      if(registered){native.beforeSpawn({executable:join(p.projectDir,"mvn.cmd"),cwd:p.projectDir,argv:["-v"],timeoutMs:30000,env:{}});native.afterSpawn(process.pid);}
+      entered();await pending;
+      if(registered)native.afterTerminal({status:"success",exitCode:0,stdout:"",stderr:"",stdoutTruncatedBytes:0,stderrTruncatedBytes:0,durationMs:1,ownedTreeDrained:true});
+      return {} as never;
+    });
+    vi.spyOn(JobDispatcher.prototype,"stopOwnedProcesses").mockImplementation(()=>undefined);
+    vi.spyOn(JobDispatcher.prototype,"waitForOwnedProcessCleanup").mockResolvedValue(undefined);
+    const dispatch=vi.spyOn(JobDispatcher.prototype,"resumeDispatch").mockResolvedValue({job_id:p.jobId,phases_completed:[],final_outcome:"BOUNDARY",best_coverage:null,error:null});
+    const resume=handleTestResume({job_id:p.jobId},p.services).catch(error=>error);
+    await started;const version=p.services.jobs!.getJob(p.jobId).row_version;
+    await handleTestCancel({job_id:p.jobId,reason:"pause"},p.services);
+    const stoppedVersion=p.services.jobs!.getJob(p.jobId).row_version;
+    finish();await resume;
+    expect(stoppedVersion).toBeGreaterThan(version);
+    expect(p.services.jobs!.getJob(p.jobId).lifecycle).toBe("PAUSED");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(["successor","old-dispatch"])("an old dispatch rejection cannot stop or fail successor owner %s after pause and resume",async successor=>{
+    const p=await prepareJob();cleanups.push(()=>{p.services.storage?.close();rmSync(join(p.artifactRoot,".."),{recursive:true,force:true});});
+    let fail!:(error:Error)=>void,entered!:()=>void;
+    const started=new Promise<void>(resolve=>entered=resolve);
+    vi.spyOn(CustomerRunnerFactory.prototype,"prepareNativeCustomerToolchain").mockImplementation(async()=>{entered();return await new Promise((_,reject)=>fail=reject);});
+    const dispatcher=new JobDispatcher({services:p.services,runnerKind:"windows_native",workerEnabled:false,workspaceRoot:p.artifactRoot});
+    const running=dispatcher.dispatch(p.services.jobs!.getJob(p.jobId),p.goal,p.projectDir,"old-dispatch");
+    await started;
+    vi.spyOn(JobDispatcher.prototype,"stopOwnedProcesses").mockImplementation(()=>undefined);
+    await handleTestCancel({job_id:p.jobId,reason:"pause"},p.services);
+    const next=new LeaseManager(p.services.storage!.db).acquire(p.jobId,successor,60000).lease;
+    p.services.jobs!.updateLifecycle(p.jobId,"RUNNING",p.services.jobs!.getJob(p.jobId).row_version);
+    const before=p.services.jobs!.getJob(p.jobId),events=p.services.jobs!.listEvents(p.jobId);
+    vi.mocked(JobDispatcher.prototype.stopOwnedProcesses).mockClear();fail(new Error("late old rejection"));await running;
+    expect(p.services.jobs!.getJob(p.jobId)).toEqual(before);
+    expect(p.services.jobs!.listEvents(p.jobId)).toEqual(events);
+    expect(JobDispatcher.prototype.stopOwnedProcesses).not.toHaveBeenCalled();
+    expect(new LeaseManager(p.services.storage!.db).get(p.jobId)).toMatchObject({owner_id:successor,fencing_token:next.fencing_token});
+    expect(new LeaseManager(p.services.storage!.db).get(p.jobId).expires_at).toBeGreaterThan(Date.now());
+  });
+
+  it("serializes dispatch failure writes against a real second connection trying to transfer ownership",async()=>{
+    const p=await prepareJob();cleanups.push(()=>{p.services.storage?.close();rmSync(join(p.artifactRoot,".."),{recursive:true,force:true});});
+    const second=new Storage({dbPath:join(p.artifactRoot,"..","state.db")});second.db.pragma("busy_timeout = 0");cleanups.push(()=>second.close());
+    let blocked=false;
+    const realAppend=p.services.jobs!.appendEvent.bind(p.services.jobs!);
+    vi.spyOn(p.services.jobs!,"appendEvent").mockImplementation(input=>{
+      if(input.event_type === "dispatch_failed") {
+        try {second.db.prepare("UPDATE job_leases SET owner_id = 'concurrent-successor', fencing_token = fencing_token + 1 WHERE job_id = ?").run(p.jobId);}
+        catch(error) {blocked=(error as {code?:string}).code === "SQLITE_BUSY";}
+      }
+      return realAppend(input);
+    });
+    vi.spyOn(CustomerRunnerFactory.prototype,"prepareNativeCustomerToolchain").mockRejectedValue(new Error("owned preflight failure"));
+    await new JobDispatcher({services:p.services,runnerKind:"windows_native",workerEnabled:false,workspaceRoot:p.artifactRoot})
+      .dispatch(p.services.jobs!.getJob(p.jobId),p.goal,p.projectDir,"owned-failure");
+    expect(blocked).toBe(true);
+    expect(new LeaseManager(p.services.storage!.db).get(p.jobId).owner_id).toBe("owned-failure");
   });
 
   it("missing frozen workspace identity blocks native resume before recovery mutation", async () => {

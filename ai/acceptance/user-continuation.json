@@ -1,0 +1,116 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "kind": "USER_CONTINUATION_AND_REPO_CONTEXT",
+  "date": "2026-10-24",
+  "base_commit": "e68286b73d94ea2807b44420e9bee028f2a56d1b",
+  "new_tests": 38,
+  "full_windows_suite": {
+    "files_passed": 138,
+    "files_skipped": 1,
+    "tests_passed": 1188,
+    "tests_skipped": 1,
+    "exit_code": 0,
+    "log_sha256": "59c2f541dbae0fac9b4e8ff109543c4efeac0a3ed17b63b35e239ef3809ec8c9"
+  },
+  "verification": {
+    "typecheck": "PASS",
+    "build": "PASS",
+    "lint_errors": 0,
+    "existing_lint_warnings": 89,
+    "local_release_gate": "LOCAL_PASS"
+  },
+  "review": {
+    "blocking_findings_remaining": 0,
+    "independently_passed_registry_tests": 27,
+    "brief_sha256": "d8d6e406eda424bc52cb47e2e1a1407b4ca2e323506bc95118758bfdefece120",
+    "resolved": "pending native cleanup fence; stale dispatcher successor writes; newer pause during resume; failure-write transaction and post-import stop ownership"
+  },
+  "real_opencode_routing": {
+    "model": "litellm/GLM-5.3-Flash-IT",
+    "sessions": 2,
+    "new_generation_calls": 0,
+    "job_unchanged": true,
+    "events_unchanged": true,
+    "job_count_unchanged": true,
+    "private_proof_sha256": "ab640fe680fa5e901d00c3eb0133fbbf94462f1a6bfefb3e9cc30bf7997f1498",
+    "scope": "synthetic terminal UNVERIFIED job; routing evidence, no test-generation success claim"
+  },
+  "paused_scan_mcp": {
+    "restart_tool": "project_coverage",
+    "state_unchanged": true,
+    "private_proof_sha256": "97c1422406b8245491d3118b78a01a117b2cf936e521e4e4146f931d2595316a"
+  },
+  "scenario_coverage": [
+    {
+      "scenario": "chat_stop",
+      "evidence_scope": "MCP state and guidance; manual OpenCode Stop button not clicked"
+    },
+    {
+      "scenario": "pause_resume",
+      "evidence_scope": "real native helper fixture version probes + checkpoint restore; dispatch boundary stub"
+    },
+    {
+      "scenario": "hard_kill",
+      "evidence_scope": "real MCP child PID killed and reopened; not active JVM/model kill"
+    },
+    {
+      "scenario": "new_chat",
+      "evidence_scope": "new SDK client/process reads persisted job targets/checkpoint"
+    },
+    {
+      "scenario": "repeated_resume",
+      "evidence_scope": "active lease blocked, terminal resume no-op, successor protected"
+    },
+    {
+      "scenario": "source_branch_pom_change",
+      "evidence_scope": "existing p03 identity/git/source/build tests; stale source not merged"
+    },
+    {
+      "scenario": "goal_model_change",
+      "evidence_scope": "resume rejects ignored target/coverage fields; immutable model conflict tests"
+    },
+    {
+      "scenario": "budget",
+      "evidence_scope": "accepted checkpoint and rejected DB attempts retained, two resumes leave one attempt"
+    },
+    {
+      "scenario": "network_timeout",
+      "evidence_scope": "existing worker/native timeout suites retained; no new live provider outage"
+    },
+    {
+      "scenario": "repo_change",
+      "evidence_scope": "five API context checks, real stdio different CWD, two live OpenCode routing sessions"
+    },
+    {
+      "scenario": "ambiguous_class",
+      "evidence_scope": "existing target resolution and multiple Maven-root tests retained"
+    },
+    {
+      "scenario": "late_response",
+      "evidence_scope": "late checkpoint rejected; old dispatch cannot fail/stop/release successor"
+    },
+    {
+      "scenario": "repeat_completed_apply",
+      "evidence_scope": "terminal no-op and wrong-checkout already-APPLIED claim rejected; PATCH_ONLY retained"
+    },
+    {
+      "scenario": "scan_interruption",
+      "evidence_scope": "real MCP paused scan requests new project_coverage; selection waits for test_start"
+    }
+  ],
+  "preserved_failure": {
+    "first_full_tests_passed": 1187,
+    "first_full_tests_failed": 1,
+    "first_full_tests_skipped": 1,
+    "test": "fin12-diagnostics-gc checkpoint pin fixture",
+    "reason": "fixture published a new checkpoint after COMPLETED; now publishes RUNNING then completes/releases lease, with collectable control",
+    "log_sha256": "8d5a02dbc96b3c29e6b35eacd2bdab7775ccabffe9f5572efc3812cca93bbfc1",
+    "aborted_fixture_typo_retry_sha256": "e6e0f4ce0eaf02425c776f962c160bb43e0a8f374666d53b6c76414799291c92"
+  },
+  "known_limits": [
+    "No customer generation/Maven/apply or CI/deploy",
+    "No manual OpenCode UI Stop or live long JVM/provider interruption claim",
+    "Configured legacy native missing-input pins remain typed fail-closed; generation worker permissions retained",
+    "Full391 release GO not claimed; local gate only"
+  ]
+}

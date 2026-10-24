@@ -26,6 +26,7 @@ import { JobDispatcher } from "../orchestration/job-dispatcher.js";
 import { resolveRunnerKindFromEnv } from "../runners/runner-factory.js";
 import type { ReportStatusFacts } from "../reporting/report-projection.js";
 import { verifyCurrentReport } from "./report-runtime.js";
+import { jobContext, nextJobAction, type JobContext } from "./job-context.js";
 import { buildJobContract, contractRef, type JobContract } from "../domain/job-contract.js";
 import { parseExactModelSpec } from "../workers/opencode/profile-reader.js";
 import { buildSecretFreeConfigSnapshot } from "../configuration/config-security.js";
@@ -73,6 +74,10 @@ export function assertJobProjectContext(job: JobRow, projectRoot: string | undef
   if (!locations.some(location => location.id === job.location_id)) {
     throw new AppError("INVALID_PARAMETERS", "job_id ile project_root ayni projeye ait olmali", {
       reason_code: "JOB_PROJECT_MISMATCH",
+      job_id: job.id,
+      job_project_root: new ProjectRepository(storage.db).getLocation(job.location_id).canonical_root,
+      requested_project_root: root,
+      required_action: "Kullanicinin hangi projedeki isi istedigini netlestir; secilen proje ve job_id ile tekrar cagir",
     });
   }
 }
@@ -603,6 +608,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
 }
 
 export interface TestStatusResult {
+  job_context: JobContext;
   job_id: string;
   lifecycle: string;
   phase: string;
@@ -659,6 +665,7 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
       && existsSync(join(reportRoot, "PUBLISHED")) ? publishedVerification.facts ?? null : null;
     return {
       job_id: job.id,
+      job_context: jobContext(services, job),
       lifecycle: job.lifecycle,
       phase: job.phase,
       outcome: job.outcome,
@@ -667,9 +674,7 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
       last_trusted_coverage: lastTrustedCoverage,
       report_facts: reportFacts,
       events: events.map((e) => ({ sequence: e.sequence, event_type: e.event_type, phase: e.phase })),
-      required_action: job.lifecycle === "WAITING_INPUT" && job.outcome === "COVERAGE_ANALYZED"
-        ? "test_result onerilerini kullaniciya sun; kullanici secince test_start(coverage_scan_id, targets) cagir"
-        : job.lifecycle === "INTERRUPTED" ? "test_resume ile devam edilebilir" : null,
+      required_action: nextJobAction(services, job),
     };
   }).immediate();
 }

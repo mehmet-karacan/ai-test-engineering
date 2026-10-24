@@ -92,6 +92,27 @@ describe("S02 durable native process registry", () => {
     expect(() => registry.beforeSpawn(plan)).toThrowError();
   });
 
+  it("accepts an exact proven terminal cleanup receipt after expiry without renewing execution authority", () => {
+    const lease=leases.acquire(jobId,"old",300000).lease;
+    const registry=new NativeProcessRegistry(storage.db,jobId,"old",lease.fencing_token);
+    registry.beforeSpawn(plan);registry.afterSpawn(4242);leases.release(jobId,"old");
+    expect(()=>registry.afterTerminal(done)).not.toThrow();
+    expect(leases.get(jobId).expires_at).toBeLessThanOrEqual(Date.now());
+    expect(()=>leases.assertFence(jobId,"old",lease.fencing_token)).toThrow();
+    expect(storage.db.prepare("SELECT cleanup_state FROM owned_processes WHERE job_id = ?").get(jobId)).toEqual({cleanup_state:"CLOSED"});
+    expect(leases.acquireNative(jobId,"new",300000).lease.fencing_token).toBe(2);
+  });
+
+  it("cannot use an expired terminal receipt to clear a successor's fence", () => {
+    const lease=leases.acquire(jobId,"old",300000).lease;
+    const registry=new NativeProcessRegistry(storage.db,jobId,"old",lease.fencing_token);
+    registry.beforeSpawn(plan);registry.afterSpawn(4242);
+    storage.db.prepare("UPDATE job_leases SET owner_id = 'successor', fencing_token = fencing_token + 1 WHERE job_id = ?").run(jobId);
+    expect(()=>registry.afterTerminal(done)).toThrow(/terminal fence changed/);
+    expect(storage.db.prepare("SELECT cleanup_state FROM owned_processes WHERE job_id = ?").get(jobId)).toEqual({cleanup_state:"ACTIVE"});
+    expect(leases.get(jobId).owner_id).toBe("successor");
+  });
+
   it("native takeover preserves an expired legacy process marker for explicit migration", () => {
     leases.acquire(jobId, "old", 300000, "dispatcher-123");
     leases.release(jobId, "old");

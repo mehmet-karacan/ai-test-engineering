@@ -48,7 +48,7 @@ export function createToolRegistry(services: Services): ToolRegistry {
 
   registry.register({
     name: "test_status",
-    description: "Job durumu, aktif asama, son dogrulanmis olcum ve gereken eylemi verir.",
+    description: "Job durumu, kayitli proje/hedef/checkpoint ve lease durumunu verir. Repo degisince project_root ile job_id baglamini dogrula. Sohbet yanitini durdurmak MCP isi icin pause degildir; once gercek durumu kontrol et.",
     inputSchema: TestStatusInputSchema,
     readOnly: true,
     idempotent: true,
@@ -70,7 +70,7 @@ export function createToolRegistry(services: Services): ToolRegistry {
 
   registry.register({
     name: "test_resume",
-    description: "Checkpoint/source/lease dogrulayarak mevcut isi surdurur; yeni job gibi davranmaz.",
+    description: "Checkpoint/source/lease dogrulayarak ayni isi kalan butceyle surdurur. project_root ile baglami dogrula; coklu is varsa job_id sec. Iptal/bitmis is yeniden baslamaz; kaynak/hedef/model degisirse yeni analiz/is gerekir. Aktif lease varken ikinci resume baslatma.",
     inputSchema: TestResumeInputSchema,
     readOnly: false,
     idempotent: true,
@@ -81,7 +81,7 @@ export function createToolRegistry(services: Services): ToolRegistry {
 
   registry.register({
     name: "test_cancel",
-    description: "Process tree'yi guvenle durdurur; artifact'leri silmez. Pause/devam edilebilir iptal ayrimi sonuc alaninda aciktir.",
+    description: "project_root ile dogru isi kontrol edip reason=pause ile duraklatir, reason=cancel ile iptal eder. Artifact'ler korunur. cleanup_pending varsa process temizligi dogrulanmamistir; aninda yeni is baslatma.",
     inputSchema: TestCancelInputSchema,
     readOnly: false,
     idempotent: true,
@@ -92,7 +92,7 @@ export function createToolRegistry(services: Services): ToolRegistry {
 
   registry.register({
     name: "test_result",
-    description: "DB ve artifact registry'den raporu dondurur; keyfi path okuma ya da yeni test kosma yapmaz.",
+    description: "DB/artifact registry'den gercek sonuc, job_context ve gereken eylemi verir. Yeni sohbet/repo icin project_root gonder; eski job ile yeni repo karismaz. Yeni test kosmaz; basari veya apply durumu varsayma.",
     inputSchema: TestResultInputSchema,
     readOnly: true,
     idempotent: true,
@@ -154,7 +154,7 @@ export function registerToolsOnServer(server: McpServer, registry: ToolRegistry)
 export function createMcpServer(services: Services, profileVersion?: string): McpServer {
   const server = new McpServer(
     { name: "ai-test-engineering", version: "0.1.0" },
-    { instructions: `AI test muhendisligi (profil ${profileVersion ?? "v1"}): yalniz test calisir, production degismez.` },
+    { instructions: `AI test muhendisligi (profil ${profileVersion ?? "v1"}): MCP isi TEST_ONLY'dir, production degismez. Ana sohbet modeli kullanici niyetini yorumlayabilir, inceleyebilir ve secenek sunabilir. job_context ve required_action kanitlarini kullan; repo degisince acik proje/job baglamini dogrula. Sohbeti durdurmak pause degildir; durum sorgula ve istenirse test_cancel(reason=pause) cagir. Kaynak/hedef/model degisince eski ise sessizce katma; uygun yeni analiz/is yolunu acikla.` },
   );
   const registry = createToolRegistry(services);
   registerToolsOnServer(server, registry);

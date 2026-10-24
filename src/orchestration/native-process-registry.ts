@@ -99,9 +99,12 @@ export class NativeProcessRegistry implements NativeProcessLifecycle {
     if (!current || result.ownedTreeDrained !== true ||
         (!provenNoChildPinFailure && !["success", "nonzero", "timeout", "cancelled"].includes(result.status))) return;
     const tx = this.db.transaction(() => {
+      // An expired exact owner may acknowledge a proven empty tree. This
+      // clears only its matching process record; it grants no new execution
+      // authority and cannot clear a successor's owner/token/attempt.
       const updated = this.db.prepare(
-        "UPDATE job_leases SET process_identity = NULL WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ? AND expires_at > ?",
-      ).run(this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current), Date.now());
+        "UPDATE job_leases SET process_identity = NULL WHERE job_id = ? AND owner_id = ? AND fencing_token = ? AND process_identity = ?",
+      ).run(this.jobId, this.ownerId, this.fencingToken, JSON.stringify(current));
       if (updated.changes !== 1) throw new AppError("BLOCKED_ISOLATION", "Native terminal fence changed", { reason_code: "NATIVE_PROCESS_UNRESOLVED" });
       const owned = this.db.prepare(
         "UPDATE owned_processes SET cleanup_state = 'CLOSED', closed_at = ?, row_version = row_version + 1 WHERE job_id = ? AND attempt_id = ? AND cleanup_state = 'ACTIVE'",

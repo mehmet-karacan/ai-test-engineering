@@ -60,11 +60,12 @@ export const TestResumeInputSchema = z.object({
   job_id: z.string().uuid().optional(),
   project_root: ProjectRootSchema.optional(),
   model_profile: z.string().min(1).max(128).optional(),
-});
+}).strict();
 export type TestResumeInput = z.infer<typeof TestResumeInputSchema>;
 
 export const TestCancelInputSchema = z.object({
   job_id: z.string().uuid(),
+  project_root: ProjectRootSchema.optional(),
   reason: z.enum(["pause", "cancel"]),
   reason_text: z.string().max(512).optional(),
 });
@@ -72,6 +73,7 @@ export type TestCancelInput = z.infer<typeof TestCancelInputSchema>;
 
 export const TestResultInputSchema = z.object({
   job_id: z.string().uuid(),
+  project_root: ProjectRootSchema.optional(),
   detail: z.enum(["summary", "detail"]).default("summary"),
   artifact_kind: z.enum(["report", "diff", "log", "coverage"]).optional(),
 });
@@ -104,6 +106,7 @@ export type ProjectQueryInput = z.infer<typeof ProjectQueryInputSchema>;
 
 export const TestApplyInputSchema = z.object({
   job_id: z.string().uuid(),
+  project_root: ProjectRootSchema.optional(),
   checkpoint_id: z.string().uuid(),
   patch_digest: z.string().length(64),
   target_workspace: z.string().min(1).max(1024),

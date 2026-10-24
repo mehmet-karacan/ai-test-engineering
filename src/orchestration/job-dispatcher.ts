@@ -170,6 +170,8 @@ function runOutputTruncation(run: RunResult): RunOutputTruncation | undefined {
 }
 
 export class JobDispatcher {
+  private readonly ownRunners = new Map<string,MavenRunner>();
+  private readonly ownWorkerServers = new Map<string,import("../workers/opencode/worker-server-manager.js").WorkerServerManager>();
   private readonly services: Services;
   private readonly runnerKind: RunnerKind;
   private readonly workerEnabled: boolean;
@@ -263,7 +265,7 @@ export class JobDispatcher {
         } catch (error) {
           leaseLost = true;
           process.stderr.write(`[aitest-dispatch] job ${job.id} heartbeat lease kaybi: ${String(error)}\n`);
-          this.stopOwnedProcesses(job.id);
+          this.stopDispatchProcesses(job.id);
         }
       }, Math.max(1000, Math.floor(leaseTtlMs / 3)));
       heartbeatTimer.unref?.();
@@ -304,6 +306,7 @@ export class JobDispatcher {
         const nativeOptions = { cwd: nativeRoot, env: effectiveMavenEnvironment(process.env, goal.native_execution ? { JAVA_HOME: goal.native_execution.java_home } : undefined), ...(goal.native_execution ? { nativeExecution: goal.native_execution } : {}), ...(goal.coverage_mode === "cli" ? { pinRoot: nativeRoot } : {}) };
         const nativeRegistry = new NativeProcessRegistry(storage.db, job.id, ownerId, acquired.lease.fencing_token);
         const toolchain = await runnerFactory.prepareNativeCustomerToolchain(nativeOptions, nativeRegistry);
+        assertLease();
         new NativeToolchainRecordStore(storage.db, this.workspaceRoot).pin(job.id, nativeOptions, toolchain);
         nativeToolchainIdentity = toolchain.identity;
         if (goal.native_execution?.run_skipped_unit_tests) jobs.appendEvent({ job_id: job.id, event_type: "unit_test_skip_override_enabled", phase: "preflight", origin: "JobDispatcher" });
@@ -314,7 +317,7 @@ export class JobDispatcher {
           assertLease();
           executionToolchains.pinOrVerify(job.id, verified);
         }, goal.native_execution ? { profile: goal.native_execution, ownedRoot: join(this.workspaceRoot, "jobs", job.id) } : undefined);
-        ownedRunners.set(job.id, hostRunner);
+        this.registerOwnedRunner(job.id, hostRunner);
         jobs.appendEvent({
           job_id: job.id,
           event_type: "native_toolchain_verified",
@@ -338,7 +341,7 @@ export class JobDispatcher {
       } else if (this.runnerKind === "host_dev_only") {
         // urun girisinden gelmemis, test-only composition ile ayrilmis kullanim: host runner yalniz burada
         hostRunner = new MavenRunner();
-        ownedRunners.set(job.id, hostRunner);
+        this.registerOwnedRunner(job.id, hostRunner);
       }
       phases.push("preflight_ok");
 
@@ -399,7 +402,7 @@ export class JobDispatcher {
         // Simdi baseline, loopRunner ile ayni DockerMavenRunner yolunu kullanir: cache bos ise provisioning
         // asamasi izinli mirror'a gider; execution run'i yine network:none ile sandbox'lanir.
         const baselineRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, baselineWorkspace, job.id, dockerImage);
-        ownedRunners.set(job.id, baselineRunner);
+        this.registerOwnedRunner(job.id, baselineRunner);
         const baseline = await runBaseline(projectRoot, baselineRunner, 600000, {
           workspace_root: baselineWorkspace,
           collect_coverage: true,
@@ -447,7 +450,7 @@ export class JobDispatcher {
         jobs.updateOutcome(job.id, "COVERAGE_ANALYZED", jobs.getJob(job.id).row_version);
         jobs.updateVerificationLevel(job.id, "FULL_DECLARED_SCOPE", jobs.getJob(job.id).row_version);
         jobs.updateLifecycle(job.id, analysis.recommendations.length > 0 ? "WAITING_INPUT" : "COMPLETED", jobs.getJob(job.id).row_version);
-        ownedRunners.delete(job.id);
+        this.forgetDispatchProcesses(job.id);
         return { job_id: job.id, phases_completed: [...phases, "coverage_proposals_ready"], final_outcome: "COVERAGE_ANALYZED", best_coverage: null, error: null };
       }
 
@@ -622,7 +625,7 @@ export class JobDispatcher {
       // normal giris docker-backed runner kullanir; candidate calistirmalari host Maven'e HIC gecmez.
       // W02/F08: accepted set + staging bilgisi loop'a verilir; aday ayri workspace'te calisir.
       const loopRunner = this.buildVerifiedLoopRunner(dockerRunner, hostRunner, projectRoot, job.id, dockerImage);
-      ownedRunners.set(job.id, loopRunner);
+      this.registerOwnedRunner(job.id, loopRunner);
       const loop = new CandidateLoop(loopRunner, { accepted_set_dir: acceptedDir, staging_root: stagingRoot });
       const loopResults = new Map<string, IterationLoopResult>();
       let remainingAttemptBudget = Math.max(0, goal.attempt_budget ?? goal.budget.max_candidate_iterations);
@@ -1140,11 +1143,18 @@ export class JobDispatcher {
       phases.push(`report_${exportResult.verification_passed ? "ok" : "inconsistent"}`);
       phases.push("completed");
 
-      ownedRunners.delete(job.id);
-      ownedWorkerServers.delete(job.id);
+      this.forgetDispatchProcesses(job.id);
 
       return { job_id: job.id, phases_completed: phases, final_outcome: reportOutcome, best_coverage: bestCoverage, error: null };
     } catch (error) {
+      return storage.db.transaction(() => {
+      // An old async invocation must not stop job-scoped successor resources
+      // or rewrite its state after pause/resume transferred ownership.
+      try { assertLease(); } catch {
+        this.stopDispatchProcesses(job.id);
+        return {job_id:job.id,phases_completed:phases,final_outcome:jobs.getJob(job.id).lifecycle,
+          best_coverage:null,error:"STALE_DISPATCH: sahiplik degisti; yeni ise dokunulmadi"};
+      }
       let evidenceError: unknown = null;
       try {
         const terminal = terminalOutputFromError(error, this.workspaceRoot);
@@ -1162,8 +1172,9 @@ export class JobDispatcher {
       process.stderr.write(`[aitest-dispatch] job ${job.id} FAILED (${phases.join(",")}): ${message}\n`);
       // Hata/cancel yolunda bu dispatch'in owned kaynaklari kapanir; yeni
       // dispatcher instance'i da module registry uzerinden ayni job'u bulur.
-      this.stopOwnedProcesses(job.id);
+      this.stopDispatchProcesses(job.id);
       const currentJob = jobs.getJob(job.id);
+      assertLease();
       if (goal.coverage_scan && currentJob.lifecycle !== "CANCELLED" && currentJob.lifecycle !== "PAUSED") {
         try {
           writeProjectCoverageFailure(this.services, { job_id: job.id, status: "FAILED", code: failure instanceof AppError ? failure.code : "INTERNAL_ERROR", reason: message,
@@ -1209,12 +1220,18 @@ export class JobDispatcher {
         return { job_id: job.id, phases_completed: phases, final_outcome: currentJob.lifecycle, best_coverage: null, error: message };
       }
       return { job_id: job.id, phases_completed: phases, final_outcome: "FAILED", best_coverage: null, error: message };
+      }).immediate();
     } finally {
       // Baseline/typed blocker yollarinda try icinden erken return olabilir;
       // heartbeat ve lease her cikis yolunda mutlaka temizlenmelidir.
       stopHeartbeat();
       if (leaseAcquired) {
-        leases.release(job.id, ownerId);
+        storage.db.transaction(() => {
+          const current=storage.db.prepare<[string],{owner_id:string;fencing_token:number;process_identity:string|null}>(
+            "SELECT owner_id, fencing_token, process_identity FROM job_leases WHERE job_id = ?").get(job.id);
+          if (current?.owner_id === ownerId && current.fencing_token === activeLease?.fencing_token &&
+              (this.runnerKind !== "windows_native" || current.process_identity === null)) leases.release(job.id,ownerId);
+        }).immediate();
       }
     }
   }
@@ -1817,7 +1834,25 @@ export class JobDispatcher {
    * W05/F11/N37: job'un owned worker server'i kayit altina alinir; cancel/pause'da sonlandirilir.
    */
   registerOwnedWorkerServer(jobId: string, manager: import("../workers/opencode/worker-server-manager.js").WorkerServerManager): void {
+    this.ownWorkerServers.set(jobId,manager);
     ownedWorkerServers.set(jobId, manager);
+  }
+
+  private registerOwnedRunner(jobId:string, runner:MavenRunner):void {
+    this.ownRunners.set(jobId,runner);ownedRunners.set(jobId,runner);
+  }
+
+  private forgetDispatchProcesses(jobId:string):void {
+    if (ownedRunners.get(jobId) === this.ownRunners.get(jobId)) ownedRunners.delete(jobId);
+    if (ownedWorkerServers.get(jobId) === this.ownWorkerServers.get(jobId)) ownedWorkerServers.delete(jobId);
+    this.ownRunners.delete(jobId);this.ownWorkerServers.delete(jobId);
+  }
+
+  private stopDispatchProcesses(jobId:string):void {
+    this.ownRunners.get(jobId)?.stopAll();
+    const server=this.ownWorkerServers.get(jobId);
+    if(server) void server.stopOwnedServer().catch(()=>undefined);
+    this.forgetDispatchProcesses(jobId);
   }
 
   private async generateCandidateFromWorker(

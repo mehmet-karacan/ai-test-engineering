@@ -23,6 +23,7 @@ import { readProjectCoverageResult, readProjectCoverageFailure, type ProjectCove
 import type { ReportStatusFacts } from "../reporting/report-projection.js";
 import { verifyCurrentReport } from "./report-runtime.js";
 import { MAX_WORKER_REQUEST_TIMEOUT_MS } from "../workers/opencode/worker-config.js";
+import { jobContext, nextJobAction, hasPendingCleanup, type JobContext } from "./job-context.js";
 
 function nativePathIdentity(value: string): string {
   const normalized = resolve(value).replace(/\\/gu, "/").replace(/\/+$/u, "");
@@ -30,6 +31,8 @@ function nativePathIdentity(value: string): string {
 }
 
 export interface TestResumeResult {
+  job_context?: JobContext;
+  required_action?: string;
   job_id: string;
   lifecycle: string;
   phase: string;
@@ -63,6 +66,7 @@ export async function handleTestResume(input: unknown, services: Services): Prom
         phase: resumable[0]!.phase,
         resumed: false,
         candidates: resumable.map((j) => ({ job_id: j.id, phase: j.phase, created_at: j.created_at })),
+        required_action: "Birden fazla uygun is var; job_id secimini kullanici niyetine gore netlestir",
         message: `Birden fazla uygun is var (${resumable.length}); job_id ile netlestirin`,
       };
     }
@@ -72,11 +76,19 @@ export async function handleTestResume(input: unknown, services: Services): Prom
   }
 
   assertJobProjectContext(job, parsed.project_root, storage);
-  if (job.lifecycle === "COMPLETED") {
-    return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false, message: "Is zaten tamamlandi; yeniden devam etmez" };
+  if (job.lifecycle === "COMPLETED" || job.lifecycle === "CANCELLED") {
+    return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false,
+      job_context: jobContext(services, job), required_action: nextJobAction(services, job),
+      message: `Is ${job.lifecycle}; yeniden devam etmez` };
+  }
+  if (jobContext(services,job).execution_state === "CLEANUP_PENDING") {
+    return {job_id:job.id,lifecycle:job.lifecycle,phase:job.phase,resumed:false,
+      job_context:jobContext(services,job),required_action:nextJobAction(services,job),
+      message:"Owned process temizligi dogrulanmadan is devam ettirilemez"};
   }
   if (jobs.listEvents(job.id, undefined, 50).some((event) => event.event_type === "project_coverage_requested")) {
     return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false,
+      job_context: jobContext(services, job), required_action: nextJobAction(services, job),
       message: job.lifecycle === "WAITING_INPUT" ? "Onerilerden sinif secip test_start ile baslatin" : "Coverage taramasini yeni idempotency_key ile project_coverage uzerinden yeniden baslatin" };
   }
 
@@ -159,10 +171,15 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     }
   });
 
-  return { job_id: job.id, lifecycle: "RUNNING", phase: job.phase, resumed: true, message: "Is ayni job'dan devam ediyor (dispatcher baslatildi)" };
+  return { job_id: job.id, lifecycle: "RUNNING", phase: job.phase, resumed: true,
+    job_context: jobContext(services, jobs.getJob(job.id)), required_action: "test_status ile ayni isi izle",
+    message: "Is ayni job'dan devam ediyor (dispatcher baslatildi)" };
 }
 
 export interface TestCancelResult {
+  job_context?: JobContext;
+  required_action?: string;
+  cleanup_pending?: boolean;
   job_id: string;
   lifecycle: string;
   paused: boolean;
@@ -173,12 +190,39 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
   const parsed = TestCancelInputSchema.parse(input);
   const { jobs } = requireStorage(services);
   const job = jobs.getJob(parsed.job_id);
+  assertJobProjectContext(job, parsed.project_root, requireStorage(services).storage);
 
-  if (job.lifecycle === "COMPLETED" || job.lifecycle === "CANCELLED") {
-    return { job_id: job.id, lifecycle: job.lifecycle, paused: false, message: `Is zaten ${job.lifecycle}` };
+  const db = requireStorage(services).storage.db;
+  const pendingProcesses = () => db.prepare<[string],{n:number}>("SELECT COUNT(*) n FROM owned_processes WHERE job_id = ? AND cleanup_state <> 'CLOSED'").get(job.id)!.n > 0;
+  const present = (current: JobRow, cleanupPending = false): TestCancelResult => ({
+    job_id: current.id, lifecycle: current.lifecycle, paused: current.lifecycle === "PAUSED",
+    job_context: jobContext(services,current), cleanup_pending: cleanupPending,
+    required_action: cleanupPending ? "test_status ile durumu incele; owned process temizligi dogrulanmadan devam etme" : nextJobAction(services,current),
+    message: cleanupPending ? "Durdurma durumu kaydedildi; process temizligi henuz dogrulanamadi" : `Is ${current.lifecycle}; artifact'ler korunur`,
+  });
+  const hadPendingCleanup=hasPendingCleanup(services,job.id);
+  if ((job.lifecycle === "COMPLETED" || job.lifecycle === "CANCELLED" || job.lifecycle === "FAILED") && !hadPendingCleanup) {
+    return present(job);
+  }
+  const activeOwner = db.prepare("SELECT 1 FROM job_leases WHERE job_id = ? AND expires_at > ?").get(job.id,Date.now());
+  if (job.lifecycle === "PAUSED" && parsed.reason === "pause" && !hadPendingCleanup && !activeOwner) {
+    return present(job);
   }
 
   const leases = new LeaseManager((requireStorage(services)).storage.db);
+  // Publish stop intent before aborting. The worker's late failure must see it.
+  const stop = db.transaction(() => {
+    const current = jobs.getJob(job.id);
+    const lease = db.prepare<[string],{owner_id:string;fencing_token:number}>("SELECT owner_id, fencing_token FROM job_leases WHERE job_id = ?").get(job.id);
+    const state = ["COMPLETED","CANCELLED","FAILED"].includes(current.lifecycle) ? current.lifecycle : parsed.reason === "pause" ? "PAUSED" : "CANCELLED";
+    // A resume may own a preflight lease while still PAUSED. A newer stop
+    // invalidates its original row-version CAS even before native spawn.
+    const invalidateResume = current.lifecycle === "PAUSED" && lease !== undefined;
+    const updated = current.lifecycle === state && !invalidateResume ? current : jobs.updateLifecycle(job.id,state,current.row_version);
+    if (current.lifecycle !== state) jobs.appendEvent({job_id:job.id,event_type:parsed.reason === "pause" ? "test_paused" : "test_cancelled",phase:current.phase,origin:"handleTestCancel"});
+    return { lease, updated };
+  }).immediate();
+  let cleanupFailed = false;
 
   // W05/F11/N37: cancel/pause - owned worker/Maven process'leri sonlandirilir (yalniz owned kaynaklar).
   // Gec cevap CANCELLED/PAUSED'i COMPLETED'e ceviremez; late-write fencing lease fence ile korunur.
@@ -190,9 +234,16 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
       workerEnabled: process.env["AITEST_WORKER_ENABLED"] === "1",
       workspaceRoot: services.config.storage.root,
     });
-    dispatcher.stopOwnedProcesses(job.id);
-    await dispatcher.waitForOwnedProcessCleanup(job.id);
+    const stopped=db.transaction(() => {
+      const currentLease=db.prepare<[string],{owner_id:string;fencing_token:number}>("SELECT owner_id, fencing_token FROM job_leases WHERE job_id = ?").get(job.id);
+      const sameOwner=stop.lease ? currentLease?.owner_id === stop.lease.owner_id && currentLease.fencing_token === stop.lease.fencing_token : currentLease === undefined;
+      if (!sameOwner) return false;
+      dispatcher.stopOwnedProcesses(job.id);
+      return true;
+    }).immediate();
+    if (stopped) await dispatcher.waitForOwnedProcessCleanup(job.id);
   } catch (stopError) {
+    cleanupFailed = true;
     // owned process sonlandirma hatasi lifecycle akisini bozmaz; kayitli olur
     process.stderr.write(`[aitest-cancel] job ${job.id} owned process stop hatasi: ${String(stopError)}\n`);
   }
@@ -201,36 +252,22 @@ export async function handleTestCancel(input: unknown, services: Services): Prom
   // lease. Keep that lease until the cleanup fence completes; releasing it
   // first makes a legitimate helper terminal receipt look unresolved and
   // permanently blocks resume.
-  const latest = jobs.getJob(job.id);
-  if (latest.lifecycle === "COMPLETED" || latest.lifecycle === "CANCELLED" || latest.lifecycle === "FAILED") {
-    try {
-      const currentLease = leases.get(job.id);
-      leases.release(job.id, currentLease.owner_id);
-    } catch {
-      // lease already gone or terminal cleanup owns the release
+  return db.transaction(() => {
+    const latest = jobs.getJob(job.id);
+    const currentLease = db.prepare<[string],{owner_id:string;fencing_token:number}>("SELECT owner_id, fencing_token FROM job_leases WHERE job_id = ?").get(job.id);
+    const sameOwner=stop.lease ? currentLease?.owner_id === stop.lease.owner_id && currentLease.fencing_token === stop.lease.fencing_token : currentLease === undefined;
+    const cleanupPending=cleanupFailed || pendingProcesses();
+    if (sameOwner) {
+      if (cleanupPending || hadPendingCleanup) jobs.appendEvent({job_id:job.id,event_type:cleanupPending ? "job_cleanup_pending" : "job_cleanup_completed",phase:latest.phase,origin:"handleTestCancel"});
+      if (stop.lease && !cleanupPending) leases.release(job.id,stop.lease.owner_id);
     }
-    return { job_id: latest.id, lifecycle: latest.lifecycle, paused: false, message: `Is zaten ${latest.lifecycle}` };
-  }
-  const nextLifecycle = parsed.reason === "pause" ? "PAUSED" : "CANCELLED";
-  const updated = jobs.updateLifecycle(latest.id, nextLifecycle, latest.row_version);
-  jobs.appendEvent({
-    job_id: latest.id,
-    event_type: parsed.reason === "pause" ? "test_paused" : "test_cancelled",
-    phase: latest.phase,
-    origin: "handleTestCancel",
-  });
-  try {
-    const currentLease = leases.get(job.id);
-    leases.release(job.id, currentLease.owner_id);
-  } catch {
-    // lease already gone or terminal cleanup owns the release
-  }
-  return parsed.reason === "pause"
-    ? { job_id: updated.id, lifecycle: "PAUSED", paused: true, message: "Is duraklatildi; owned process'ler sonlandirildi; test_resume ile devam edilebilir" }
-    : { job_id: updated.id, lifecycle: "CANCELLED", paused: false, message: "Iptal edildi; owned process'ler sonlandirildi; artifact'ler korunur" };
+    return present(latest,sameOwner ? cleanupPending : jobContext(services,latest).execution_state === "CLEANUP_PENDING");
+  }).immediate();
 }
 
 export interface TestResultResult {
+  job_context: JobContext;
+  required_action: string;
   coverage_scan_failure?: ProjectCoverageFailure;
   coverage_scan?: Omit<ProjectCoverageResult, "classes"> & { class_count: number };
   job_id: string;
@@ -250,6 +287,7 @@ export async function handleTestResult(input: unknown, services: Services): Prom
   const { storage, jobs } = requireStorage(services);
   return storage.db.transaction(() => {
     let job = jobs.getJob(parsed.job_id);
+    assertJobProjectContext(job, parsed.project_root, storage);
     const publishedVerification = verifyCurrentReport(services, job.id);
     job = publishedVerification.job ?? job;
 
@@ -291,6 +329,7 @@ export async function handleTestResult(input: unknown, services: Services): Prom
 
     return {
       job_id: job.id,
+      job_context: jobContext(services, job), required_action: nextJobAction(services, job),
       outcome: job.outcome,
       lifecycle: job.lifecycle,
       verification_level: job.verification_level,
@@ -321,6 +360,8 @@ export async function handleTestApply(input: unknown, services: Services): Promi
   const parsed = TestApplyInputSchema.parse(input);
   const { jobs } = requireStorage(services);
   const job = jobs.getJob(parsed.job_id);
+  assertJobProjectContext(job, parsed.project_root, requireStorage(services).storage);
+  assertJobProjectContext(job, parsed.target_workspace, requireStorage(services).storage);
 
   if (job.apply_state === "APPLIED") {
     return { job_id: job.id, state: "APPLIED", operation_id: null, applied_paths: [], conflicts: [], message: "Is zaten uygulanmis; idempotent" };

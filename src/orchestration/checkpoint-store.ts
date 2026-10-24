@@ -278,10 +278,16 @@ export class CheckpointStore {
       }
 
       const jobRow = this.db
-        .prepare<[string], { best_checkpoint_id: string | null; row_version: number }>(
-          "SELECT best_checkpoint_id, row_version FROM test_jobs WHERE id = ?",
+        .prepare<[string], { best_checkpoint_id: string | null; row_version: number; lifecycle: string }>(
+          "SELECT best_checkpoint_id, row_version, lifecycle FROM test_jobs WHERE id = ?",
         )
         .get(manifest.job_id);
+
+      // Cleanup retains the old process fence until its terminal receipt.
+      // That fence must not authorize a late acceptance after stop intent.
+      if (lease && jobRow && ["PAUSED", "CANCELLED", "COMPLETED", "FAILED"].includes(jobRow.lifecycle)) {
+        throw new AppError("POLICY_VIOLATION", "JOB_STOPPED: durmus is yeni checkpoint kabul edemez", { reason_code: "JOB_STOPPED" });
+      }
 
       // P03/R06: parent checkpoint var ise ayni job'a ait olmalidir.
       if (manifest.parent_checkpoint_id) {
