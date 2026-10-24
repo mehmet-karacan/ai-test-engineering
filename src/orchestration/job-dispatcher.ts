@@ -9,7 +9,7 @@ import { effectiveMavenEnvironment } from "../runners/native-toolchain.js";
  * discovery -> baseline -> analiz/plan -> aday -> run -> dogrulama -> accepted checkpoint -> rapor.
  * MCP handler yalniz use-case'e yonlendirir; event loop'u bloke etmez.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
@@ -1285,24 +1285,36 @@ export class JobDispatcher {
     };
     const contractHash = createHash("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
     const contractJson = JSON.stringify({ schema_version: 1, ...stable, contract_hash: contractHash }, null, 2);
+    const contractBytes = Buffer.from(contractJson, "utf8");
+    const artifactHash = createHash("sha256").update(contractBytes).digest("hex");
     const contractArtifactId = randomUUID();
     const contractBlobDir = join(this.workspaceRoot, "jobs", job.id, "contract");
     mkdirSync(contractBlobDir, { recursive: true });
     const contractPath = join(contractBlobDir, contractHash);
-    if (!existsSync(contractPath)) {
-      const tmpPath = `${contractPath}.tmp-${process.pid}-${Date.now()}`;
-      writeFileSync(tmpPath, contractJson, "utf8");
-      renameSync(tmpPath, contractPath);
+    try {
+      writeFileSync(contractPath, contractBytes, { flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
-    const existing = db
-      .prepare<[string, string], { id: string }>("SELECT id FROM artifacts WHERE sha256 = ? AND relative_store_path = ?")
-      .get(contractHash, `jobs/${job.id}/contract/${contractHash}`);
-    if (existing) {
-      return { contractArtifactId: existing.id, contractHash };
+    const info = lstatSync(contractPath);
+    if (!info.isFile() || info.isSymbolicLink() || !readFileSync(contractPath).equals(contractBytes)) {
+      throw new AppError("STORAGE_ERROR", "Immutable job contract dosyasi beklenen byte'larla eslesmiyor", { reason_code: "CONTRACT_ARTIFACT_INVALID" });
+    }
+    const relativePath = `jobs/${job.id}/contract/${contractHash}`;
+    const existing = db.prepare<[string], { id: string; job_id: string; kind: string; sha256: string; bytes: number; status: string }>(
+      "SELECT id,job_id,kind,sha256,bytes,status FROM artifacts WHERE relative_store_path = ?",
+    ).all(relativePath);
+    if (existing.length) {
+      const row = existing[0]!;
+      if (existing.length !== 1 || row.job_id !== job.id || row.kind !== "job_contract" || row.sha256 !== artifactHash
+        || row.bytes !== contractBytes.length || row.status !== "READY") {
+        throw new AppError("STORAGE_ERROR", "Immutable job contract artifact metadata gecersiz", { reason_code: "CONTRACT_ARTIFACT_INVALID" });
+      }
+      return { contractArtifactId: row.id, contractHash };
     }
     db.prepare(
       "INSERT INTO artifacts (id, job_id, kind, relative_store_path, sha256, bytes, schema_version, sensitivity, status, pin_reason, created_at) VALUES (?, ?, ?, ?, ?, ?, '1', 'internal', 'READY', 'job_contract', ?)",
-    ).run(contractArtifactId, job.id, "job_contract", `jobs/${job.id}/contract/${contractHash}`, contractHash, Buffer.byteLength(contractJson, "utf8"), Date.now());
+    ).run(contractArtifactId, job.id, "job_contract", relativePath, artifactHash, contractBytes.length, Date.now());
     return { contractArtifactId, contractHash };
   }
 
