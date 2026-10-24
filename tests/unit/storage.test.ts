@@ -25,10 +25,10 @@ describe("SQLite storage kalicilik", () => {
     }
   });
 
-  it("migration sonrasi schema version 9 olmali (S03 FileId makbuzlari dahil)", () => {
+  it("migration sonrasi schema version 10 olmali (S03 FileId makbuzlari dahil)", () => {
     const storage = new Storage({ dbPath });
     storage.migrate();
-    expect(storage.schemaVersion()).toBe(9);
+    expect(storage.schemaVersion()).toBe(10);
     storage.close();
   });
 

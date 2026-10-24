@@ -68,18 +68,18 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v9 migrate)", (
     }
   });
 
-  it("upgrade: guncel binary v1 DB'yi v9'a migrate eder; trusted job verisi korunur", () => {
+  it("upgrade: guncel binary v1 DB'yi v10'a migrate eder; trusted job verisi korunur", () => {
     const upgraded = new Storage({ dbPath });
     upgraded.migrate();
     try {
-      expect(upgraded.schemaVersion()).toBe(9);
+      expect(upgraded.schemaVersion()).toBe(10);
       const integrity = upgraded.db.pragma("integrity_check", { simple: true });
       expect(integrity).toBe("ok");
       const versions = upgraded.db
         .prepare<[], { version: number }>("SELECT version FROM schema_migrations ORDER BY version")
         .all()
       .map((r) => r.version);
-      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
       const jobRow = upgraded.db.prepare<[], { lifecycle: string }>("SELECT lifecycle FROM test_jobs WHERE id = ?").get(jobId);
       expect(jobRow?.lifecycle).toBe("COMPLETED");
       // v4 frozen targets tablosu v1 verisiyle ayni DB'de olusur; eski job'a dokunulmemis:
@@ -93,7 +93,7 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v9 migrate)", (
   });
 
   it("rollback korumasi: migration kaydi bozulmus (downgrade benzeri) DB fail-closed acilmaz", () => {
-    // Once guncel binary ile v9'a cik:
+    // Once guncel binary ile v10'a cik:
     const upgraded = new Storage({ dbPath });
     upgraded.migrate();
     upgraded.close();
@@ -114,7 +114,7 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v9 migrate)", (
 
   it("rollback: upgrade sonrasi online backup restore ile trusted veri geri gelir", async () => {
     const { createBackup, restoreBackup, verifyBackup } = await import("../../src/storage/lifecycle-ops.js");
-    // Upgrade: v1 -> v9:
+    // Upgrade: v1 -> v10:
     const upgraded = new Storage({ dbPath });
     upgraded.migrate();
     // Trusted job'u artifact'e bagla (backup pin zinciri READY blob ister):
@@ -139,7 +139,7 @@ describe("P08/PP44: surum-atlayi upgrade (v1 DB -> guncel binary v9 migrate)", (
     await restoreBackup(backup.backup_dir, restoredDb, restoredArtifacts);
     const restored = new Storage({ dbPath: restoredDb });
     try {
-      expect(restored.schemaVersion()).toBe(9);
+      expect(restored.schemaVersion()).toBe(10);
       const jobRow = restored.db.prepare<[], { lifecycle: string }>("SELECT lifecycle FROM test_jobs WHERE id = ?").get(jobId);
       expect(jobRow?.lifecycle).toBe("COMPLETED");
       const restoredBlob = restored.db
