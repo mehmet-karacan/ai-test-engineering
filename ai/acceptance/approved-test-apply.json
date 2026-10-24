@@ -75,5 +75,20 @@
     "CI remains disabled; customer checkout was not modified in this development run; G3 deployment separate",
     "Full suite was on 6303f15; subsequent narrow artifact-hash delta passed 33 related tests and fresh end-to-end canary; no claim of a second full suite",
     "99.99 percent reliability is not measured or guaranteed"
-  ]
+  ],
+  "installation": {
+    "main_verified_commit": "a420ef6aab3bb3c6106a015ffd9cdbd6b306ed79",
+    "main_remote_match": "PASS",
+    "build": "PASS",
+    "native_provenance": "PASS",
+    "local_gate": "PASS",
+    "verify_install": "PASS",
+    "registered_mcp_tools": 9,
+    "schema": 10,
+    "existing_job_project_artifact_event_approval_rows_preserved": true,
+    "config_bytes_unchanged": true,
+    "skill": "Updated after exact prior package byte proof; previous manifest/skill backed up",
+    "proof_sha256": "074787397984d80dc2e05001269a939d99ae17bdd0ff7b2bb1632fd91e87ac88",
+    "scope": "Local installation and Git delivery; G3 production deployment remains separate"
+  }
 }

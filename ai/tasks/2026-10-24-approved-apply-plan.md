@@ -35,14 +35,14 @@ Approval agent owns tool schemas/MCP context wiring/SDK consent tests.
 Report agent owns reporting + report-runtime + OpenCode skill/docs tests.
 Isolated native managed worktrees, short hashed brief, no concurrent writers.
 
-- [ ] Task1 native create-only publisher: strict paths/allowed roots,
+- [x] Task1 native create-only publisher: strict paths/allowed roots,
   unique operation journal fsync, native FileId+sha receipts before publish,
   NO_REPLACE publish, idempotent recovery/rollback only owned unchanged files.
   API constructor({workspace,storeRoot,operationId,allowedTestRoots});
   prepare(files:{path,sha256,content:Buffer}[]):void; publish():string[];
   rollback():{removed_paths:string[],conflicts:{path,reason}[]}; verify():boolean.
   Reload constructor+prepare can reconcile its own journal; no fake receipt.
-- [ ] Task2 approval: test_apply mode preview|apply|recover (defaultpreview),
+- [x] Task2 approval: test_apply mode preview|apply|recover (defaultpreview),
   job_id required; project_root/target_workspace/checkpoint_id/patch_digest/
   approval_reference optional legacy hints. Digest hex validated. Approval
   text not trusted. ToolContext has ApplyCallContext members. MCP transport
@@ -51,7 +51,7 @@ Isolated native managed worktrees, short hashed brief, no concurrent writers.
   registerTools handler forwards context to handleTestApply third arg. No
   server-global user callback or approve RPC. Agent can extend wrapper
   signature/context forwarding only; root replaces application body later.
-- [ ] Task3 root durable coordinator: migrate10 apply_operations, immutable
+- [x] Task3 root durable coordinator: migrate10 apply_operations, immutable
   plan+one active op/job, job lease fence/native process ownership, bounded
   background execution/status/result, strict checkpoint/source/batch hash,
   repeated calls no duplicate run. Original baseline test inventory retained;
@@ -60,7 +60,7 @@ Isolated native managed worktrees, short hashed brief, no concurrent writers.
   present; failures/timeouts/cancel roll back own files, uncertain cleanup
   RECOVERY_REQUIRED. Process crash cannot silently APPLIED. Recovery only
   rolls back an old op and requires a new approval for retry.
-- [ ] Task4 report/application result: optional ReportData.application:
+- [x] Task4 report/application result: optional ReportData.application:
   ApplyOperationView, truth from root repository read helper only. Planned
   src/storage/apply-operation-repository.ts getApplyOperationView(db,jobId)
   returns latest view/null (old DB table absent returnsnull). application
@@ -69,7 +69,7 @@ Isolated native managed worktrees, short hashed brief, no concurrent writers.
   sync includes application facts and checks manifest+hash. Old exports
   without application stay valid. OpenCode skill uses preview/form/apply/
   polling; terminal APPLIED only after tests pass. Update docs PATCH_ONLY.
-- [ ] Task5 integrate, edge/negative native/SDK tests, real synthetic
+- [x] Task5 integrate, edge/negative native/SDK tests, real synthetic
   approval->original new test->full Maven/JaCoCo proof (no manual model test
   completion claim), browser/report/old job compatibility, full Windowssuite,
   independent review, checkpoints/acceptance, identity/ASCII/privacy/staged

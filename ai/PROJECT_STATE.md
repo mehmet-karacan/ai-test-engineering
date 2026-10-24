@@ -1,3 +1,12 @@
+## 2026-10-25 Onayli uygulama yerel teslimi tamamlandi
+
+Maina420ef6 build/helper/localgate/verify-install ve actual9toolstdio PASS;
+schema10, eski is/proje/artifact/event/onay satirlari korundu. Configler
+byte-ayni; kurulu skill guncellendi. Maina420ef6 push/remoteHEAD eslesti.
+Kabul ai/acceptance/approved-test-apply.json; handoff2026-10-25-approved-test-apply.
+Son metadata commit'i urun kodunu degistirmez; finalbuild/smoke/push teslimde
+tekrarlanir. CI kapali/G3 yayin yok. Yarim ek gecici kopyayi silme automatic
+policy tarafindan reddedildi; kopya ve dogrulanmis yedekler korunuyor.
 ## 2026-10-25 Kullanici onayli test uygulama
 
 Kullanici istegiyle test_apply PATCH_ONLY stub'i tamamlandi. Preview somut

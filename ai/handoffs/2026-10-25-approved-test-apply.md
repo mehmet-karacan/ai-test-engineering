@@ -43,3 +43,16 @@ schema10+eski verinin korunmasi/9tool smoke, final localgate ve remoteHEAD.
 Asil proje testlerini calistirma kapsami FULL_PROJECT_SNAPSHOT'tir. Runtime
 ve asil proje ayni Windowsvolume olmalidir. Bos yeni dizinler kalabilir.
 99.99 veya tum projelerde %80 garantisi yok; CI kapali/G3 kullanicida.
+
+## Teslim kontrolu
+
+Maina420ef6 FF/build/native provenance/localgate/verify-install PASS.
+Actual registered MCP9tool, test_apply defaultpreview/recover schema PASS.
+Primary schema10; backup ile job/project/location/artifact/event/approval
+satirlari birebir ayni, integrityok/FK0. Kullanici config ve OpenCode config
+byte-ayni. Kurulu eski skill'in8349paketine BYTEEXACT oldugu kanitlandi;
+missing/stale ownership once backup ve manifestCAS ile duzeltildi, standart
+skill upgrade tamamlandi. Installer'in custom-skill korumasi gevsetilmedi.
+Maina420ef6 remoteHEAD ile ayni olarak pushlandi. Son metadata kaydi yeni
+urun kodu eklemez; build/localgate/stdio ve final remoteHEAD teslim turn'unde
+tekrar dogrulanir. Feature kapsaminda bekleyen is yok.
