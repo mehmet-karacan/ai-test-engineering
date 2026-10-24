@@ -4,16 +4,21 @@ import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, wri
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AppError } from "../domain/errors.js";
 import { PolicyGuard, type AllowedTestRoot } from "../policies/policy-guard.js";
-import { copyWindowsOwnedFile, deleteWindowsOwnedFile, inspectWindowsPath, packagedWindowsFileHelper,
+import { appendWindowsOwnedFile, copyWindowsOwnedFile, createWindowsOwnedEmptyFile, deleteWindowsOwnedFile, inspectWindowsPath, packagedWindowsFileHelper,
   renameWindowsOwnedFile, verifyWindowsOwnedFile, type WindowsCopyResult, type WindowsFileIdentity,
   type WindowsFileHelperSpec } from "../discovery/windows-file-bridge.js";
 
-interface PublisherOptions { workspace: string; storeRoot: string; operationId: string; allowedTestRoots: AllowedTestRoot[] }
+interface PublisherOptions {
+  workspace: string; storeRoot: string; operationId: string; allowedTestRoots: AllowedTestRoot[];
+  /** Fence-only assertion/renewal. It also runs during rollback; do not reject cancellation here. */
+  beforeMutation?: () => void;
+}
 interface PublisherFile { path: string; sha256: string; content: Buffer }
 interface PlannedFile { path: string; sha256: string; bytes: number; stage: string }
 interface PublisherPlan {
-  version: 1; operationId: string; workspace: string; workspaceId: WindowsFileIdentity;
+  version: 2; operationId: string; workspace: string; workspaceId: WindowsFileIdentity;
   storeRoot: string; storeId: WindowsFileIdentity; operationDirectoryId: WindowsFileIdentity | null;
+  journalIdentity: WindowsCopyResult | null;
   allowedTestRoots: AllowedTestRoot[]; files: PlannedFile[];
 }
 interface JournalRecord { plan: string; index: number; action: "copying" | "receipt" | "published" | "rollback"; receipt?: WindowsCopyResult }
@@ -48,6 +53,8 @@ export class WorkspaceTestPublisher {
   private planHash = "";
   private states: FileState[] = [];
   private rolledBack = false;
+  private journalReceipt: WindowsCopyResult | undefined;
+  private journalContent = Buffer.alloc(0);
 
   constructor(options: PublisherOptions) {
     if (!isAbsolute(options.workspace) || !isAbsolute(options.storeRoot) ||
@@ -94,33 +101,36 @@ export class WorkspaceTestPublisher {
     }
     // Existing runtime directories must themselves pass native no-follow inspection.
     this.assertExistingAncestors(this.options.storeRoot);
-    mkdirSync(this.options.storeRoot, { recursive: true });
+    this.options.beforeMutation?.(); mkdirSync(this.options.storeRoot, { recursive: true });
     const storeId = inspectWindowsPath(this.helper, this.options.storeRoot);
     if (storeId.volumeSerial !== this.workspaceId.volumeSerial) fail("Store and workspace must share a volume");
-    const plan: PublisherPlan = { version: 1, operationId: this.options.operationId, workspace: this.options.workspace,
+    const plan: PublisherPlan = { version: 2, operationId: this.options.operationId, workspace: this.options.workspace,
       workspaceId: this.workspaceId, storeRoot: this.options.storeRoot, storeId,
-      operationDirectoryId: null, allowedTestRoots: this.options.allowedTestRoots, files: planned };
+      operationDirectoryId: null, journalIdentity: null, allowedTestRoots: this.options.allowedTestRoots, files: planned };
     const planPath = join(this.operationRoot, "plan.json");
     if (present(planPath)) {
       this.assertExistingAncestors(planPath);
       const previous = JSON.parse(readFileSync(planPath, "utf8")) as PublisherPlan;
       // Directory byte/link counts may change; only native volume/FileId identifies the root.
-      if (!sameId(previous.workspaceId, this.workspaceId) || !sameId(previous.storeId, storeId) ||
+      if (previous.version !== 2 || !previous.journalIdentity || !sameId(previous.workspaceId, this.workspaceId) || !sameId(previous.storeId, storeId) ||
           !previous.operationDirectoryId || !sameId(previous.operationDirectoryId, inspectWindowsPath(this.helper, this.operationRoot))) fail("Publisher root identity changed");
       plan.workspaceId = previous.workspaceId; plan.storeId = previous.storeId; plan.operationDirectoryId = previous.operationDirectoryId;
+      plan.journalIdentity = previous.journalIdentity;
       if (JSON.stringify(previous) !== JSON.stringify(plan)) fail("Operation plan is immutable");
       this.plan = plan; this.planHash = digest(JSON.stringify(plan)); this.loadJournal(); return;
     }
     this.states = planned.map(() => ({ copying: false, published: false }));
     for (const file of planned) { this.assertTargetAncestors(file.path); if (present(join(this.options.workspace, file.path)) || present(join(this.options.workspace, file.stage))) fail("Existing test or stage is not owned by this operation"); }
     this.assertExistingAncestors(this.operationRoot);
-    mkdirSync(this.operationRoot, { recursive: true }); plan.operationDirectoryId = inspectWindowsPath(this.helper, this.operationRoot);
+    this.options.beforeMutation?.(); mkdirSync(this.operationRoot, { recursive: true }); plan.operationDirectoryId = inspectWindowsPath(this.helper, this.operationRoot);
     // A preexisting journal without its plan is never adopted.
     if (present(join(this.operationRoot, "journal.jsonl"))) fail("Orphan publisher journal");
-    durableCreate(planPath, JSON.stringify(plan));
-    durableCreate(join(this.operationRoot, "journal.jsonl"), "");
+    this.options.beforeMutation?.();
+    plan.journalIdentity = createWindowsOwnedEmptyFile(this.helper, this.operationRoot, "journal.jsonl", plan.operationDirectoryId);
+    this.journalReceipt = plan.journalIdentity;
+    this.options.beforeMutation?.(); durableCreate(planPath, JSON.stringify(plan));
     this.plan = plan; this.planHash = digest(JSON.stringify(plan));
-    files.forEach((file, index) => durableCreate(join(this.operationRoot, `source-${index}`), file.content));
+    files.forEach((file, index) => { this.options.beforeMutation?.(); durableCreate(join(this.operationRoot, `source-${index}`), file.content); });
   }
 
   publish(): string[] {
@@ -139,13 +149,14 @@ export class WorkspaceTestPublisher {
         if (state.copying) fail("Interrupted stage has no durable ownership receipt");
         verifyWindowsOwnedFile(this.helper, this.operationRoot, `source-${index}`, sourceRootId, file);
         this.record({ index, action: "copying" });
+        this.options.beforeMutation?.();
         const receipt = copyWindowsOwnedFile(this.helper, this.operationRoot, `source-${index}`, plan.workspace,
           file.stage, sourceRootId, plan.workspaceId);
         this.record({ index, action: "receipt", receipt });
         state.receipt = receipt;
         if (receipt.sha256 !== file.sha256 || receipt.bytes !== file.bytes) fail("Copied test differs from immutable plan");
       }
-      renameWindowsOwnedFile(this.helper, plan.workspace, file.stage, file.path, plan.workspaceId, state.receipt);
+      this.options.beforeMutation?.(); renameWindowsOwnedFile(this.helper, plan.workspace, file.stage, file.path, plan.workspaceId, state.receipt);
       this.record({ index, action: "published" }); state.published = true;
     }
     if (!this.verify()) fail("Published batch verification failed");
@@ -164,7 +175,7 @@ export class WorkspaceTestPublisher {
           this.assertTargetAncestors(path);
           if (!present(join(plan.workspace, path))) continue;
           if (!state.receipt) fail("File has no durable ownership receipt");
-          deleteWindowsOwnedFile(this.helper, plan.workspace, path, plan.workspaceId, state.receipt);
+          this.options.beforeMutation?.(); deleteWindowsOwnedFile(this.helper, plan.workspace, path, plan.workspaceId, state.receipt);
           if (path === file.path) result.removed_paths.push(path);
         } catch (error) { result.conflicts.push({ path, reason: error instanceof Error ? error.message : String(error) }); }
       }
@@ -216,10 +227,15 @@ export class WorkspaceTestPublisher {
     if (deepest !== this.options.workspace) inspectWindowsPath(this.helper, deepest);
   }
   private record(record: Omit<JournalRecord, "plan">): void {
-    const fd = openSync(join(this.operationRoot, "journal.jsonl"), "a");
-    try { const bytes = Buffer.from(JSON.stringify({ ...record, plan: this.planHash }) + "\n"); let offset = 0;
-      while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset); fsyncSync(fd);
-    } finally { closeSync(fd); }
+    const plan = this.requirePlan();
+    if (!plan.operationDirectoryId || !this.journalReceipt) fail("Journal ownership receipt is missing");
+    const line = JSON.stringify({ ...record, plan: this.planHash });
+    const expectedContent = Buffer.concat([this.journalContent, Buffer.from(line + "\n")]);
+    this.options.beforeMutation?.();
+    const receipt = appendWindowsOwnedFile(this.helper, this.operationRoot, "journal.jsonl", plan.operationDirectoryId,
+      this.journalReceipt, line);
+    if (receipt.sha256 !== digest(expectedContent)) fail("Journal append hash differs from expected record");
+    this.journalReceipt = receipt; this.journalContent = expectedContent;
   }
   private loadJournal(): void {
     const plan = this.requirePlan();
@@ -227,7 +243,12 @@ export class WorkspaceTestPublisher {
         !sameId(inspectWindowsPath(this.helper, plan.storeRoot), plan.storeId) || !plan.operationDirectoryId ||
         !sameId(inspectWindowsPath(this.helper, this.operationRoot), plan.operationDirectoryId)) fail("Bound publisher root identity changed");
     if (readFileSync(join(this.operationRoot, "plan.json"), "utf8") !== JSON.stringify(plan)) fail("Immutable publisher plan changed");
-    const data = readFileSync(join(this.operationRoot, "journal.jsonl"), "utf8");
+    if (!plan.journalIdentity) fail("Immutable journal identity is missing");
+    const bytes = readFileSync(join(this.operationRoot, "journal.jsonl"));
+    this.journalReceipt = verifyWindowsOwnedFile(this.helper, this.operationRoot, "journal.jsonl", plan.operationDirectoryId,
+      { bytes: bytes.length, sha256: digest(bytes), identity: plan.journalIdentity });
+    this.journalContent = bytes;
+    const data = bytes.toString("utf8");
     if (data && !data.endsWith("\n")) fail("Publisher journal is incomplete; ownership is uncertain");
     this.states = plan.files.map(() => ({ copying: false, published: false })); this.rolledBack = false;
     for (const line of data.split("\n").filter(Boolean)) {

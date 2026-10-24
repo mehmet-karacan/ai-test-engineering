@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WorkspaceTestPublisher } from "../../src/orchestration/workspace-test-publisher.js";
 import { registerWindowsNativeTestLock } from "../support/windows-native-test-lock.js";
+import { createWindowsOwnedEmptyFile, inspectWindowsPath, packagedWindowsFileHelper, verifyWindowsOwnedFile } from "../../src/discovery/windows-file-bridge.js";
 
 registerWindowsNativeTestLock("workspace-test-publisher");
 
@@ -186,6 +187,81 @@ describe.skipIf(process.platform !== "win32")("native create-only test publisher
     writeFileSync(journal, readFileSync(journal, "utf8") + "{");
     const reload = new WorkspaceTestPublisher(f.options); expect(() => reload.prepare([file()])).toThrow();
     expect(readFileSync(join(f.workspace, file().path))).toEqual(file().content);
+  });
+  it.each(["hardlink", "replacement"])("preserves outside file when journal leaf is substituted with %s", kind => {
+    const f = fixture(); f.publisher.prepare([file()]);
+    const journal = join(f.storeRoot, "apply-publisher/operation-1/journal.jsonl");
+    const outside = join(f.root, "outside.txt"); writeFileSync(outside, "\n");
+    renameSync(journal, join(f.root, "original-journal"));
+    if (kind === "hardlink") linkSync(outside, journal);
+    else writeFileSync(journal, "\n");
+    expect(() => f.publisher.publish()).toThrow();
+    expect(readFileSync(outside, "utf8")).toBe("\n");
+    expect(readFileSync(journal, "utf8")).toBe("\n");
+    expect(existsSync(join(f.workspace, file().path))).toBe(false);
+  });
+  it.each([["hardlink", "publish"], ["reparse", "publish"], ["hardlink", "rollback"], ["reparse", "rollback"]])("rejects journal %s swap between verification and native append during %s", (kind, phase) => {
+    const f = fixture(); let armed = false; let swapped = false;
+    const journal = join(f.storeRoot, "apply-publisher/operation-1/journal.jsonl");
+    const outside = join(f.root, "outside.txt"); writeFileSync(outside, "\n");
+    const publisher = new WorkspaceTestPublisher({ ...f.options, beforeMutation: () => {
+      if (!armed || swapped) return; swapped = true;
+      renameSync(journal, join(f.root, "original-journal"));
+      if (kind === "hardlink") linkSync(outside, journal);
+      else {
+        // File symlinks require an unavailable host privilege; a junction exercises
+        // the same native no-follow reparse gate without changing host policy.
+        symlinkSync(f.root, journal, "junction");
+      }
+    } });
+    publisher.prepare([file()]); if (phase === "rollback") publisher.publish(); armed = true;
+    expect(() => phase === "rollback" ? publisher.rollback() : publisher.publish()).toThrow(); expect(swapped).toBe(true);
+    expect(readFileSync(outside, "utf8")).toBe("\n");
+    expect(existsSync(join(f.workspace, file().path))).toBe(phase === "rollback");
+  });
+  it("pins native journal against rename and rejects a new hardlink after APPEND_READY", async () => {
+    const f = fixture(); const helper = packagedWindowsFileHelper();
+    const root = inspectWindowsPath(helper, f.storeRoot); const journal = join(f.storeRoot, "held.jsonl"); writeFileSync(journal, "");
+    const receipt = verifyWindowsOwnedFile(helper, f.storeRoot, "held.jsonl", root, { bytes: 0, sha256: createHash("sha256").update("").digest("hex") });
+    const child = spawn(helper.path, ["append-owned", f.storeRoot, "held.jsonl", root.volumeSerial, root.fileId,
+      receipt.volumeSerial, receipt.fileId, "0", receipt.sha256], { windowsHide: true, stdio: "pipe" });
+    const closed = new Promise<number | null>((resolve, reject) => { child.once("close", resolve); child.once("error", reject); });
+    let stdout = "";
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const readyTimer = setTimeout(() => reject(new Error("Native append READY timeout")), 10000);
+        child.stdout.on("data", data => { stdout += String(data); if (stdout.includes("APPEND_READY")) { clearTimeout(readyTimer); resolve(); } });
+        child.once("exit", () => { clearTimeout(readyTimer); if (!stdout.includes("APPEND_READY")) reject(new Error("Native append rejected before READY")); });
+        child.once("error", reject);
+      });
+      expect(() => renameSync(journal, join(f.storeRoot, "renamed.jsonl"))).toThrow();
+      const alias = join(f.storeRoot, "linked.jsonl"); linkSync(journal, alias);
+      child.stdin.end('{"event":"native-held"}\n'); expect(await closed).toBe(2);
+      expect(readFileSync(journal, "utf8")).toBe(""); expect(readFileSync(alias, "utf8")).toBe("");
+      expect(stdout).not.toContain("OK\t");
+    } finally { child.stdin.end(); if (child.exitCode === null) child.kill(); await closed; }
+  });
+  it("exclusively creates and captures journal identity without replacing a leaf", () => {
+    const f = fixture(); const helper = packagedWindowsFileHelper(); const root = inspectWindowsPath(helper, f.storeRoot);
+    const journal = join(f.storeRoot, "created.jsonl"); const outside = join(f.root, "outside.txt"); writeFileSync(outside, "user data");
+    linkSync(outside, journal);
+    expect(() => createWindowsOwnedEmptyFile(helper, f.storeRoot, "created.jsonl", root)).toThrow();
+    expect(readFileSync(outside, "utf8")).toBe("user data");
+    rmSync(journal);
+    const receipt = createWindowsOwnedEmptyFile(helper, f.storeRoot, "created.jsonl", root);
+    expect(receipt.bytes).toBe(0); expect(receipt.linkCount).toBe(1);
+    expect(receipt.fileId).toBe(inspectWindowsPath(helper, journal).fileId);
+    expect(() => createWindowsOwnedEmptyFile(helper, f.storeRoot, "created.jsonl", root)).toThrow();
+  });
+  it("asserts the mutation fence before copy and allows later owned rollback", () => {
+    const f = fixture(); let mutations = 0; let armed = false;
+    const publisher = new WorkspaceTestPublisher({ ...f.options, beforeMutation: () => {
+      if (armed && ++mutations === 2) throw new Error("LEASE_LOST");
+    } });
+    publisher.prepare([file()]); armed = true;
+    expect(() => publisher.publish()).toThrow("LEASE_LOST");
+    expect(readdirSync(join(f.workspace, "src/test/java"))).toEqual([]);
+    armed = false; expect(publisher.rollback()).toEqual({ removed_paths: [], conflicts: [] });
   });
   it("handles a late collision without deleting the colliding file", () => {
     const f = fixture(); const one = file(); const two = file("src/test/java/Second.java");

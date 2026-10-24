@@ -86,3 +86,58 @@ Uc regresyon (normal child, '..runtime' child, ancestor-store operation
 overlap): RED2/3 -> GREEN3/3. Son tum odak28/28PASS (23.86s), tsc --noEmit
 PASS, scoped eslint0error0warningPASS. Staged diff/ASCII/gizlilik ve local
 Git kimligi yeniden kontrol edildi. Tam suite/nihai review koordinatorde.
+
+## Bagimsiz review P2 native journal sahipligi
+
+Inceleme Node openSync('a') append'in degistirilmis hardlink leaf'i takip
+ederek dis dosyaya yazabildigini buldu. Regresyon RED: mevcut bos journal
+yerine disaridaki tek newline byte'i olan dosyanin hardlink'i veya normal
+replacement kondugunda publish basarili oldu. File symlink denemesi EPERM
+verdi; host policy/privilege degistirilmedi ve SKIP eklenmedi. Reparse
+regresyonu gercek junction leaf ile native append sinirinda dogrulandi.
+
+Native create-empty-owned artik journal'i exclusive olusturur, flush eder
+ve ayni held handle'in FileId+SHA receipt'ini dondurur. Publisher immutable
+plan v2 bu ilk journal kimligini kaydeder. Ilk dosya olusturma ile FileId
+yakalama arasinda Node/native path adoption boslugu kalmaz. Onceki v1
+publisher planlari otomatik guvenilir sayilmaz; fail closed recovery gerekir.
+
+Native append-owned, op-root FileId'sini ve tum path komponentlerini
+no-follow acar. Journal single-link, beklenen ilk FileId, onceki byte boyutu
+ve SHA ile eslesmelidir. Held handle write/delete paylasmaz; JSON satirini
+stdin'den aldiktan sonra snapshot'i tekrar kontrol eder, ayni handle'a
+append + FlushFileBuffers yapar ve yeni FileId/size/SHA receipt'i dondurur.
+Publisher Node append'i tamamen kaldirir. Reload, okunan bytes+SHA'yi ilk
+journal FileId'siyle native dogrulamadan journal kayitlarini isleme almaz.
+
+beforeMutation?:()=>void callback'i her publisher mutation sinirinda
+cagrilir; callback planda serialize edilmez. Coordinator bu hook'a yalniz
+lease fence kontrolu/yenileme vermelidir. Cancel kontrolu bu hook'ta olmaz;
+rollback ayni fence ile cleanup yapabilir. Fence kaybi ilk native copy'den
+once durdurulur; sonraki yetkili rollback regresyonu vardir.
+
+Native Windows karakterizasyonu: held handle journal rename'i engeller,
+ama yeni hardlink olusumunu engellemez. READY sonrasi eklenen hardlink
+ikinci single-link snapshot'inda append yapilmadan reddedilir; journal ve
+alias bos kalir. FileId leaf substitution guvencesi bu farki gizlemez;
+ayni owned dosyaya snapshot/write arasinda yeni alias eklenmesini OS
+sandbox garantisi olarak sunmaz. Node/native host hesabi sandbox degildir.
+
+Production ve AITEST_FAULT_FIXTURE C++ binary'leri mevcut /W4 /WX build
+komutuyla yeniden derlendi; iki provenance manifesti guncellendi. Mevcut
+native komut/protokoller degismedi. Source SHA a6bfeb0b5898addb0f4a288d96f5144ea23f6d07bcecd21d0d78ab1773a91099;
+production binary SHA 07fd3d36856f91659ceeab8a66107a3b3a6926528c66b46c256fb6ff5e4d1adf;
+fault binary SHA d62a0e17ebef5e2514da720975359f07fc5f6616a40e3d2298eff5ca2a26f6a6.
+
+Ilk held-READY testinde CRLF yanlis eslesmesi 30s timeout verdi; fixture
+duzeltildi. Sonraki yeni-hardlink olusmasini engellenmis sayan test varsayimi
+RED oldu; yukaridaki gercek Windows davranisiyla duzeltildi. Bu test
+kosulari ve ara kaynak degisimi anindaki provenance mismatch son kanit
+yerine kullanilmadi. Tam suite kullanici/root kapsami nedeniyle kosulmadi.
+
+Son verification: ayni kaynakta 5 dosya/71 test PASS, exit0 (37 publisher,
+34 mevcut native bridge/restore; 48.77s). Typecheck PASS, scoped lint
+0error/0warning PASS, production helper verifier PASS ve fault fixture
+provenance PASS. Native source/binary/manifest ve yalniz izinli test/build
+artifact'leri staged kontrolunden gecti; local Git kimligi, ASCII ve secret
+taramasi tekrarlandi. Publish/push veya customer/model/Maven kosusu yok.

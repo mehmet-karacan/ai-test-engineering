@@ -1426,6 +1426,55 @@ int verifyOwned(int argc, wchar_t** argv) {
   return 0;
 }
 
+// Capture the journal's original FileId on the same handle that exclusively creates it.
+int createEmptyOwned(int argc, wchar_t** argv) {
+  if (argc != 6) return 2;
+  std::vector<Handle> root, file;
+  Identity rootId, fileId;
+  unsigned char digest[32]{};
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root) ||
+      !identity(root.back().value, rootId) || !expectedRoot(rootId, argv[4], argv[5]) ||
+      !openRelative(root.back().value, argv[3], false,
+        GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES, file, true, FILE_SHARE_READ) ||
+      !FlushFileBuffers(file.back().value) || !snapshot(file.back().value, fileId, digest) || fileId.bytes != 0) return 2;
+  printIdentity(fileId, digest);
+  return 0;
+}
+
+// Journal append is authorized by immutable FileId and exact previous bytes.
+// The single held no-follow handle prevents leaf swaps between check and write.
+int appendOwned(int argc, wchar_t** argv) {
+  if (argc != 10) return 2;
+  std::vector<Handle> root, file;
+  Identity rootId, before;
+  unsigned char beforeDigest[32]{};
+  if (!openAbsolute(argv[2], true, FILE_READ_ATTRIBUTES, root) ||
+      !identity(root.back().value, rootId) || !expectedRoot(rootId, argv[4], argv[5]) ||
+      !openRelative(root.back().value, argv[3], false,
+        GENERIC_READ | FILE_APPEND_DATA | FILE_READ_ATTRIBUTES, file, false, FILE_SHARE_READ) ||
+      !snapshot(file.back().value, before, beforeDigest) ||
+      !expectedRoot(before, argv[6], argv[7]) || ascii(argv[8]) != std::to_string(before.bytes) ||
+      ascii(argv[9]) != ascii(digestHex(beforeDigest))) return 2;
+  std::puts("APPEND_READY"); std::fflush(stdout);
+  std::string line;
+  if (!readSessionLine(line) || line.size() < 2 || line.front() != '{' || line.back() != '}' ||
+      line.find('\r') != std::string::npos) return 2;
+  line.push_back('\n');
+  Identity current;
+  unsigned char currentDigest[32]{};
+  if (!snapshot(file.back().value, current, currentDigest) || !sameIdentity(before, current) ||
+      std::memcmp(beforeDigest, currentDigest, 32) != 0) return 2;
+  DWORD written = 0;
+  if (!WriteFile(file.back().value, line.data(), static_cast<DWORD>(line.size()), &written, nullptr) ||
+      written != line.size() || !FlushFileBuffers(file.back().value)) return 2;
+  Identity after;
+  unsigned char afterDigest[32]{};
+  if (!snapshot(file.back().value, after, afterDigest) || !sameFileId(before, after) ||
+      after.bytes != before.bytes + line.size()) return 2;
+  printIdentity(after, afterDigest);
+  return 0;
+}
+
 bool decodeUtf16Hex(const std::string& encoded, std::wstring& path) {
   if (encoded.empty() || encoded.size() % 4 != 0 || encoded.size() > 32768) return false;
   path.clear();
@@ -1580,6 +1629,8 @@ int wmain(int argc, wchar_t** argv) {
   if (argc > 1 && wcscmp(argv[1], L"copy-stage-session") == 0) return copyStageSession(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"rename-owned") == 0) return renameOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"verify-owned") == 0) return verifyOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"append-owned") == 0) return appendOwned(argc, argv);
+  if (argc > 1 && wcscmp(argv[1], L"create-empty-owned") == 0) return createEmptyOwned(argc, argv);
   if (argc > 1 && wcscmp(argv[1], L"blob-verify-session") == 0) return blobVerifySession(argc, argv);
   if (argc == 7 && wcscmp(argv[1], L"rename-probe") == 0) {
     if (!safeComponent(argv[3]) || !safeComponent(argv[4]) || wcscmp(argv[3], argv[4]) == 0) return 2;

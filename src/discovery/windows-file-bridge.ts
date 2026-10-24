@@ -182,3 +182,30 @@ export function verifyWindowsOwnedFile(helper: WindowsFileHelperSpec, root: stri
   }
   return { ...identity(fields), sha256: fields[5]! };
 }
+
+/** Exclusive empty-file creation and identity capture use the same held native handle. */
+export function createWindowsOwnedEmptyFile(helper: WindowsFileHelperSpec, root: string, relativePath: string,
+  expectedRoot: WindowsFileIdentity): WindowsCopyResult {
+  const fields = invoke(helper, ["create-empty-owned", root, relativePath, expectedRoot.volumeSerial, expectedRoot.fileId]);
+  if (fields.length !== 6 || fields[5] !== createHash("sha256").update("").digest("hex") || fields[4] !== "0" || fields[3] !== "1") {
+    throw new AppError("BLOCKED_ISOLATION", "Invalid owned empty create receipt", { reason_code: "WINDOWS_OWNED_CREATE_UNCERTAIN" });
+  }
+  return { ...identity(fields), sha256: fields[5]! };
+}
+
+/** Append one JSON journal line while a no-follow, single-link native handle pins the leaf. */
+export function appendWindowsOwnedFile(helper: WindowsFileHelperSpec, root: string, relativePath: string,
+  expectedRoot: WindowsFileIdentity, expectedFile: WindowsCopyResult, jsonLine: string): WindowsCopyResult {
+  if (!jsonLine.startsWith("{") || !jsonLine.endsWith("}") || /[\r\n]/u.test(jsonLine) ||
+      Buffer.byteLength(jsonLine, "utf8") > 1024 * 1024 || expectedFile.linkCount !== 1) {
+    throw new AppError("BLOCKED_ISOLATION", "Invalid owned journal append", { reason_code: "WINDOWS_OWNED_APPEND_INVALID" });
+  }
+  const result = invokeOwned(helper, ["append-owned", root, relativePath,
+    expectedRoot.volumeSerial, expectedRoot.fileId, expectedFile.volumeSerial, expectedFile.fileId,
+    String(expectedFile.bytes), expectedFile.sha256], "APPEND_READY", jsonLine);
+  if (result.volumeSerial !== expectedFile.volumeSerial || result.fileId !== expectedFile.fileId || result.linkCount !== 1 ||
+      result.bytes !== expectedFile.bytes + Buffer.byteLength(jsonLine, "utf8") + 1) {
+    throw new AppError("BLOCKED_ISOLATION", "Owned append identity changed", { reason_code: "WINDOWS_OWNED_APPEND_UNCERTAIN" });
+  }
+  return result;
+}
