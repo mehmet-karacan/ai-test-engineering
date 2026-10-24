@@ -91,9 +91,10 @@ export async function mainInstall() {
   step("Bolum 5: OpenCode MCP baglantisi (minimal merge, ezme yok)");
   const opencodeConfigPath = resolveOpenCodeConfigPath();
   const entryJs = join(repoRoot, "dist", "mcp", "stdio-entry.js");
-  const serverEnvironment = { AITEST_CONFIG: configPath, AITEST_DB_PATH: dbPath };
-  if (process.env["AITEST_WORKER_ENABLED"] !== undefined) serverEnvironment.AITEST_WORKER_ENABLED = process.env["AITEST_WORKER_ENABLED"];
-  if (process.env["AITEST_PROFILE"] !== undefined) serverEnvironment.AITEST_PROFILE = process.env["AITEST_PROFILE"];
+  const { buildRegisteredMcpEnvironment } = await import("../dist/configuration/readiness.js");
+  const { readConfigFile } = await import("../dist/configuration/config-merge.js");
+  const previousOpenCode = existsSync(opencodeConfigPath) ? readConfigFile(opencodeConfigPath).parsed : {};
+  const serverEnvironment = buildRegisteredMcpEnvironment(previousOpenCode?.mcp?.["ai-test-engineering"]?.environment, process.env, configPath, dbPath);
   const serverEntry = {
     type: "local",
     command: ["node", entryJs],
@@ -169,13 +170,13 @@ export async function mainInstall() {
   const { evaluateWorkerReadiness } = await import("../dist/configuration/readiness.js");
   let opencodeConfig = {};
   try {
-    opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf8").replace(/^\uFEFF/, ""));
+    opencodeConfig = readConfigFile(opencodeConfigPath).parsed;
   } catch {
     // Config merge daha once basarili olsa da readiness, bozuk provider
     // config'ini sessizce READY saymaz.
   }
   const selectedModelReadiness = evaluateWorkerReadiness({
-    enabled: process.env["AITEST_WORKER_ENABLED"] === "1",
+    enabled: serverEnvironment.AITEST_WORKER_ENABLED === "1",
     profiles: Array.isArray(persistedConfig.worker_profiles) ? persistedConfig.worker_profiles : [],
     default_profile: typeof persistedConfig.default_worker_profile === "string" ? persistedConfig.default_worker_profile : undefined,
     configured_model: typeof opencodeConfig.model === "string" ? opencodeConfig.model : undefined,

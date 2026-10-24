@@ -22,3 +22,23 @@ BASEf1c77c1; branch codex/production-final-20261024. Auditlerde somut hatalar bu
 - Sonraki: diger izole commitleri birlestir, capraz review, fullbrowser suite,
   gercek sentetik coverage/model/Maven canary, kurulum ve performance olcumu.
   Yeni customer checkout apply/tag/deploy yok; G3 kullanicida kalir.
+
+## Capraz review ve ikinci dar onarim
+
+- Installer review iki P2 buldu: kayitli bozukargv yerinelocalserver smoke'u
+  PASS olabiliyordu; ambientworker1 registered0'a ragmen READY olabiliyordu.
+  Exact normalized node/entry/config/DB/enabled dogrulama ve registered argv/env
+  ile gercek smoke eklendi. Registered ortam shell'den ustun;9RED->GREEN
+  readiness/env regresyonu ve bozukkomut smoke negatif testi.
+- Gercek izole clean Node kurulum PASS; re-install RED kaniti worker1+custom
+  environment sentinel'in kayboldugunu gosterdi. Upgrade artik kayitli string
+  environment'i korur, explicit terminalflag ustundur; freshworker defaultyok.
+- Yeni ortak JSONC+BOM loader installer/verify/profile/worker config tarafinda
+  kullanilir; iki JSONC/BOM/provider/backup regresyonu RED2->GREEN.5dosya44PASS
+  ve typecheckPASS. Eski brittle source regexleri testli helper wiring'e
+  guncellendi. Eski PS1clean harness USERPROFILE/LOCALAPPDATA ve env'yi birlikte
+  izole/restore eder; runtime denemede Node yolu kullanildi, policy bypass yok.
+- Projectroot-only status da readonly proof kullanir: RED1 ->GREEN17. Ayrica
+  bagimsiz reviewer17+52PASS ve hash sirasinda yeni job yarisi PASS.
+- Bagimsiz core/reportreview4dosya72PASS/engelleyici0; lifecycle9dosya89PASS
+  /engelleyici0. Install yeni JSONC followup review ve finalfull/canary bekler.

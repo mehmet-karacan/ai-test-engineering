@@ -78,7 +78,7 @@ export function readConfigFile(path: string): { raw: string; parsed: Record<stri
   const raw = readFileSync(path, "utf8");
   const jsonc = /\/\/|\/\*/.test(stripStrings(raw));
   try {
-    const parsed = JSON.parse(stripJsonComments(raw)) as Record<string, unknown>;
+    const parsed = JSON.parse(stripJsonComments(raw).replace(/^\uFEFF/, "")) as Record<string, unknown>;
     return { raw, parsed, jsonc };
   } catch (error) {
     throw new AppError("INVALID_PARAMETERS", `Desteklenmeyen config formati (parse hatasi; bozulmadan birakilir): ${path}`, {

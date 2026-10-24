@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Temiz ortam install smoke: gecici LOCALAPPDATA ile install.ps1 akisini sifirdan dogrular.
+# Optional smoke: runtime and OpenCode user paths are both isolated.
 # Gercek kullanici config'ine dokunmaz.
 
 $ErrorActionPreference = "Stop"
@@ -7,14 +7,23 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 # Gecici temiz runtime dizini (temiz makine simulasyonu)
 $cleanRoot = Join-Path $env:TEMP ("aitest-clean-install-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$previousEnvironment = @{}
+$environmentNames = @("LOCALAPPDATA", "USERPROFILE", "AITEST_CONFIG", "AITEST_DB_PATH", "AITEST_WORKER_ENABLED", "AITEST_PROFILE", "AITEST_SMOKE_COMMAND_JSON")
+foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
 $env:LOCALAPPDATA = $cleanRoot
+$env:USERPROFILE = Join-Path $cleanRoot "user"
 # install.ps1 LOCALAPPDATA altina "ai-test-engineering" ekler:
 $cleanAppRoot = Join-Path $cleanRoot "ai-test-engineering"
+$env:AITEST_CONFIG = Join-Path $cleanAppRoot "config/config.json"
+$env:AITEST_DB_PATH = Join-Path $cleanAppRoot "state.db"
+$env:AITEST_WORKER_ENABLED = "0"
+$env:AITEST_PROFILE = "v1"
+Remove-Item Env:AITEST_SMOKE_COMMAND_JSON -ErrorAction SilentlyContinue
 Write-Host "[temiz-kurulum] LOCALAPPDATA override: $cleanRoot"
 
 try {
   # install.ps1'i gecici dizinle calistir
-  & (Join-Path $PSScriptRoot "install.ps1")
+  & node (Join-Path $PSScriptRoot "install.mjs")
   $installExit = $LASTEXITCODE
 
   # dogrulama
@@ -32,9 +41,8 @@ try {
   }
 
   # gercek server smoke: temiz config ile 4 arac
-  $server = Start-Process -FilePath "node" -ArgumentList (Join-Path $RepoRoot "dist\mcp\stdio-entry.js") -PassThru -WindowStyle Hidden
-  Start-Sleep -Seconds 2
-  Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+  & node (Join-Path $PSScriptRoot "mcp-handshake-smoke.mjs")
+  if ($LASTEXITCODE -ne 0) { $ok = $false }
 
   if ($ok -and $installExit -eq 0) {
     Write-Host "TEMIZ KURULUM KANITI: GECTI"
@@ -44,8 +52,12 @@ try {
     exit 1
   }
 } finally {
+  foreach ($name in $environmentNames) { [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], "Process") }
+  $target = [System.IO.Path]::GetFullPath($cleanRoot)
+  $tempPrefix = [System.IO.Path]::GetFullPath($env:TEMP).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+  if (-not $target.StartsWith($tempPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $target) -notlike "aitest-clean-install-*") { throw "Unsafe cleanup path" }
   # temizlik: yalniz urunun gecici dizini
   if (Test-Path $cleanRoot) {
-    Remove-Item -Recurse -Force $cleanRoot -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
   }
 }

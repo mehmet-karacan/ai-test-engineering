@@ -2,9 +2,10 @@
  * Model profili okuma: OpenCode config'inden (opencode.json) yetkili worker profili cozumleme.
  * API key degeri okunmaz; {env:...} referansi korunur; secret log/rapor yazilmaz.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { readConfigFile } from "../../configuration/config-merge.js";
 import { AppError } from "../../domain/errors.js";
 
 export interface ResolvedWorkerProfile {
@@ -64,7 +65,7 @@ export function readWorkerProfileFromOpencodeConfig(configPath?: string, request
   }
   let config: OpenCodeConfig;
   try {
-    config = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as OpenCodeConfig;
+    config = readConfigFile(path).parsed as OpenCodeConfig;
   } catch (error) {
     throw new AppError("INVALID_PARAMETERS", `OpenCode config parse hatasi: ${path}`, { cause: String(error) });
   }

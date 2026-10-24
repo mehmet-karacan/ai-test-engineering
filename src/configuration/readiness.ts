@@ -1,3 +1,4 @@
+import { isAbsolute, resolve } from "node:path";
 /**
  * P08/PP43: kurulum ve dogrulama yuzeyleri icin ayrik readiness siniflandirmasi.
  *
@@ -105,4 +106,40 @@ export function evaluateMavenReadiness(input: MavenReadinessInput): ReadinessRes
     reason_code: null,
     detail: `Maven ${input.maven_version ?? "bilinmeyen"} / Java ${input.java_version ?? "bilinmeyen"} -v probe gecti`,
   };
+}
+
+
+/** Match the installed MCP command, including explicit registered environment overrides. */
+export function evaluateRegisteredMcpEntry(input: {
+  entry: unknown; entry_js: string; config_path: string; db_path: string;
+  ambient: Record<string, string | undefined>;
+}): { valid: boolean; command: string[]; environment: Record<string, string | undefined>; worker_enabled: boolean } {
+  const entry = input.entry && typeof input.entry === "object" ? input.entry as Record<string, unknown> : {};
+  const registered = entry["environment"] && typeof entry["environment"] === "object"
+    ? entry["environment"] as Record<string, unknown> : {};
+  const values = Object.values(registered);
+  const environment = { ...input.ambient, ...Object.fromEntries(Object.entries(registered).filter((pair): pair is [string,string] => typeof pair[1] === "string")) };
+  const command = Array.isArray(entry["command"]) && entry["command"].every(value => typeof value === "string" && value.length > 0)
+    ? entry["command"] as string[] : [];
+  const normalize = (path: string): string => process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
+  const executable = command[0] ?? "";
+  const knownNode = ["node", "node.exe"].includes(executable.toLowerCase())
+    || isAbsolute(executable) && normalize(executable) === normalize(process.execPath);
+  const pathMatches = (value: unknown, expected: string): boolean => typeof value === "string" && isAbsolute(value) && normalize(value) === normalize(expected);
+  const valid = entry["type"] === "local" && (entry["enabled"] === undefined || entry["enabled"] === true)
+    && command.length === 2 && knownNode && pathMatches(command[1], input.entry_js)
+    && values.every(value => typeof value === "string")
+    && pathMatches(registered["AITEST_CONFIG"], input.config_path) && pathMatches(registered["AITEST_DB_PATH"], input.db_path);
+  return { valid, command, environment, worker_enabled: environment["AITEST_WORKER_ENABLED"] === "1" };
+}
+
+/** Preserve registered settings on upgrade; explicit installer switches win. */
+export function buildRegisteredMcpEnvironment(previous: unknown, ambient: Record<string,string|undefined>, configPath: string, dbPath: string): Record<string,string> {
+  const registered = previous && typeof previous === "object" ? previous as Record<string,unknown> : {};
+  const result: Record<string,string> = Object.fromEntries(Object.entries(registered).filter((pair): pair is [string,string] => typeof pair[1] === "string"));
+  result["AITEST_CONFIG"] = configPath; result["AITEST_DB_PATH"] = dbPath;
+  for (const key of ["AITEST_WORKER_ENABLED", "AITEST_PROFILE"]) {
+    if (ambient[key] !== undefined) result[key] = ambient[key];
+  }
+  return result;
 }

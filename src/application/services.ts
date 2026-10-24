@@ -624,7 +624,13 @@ export interface TestStatusResult {
 export async function handleTestStatus(input: unknown, services: Services): Promise<TestStatusResult> {
   const parsed = TestStatusInputSchema.parse(input);
   const { jobs, storage } = requireServices(services);
-  const prepared = parsed.job_id ? prepareReportVerification(services, parsed.job_id) : undefined;
+  let preparationJobId = parsed.job_id;
+  if (!preparationJobId && parsed.project_root) {
+    const root = canonicalProjectRoot(parsed.project_root);
+    const locations = new ProjectRepository(storage.db).listLocationsProjects(root);
+    preparationJobId = jobs.findLatestJobByLocations(locations.map(location => location.id))?.id;
+  }
+  const prepared = preparationJobId ? prepareReportVerification(services, preparationJobId) : undefined;
   return storage.db.transaction(() => {
     let job: JobRow;
     if (parsed.job_id) {

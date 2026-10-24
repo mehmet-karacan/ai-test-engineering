@@ -72,6 +72,6 @@ node scripts/install.mjs
 node scripts/verify-install.mjs
 ```
 
-Kurulum explicit flag'i OpenCode MCP girdisinin `environment` alanina kaydeder; OpenCode'u yeniden acin. Flag olmadan kurulum generation'i acmaz. Worker'i kapatmak icin `set AITEST_WORKER_ENABLED=0` ile yeniden kurun veya kayitli MCP environment degerini `0` yapin. Yeniden kurulum kayitli environment'i kurulum terminalinin explicit degerlerinden yeniden kurar; onceden acik worker'in korunmasi isteniyorsa flag'i tekrar verin.
+Kurulum explicit flag'i OpenCode MCP girdisinin `environment` alanina kaydeder; OpenCode'u yeniden acin. Ilk kurulum flag olmadan generation'i acmaz. Worker'i kapatmak icin `set AITEST_WORKER_ENABLED=0` ile yeniden kurun veya kayitli MCP environment degerini `0` yapin. Yeniden kurulum kayitli worker/profile ve diger environment degerlerini korur; yalniz runtime config/DB yolu guncellenir. Kurulum terminalinde explicit verilen worker/profile flag'i onceki kayittan ustundur.
 
 `AITEST_CONFIG` runtime MCP icin config override'idir; kurulum/dogrulayici standart kullanici config yolunu yonetir. Ozel config/DB kullanan kayitlarda environment bagini elle dogrulayin. Secret degerlerini komuta veya repodaki ornek config'e koymayin. Projeye ozel JDK secimi icin [native-project-profiles.md](native-project-profiles.md) belgesini kullanin.

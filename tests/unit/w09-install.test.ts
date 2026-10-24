@@ -137,7 +137,7 @@ describe("P08/PP43: kurulum readiness ayrimi (handshake pass urun-ready degildir
   it("test uretimi hazirlik sonucu worker flag VE worker_profiles'e bagli; handshake tek basina urun-kanit sayilmaz", () => {
     const content = install();
     // Hazirlik hem AITEST_WORKER_ENABLED=1 hem persist edilen worker_profiles gerektirir.
-    expect(content).toMatch(/AITEST_WORKER_ENABLED["']?\]\s*===\s*["']1["']/);
+    expect(content).toContain('serverEnvironment.AITEST_WORKER_ENABLED === "1"');
     expect(content).toMatch(/persistedConfig\.worker_profiles/);
     // Iki ayrik readiness sonucu: READY ve NOT_READY (handshake basari + hazirlik ayrisir).
     expect(content).toContain("READY: MCP handshake");
@@ -147,15 +147,11 @@ describe("P08/PP43: kurulum readiness ayrimi (handshake pass urun-ready degildir
     expect(notReady).toContain("worker_profiles");
   });
 
-  it("worker/profile env'i yalniz acikca verildiginde kayitli OpenCode entry'ne gider (sessiz default yok)", () => {
+  it("uses the tested environment merger for registered upgrade settings without a fresh worker default", () => {
     const content = install();
-    // Worker/profile sadece env'te tanimliysa entry'ne yazilir; boylece eksik
-    // worker/model sessizce default profil veya ready durumuna cevrilmez.
-    expect(content).toMatch(/if\s*\(\s*process\.env\["AITEST_WORKER_ENABLED"\]\s*!==\s*undefined\s*\)/);
-    expect(content).toMatch(/if\s*\(\s*process\.env\["AITEST_PROFILE"\]\s*!==\s*undefined\s*\)/);
-    // Entry her zaman asgari config/DB binding'i tasiyor (handshake smoke girisi).
-    expect(content).toContain("AITEST_CONFIG: configPath");
-    expect(content).toContain("AITEST_DB_PATH: dbPath");
+    expect(content).toContain("buildRegisteredMcpEnvironment");
+    expect(content).toContain("previousOpenCode?.mcp?.");
+    expect(content).toContain("process.env, configPath, dbPath");
   });
 
   it("handshake smoke basarisizsa kurulum BLOCKED; smoke basari urun hazirli degil", () => {
@@ -173,7 +169,7 @@ describe("P08/PP43: kurulum readiness ayrimi (handshake pass urun-ready degildir
     expect(content).toContain('console.log("[verify] Maven readiness")');
     expect(content).toContain("evaluateWorkerReadiness");
     expect(content).toContain("evaluateMavenReadiness");
-    expect(content).toContain("AITEST_WORKER_ENABLED");
+    expect(content).toContain("registeredEntry.worker_enabled");
     // Docker yoklugu bu Windows native verifier'da readiness sonucu degildir.
     expect(content).not.toContain("DOCKER_UNAVAILABLE");
   });

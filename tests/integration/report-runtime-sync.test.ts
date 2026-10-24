@@ -134,7 +134,7 @@ describe("published report runtime agrees with the authoritative job", () => {
     expect(result.report_path).toBeNull();expect(result.report_facts).toBeNull();
     expect(readFileSync(join(reportRoot,"manifest.json"))).toEqual(before);
   });
-  it("hashes steady publication evidence before acquiring the response writer lock",async()=>{
+  it.each(["result","status","root"])("hashes steady publication evidence before acquiring the response writer lock (%s)",async(tool)=>{
     finish(); await handleTestResult({job_id:jobId},services);
     const second=new Storage({dbPath:join(root,"state.db")}); second.db.pragma("busy_timeout = 1");
     second.db.exec("CREATE TABLE poll_probe (n INTEGER)");
@@ -144,8 +144,9 @@ describe("published report runtime agrees with the authoritative job", () => {
         second.db.prepare("INSERT INTO poll_probe(n) VALUES(1)").run(); observed=true;
         return original.apply(this,args);
       });
-      const result=await handleTestResult({job_id:jobId},services);
-      expect(observed).toBe(true); expect(result.report_path).not.toBeNull();
+      const result=tool === "result" ? await handleTestResult({job_id:jobId},services)
+        : await handleTestStatus(tool === "status" ? {job_id:jobId} : {project_root:root},services);
+      expect(observed).toBe(true); expect(result.report_facts).not.toBeNull();
       expect(second.db.prepare("SELECT COUNT(*) AS n FROM poll_probe").get()).toEqual({n:1});
     } finally {second.close();}
   });

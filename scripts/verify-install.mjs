@@ -2,7 +2,7 @@
  * Node.js kurulum dogrulama: prerequisite + dist + runtime + config + smoke.
  * cmd.exe uzerinden: node scripts/verify-install.mjs
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -38,6 +38,7 @@ async function main() {
   let openCodeConfigPath = null;
   let appConfig = null;
   let openCodeConfig = null;
+  let registeredEntry = null;
   if (existsSync(join(repoRoot, "dist", "configuration", "runtime-paths.js"))) {
     const paths = await import("../dist/configuration/runtime-paths.js");
     appRoot = paths.resolveRuntimeRoot();
@@ -60,15 +61,14 @@ async function main() {
   console.log("[verify] kayitli OpenCode entry");
   if (openCodeConfigPath && existsSync(openCodeConfigPath)) {
     try {
-      const entryConfig = JSON.parse(readFileSync(openCodeConfigPath, "utf8"));
+      const { readConfigFile } = await import("../dist/configuration/config-merge.js");
+      const entryConfig = readConfigFile(openCodeConfigPath).parsed;
       openCodeConfig = entryConfig;
       const entry = entryConfig?.mcp?.["ai-test-engineering"];
-      const environment = entry?.environment;
-      const entryOk = entry?.type === "local"
-        && Array.isArray(entry?.command)
-        && entry.command.includes(join(repoRoot, "dist", "mcp", "stdio-entry.js"))
-        && environment?.AITEST_CONFIG === configPath
-        && environment?.AITEST_DB_PATH === dbPath;
+      const { evaluateRegisteredMcpEntry } = await import("../dist/configuration/readiness.js");
+      registeredEntry = evaluateRegisteredMcpEntry({ entry, entry_js: join(repoRoot, "dist", "mcp", "stdio-entry.js"),
+        config_path: configPath, db_path: dbPath, ambient: process.env });
+      const entryOk = registeredEntry.valid;
       if (entryOk) console.log("  OK: gercek kayitli entry config/DB ile eslesiyor");
       else { console.log("  EKSIK: kayitli entry config/DB ile eslesmiyor"); ok = false; }
     } catch (error) {
@@ -107,9 +107,7 @@ async function main() {
   console.log("[verify] model readiness");
   if (appConfig && openCodeConfig) {
     const { evaluateWorkerReadiness } = await import("../dist/configuration/readiness.js");
-    const registeredEnvironment = openCodeConfig?.mcp?.["ai-test-engineering"]?.environment;
-    const workerEnabled = process.env["AITEST_WORKER_ENABLED"] === "1"
-      || registeredEnvironment?.AITEST_WORKER_ENABLED === "1";
+    const workerEnabled = registeredEntry?.valid === true && registeredEntry.worker_enabled;
     const model = evaluateWorkerReadiness({
       enabled: workerEnabled,
       profiles: appConfig.worker_profiles,
@@ -160,7 +158,8 @@ async function main() {
     windowsHide: true,
     encoding: "utf8",
     timeout: 60000,
-    env: { ...process.env, ...(configPath ? { AITEST_CONFIG: configPath } : {}), ...(dbPath ? { AITEST_DB_PATH: dbPath } : {}) },
+    env: { ...(registeredEntry?.environment ?? process.env), ...(configPath ? { AITEST_CONFIG: configPath } : {}), ...(dbPath ? { AITEST_DB_PATH: dbPath } : {}),
+      AITEST_SMOKE_COMMAND_JSON: JSON.stringify(registeredEntry?.valid ? registeredEntry.command : ["aitest-invalid-registration"]) },
   });
   if (smoke.status === 0) {
     console.log(`  OK: ${smoke.stdout.trim().split("\n").pop()}`);

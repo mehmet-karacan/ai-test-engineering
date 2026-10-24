@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
+import { readConfigFile } from "../../configuration/config-merge.js";
 import { AppError } from "../../domain/errors.js";
 import { OpenCodeWorkerClient } from "./worker-client.js";
 import { workerToolsConfigFlags, workerPermissionDenyRules } from "./worker-config.js";
@@ -204,7 +205,7 @@ export class WorkerServerManager {
     let model: string | null = null;
     let smallModel: string | null = null;
     try {
-      const raw = JSON.parse(readFileSync(userConfigPath, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
+      const raw = readConfigFile(userConfigPath).parsed;
       provider = (raw["provider"] as Record<string, unknown> | undefined) ?? {};
       model = (raw["model"] as string | undefined) ?? null;
       smallModel = (raw["small_model"] as string | undefined) ?? null;

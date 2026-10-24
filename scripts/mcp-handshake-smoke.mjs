@@ -23,8 +23,11 @@ async function main() {
   }
   // SDK framing validates response IDs and complete JSON-RPC messages, even when
   // child stdout splits a response between chunks. No hand-written substring parser.
+  const command = process.env["AITEST_SMOKE_COMMAND_JSON"]
+    ? JSON.parse(process.env["AITEST_SMOKE_COMMAND_JSON"]) : [process.execPath, join(repoRoot, "dist", "mcp", "stdio-entry.js")];
+  if (!Array.isArray(command) || !command.length || command.some(value => typeof value !== "string" || !value.length)) throw Error("Gecersiz kayitli MCP komutu");
   const transport = new StdioClientTransport({
-    command: process.execPath, args: [join(repoRoot, "dist", "mcp", "stdio-entry.js")],
+    command: command[0], args: command.slice(1),
     env: { ...process.env, AITEST_CONFIG: configPath, AITEST_DB_PATH: dbPath }, stderr: "pipe",
   });
   const client = new Client({ name: "install-smoke", version: "0.1.0" });
