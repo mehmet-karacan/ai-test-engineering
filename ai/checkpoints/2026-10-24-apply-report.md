@@ -59,3 +59,23 @@ nihai review henuz bu checkpoint'in kaniti degildir. OpenCode skill icin
 review senaryolari: unsupported/decline/cancel, approval_reference-only,
 APPLYING sirasinda basari iddiasi, failure/rollback/conflict ve yeni onayla retry.
 CI/yayin/push yok. Kalan is entegrasyon, bagimsiz review ve tam kabul kapilari.
+
+## Bagimsiz review sonrasi yazdirma/fixture duzeltmesi
+
+Approval agent review'i application bolumunun ekran shell'iyle birlikte
+print CSS tarafindan gizlendigini buldu. Iki ek assertion RED: print-view'de
+APPLIED/tam proje sayaclari ve ROLLED_BACK/failure nedeni eksikti. Ayni escaped
+application gercekleri unique print-application kimligiyle statik print-view
+icine eklendi. beforeprint/afterprint'in degistirdigi print-records disinda
+kalir; JavaScript kapaliyken de uygulama ozeti yazdirma alaninda bulunur.
+Tarayicida PDF kosusu bu dalda yapilmadi; ana koordinatore birakildi.
+
+Migration10 entegrasyonundaki NOT NULL/FK fixture uyumsuzlugu da giderildi:
+gercek project_id, sentetik APPROVED TEST_APPLY kaydi ve
+owner_id/fencing_token/approval_id/active kolonlari kullanilir. Izole dalda
+migration henuz yoksa fallback tablo ayni NOT NULL/FK/CHECK kolonlarini kurar;
+entegrasyonda mevcut migration tablosuna dokunmaz.
+
+Sonuc tekrar 5 dosya/61 test PASS, exit0. Typecheck ve uc degisen TS/test
+dosyasinda eslint exit0. Onceki generation/kanit ve legacy no-op kabulleri
+korundu. Bu followup yalniz report/helper/fixture/checkpoint dosyalaridir.

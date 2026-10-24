@@ -21,7 +21,7 @@ export function applicationSummary(application?: ApplyOperationView): string[] {
   ];
 }
 
-export function applicationReport(application?: ApplyOperationView): string {
+export function applicationReport(application?: ApplyOperationView, surface: "screen" | "print" = "screen"): string {
   if (!application) return "";
-  return `<section class="section" id="application"><div class="section-title"><div><h2>Test uygulamasi ve tam proje dogrulamasi</h2><p>Uygulama kaniti generation sonucu ve hedef coverage olcumlerinden ayridir.</p></div></div><div class="card">${applicationSummary(application).map(line => `<p>${escape(line)}</p>`).join("")}<p><a href="report.json">Kayitli uygulama kaniti (report.json / application)</a></p></div></section>`;
+  return `<section class="section" id="${surface === "print" ? "print-application" : "application"}"><div class="section-title"><div><h2>Test uygulamasi ve tam proje dogrulamasi</h2><p>Uygulama kaniti generation sonucu ve hedef coverage olcumlerinden ayridir.</p></div></div><div class="card">${applicationSummary(application).map(line => `<p>${escape(line)}</p>`).join("")}<p><a href="report.json">Kayitli uygulama kaniti (report.json / application)</a></p></div></section>`;
 }

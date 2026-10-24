@@ -10,18 +10,20 @@ import type { ApplyOperationView, ApplyPlan } from "../../src/domain/apply-contr
 import { report07Data } from "../fixtures/report07-data.js";
 
 describe("application facts remain separate from generation facts", () => {
-  let root: string, jobId: string, reportRoot: string;
+  let root: string, jobId: string, reportRoot: string, approvalId: string;
   let services: ReturnType<typeof createDefaultServicesForTest>;
   let exporter: ReportExporter, operation: ApplyOperationView, plan: ApplyPlan;
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "aitest-apply-report-"));
     services = createDefaultServicesForTest(join(root, "state.db"), join(root, "runtime"));
     services.config.storage.root = join(root, "runtime");
-    const { location } = new ProjectRepository(services.storage!.db).ensureLocation(root, "fixture", null);
+    const { location, project } = new ProjectRepository(services.storage!.db).ensureLocation(root, "fixture", null);
     jobId = services.jobs!.createJob({ locationId: location.id, requestDigest: "application" }).id;
     services.storage!.db.prepare("UPDATE test_jobs SET lifecycle='COMPLETED',outcome='TARGET_NOT_MET_BUDGET',verification_level='AFFECTED_SCOPE',apply_state='APPLYING' WHERE id=?").run(jobId);
-    services.storage!.db.exec("CREATE TABLE IF NOT EXISTS apply_operations (operation_id TEXT PRIMARY KEY,job_id TEXT,created_at INTEGER,updated_at INTEGER,plan_json TEXT,view_json TEXT,owner_id TEXT,fencing_token INTEGER,approval_id TEXT)");
-    plan = { schema_version: 1, job_id: jobId, project_id: "project", checkpoint_id: "checkpoint", project_root: root, source_digest: "a".repeat(64), build_digest: "b".repeat(64), patch_digest: "c".repeat(64), files: [{ path: "src/test/java/NewTest.java", sha256: "d".repeat(64), bytes: 10 }], verification_scope: "FULL_PROJECT_SNAPSHOT" };
+    // The fallback keeps this isolated branch runnable before migration10 is integrated.
+    services.storage!.db.exec("CREATE TABLE IF NOT EXISTS apply_operations (operation_id TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES test_jobs(id),created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,plan_json TEXT NOT NULL,view_json TEXT NOT NULL,owner_id TEXT NOT NULL,fencing_token INTEGER NOT NULL,approval_id TEXT NOT NULL UNIQUE REFERENCES job_approvals(approval_id),active INTEGER NOT NULL CHECK(active IN (0,1)),cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK(cancel_requested IN (0,1)))");
+    plan = { schema_version: 1, job_id: jobId, project_id: project.id, checkpoint_id: "checkpoint", project_root: root, source_digest: "a".repeat(64), build_digest: "b".repeat(64), patch_digest: "c".repeat(64), files: [{ path: "src/test/java/NewTest.java", sha256: "d".repeat(64), bytes: 10 }], verification_scope: "FULL_PROJECT_SNAPSHOT" };
+    approvalId = services.jobs!.recordApproval({ job_id: jobId, project_id: project.id, approval_kind: "TEST_APPLY", scope_digest: plan.patch_digest, model_digest: "e".repeat(64), budget_digest: "f".repeat(64), decision: "APPROVED", decided_by: "synthetic fixture" }).approval_id;
     operation = { operation_id: "operation", job_id: jobId, state: "APPLYING", phase: "publishing", checkpoint_id: "checkpoint", patch_digest: plan.patch_digest, applied_paths: [], created_at: 10, updated_at: 10, verification: null, message: "Publishing accepted tests" };
     reportRoot = join(services.config.storage.root, "jobs", jobId, "reports");
     exporter = new ReportExporter(reportRoot);
@@ -30,8 +32,8 @@ describe("application facts remain separate from generation facts", () => {
   afterEach(() => { services.storage!.close(); rmSync(root, { recursive: true, force: true }); });
   const read = () => JSON.parse(readFileSync(join(reportRoot, "report.json"), "utf8")) as ReportData;
   function persist() {
-    services.storage!.db.prepare("INSERT OR REPLACE INTO apply_operations(operation_id,job_id,created_at,updated_at,plan_json,view_json) VALUES(?,?,?,?,?,?)")
-      .run(operation.operation_id, jobId, operation.created_at, operation.updated_at, JSON.stringify(plan), JSON.stringify(operation));
+    services.storage!.db.prepare("INSERT OR REPLACE INTO apply_operations(operation_id,job_id,created_at,updated_at,plan_json,view_json,owner_id,fencing_token,approval_id,active) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .run(operation.operation_id, jobId, operation.created_at, operation.updated_at, JSON.stringify(plan), JSON.stringify(operation), "fixture-owner", 1, approvalId, operation.state === "APPLYING" ? 1 : 0);
   }
   it("refreshes operation progress even while the job apply state remains APPLYING", () => {
     persist();
@@ -55,6 +57,11 @@ describe("application facts remain separate from generation facts", () => {
     expect(html).toContain('id="application"'); expect(html).toContain("FULL_PROJECT_SNAPSHOT");
     expect(html).toContain("12 test / 10 gecti / 0 basarisiz / 0 hata / 2 atlandi");
     expect(html).toContain("hash-dogrulanmis owned kopyasi");
+    const print = html.split('<section id="print-view"')[1]?.split('<p id="print-scope"')[0] ?? "";
+    expect(print).toContain('id="print-application"');
+    expect(print).toContain("12 test / 10 gecti / 0 basarisiz / 0 hata / 2 atlandi");
+    expect(print).toContain("Mevcut testler korundu: true / Tum testler mevcut: true");
+    expect(print).toContain("FULL_PROJECT_SNAPSHOT");
     expect(readFileSync(join(reportRoot, "summary.txt"), "utf8")).toContain("Application: APPLIED");
     expect(exporter.verifyExport()).toEqual({ missing: [], hash_mismatch: [] });
   });
@@ -66,6 +73,10 @@ describe("application facts remain separate from generation facts", () => {
     expect(html).toContain("ROLLED_BACK"); expect(html).toContain("FULL_SUITE_FAILED");
     expect(html).toContain("&lt;script&gt;rollback conflict&lt;/script&gt;");
     expect(html).not.toContain("<script>rollback conflict</script>");
+    const print = html.split('<section id="print-view"')[1]?.split('<p id="print-scope"')[0] ?? "";
+    expect(print).toContain("ROLLED_BACK"); expect(print).toContain("FULL_SUITE_FAILED");
+    expect(print).toContain("4 test / 1 gecti / 1 basarisiz / 1 hata / 1 atlandi");
+    expect(print).toContain("&lt;script&gt;rollback conflict&lt;/script&gt;");
     expect(readFileSync(join(reportRoot, "evidence/original.txt"), "utf8")).toBe("unchanged");
   });
   it("leaves legacy publications unchanged after their runtime is synchronized", () => {
