@@ -1,0 +1,46 @@
+{
+  "task": "AITE-MCP-GPU-009",
+  "date": "2026-10-24",
+  "kind": "FUNCTIONAL_USER_FLOW_ROBUSTNESS",
+  "base_commit": "9668d64d4ca082d285ea03a7a742b643f9d37af7",
+  "new_user_flow_cases": 52,
+  "full_windows_suite": {
+    "files_passed": 134,
+    "files_skipped": 1,
+    "tests_passed": 1130,
+    "tests_skipped": 1,
+    "exit_code": 0,
+    "log_sha256": "506c43127f70014512aeaaa7e7bcd878dd622ac8774c1a4fb49eabd7bad7c498",
+    "command": "AITEST_AC67_MODEL_OUTPUT=<existing-private-artifact> npm.cmd test -- --maxWorkers=2"
+  },
+  "typecheck": "PASS",
+  "build": "PASS",
+  "local_release_gate": "LOCAL_PASS",
+  "lint": {
+    "errors": 0,
+    "existing_warnings": 89
+  },
+  "independent_review": "NO_REMAINING_BLOCKERS",
+  "review_fix": "explicit project_id filters shared-root locations; RED then GREEN",
+  "initial_full_suite": {
+    "tests_passed": 1128,
+    "tests_failed": 1,
+    "tests_skipped": 1,
+    "failure": "p07b-browser-e2e Edge CLI returned exit0 without PDF",
+    "log_sha256": "e69afe8d675b46a631716fe62ecc776cc3d8b3409f4d9986a08af7a9fdf0990c"
+  },
+  "browser": {
+    "chrome": "4/4 PASS: actual CDP DOM/print/PDF/offline/evidence links",
+    "edge_pdf": "UNAVAILABLE: Printing is not available; not claimed passing",
+    "new_install_or_policy_change": false
+  },
+  "real_model_calls": 0,
+  "new_customer_runs": 0,
+  "new_cases_runtime_db": "temporary SQLite only",
+  "scope": "real registry/application/SQLite and MCP SDK; synthetic Windows/native fixtures in full suite",
+  "known_limits": [
+    "Natural-language model interpretation was not exhaustively measured",
+    "Existing report publication-time lifecycle snapshot is a separate known backlog item",
+    "Full391 production acceptance and deployment were not revalidated"
+  ]
+}

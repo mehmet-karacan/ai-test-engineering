@@ -28,10 +28,12 @@ import { ReportExporter, type ReportData } from "../../src/reporting/report-gene
 
 const BROWSER_CANDIDATES = process.platform === "win32"
   ? [
-      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      // Prefer Chrome's CDP PDF renderer; some Edge builds expose CDP DOM
+      // commands but return "Printing is not available" for Page.printToPDF.
       "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
     ]
   : ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 
@@ -293,22 +295,29 @@ describe("P07-B/PP37: gercek browser DOM/print/offline/link runtime", () => {
     expect(html).not.toMatch(/<a[^>]+href="http/i);
   });
 
-  it("gercek browser print: CLI print-to-pdf gercek PDF uretir (print layout)", async () => {
+  it("gercek browser print: CDP gercek print layout ve PDF uretir", async () => {
     if (!browser || !dir) {
       return;
     }
-    const url = "file://" + join(reportDir, "index.html").replace(/\\/g, "/");
     const pdfPath = join(dir, "pp37-print.pdf");
-    const print = spawnSync(browser, ["--headless", "--disable-gpu", "--no-sandbox", "--disable-background-networking", "--user-data-dir=" + join(dir, "browser-print-profile"), "--print-to-pdf=" + pdfPath, "--virtual-time-budget=5000", url], {
-      encoding: "utf8",
-      timeout: 90000,
-      windowsHide: true,
-    });
-    expect(print.status, `browser print-to-pdf exit 0 olmalidir: ${print.stderr?.slice(0, 300)}`).toBe(0);
-    expect(existsSync(pdfPath), "gercek browser PDF dosyasi uretmelidir").toBe(true);
-    const pdfBytes = readFileSync(pdfPath);
+    // Use the connected browser, rather than a second launcher whose exit 0
+    // does not prove that Windows/Edge actually completed a print operation.
+    await handle!.cdp.send("Emulation.setEmulatedMedia", { media: "print" });
+    let pdfBytes: Buffer;
+    try {
+      const layout = await handle!.cdp.send("Runtime.evaluate", {
+        expression: '({print:getComputedStyle(document.getElementById("print-view")).display,screen:getComputedStyle(document.querySelector(".report07-screen")).display})', returnByValue: true,
+      }) as { result: { value: {print:string;screen:string} } };
+      expect(layout.result.value).toEqual({print:"block",screen:"none"});
+      const print = await handle!.cdp.send("Page.printToPDF", { printBackground: true, preferCSSPageSize: true }) as { data: string };
+      expect(typeof print.data).toBe("string");
+      pdfBytes = Buffer.from(print.data, "base64");
+    } finally {
+      await handle!.cdp.send("Emulation.setEmulatedMedia", { media: "" });
+    }
     expect(pdfBytes.subarray(0, 4).toString("latin1")).toBe("%PDF");
     expect(pdfBytes.length).toBeGreaterThan(2000);
+    writeFileSync(pdfPath, pdfBytes);
   });
 
   it("gercek browser link: evidence linkleri rapor dizinindeki gercek dosyalara cozulur (hash/bytes)", async () => {

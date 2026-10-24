@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { TestResumeInputSchema, TestCancelInputSchema, TestResultInputSchema, TestApplyInputSchema } from "../domain/tool-schemas.js";
 import { AppError } from "../domain/errors.js";
 import type { Services } from "./services.js";
-import { canonicalProjectRoot } from "./services.js";
+import { canonicalProjectRoot, assertJobProjectContext } from "./services.js";
 import type { JobRow } from "../storage/job-repository.js";
 import { ProjectRepository } from "../storage/project-repository.js";
 import { LeaseManager } from "../orchestration/lease-manager.js";
@@ -71,6 +71,7 @@ export async function handleTestResume(input: unknown, services: Services): Prom
     throw new AppError("INVALID_PARAMETERS", "job_id veya project_root gereklidir");
   }
 
+  assertJobProjectContext(job, parsed.project_root, storage);
   if (job.lifecycle === "COMPLETED") {
     return { job_id: job.id, lifecycle: job.lifecycle, phase: job.phase, resumed: false, message: "Is zaten tamamlandi; yeniden devam etmez" };
   }

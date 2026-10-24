@@ -66,6 +66,17 @@ export function canonicalProjectRoot(projectRoot: string): string {
   return resolved;
 }
 
+export function assertJobProjectContext(job: JobRow, projectRoot: string | undefined, storage: Storage): void {
+  if (projectRoot === undefined) return;
+  const root = canonicalProjectRoot(projectRoot);
+  const locations = new ProjectRepository(storage.db).listLocationsProjects(root);
+  if (!locations.some(location => location.id === job.location_id)) {
+    throw new AppError("INVALID_PARAMETERS", "job_id ile project_root ayni projeye ait olmali", {
+      reason_code: "JOB_PROJECT_MISMATCH",
+    });
+  }
+}
+
 export function assertAllowedRoot(config: AppConfig, canonicalRoot: string): void {
   if (config.allowed_project_roots.length === 0) {
     return;
@@ -437,7 +448,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
       view?.symbol_id ?? null,
       t.selector,
       t.kind,
-      percentToBasisPoints(parsed.coverage.percent),
+      parsed.coverage.metrics.includes("LINE") ? percentToBasisPoints(parsed.coverage.percent) : 0,
       parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.branch_percent ?? parsed.coverage.percent) : null,
       singleFqn,
       view?.module_path ?? null,
@@ -487,7 +498,7 @@ export async function handleTestStart(input: unknown, services: Services): Promi
   });
   // P05/PR06: goal hedefleri frozen concrete listeden gelir; dispatcher bu listeyi
   // yeniden cozmek icin selector aramasi yapmaz (tek resolver).
-  const lineBps = percentToBasisPoints(parsed.coverage.percent);
+  const lineBps = parsed.coverage.metrics.includes("LINE") ? percentToBasisPoints(parsed.coverage.percent) : 0;
   const branchBps = parsed.coverage.metrics.includes("BRANCH") ? percentToBasisPoints(parsed.coverage.branch_percent ?? parsed.coverage.percent) : 0;
   const concreteForSelector = (t: { selector: string; kind: string }): ConcreteTarget[] => {
     if (!bySelectorGroups || !snapshotId) {
@@ -623,6 +634,7 @@ export async function handleTestStatus(input: unknown, services: Services): Prom
     throw new AppError("INVALID_PARAMETERS", "job_id veya project_root gereklidir");
   }
 
+  assertJobProjectContext(job, parsed.project_root, requireServices(services).storage);
   const events = jobs.listEvents(job.id, parsed.event_cursor, 50);
   // K07/B06: last_trusted_coverage yalniz dispatcher final replay DB kanitindan okunur;
   // kullanici checkout'undaki eski XML trusted veri degildir.
@@ -680,9 +692,17 @@ export async function handleProjectQuery(input: unknown, services: Services): Pr
 
   if (parsed.project_root) {
     const canonicalRoot = canonicalProjectRoot(parsed.project_root);
-    locationIds = projects.listLocationsProjects(canonicalRoot).map((l) => l.id);
+    const locations = projects.listLocationsProjects(canonicalRoot);
+    if (parsed.project_id && !locations.some(location => location.project_id === parsed.project_id)) {
+      throw new AppError("INVALID_PARAMETERS", "project_id ile project_root ayni projeye ait olmali", {
+        reason_code: "PROJECT_CONTEXT_MISMATCH",
+      });
+    }
+    locationIds = locations.filter(location => !parsed.project_id || location.project_id === parsed.project_id).map((l) => l.id);
   } else if (parsed.project_id) {
     locationIds = projects.listLocations(parsed.project_id).map((l) => l.id);
+  } else if (parsed.view === "projects") {
+    locationIds = storage.db.prepare<[], { id: string }>("SELECT id FROM project_locations ORDER BY id").all().map(location => location.id);
   }
 
   const queryService = new InventoryQueryService();

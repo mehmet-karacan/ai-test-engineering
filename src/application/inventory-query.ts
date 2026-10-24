@@ -21,7 +21,7 @@ export class InventoryQueryService {
     locationIds: string[],
   ): QueryResult {
     const limit = input.limit;
-    const offset = input.cursor ? Number.parseInt(input.cursor, 10) || 0 : 0;
+    const offset = input.cursor === undefined ? 0 : Number(input.cursor);
     let rows: QueryRow[] = [];
 
     if (locationIds.length === 0) {
@@ -35,7 +35,7 @@ export class InventoryQueryService {
         rows = db
           .prepare<unknown[], QueryRow>(
             `SELECT DISTINCT p.id, p.name, p.identity_kind, p.normalized_remote FROM projects p
-             JOIN project_locations pl ON pl.project_id = p.id WHERE pl.id IN (${placeholders}) LIMIT ? OFFSET ?`,
+             JOIN project_locations pl ON pl.project_id = p.id WHERE pl.id IN (${placeholders}) ORDER BY p.name, p.id LIMIT ? OFFSET ?`,
           )
           .all(...bindAll(limit + 1, offset));
         break;
@@ -94,7 +94,14 @@ export class InventoryQueryService {
         break;
       }
       case "coverage_history": {
-        return { view: input.view, rows: [], next_cursor: null };
+        rows = db.prepare<unknown[], QueryRow>(
+          `SELECT cs.fqn, cs.line_covered, cs.line_missed, cs.branch_covered, cs.branch_missed,
+                  cs.line_validity, cs.branch_validity, cs.before_after, cs.job_id, cs.created_at
+           FROM coverage_snapshots cs JOIN test_jobs tj ON cs.job_id = tj.id
+           WHERE tj.location_id IN (${placeholders})
+           ORDER BY cs.created_at DESC, cs.rowid DESC LIMIT ? OFFSET ?`,
+        ).all(...bindAll(limit + 1, offset));
+        break;
       }
     }
 
